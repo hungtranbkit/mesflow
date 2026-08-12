@@ -1,0 +1,1 @@
+Phiên làm việc là khoảng thời gian một nhân viên làm việc trên một công đoạn. Màn hình quản lý Phiên làm việc cho phép xem người thực hiện, thời gian bắt đầu và kết thúc, lệnh sản xuất, Part, công đoạn và sản lượng. Sản lượng được tách thành đạt, lỗi, lỗi sửa được và phần không sửa được để phục vụ truy vết chất lượng.

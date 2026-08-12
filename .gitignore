@@ -1,0 +1,15 @@
+.env
+.agents/
+.codex/
+.impeccable/
+node_modules/
+runtime/
+test-results/
+dist/
+*.zip
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+New Text Document.txt

@@ -1,0 +1,1 @@
+Màn hình tiến trình và dòng vật tư giúp theo dõi sản phẩm đang đi qua các công đoạn như thế nào. Hãy lọc đúng lệnh sản xuất, sau đó đọc từ công đoạn đầu đến công đoạn cuối. So sánh tiến độ thời gian với tiến độ sản phẩm để phát hiện công đoạn có nguy cơ trở thành nút thắt.

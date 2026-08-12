@@ -1,0 +1,1 @@
+Chào mừng bạn đến với MESFlow. Đây là hệ thống theo dõi sản xuất theo lệnh sản xuất, chi tiết, công đoạn và phiên làm việc. Quy trình cơ bản bắt đầu từ mẫu quy trình, tạo Lệnh sản xuất, cho công nhân thao tác tại trạm thao tác, sau đó quản lý theo dõi tiến độ, sản lượng, lỗi và các ngoại lệ trên Tổng quan sản xuất.

@@ -1,0 +1,1 @@
+Quản lý trạm thao tác dành cho quản lý và IT. Tại đây có thể xem thiết bị trực tuyến hay mất mạng, tín hiệu kết nối, firmware, địa chỉ IP, dữ liệu đang chờ đồng bộ và lỗi gần nhất. Khi chọn một trạm thao tác, timeline giúp truy vết các lần quét, bắt đầu hoặc kết thúc phiên làm việc và quá trình đồng bộ mất mạng.

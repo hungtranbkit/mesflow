@@ -1,0 +1,1 @@
+Màn hình nhân viên quản lý mã nhân viên và thông tin dùng trong MESFlow. QR nhân viên được sử dụng tại trạm thao tác để xác định người thao tác. Trung tâm QR hỗ trợ lọc và in mã; cần kiểm tra đúng đối tượng trước khi in để tránh nhầm mã ngoài xưởng.

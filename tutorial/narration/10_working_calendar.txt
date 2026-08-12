@@ -1,0 +1,1 @@
+Lịch làm việc định nghĩa ca sản xuất và các khoảng nghỉ. Dữ liệu này ảnh hưởng trực tiếp tới cách MESFlow tính thời gian thực tế và tiến độ. Ví dụ, nếu nghỉ trưa từ mười một giờ ba mươi đến mười ba giờ, khoảng nghỉ này không nên được tính như thời gian sản xuất.

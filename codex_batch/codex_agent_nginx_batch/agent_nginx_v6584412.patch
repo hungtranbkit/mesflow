@@ -1,0 +1,155 @@
+diff --git a/VERSION.txt b/VERSION.txt
+index 7dab354..874ebb9 100644
+--- a/VERSION.txt
++++ b/VERSION.txt
+@@ -1 +1 @@
+-65.8.44.11
++65.8.44.12
+diff --git a/app/mesflow/__init__.py b/app/mesflow/__init__.py
+index 8bc4b2c..5d87c8d 100644
+--- a/app/mesflow/__init__.py
++++ b/app/mesflow/__init__.py
+@@ -1 +1 @@
+-__version__ = '65.8.44.11'
++__version__ = '65.8.44.12'
+diff --git a/compose.yml b/compose.yml
+index 1fea641..8bac0cd 100644
+--- a/compose.yml
++++ b/compose.yml
+@@ -24,7 +24,7 @@ services:
+   mesflow:
+     build:
+       context: .
+-    image: mesflow-app:65.8.44.11
++    image: mesflow-app:65.8.44.12
+     container_name: mesflow-app
+     restart: unless-stopped
+     env_file:
+@@ -74,6 +74,9 @@ services:
+     depends_on:
+       mesflow:
+         condition: service_healthy
++    # Allow Nginx in Docker to reach the Server Agent running on Linux host :8090.
++    extra_hosts:
++      - "host.docker.internal:host-gateway"
+     ports:
+       - "80:80"
+       - "443:443"
+diff --git a/nginx/nginx.conf b/nginx/nginx.conf
+index 2f3fca8..f3914a0 100644
+--- a/nginx/nginx.conf
++++ b/nginx/nginx.conf
+@@ -23,6 +23,13 @@ http {
+     keepalive 32;
+   }
+ 
++  # MESFlow Server Agent runs directly on the Linux host. Docker Compose maps
++  # host.docker.internal to the host gateway so this container can reach :8090.
++  upstream mesflow_agent_backend {
++    server host.docker.internal:8090;
++    keepalive 16;
++  }
++
+   server {
+     listen 80;
+     listen [::]:80;
+@@ -148,4 +155,58 @@ http {
+       proxy_buffering off;
+     }
+   }
++
++  # Server Agent public endpoint: https://agent.mesflow.net -> Linux host :8090
++  server {
++    listen 80;
++    listen [::]:80;
++    server_name agent.mesflow.net;
++
++    location = /nginx-health {
++      default_type text/plain;
++      return 200 "agent nginx ok\n";
++    }
++
++    location / {
++      return 301 https://agent.mesflow.net$request_uri;
++    }
++  }
++
++  server {
++    listen 443 ssl;
++    listen [::]:443 ssl;
++    http2 on;
++    server_name agent.mesflow.net;
++
++    # The existing origin certificate should include agent.mesflow.net or *.mesflow.net.
++    ssl_certificate /etc/nginx/certs/mesflow.net.pem;
++    ssl_certificate_key /etc/nginx/certs/mesflow.net.key;
++    ssl_protocols TLSv1.2 TLSv1.3;
++    ssl_session_cache shared:SSL:20m;
++    ssl_session_timeout 1d;
++
++    location = /nginx-health {
++      default_type text/plain;
++      return 200 "agent nginx ok\n";
++    }
++
++    location / {
++      proxy_pass http://mesflow_agent_backend;
++      proxy_http_version 1.1;
++      proxy_set_header Host $host;
++      proxy_set_header X-Forwarded-Host $host;
++      proxy_set_header X-Forwarded-Proto https;
++      proxy_set_header X-Forwarded-Port 443;
++      proxy_set_header X-Real-IP $remote_addr;
++      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
++      proxy_set_header Upgrade $http_upgrade;
++      proxy_set_header Connection $connection_upgrade;
++      proxy_redirect off;
++      proxy_buffering off;
++      # Interactive SSH/WebSocket sessions may remain open for a long time.
++      proxy_read_timeout 3600s;
++      proxy_send_timeout 3600s;
++    }
++  }
++
+ }
+diff --git a/release.json b/release.json
+index 267672e..9c589a9 100644
+--- a/release.json
++++ b/release.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "MESFlow",
+-  "version": "65.8.44.11",
++  "version": "65.8.44.12",
+   "phase": "web-agent-production",
+   "database": "postgresql-only",
+   "deployment_target": "/opt/mesflow"
+diff --git a/tests/test_agent_nginx_contract_v6584412.py b/tests/test_agent_nginx_contract_v6584412.py
+new file mode 100644
+index 0000000..68163a2
+--- /dev/null
++++ b/tests/test_agent_nginx_contract_v6584412.py
+@@ -0,0 +1,23 @@
++from pathlib import Path
++
++CONF = Path("nginx/nginx.conf").read_text()
++COMPOSE = Path("compose.yml").read_text()
++VERSION = Path("VERSION.txt").read_text().strip()
++
++def test_agent_subdomain_proxy_contract():
++    assert "server_name agent.mesflow.net;" in CONF
++    assert "upstream mesflow_agent_backend" in CONF
++    assert "server host.docker.internal:8090;" in CONF
++    assert "proxy_pass http://mesflow_agent_backend;" in CONF
++    assert "proxy_set_header Upgrade $http_upgrade;" in CONF
++    assert "proxy_read_timeout 3600s;" in CONF
++
++def test_linux_host_gateway_is_available_to_nginx():
++    assert '"host.docker.internal:host-gateway"' in COMPOSE
++
++def test_agent_http_redirects_to_https():
++    assert "return 301 https://agent.mesflow.net$request_uri;" in CONF
++
++def test_release_version_is_synced():
++    assert VERSION == "65.8.44.12"
++    assert "mesflow-app:65.8.44.12" in COMPOSE

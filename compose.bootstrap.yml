@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mesflow-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mesflow}
+      POSTGRES_USER: ${POSTGRES_USER:-mesflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${MESFLOW_TIMEZONE:-Asia/Ho_Chi_Minh}
+      PGTZ: UTC
+    volumes:
+      - ./runtime/postgres-v65:/var/lib/postgresql/data
+      - ./runtime/backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mesflow} -d ${POSTGRES_DB:-mesflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    stop_grace_period: 60s
+    networks:
+      - default
+
+networks:
+  default:
+    name: mesflow_network

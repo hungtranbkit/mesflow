@@ -1,0 +1,1 @@
+Màn hình người dùng và phân quyền kiểm soát ai được xem hoặc thao tác từng chức năng. Admin có quyền quản trị cao nhất, trong khi Manager, Supervisor, Operator và Viewer được giới hạn theo nhiệm vụ. Việc bảo vệ quyền phải áp dụng cả giao diện và giao diện kết nối hệ thống, không chỉ đơn giản là ẩn tab.

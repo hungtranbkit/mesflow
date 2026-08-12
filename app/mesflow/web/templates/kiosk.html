@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>MESFlow Kiosk</title>
+  <link rel="stylesheet" href="/static/kiosk.css?v={{ version }}">
+</head>
+<body>
+  <!-- THESIS: a high-clarity shop-floor station, not a consumer kiosk. OWN-WORLD: command navy frame, neutral field, large task typography, semantic confirmation states. STORY: scan identity, scan operation, record output, recover clearly. FIRST VIEWPORT: persistent station header, one dominant instruction, scanner status anchored below. FORM: single-task industrial terminal; seed mesflow-industrial-console. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md. -->
+  <main class="kiosk-shell">
+    <header class="kiosk-header">
+      <div><strong>MESFlow · Trạm thao tác</strong><small id="version">v{{ version }}</small></div>
+      <div class="header-actions"><button id="demo-toggle" class="demo-toggle" type="button">Mô phỏng quét QR</button><div id="clock"></div></div>
+    </header>
+
+    <section id="screen-ready" class="screen active">
+      <div class="icon scan-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 12h10"/></svg></div>
+      <h1>QUÉT THẺ NHÂN VIÊN</h1>
+      <p>Đưa mã QR vào máy quét</p>
+    </section>
+
+    <section id="screen-operation" class="screen">
+      <div class="badge">NHÂN VIÊN</div>
+      <h2 id="employee-name"></h2>
+      <p id="employee-code"></p>
+      <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div>
+      <h1>QUÉT CÔNG ĐOẠN</h1>
+      <button class="secondary" data-action="cancel">Hủy</button>
+    </section>
+
+    <section id="screen-starting" class="screen">
+      <div class="spinner"></div>
+      <h1>ĐANG BẮT ĐẦU</h1>
+      <p id="starting-operation"></p>
+    </section>
+
+    <section id="screen-started" class="screen success">
+      <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div>
+      <h1>ĐÃ BẮT ĐẦU</h1>
+      <h2 id="started-operation"></h2>
+      <p>Quét lại thẻ khi hoàn thành</p>
+    </section>
+
+    <section id="screen-quantity-good" class="screen quantity-screen">
+      <div class="badge">KẾT THÚC CÔNG VIỆC</div>
+      <h2 id="finish-employee"></h2>
+      <p id="finish-operation"></p>
+      <div class="single-qty">
+        <label>SẢN PHẨM ĐẠT<input id="good-qty" data-testid="kiosk-good-quantity" type="number" min="0" step="1" inputmode="numeric" value="0"></label>
+      </div>
+      <p id="good-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
+      <input id="finish-note" type="hidden" value="">
+      <div class="actions"><button class="secondary" data-action="cancel">HỦY</button><button id="good-next" data-testid="kiosk-quantity-next">TIẾP TỤC</button></div>
+    </section>
+
+    <section id="screen-quantity-defect" class="screen quantity-screen">
+      <div class="badge">KẾT THÚC CÔNG VIỆC</div>
+      <h1>SẢN PHẨM LỖI</h1>
+      <p>Tổng số sản phẩm lỗi</p>
+      <div class="single-qty">
+        <label>SẢN PHẨM LỖI<input id="defect-qty" data-testid="kiosk-defect-quantity" type="number" min="0" step="1" inputmode="numeric" value="0"></label>
+      </div>
+      <p id="defect-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
+      <div class="actions"><button id="defect-back" class="secondary">QUAY LẠI</button><button id="defect-next" data-testid="kiosk-quantity-next">TIẾP TỤC</button></div>
+    </section>
+
+    <section id="screen-ask-rework" class="screen confirm-screen">
+      <div class="badge">SẢN PHẨM LỖI</div>
+      <h1>CÓ LỖI SỬA ĐƯỢC KHÔNG?</h1>
+      <div class="choice-grid two-choice">
+        <button id="rework-none" data-testid="kiosk-rework-choice-none" class="choice-button"><strong>1</strong><span>KHÔNG, XONG</span></button>
+        <button id="rework-yes" data-testid="kiosk-rework-choice-yes" class="choice-button secondary"><strong>2</strong><span>CÓ LỖI SỬA ĐƯỢC</span></button>
+      </div>
+      <button id="ask-rework-back" class="text-back">QUAY LẠI</button>
+    </section>
+
+    <section id="screen-quantity-rework" class="screen quantity-screen">
+      <div class="badge">SẢN PHẨM LỖI</div>
+      <h1>LỖI SỬA ĐƯỢC</h1>
+      <p id="rework-max"></p>
+      <div class="single-qty">
+        <label>LỖI SỬA ĐƯỢC<input id="rework-qty" data-testid="kiosk-rework-quantity" type="number" min="1" step="1" inputmode="numeric" value="1"></label>
+      </div>
+      <p id="rework-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
+      <div class="actions"><button id="rework-back" class="secondary">QUAY LẠI</button><button id="rework-next" data-testid="kiosk-quantity-next">TIẾP TỤC</button></div>
+    </section>
+
+    <section id="screen-finish-confirm" class="screen confirm-screen">
+      <div class="badge">KẾT THÚC CÔNG VIỆC</div>
+      <h1>XÁC NHẬN</h1>
+      <div id="finish-confirm-summary" class="quantity-summary"></div>
+      <p id="finish-submit-error" class="quantity-validation" role="alert" aria-live="polite"></p>
+      <div class="choice-grid two-choice">
+        <button id="finish-confirm-ok" data-testid="kiosk-quantity-confirm" class="choice-button"><strong>#</strong><span>XÁC NHẬN</span></button>
+        <button id="finish-confirm-edit" data-testid="kiosk-quantity-back" class="choice-button secondary"><strong>*</strong><span>QUAY LẠI</span></button>
+        <button id="finish-submit-retry" data-testid="kiosk-submit-retry" class="choice-button" hidden><strong>#</strong><span>THỬ LẠI</span></button>
+      </div>
+    </section>
+
+    <section id="screen-finished" class="screen success">
+      <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div>
+      <h1>ĐÃ GHI NHẬN</h1>
+      <p id="finished-summary"></p>
+    </section>
+
+    <section id="screen-error" class="screen error">
+      <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01M4 20h16L12 4 4 20Z"/></svg></div>
+      <h1>CÓ LỖI</h1>
+      <div id="error-code" class="error-code" hidden></div>
+      <p id="error-message"></p>
+      <p id="error-action" class="error-action"></p>
+      <button data-action="reset">Quét lại</button>
+    </section>
+
+
+
+    <aside id="demo-panel" class="demo-panel" aria-hidden="true">
+      <div class="demo-panel-head">
+        <div><strong>Mô phỏng quét QR</strong><small>Chọn nhân viên và công đoạn của lệnh đang chạy</small></div>
+        <button id="demo-close" class="demo-close" type="button" aria-label="Đóng"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div id="demo-loading" class="demo-loading">Đang tải dữ liệu...</div>
+      <div id="demo-content" hidden>
+        <label>Nhân viên
+          <select id="demo-employee"></select>
+        </label>
+        <div class="demo-buttons">
+          <button id="demo-scan-employee" type="button">Quét thẻ</button>
+          <button id="demo-copy-employee" class="secondary" type="button">Sao chép mã QR</button>
+        </div>
+        <div id="demo-employee-qr" class="demo-qr"></div>
+
+        <label>Công đoạn
+          <select id="demo-operation"></select>
+        </label>
+        <div class="demo-buttons">
+          <button id="demo-scan-operation" type="button">Quét công đoạn</button>
+          <button id="demo-copy-operation" class="secondary" type="button">Sao chép mã QR</button>
+        </div>
+        <div id="demo-operation-qr" class="demo-qr"></div>
+        <button id="demo-refresh" class="secondary demo-refresh" type="button">Tải lại danh sách</button>
+      </div>
+    </aside>
+
+    <input id="scanner-input" class="scanner-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Scanner input">
+    <footer><span id="scan-status">Máy quét sẵn sàng</span><span><span id="timezone-label">GMT+7 · HCM</span> · <span id="device-label"></span></span></footer>
+  </main>
+  <script src="/static/kiosk.js?v={{ version }}"></script>
+</body>
+</html>

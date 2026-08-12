@@ -1,0 +1,10 @@
+.git
+__pycache__
+*.pyc
+.env
+runtime
+certs
+reports
+test-results
+.pytest_cache
+**/__pycache__

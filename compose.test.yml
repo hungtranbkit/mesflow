@@ -1,0 +1,83 @@
+name: mesflow-test
+services:
+  postgres-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mesflow_test
+      POSTGRES_USER: mesflow_test
+      POSTGRES_PASSWORD: mesflow_test_password
+      TZ: Asia/Ho_Chi_Minh
+      PGTZ: UTC
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesflow_test -d mesflow_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mesflow-test-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      MESFLOW_ENV: test
+      DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
+      WORKSHOP_DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
+      MESFLOW_SECRET_KEY: mesflow-test-secret-key
+      WORKSHOP_COOKIE_SECURE: "0"
+      MESFLOW_TEST_AUTO_LOGIN: "1"
+      MESFLOW_TEST_AUTO_LOGIN_USERNAME: admin
+      MESFLOW_ADMIN_USERNAME: admin
+      MESFLOW_ADMIN_PASSWORD: Admin@123456
+      MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
+      MESFLOW_ENABLE_FORCE_DELETE_PO: "1"
+      MESFLOW_DEPLOYMENT_ID: docker-e2e
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/system/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 20s
+
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      MESFLOW_ENV: test
+      MESFLOW_SECRET_KEY: mesflow-test-secret-key
+      MESFLOW_TEST_AUTO_LOGIN: "1"
+      MESFLOW_TEST_AUTO_LOGIN_USERNAME: admin
+      MESFLOW_ADMIN_USERNAME: admin
+      MESFLOW_ADMIN_PASSWORD: Admin@123456
+      WORKSHOP_COOKIE_SECURE: "0"
+      MESFLOW_DEPLOYMENT_ID: docker-tests
+      DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
+      WORKSHOP_DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
+      MESFLOW_BASE_URL: http://mesflow-test-api:8080
+      MESFLOW_TEST_USERNAME: admin
+      MESFLOW_TEST_PASSWORD: Admin@123456
+      MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
+      MESFLOW_ENABLE_FORCE_DELETE_PO: "1"
+      PYTEST_ADDOPTS: --strict-markers
+    depends_on:
+      mesflow-test-api:
+        condition: service_healthy
+    volumes:
+      - ./test-results:/workspace/test-results
+
+  playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    environment:
+      MESFLOW_BASE_URL: http://mesflow-test-api:8080
+    depends_on:
+      mesflow-test-api:
+        condition: service_healthy
+    volumes:
+      - ./test-results:/workspace/test-results

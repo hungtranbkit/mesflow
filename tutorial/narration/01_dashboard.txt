@@ -1,0 +1,1 @@
+Tổng quan sản xuất là màn hình điều hành sản xuất trong ngày. Trước tiên chọn ngày và ca làm việc. Các chỉ số giúp quản lý nhìn nhanh số phiên đang chạy, sản lượng và tình trạng xưởng. MESFlow tách tiến độ thời gian và tiến độ sản phẩm để dễ nhận ra công đoạn đang chậm so với kế hoạch.

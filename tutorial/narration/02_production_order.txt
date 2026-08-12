@@ -1,0 +1,1 @@
+Lệnh sản xuất, gọi tắt là lệnh sản xuất, đại diện cho một lệnh sản xuất. Người quản lý có thể lọc lệnh sản xuất, kiểm tra số lượng kế hoạch, thời gian dự kiến và trạng thái. Trước khi Start lệnh sản xuất, cần kiểm tra cấu trúc Part và công đoạn. Khi lệnh sản xuất được Start, các công đoạn phù hợp mới đi vào luồng vận hành.

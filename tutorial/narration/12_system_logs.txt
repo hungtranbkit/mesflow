@@ -1,0 +1,1 @@
+Nhật ký hệ thống hỗ trợ điều tra và truy vết. Action Log cho biết ai đã thực hiện thao tác nào, còn Error Trace giúp tìm lỗi theo mã truy vết. Khi có sự cố, nên đối chiếu nhật ký với lệnh sản xuất, Phiên làm việc và trạm thao tác trước khi chỉnh sửa dữ liệu.

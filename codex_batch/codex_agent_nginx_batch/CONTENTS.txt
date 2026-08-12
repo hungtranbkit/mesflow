@@ -1,0 +1,5 @@
+CODEX_PROMPT.txt                 One-line prompt to give Codex
+CODEX_TASK.md                   Full implementation/verification instructions
+agent_nginx_v6584412.patch      Git patch from MESFlow 65.8.44.11 -> 65.8.44.12
+verify_agent_nginx.sh           Source-level verification script
+payload/                        Exact known-good target files for reference/merge

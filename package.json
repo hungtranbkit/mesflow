@@ -1,0 +1,13 @@
+{
+  "name": "mesflow-e2e",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "video:tutorial": "playwright test tests/e2e/tutorial-video.spec.js --config=playwright.tutorial.config.js",
+    "video:tutorial:overview": "MESFLOW_TUTORIAL_MODULE=overview playwright test tests/e2e/tutorial-detailed.spec.js --config=playwright.tutorial-detailed.config.js",
+    "video:tutorial:detailed": "playwright test tests/e2e/tutorial-detailed.spec.js --config=playwright.tutorial-detailed.config.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}

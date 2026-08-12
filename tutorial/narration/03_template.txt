@@ -1,0 +1,1 @@
+mẫu quy trình là cấu trúc sản xuất chuẩn dùng để tạo các lệnh sản xuất mới. Một mẫu quy trình gồm các Part, và trong mỗi Part có các công đoạn. Cycle time của công đoạn là dữ liệu quan trọng để MESFlow tính tiến độ thời gian. Hãy kiểm tra kỹ cấu trúc và định mức trước khi dùng mẫu quy trình làm chuẩn.

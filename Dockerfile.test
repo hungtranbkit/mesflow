@@ -1,0 +1,25 @@
+FROM python:3.13-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Ho_Chi_Minh
+WORKDIR /workspace
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg tzdata \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+       | gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+       > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt requirements-test.txt ./
+RUN pip install --no-cache-dir -r requirements-test.txt
+# Copy the repository artefacts that static/regression tests intentionally inspect.
+COPY app ./app
+COPY tests ./tests
+COPY scripts ./scripts
+COPY compose.yml compose.test.yml pytest.ini VERSION.txt release.json ./
+COPY Dockerfile.test ./
+COPY nginx ./nginx
+COPY package.json playwright.config.js Dockerfile.playwright ./
+COPY tests/e2e ./tests/e2e
+RUN find ./scripts -type f -name '*.sh' -exec chmod +x {} +
+CMD ["./scripts/test/run-all.sh"]

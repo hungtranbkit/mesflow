@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mesflow-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mesflow}
+      POSTGRES_USER: ${POSTGRES_USER:-mesflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-MesflowChangeMe2026}
+      TZ: ${MESFLOW_TIMEZONE:-Asia/Ho_Chi_Minh}
+      PGTZ: UTC
+    volumes:
+      - ./runtime/postgres-v65:/var/lib/postgresql/data
+      - ./runtime/backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mesflow} -d ${POSTGRES_DB:-mesflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    stop_grace_period: 60s
+
+  mesflow:
+    build:
+      context: .
+    image: mesflow-app:65.8.44.12
+    container_name: mesflow-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MESFLOW_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-mesflow}:${POSTGRES_PASSWORD:-MesflowChangeMe2026}@postgres:5432/${POSTGRES_DB:-mesflow}}
+      WORKSHOP_DATABASE_URL: ${WORKSHOP_DATABASE_URL:-postgresql://${POSTGRES_USER:-mesflow}:${POSTGRES_PASSWORD:-MesflowChangeMe2026}@postgres:5432/${POSTGRES_DB:-mesflow}}
+      WORKSHOP_COOKIE_SECURE: "1"
+      MESFLOW_TRUSTED_PROXY_COUNT: "1"
+      MESFLOW_ENABLE_FORCE_DELETE_PO: ${MESFLOW_ENABLE_FORCE_DELETE_PO:-1}
+      MESFLOW_TIMEZONE: ${MESFLOW_TIMEZONE:-Asia/Ho_Chi_Minh}
+      MESFLOW_TEST_AUTO_LOGIN: ${MESFLOW_TEST_AUTO_LOGIN:-1}
+      MESFLOW_TEST_AUTO_LOGIN_USERNAME: ${MESFLOW_TEST_AUTO_LOGIN_USERNAME:-admin}
+      MESFLOW_LOG_RETENTION_ENABLED: ${MESFLOW_LOG_RETENTION_ENABLED:-1}
+      MESFLOW_LOG_RETENTION_BATCH_SIZE: ${MESFLOW_LOG_RETENTION_BATCH_SIZE:-2000}
+      MESFLOW_LOG_RETENTION_SUCCESS_DAYS: ${MESFLOW_LOG_RETENTION_SUCCESS_DAYS:-30}
+      MESFLOW_LOG_RETENTION_SLOW_DAYS: ${MESFLOW_LOG_RETENTION_SLOW_DAYS:-90}
+      MESFLOW_LOG_RETENTION_RESOLVED_ERROR_DAYS: ${MESFLOW_LOG_RETENTION_RESOLVED_ERROR_DAYS:-180}
+      MESFLOW_LOG_RETENTION_UNRESOLVED_ERROR_DAYS: ${MESFLOW_LOG_RETENTION_UNRESOLVED_ERROR_DAYS:-365}
+      MESFLOW_LOG_RETENTION_SECURITY_DAYS: ${MESFLOW_LOG_RETENTION_SECURITY_DAYS:-365}
+      MESFLOW_LOG_RETENTION_ERROR_TRACE_RESOLVED_DAYS: ${MESFLOW_LOG_RETENTION_ERROR_TRACE_RESOLVED_DAYS:-180}
+      MESFLOW_LOG_RETENTION_ERROR_TRACE_UNRESOLVED_DAYS: ${MESFLOW_LOG_RETENTION_ERROR_TRACE_UNRESOLVED_DAYS:-365}
+      TZ: ${MESFLOW_TIMEZONE:-Asia/Ho_Chi_Minh}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    volumes:
+      - ./runtime/uploads:/data/uploads
+      - ./runtime/backups:/data/backups
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/system/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    stop_grace_period: 45s
+
+  nginx:
+    image: nginx:1.28-alpine
+    environment:
+      TZ: ${MESFLOW_TIMEZONE:-Asia/Ho_Chi_Minh}
+    container_name: mesflow-nginx
+    restart: unless-stopped
+    depends_on:
+      mesflow:
+        condition: service_healthy
+    # Allow Nginx in Docker to reach the Server Agent running on Linux host :8090.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+networks:
+  default:
+    name: mesflow_network
