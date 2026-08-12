@@ -24,7 +24,7 @@ services:
   mesflow:
     build:
       context: .
-    image: mesflow-app:65.8.44.48
+    image: mesflow-app:65.8.44.51
     container_name: mesflow-app
     restart: unless-stopped
     env_file:

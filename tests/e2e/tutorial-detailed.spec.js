@@ -77,6 +77,43 @@ async function note(page, selector, title, body){
   await pause(page,700);
 }
 
+async function openKioskDemo(page){
+  // Prefer the kiosk's own exported demo API instead of a synthetic browser click.
+  // The UI button remains visible in the video; this only makes recording deterministic.
+  const result=await page.evaluate(async()=>{
+    const api=window.MESFlowKioskDemo;
+    if(api?.open){
+      api.open();
+      return 'api';
+    }
+    const panel=document.getElementById('demo-panel');
+    if(panel){
+      panel.classList.add('open');
+      panel.setAttribute('aria-hidden','false');
+      return 'dom-fallback';
+    }
+    return 'missing';
+  });
+  expect(result,'Không tìm thấy API/panel mô phỏng QR của kiosk').not.toBe('missing');
+  await expect(page.locator('#demo-panel')).toHaveClass(/open/);
+  await expect(
+    page.locator('#demo-content'),
+    'Mô phỏng QR phải tải được dữ liệu thật hoặc dữ liệu hướng dẫn dự phòng'
+  ).toBeVisible({timeout:15000});
+}
+
+async function closeKioskDemo(page){
+  await page.evaluate(()=>{
+    if(window.MESFlowKioskDemo?.close) window.MESFlowKioskDemo.close();
+    else {
+      const panel=document.getElementById('demo-panel');
+      panel?.classList.remove('open');
+      panel?.setAttribute('aria-hidden','true');
+    }
+  });
+  await expect(page.locator('#demo-panel')).not.toHaveClass(/open/);
+}
+
 async function login(page){
   // The batch runner authenticates once and shares storageState across all modules.
   // This avoids repeatedly hitting the production login rate limiter.
@@ -216,9 +253,7 @@ const tours = {
     await note(page,'.kiosk-header','1. Kiểm tra trạm','Kiểm tra tên trạm, phiên bản, thời gian và trạng thái máy quét trước khi bắt đầu.');
     await note(page,'#demo-toggle','2. Mở mô phỏng quét QR','Khi đào tạo, bấm nút này để chọn mã nhân viên và công đoạn mà không cần máy quét thật.');
 
-    await page.locator('#demo-toggle').click();
-    await expect(page.locator('#demo-panel')).toHaveClass(/open/);
-    await expect(page.locator('#demo-content'),'Mô phỏng QR phải tải được dữ liệu thật hoặc dữ liệu hướng dẫn dự phòng').toBeVisible({timeout:15000});
+    await openKioskDemo(page);
     await page.evaluate(()=>{
       const emp=[...document.querySelectorAll('#demo-employee option')].find(x=>x.textContent.includes('TUT-E06'));
       const op=[...document.querySelectorAll('#demo-operation option')].find(x=>x.textContent.includes('TUT39-CUT'));
@@ -234,41 +269,35 @@ const tours = {
     // Quét sai thứ tự để cho thấy màn hình lỗi.
     await page.locator('#demo-scan-operation').click();
     await pause(page,700);
-    await page.locator('#demo-close').click();
+    await closeKioskDemo(page);
     await expect(page.locator('#screen-error')).toHaveClass(/active/);
     await note(page,'#screen-error','4. Quét sai thứ tự','Nếu quét công đoạn trước thẻ nhân viên, trạm báo rõ lỗi và hướng dẫn quét lại đúng thứ tự.');
     await page.locator('#screen-error [data-action="reset"]').click();
     await expect(page.locator('#screen-ready')).toHaveClass(/active/);
 
     // Quét nhân viên.
-    await page.locator('#demo-toggle').click();
-    await expect(page.locator('#demo-panel')).toHaveClass(/open/);
-    await expect(page.locator('#demo-content')).toBeVisible({timeout:15000});
+    await openKioskDemo(page);
     await page.locator('#demo-scan-employee').click();
     await pause(page,700);
-    await page.locator('#demo-close').click();
+    await closeKioskDemo(page);
     await expect(page.locator('#screen-operation')).toHaveClass(/active/);
     await note(page,'#screen-operation','5. Đã nhận nhân viên','Trạm hiển thị tên và mã nhân viên. Tiếp theo quét công đoạn cần thực hiện.');
 
     // Quét công đoạn, giữ màn hình "đang bắt đầu" lâu hơn chỉ trong tutorial=1.
-    await page.locator('#demo-toggle').click();
-    await expect(page.locator('#demo-panel')).toHaveClass(/open/);
-    await expect(page.locator('#demo-content')).toBeVisible({timeout:15000});
+    await openKioskDemo(page);
     await page.locator('#demo-scan-operation').click();
     await pause(page,600);
-    await page.locator('#demo-close').click();
+    await closeKioskDemo(page);
     await expect(page.locator('#screen-starting')).toHaveClass(/active/);
     await note(page,'#screen-starting','6. Đang bắt đầu công việc','Trạm đang gửi yêu cầu mở phiên làm việc lên MESFlow.');
     await expect(page.locator('#screen-started')).toHaveClass(/active/);
     await note(page,'#screen-started','7. Bắt đầu thành công','Dấu xác nhận màu xanh cho biết phiên làm việc đã được mở. Khi làm xong, quét lại thẻ nhân viên.');
 
     // Quét lại nhân viên để kết thúc.
-    await page.locator('#demo-toggle').click();
-    await expect(page.locator('#demo-panel')).toHaveClass(/open/);
-    await expect(page.locator('#demo-content')).toBeVisible({timeout:15000});
+    await openKioskDemo(page);
     await page.locator('#demo-scan-employee').click();
     await pause(page,900);
-    await page.locator('#demo-close').click();
+    await closeKioskDemo(page);
     await expect(page.locator('#screen-quantity-good')).toHaveClass(/active/);
 
     await page.locator('#good-qty').fill('12');

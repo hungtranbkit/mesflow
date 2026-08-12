@@ -217,9 +217,14 @@ def update_session_exception_workflow():
         if role not in ('admin','manager','supervisor'):
             return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xử lý session bất thường'),403
         body=request.get_json(silent=True) or {}
+        target_status=str(body.get('workflow_status') or '').strip().upper()
+        current_actor=actor()
+        assigned_to=str(body.get('assigned_to') or '').strip()
+        if target_status=='IN_PROGRESS' and not assigned_to:
+            assigned_to=current_actor
         rows=ReportRepository().update_session_exception_reviews(
-            body.get('items') or [],body.get('workflow_status'),str(body.get('note') or '').strip(),
-            actor(),str(body.get('assigned_to') or '').strip(),str(body.get('resolution') or '').strip())
+            body.get('items') or [],target_status,str(body.get('note') or '').strip(),
+            current_actor,assigned_to,str(body.get('resolution') or '').strip())
         AuditRepository().log(actor(),'SESSION_EXCEPTION_WORKFLOW_UPDATE','session_exception','bulk',{
             'workflow_status':body.get('workflow_status'),'note':body.get('note'),'assigned_to':body.get('assigned_to'),
             'resolution':body.get('resolution'),'items':body.get('items') or []})

@@ -811,10 +811,30 @@ class ReportRepository:
           UNION ALL
           SELECT ws.id,NULL,'INVALID_TIME','CRITICAL','Giờ kết thúc trước giờ bắt đầu'
             FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at
-        ), all_flags AS (SELECT * FROM overlap_flags UNION ALL SELECT * FROM flags), detected AS (
-          SELECT f.*,f.exception_code||':'||COALESCE(f.conflict_session_id,0)::text exception_fingerprint FROM all_flags f
+        ), all_flags AS (
+          SELECT * FROM overlap_flags UNION ALL SELECT * FROM flags
+        ), detected AS (
+          SELECT f.*,f.exception_code||':'||COALESCE(f.conflict_session_id,0)::text exception_fingerprint,
+            true is_active
+          FROM all_flags f
+        ), review_only AS (
+          SELECT r.session_id,NULL::bigint conflict_session_id,r.exception_code,
+            'INFO'::text severity,
+            'Bất thường không còn được phát hiện sau khi dữ liệu Session thay đổi'::text exception_message,
+            r.exception_fingerprint,false is_active
+          FROM session_exception_reviews r
+          JOIN work_sessions ws0 ON ws0.id=r.session_id
+          WHERE NOT EXISTS(
+            SELECT 1 FROM detected d
+            WHERE d.session_id=r.session_id AND d.exception_fingerprint=r.exception_fingerprint
+          )
+        ), exception_rows AS (
+          SELECT * FROM detected
+          UNION ALL
+          SELECT * FROM review_only
         )
         SELECT f.exception_code,f.exception_fingerprint,f.severity,f.exception_message,f.conflict_session_id,
+          f.is_active,
           ws.id session_id,ws.status session_status,ws.started_at,ws.ended_at,
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
           ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,ws.station_id,ws.device_uuid,
@@ -825,13 +845,16 @@ class ReportRepository:
           COALESCE(r.note,'') review_note,COALESCE(r.assigned_to,'') assigned_to,
           r.started_at review_started_at,COALESCE(r.started_by,'') started_by,
           r.resolved_at,COALESCE(r.resolved_by,'') resolved_by,r.updated_at review_updated_at
-        FROM detected f JOIN work_sessions ws ON ws.id=f.session_id
+        FROM exception_rows f JOIN work_sessions ws ON ws.id=f.session_id
         JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
         JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
         LEFT JOIN session_exception_reviews r ON r.session_id=f.session_id AND r.exception_fingerprint=f.exception_fingerprint
         {where}
-        ORDER BY CASE COALESCE(r.workflow_status,'NEW') WHEN 'NEW' THEN 0 WHEN 'IN_PROGRESS' THEN 1 WHEN 'RESOLVED' THEN 2 ELSE 3 END,
-          CASE f.severity WHEN 'CRITICAL' THEN 0 WHEN 'ERROR' THEN 1 ELSE 2 END,ws.started_at DESC
+        ORDER BY
+          CASE WHEN f.is_active THEN 0 ELSE 1 END,
+          CASE COALESCE(r.workflow_status,'NEW') WHEN 'NEW' THEN 0 WHEN 'IN_PROGRESS' THEN 1 WHEN 'RESOLVED' THEN 2 ELSE 3 END,
+          CASE f.severity WHEN 'CRITICAL' THEN 0 WHEN 'ERROR' THEN 1 WHEN 'WARNING' THEN 2 ELSE 3 END,
+          ws.started_at DESC
         LIMIT %s""",params)
 
     def update_session_exception_reviews(self,items:list[dict[str,Any]],workflow_status:str,note:str,actor_username:str,assigned_to:str='',resolution:str=''):

@@ -377,7 +377,19 @@
     try { await navigator.clipboard.writeText(text); document.getElementById('scan-status').textContent = `Đã copy: ${text}`; }
     catch (_) { document.getElementById('scan-status').textContent = text; }
   }
-  demoToggle.addEventListener('click', openDemo); demoClose.addEventListener('click', closeDemo);
+  // Stable public hook for the tutorial recorder. The normal UI still uses the
+  // same button listener; the recorder may call open() directly to avoid flaky
+  // synthetic-click behavior caused by tutorial overlays.
+  window.MESFlowKioskDemo = {
+    open: openDemo,
+    close: closeDemo,
+    reload: () => { demoLoaded=false; return loadDemoData(true); },
+    scanEmployee: () => scan(employeeQr()),
+    scanOperation: () => scan(operationQr())
+  };
+
+  demoToggle.addEventListener('click', openDemo);
+  demoClose.addEventListener('click', closeDemo);
   document.getElementById('demo-refresh').addEventListener('click', () => { demoLoaded=false; loadDemoData(true); });
   demoEmployee.addEventListener('change', updateDemoQr); demoOperation.addEventListener('change', updateDemoQr);
   setInterval(() => { if (demoIsOpen()) loadDemoData(true); }, 10000);
