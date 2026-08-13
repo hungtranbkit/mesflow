@@ -40,7 +40,13 @@ fi
 docker tag "$build_tag" "$image"
 image_id="$new_id"
 digest="$image_id"
-source_commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+# -c safe.directory: the workspace is frequently bind-mounted into a
+# container (e.g. the Dockerized Deploy Agent) running as a different UID
+# than the directory owner, which trips git's "dubious ownership"
+# protection and makes rev-parse fail silently into "unknown" here. Scope
+# the exception to this one invocation instead of relying on a persistent
+# global gitconfig in the image.
+source_commit="$(git -c safe.directory='*' rev-parse HEAD 2>/dev/null || echo unknown)"
 
 # Resolve the true Alembic head by walking the revision/down_revision graph
 # under app/migrations/versions — NOT a filename-sort heuristic, and NOT the
