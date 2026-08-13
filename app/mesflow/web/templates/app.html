@@ -48,7 +48,10 @@
   <script src="/static/pages/material-flow.js?v={{ version }}"></script>
   <script>
     // Bootstrap only after all page renderers are loaded.
-    openPage('overview', document.querySelector('[data-page="overview"]'));
+    if(new URLSearchParams(location.search).get('guide')==='esp-kiosk'){
+      setActive(document.querySelector('[data-page="tutorials"]'));
+      renderEspKioskTutorial();
+    }else openPage('overview', document.querySelector('[data-page="overview"]'));
   </script>
 </body>
 </html>

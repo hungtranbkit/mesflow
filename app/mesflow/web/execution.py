@@ -44,7 +44,8 @@ def heartbeat():
     body=request.get_json(silent=True) or {}
     try:
         KioskRepository().verify_token(str(body.get('device_uuid','')),str(request.headers.get('X-Kiosk-Token','')))
-        return jsonify(ok=True,status=KioskRepository().heartbeat(str(body['device_uuid']),body))
+        status=KioskRepository().heartbeat(str(body['device_uuid']),body)
+        return jsonify(ok=True,status=status)
     except Exception as exc: return err(exc)
 @bp.get('/work-sessions')
 @login_required
@@ -182,7 +183,13 @@ def legacy_station_heartbeat():
         mapped={
           'ui_state':body.get('ui_state','UNKNOWN'),'health_state':'ERROR' if body.get('last_error') else 'OK',
           'queue_size':body.get('queue_size') or body.get('pending_events') or 0,'wifi_rssi':body.get('wifi_rssi'),
-          'free_heap':body.get('free_heap'),'last_error':body.get('last_error') or ''}
+          'free_heap':body.get('free_heap'),'last_error':body.get('last_error') or '',
+          'firmware_version':body.get('firmware_version') or body.get('app_version') or '',
+          'firmware_build':body.get('firmware_build') or '', 'hardware_model':body.get('hardware_model') or '',
+          'ota_capable':bool(body.get('ota_capable',False)),
+          'boot_id':body.get('boot_id') or '',
+          'uptime_seconds':body.get('uptime_seconds') or 0,
+          'boot_reason':body.get('boot_reason') or ''}
         status=KioskRepository().heartbeat(device,mapped)
         return jsonify(ok=True,enabled=True,config_version=1,status=status)
     except Exception as exc: return err(exc)

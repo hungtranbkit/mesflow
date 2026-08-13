@@ -12,11 +12,11 @@ async function renderSessionExceptions(){
         <p>Ưu tiên mục đang còn bất thường. Chọn một dòng để xem chi tiết và hành động.</p>
       </div>
       <div class="se-filters">
-        <select id="seQuick">
-          <option value="ACTION" selected>Cần xử lý</option>
-          <option value="ACTIVE">Tất cả đang bất thường</option>
-          <option value="DONE">Đã kết thúc xử lý</option>
-          <option value="ALL">Tất cả</option>
+        <select id="seDataSource" aria-label="Nguồn dữ liệu">
+          <option value="">Tất cả nguồn</option>
+          <option value="QA_TEST">QA Test</option>
+          <option value="TUTORIAL">Tutorial/Demo</option>
+          <option value="UNKNOWN">Không xác định</option>
         </select>
         <select id="seSessionStatus">
           <option value="">OPEN + CLOSED</option>
@@ -28,6 +28,19 @@ async function renderSessionExceptions(){
     </div>
 
     <div id="seSummary" class="se-summary"></div>
+    <div class="se-workflow-tabs" role="tablist" aria-label="Trạng thái xử lý">
+      <button class="btn primary" data-se-view="NEW" role="tab" aria-selected="true">Cần xử lý</button>
+      <button class="btn" data-se-view="CONFIRMATION" role="tab" aria-selected="false">Cần xác nhận</button>
+      <button class="btn" data-se-view="HISTORY" role="tab" aria-selected="false">Lịch sử</button>
+    </div>
+    <div id="seHistoryFilters" class="se-history-filters" hidden>
+      <label>Từ ngày<input id="seHistoryFrom" type="date"></label>
+      <label>Nhân viên<input id="seHistoryEmployee" placeholder="Mã hoặc tên"></label>
+      <label>PO<input id="seHistoryPo" placeholder="Mã PO"></label>
+      <label>Loại lỗi<select id="seHistoryType"><option value="">Tất cả</option></select></label>
+      <label>Kết quả<select id="seHistoryResult"><option value="">Tất cả</option><option value="RESOLVED">Đã xử lý</option><option value="IGNORED">Bỏ qua</option></select></label>
+      <label>Người xử lý<input id="seHistoryHandler" placeholder="Tài khoản"></label>
+    </div>
 
     <div class="se-split">
       <div class="se-queue">
@@ -104,19 +117,32 @@ async function renderSessionExceptions(){
   const workflowLabels={NEW:'Mới',IN_PROGRESS:'Đang xử lý',RESOLVED:'Đã xử lý',IGNORED:'Bỏ qua'};
   const severityLabels={CRITICAL:'Nghiêm trọng',ERROR:'Cần xử lý',WARNING:'Cảnh báo',INFO:'Đã thay đổi'};
 
-  let allItems=[],visible=[],current=null,targetStatus='';
+  let allItems=[],visible=[],current=null,targetStatus='',currentView='NEW';
 
   const itemKey=x=>`${x.session_id}|${x.exception_fingerprint}`;
   const isDone=x=>['RESOLVED','IGNORED'].includes(x.workflow_status);
-  const isAction=x=>x.is_active!==false && ['NEW','IN_PROGRESS'].includes(x.workflow_status);
   const qLower=v=>String(v||'').toLowerCase();
 
   const applyFilters=()=>{
-    const mode=el('seQuick').value,q=qLower(el('seSearch').value).trim();
+    const q=qLower(el('seSearch').value).trim(),dataSource=el('seDataSource').value;
+    const from=el('seHistoryFrom').value,employee=qLower(el('seHistoryEmployee').value).trim();
+    const po=qLower(el('seHistoryPo').value).trim(),type=el('seHistoryType').value;
+    const result=el('seHistoryResult').value,handler=qLower(el('seHistoryHandler').value).trim();
     visible=allItems.filter(x=>{
-      if(mode==='ACTION'&&!isAction(x))return false;
-      if(mode==='ACTIVE'&&x.is_active===false)return false;
-      if(mode==='DONE'&&!isDone(x))return false;
+      if(dataSource&&x.data_source!==dataSource)return false;
+      if(currentView==='NEW'&&!(x.is_active!==false&&x.workflow_status==='NEW'))return false;
+      if(currentView==='CONFIRMATION'&&!(x.classification==='CONFIRMATION'&&x.workflow_status==='NEW'))return false;
+      if(currentView==='IN_PROGRESS'&&x.workflow_status!=='IN_PROGRESS')return false;
+      if(currentView==='HISTORY'&&(x.classification==='ACTION_REQUIRED'||x.classification==='CONFIRMATION')&&x.is_active!==false&&x.workflow_status==='NEW')return false;
+      if(currentView==='HISTORY'){
+        const ended=String(x.resolved_at||x.review_updated_at||'').slice(0,10);
+        if(from&&ended<from)return false;
+        if(employee&&![x.employee_code,x.employee_name].join(' ').toLowerCase().includes(employee))return false;
+        if(po&&!qLower(x.po_code).includes(po))return false;
+        if(type&&x.exception_code!==type)return false;
+        if(result&&x.workflow_status!==result)return false;
+        if(handler&&!qLower(x.resolved_by||x.assigned_to).includes(handler))return false;
+      }
       if(q){
         const hay=[x.session_id,x.employee_code,x.employee_name,x.operation_code,x.operation_name,x.po_code,x.part_code,labels[x.exception_code],x.exception_message].join(' ').toLowerCase();
         if(!hay.includes(q))return false;
@@ -129,12 +155,13 @@ async function renderSessionExceptions(){
   };
 
   const drawSummary=()=>{
-    const active=allItems.filter(x=>x.is_active!==false),fresh=active.filter(x=>x.workflow_status==='NEW'),doing=active.filter(x=>x.workflow_status==='IN_PROGRESS'),done=allItems.filter(isDone);
+    const fresh=allItems.filter(x=>x.classification==='ACTION_REQUIRED'&&x.is_active!==false&&x.workflow_status==='NEW'),confirm=allItems.filter(x=>x.classification==='CONFIRMATION'&&x.is_active!==false&&x.workflow_status==='NEW'),doing=allItems.filter(x=>x.workflow_status==='IN_PROGRESS');
+    const today=siteToday(),doneToday=allItems.filter(x=>isDone(x)&&String(x.resolved_at||'').slice(0,10)===today);
     el('seSummary').innerHTML=`
-      <article><span>Đang bất thường</span><b>${active.length}</b></article>
-      <article><span>Mới cần xem</span><b>${fresh.length}</b></article>
+      <article><span>Cần xử lý</span><b>${fresh.length}</b></article>
+      <article><span>Cần xác nhận</span><b>${confirm.length}</b></article>
       <article><span>Đang xử lý</span><b>${doing.length}</b></article>
-      <article><span>Đã kết thúc</span><b>${done.length}</b></article>`;
+      <article><span>Đã xử lý hôm nay</span><b>${doneToday.length}</b></article>`;
   };
 
   const queueRow=x=>{
@@ -143,6 +170,7 @@ async function renderSessionExceptions(){
     return `<button class="se-item ${selected?'selected':''} ${inactive?'inactive':''}" data-key="${esc(itemKey(x))}" type="button">
       <span class="se-item-state">
         <span class="workflow-badge ${String(x.workflow_status||'NEW').toLowerCase()}">${esc(workflowLabels[x.workflow_status]||x.workflow_status)}</span>
+        <span class="se-source-badge ${String(x.data_source||'UNKNOWN').toLowerCase()}">${esc(({QA_TEST:'QA Test',TUTORIAL_DEMO:'Tutorial/Demo',REAL_USER:'Thực tế',UNKNOWN:'Không xác định'})[x.data_source]||'Không xác định')}</span>
         ${inactive?'<span class="se-fixed-badge">Không còn phát hiện</span>':`<span class="log-level ${String(x.severity||'').toLowerCase()}">${esc(severityLabels[x.severity]||x.severity)}</span>`}
       </span>
       <span class="se-item-main"><b>${esc(labels[x.exception_code]||x.exception_code)} · Session #${x.session_id}</b><small>${esc(x.employee_code||'')} · ${esc(x.employee_name||'')}</small></span>
@@ -179,9 +207,14 @@ async function renderSessionExceptions(){
         <span><small>Thời gian</small><b>${fmt(x.started_at)} → ${x.ended_at?fmt(x.ended_at):'Đang mở'}</b></span>
         <span><small>Sản lượng</small><b>${good} đạt · ${defect} lỗi · ${rework} sửa được</b></span>
         <span><small>Trạm</small><b>${x.station_id||x.device_uuid?esc(x.device_uuid||`#${x.station_id}`):'Chưa có trạm'}</b></span>
+        <span><small>Nguồn dữ liệu</small><b>${esc(({QA_TEST:'QA Test',TUTORIAL_DEMO:'Tutorial/Demo',REAL_USER:'Thực tế',UNKNOWN:'Không xác định'})[x.data_source]||'Không xác định')}</b>${x.source_trace_id?`<small>${esc(x.source_trace_id)}</small>`:''}</span>
       </div>
 
-      ${x.review_note||x.assigned_to?`<div class="se-review-note"><b>Thông tin xử lý</b><span>${esc(x.assigned_to||'Chưa phân công')}</span><p>${esc(x.review_note||'Chưa có ghi chú')}</p></div>`:''}
+      ${x.review_note||x.assigned_to||isDone(x)?`<div class="se-review-note"><b>Dấu vết xử lý</b>
+        <span>Ghi nhận: ${fmt(x.review_created_at||x.started_at)} · Phụ trách: ${esc(x.assigned_to||'Chưa phân công')}</span>
+        <span>Bắt đầu: ${fmt(x.review_started_at)} · bởi ${esc(x.started_by||'—')}</span>
+        ${isDone(x)?`<span>Kết thúc: ${fmt(x.resolved_at)} · bởi ${esc(x.resolved_by||'—')} · ${esc(x.workflow_status==='IGNORED'?'Bỏ qua có lý do':x.resolution||'Đã xử lý')}</span>`:''}
+        <p>${esc(x.review_note||'Chưa có ghi chú')}</p></div>`:''}
 
       <div class="se-steps">
         <div class="${x.workflow_status!=='NEW'?'done':''}"><b>1</b><span><strong>Nhận xử lý</strong><small>Ghi người phụ trách nếu cần.</small></span>${canStart?'<button class="btn" id="seStartOne">Nhận xử lý</button>':'<span class="se-step-ok">✓</span>'}</div>
@@ -191,7 +224,6 @@ async function renderSessionExceptions(){
 
       <div class="se-secondary-actions">
         ${!isDone(x)?'<button class="btn" id="seIgnoreOne">Bỏ qua có lý do</button>':''}
-        ${isDone(x)?'<button class="btn" id="seReopenOne">Mở lại xử lý</button>':''}
       </div>`;
   };
 
@@ -199,7 +231,6 @@ async function renderSessionExceptions(){
     const start=el('seStartOne');if(start)start.onclick=()=>openWorkflow('IN_PROGRESS');
     const resolve=el('seResolveOne');if(resolve)resolve.onclick=()=>openWorkflow('RESOLVED');
     const ignore=el('seIgnoreOne');if(ignore)ignore.onclick=()=>openWorkflow('IGNORED');
-    const reopen=el('seReopenOne');if(reopen)reopen.onclick=()=>openWorkflow('NEW');
     const open=el('seOpenSession');if(open)open.onclick=()=>{
       window.MESFLOW_SESSION_EXCEPTION_CONTEXT={
         sessionId:Number(current.session_id),
@@ -221,7 +252,7 @@ async function renderSessionExceptions(){
   };
 
   const load=async()=>{
-    const qs=new URLSearchParams({status:el('seSessionStatus').value,limit:'2000'});
+    const qs=new URLSearchParams({status:el('seSessionStatus').value,limit:'2000',view:currentView==='HISTORY'?'history':'inbox'});
     const d=await api('/api/session-exceptions?'+qs.toString());
     const keep=current?itemKey(current):'';
     allItems=d.items||[];
@@ -234,13 +265,12 @@ async function renderSessionExceptions(){
   const openWorkflow=status=>{
     if(!current){toast('Chưa chọn bất thường');return}
     targetStatus=status;
-    const isReceive=status==='IN_PROGRESS',isFinish=status==='RESOLVED',isIgnore=status==='IGNORED',isReopen=status==='NEW';
+    const isReceive=status==='IN_PROGRESS',isFinish=status==='RESOLVED',isIgnore=status==='IGNORED';
     const currentUser=String(window.MESFLOW_USER?.username||'').trim();
     const info={
       IN_PROGRESS:['Nhận xử lý','Xác nhận người phụ trách. Sau đó có thể mở ngay Session để kiểm tra và sửa dữ liệu.'],
       RESOLVED:['Hoàn tất xử lý','Xác nhận kết quả sau khi đã kiểm tra hoặc sửa Session.'],
-      IGNORED:['Bỏ qua có lý do','Chỉ dùng khi đã kiểm tra và xác nhận đây là trường hợp hợp lệ hoặc cảnh báo không cần sửa.'],
-      NEW:['Mở lại xử lý','Đưa mục này về trạng thái Mới để kiểm tra lại.']
+      IGNORED:['Bỏ qua có lý do','Chỉ dùng khi đã kiểm tra và xác nhận đây là trường hợp hợp lệ hoặc cảnh báo không cần sửa.']
     }[status];
     el('seModalKicker').textContent=`${labels[current.exception_code]||current.exception_code} · Session #${current.session_id}`;
     el('seModalTitle').textContent=info[0];
@@ -248,17 +278,17 @@ async function renderSessionExceptions(){
     el('seModalIssue').innerHTML=issueSummary(current);
     el('seAssigned').value=isReceive?(current.assigned_to||currentUser):(current.assigned_to||'');
     el('seAssignMe').hidden=!isReceive;
-    el('seAssignedWrap').hidden=isReopen;
+    el('seAssignedWrap').hidden=false;
     el('seAssignedHint').textContent=isReceive?'Mặc định là tài khoản đang đăng nhập. Có thể đổi nếu giao cho người khác.':'Người đang hoặc đã phụ trách mục này.';
     el('seResolutionWrap').hidden=!isFinish;
     el('seResolution').disabled=!isFinish;
     el('seResolution').value=isFinish?(current.is_active===false?'DATA_CORRECTED':current.resolution||''):'';
-    el('seNoteWrap').hidden=isReopen;
+    el('seNoteWrap').hidden=false;
     el('seNote').value=isReceive?'':current.review_note||'';
     el('seNote').placeholder=isReceive?'Ví dụ: Đang kiểm tra lại giờ kết thúc với tổ trưởng.':isIgnore?'Bắt buộc ghi rõ vì sao không cần xử lý.':'Ghi ngắn đã kiểm tra/sửa gì và kết quả.';
     el('seNoteHint').textContent=isReceive?'Không bắt buộc. Chỉ ghi khi cần bàn giao hoặc lưu ý.':isIgnore?'Bắt buộc ghi lý do bỏ qua.':isFinish?'Bắt buộc ghi kết quả xử lý.':'';
-    el('seModalNext').innerHTML=isReceive?`<b>Bước tiếp theo</b><span>Sau khi nhận, nên mở Session #${current.session_id} để kiểm tra. Bạn có thể làm ngay bằng nút bên dưới.</span>`:isFinish?`<b>Kiểm tra trước khi hoàn tất</b><span>${current.is_active===false?'Hệ thống không còn phát hiện bất thường này. Hãy xác nhận dữ liệu hiện tại là đúng.':'Bất thường vẫn đang được phát hiện. Chỉ hoàn tất nếu đã kiểm tra và có lý do rõ ràng.'}</span>`:isIgnore?'<b>Lưu ý</b><span>Bỏ qua không sửa dữ liệu. Lý do sẽ được lưu trong nhật ký xử lý.</span>':'<b>Mở lại</b><span>Mục này sẽ quay về danh sách Cần xử lý.</span>';
-    el('seModalSave').textContent=isReceive?'Chỉ nhận xử lý':isFinish?'Xác nhận hoàn tất':isIgnore?'Xác nhận bỏ qua':'Mở lại';
+    el('seModalNext').innerHTML=isReceive?`<b>Bước tiếp theo</b><span>Sau khi nhận, nên mở Session #${current.session_id} để kiểm tra. Bạn có thể làm ngay bằng nút bên dưới.</span>`:isFinish?`<b>Kiểm tra trước khi hoàn tất</b><span>${current.is_active===false?'Hệ thống không còn phát hiện bất thường này. Hãy xác nhận dữ liệu hiện tại là đúng.':'Bất thường vẫn đang được phát hiện. Chỉ hoàn tất nếu đã kiểm tra và có lý do rõ ràng.'}</span>`:'<b>Lưu ý</b><span>Bỏ qua không sửa dữ liệu. Lý do sẽ được lưu trong nhật ký xử lý.</span>';
+    el('seModalSave').textContent=isReceive?'Chỉ nhận xử lý':isFinish?'Xác nhận hoàn tất':'Xác nhận bỏ qua';
     el('seModalSecondary').hidden=!isReceive;
     el('seModalSecondary').textContent='Nhận và mở Session';
     el('seModalSecondary').className='btn primary';
@@ -266,7 +296,7 @@ async function renderSessionExceptions(){
     el('seAssignMe').onclick=()=>{el('seAssigned').value=currentUser;el('seAssigned').focus()};
     el('seModal').classList.remove('hidden');
     document.body.classList.add('modal-open');
-    setTimeout(()=>isReceive?el('seAssigned').focus():isReopen?el('seModalSave').focus():el('seNote').focus(),0);
+    setTimeout(()=>isReceive?el('seAssigned').focus():el('seNote').focus(),0);
   };
 
   const close=()=>{el('seModal').classList.add('hidden');document.body.classList.remove('modal-open')};
@@ -307,9 +337,16 @@ async function renderSessionExceptions(){
   el('seModalSave').onclick=()=>saveWorkflow();
   el('seModalSecondary').onclick=()=>saveWorkflow({openSessionAfter:true});
 
-  el('seQuick').onchange=applyFilters;
+  document.querySelectorAll('[data-se-view]').forEach(button=>button.onclick=()=>{
+    currentView=button.dataset.seView;
+    document.querySelectorAll('[data-se-view]').forEach(x=>{const selected=x===button;x.classList.toggle('primary',selected);x.setAttribute('aria-selected',String(selected))});
+    el('seHistoryFilters').hidden=currentView!=='HISTORY';current=null;applyFilters();
+  });
+  ['seHistoryFrom','seHistoryEmployee','seHistoryPo','seHistoryType','seHistoryResult','seHistoryHandler'].forEach(key=>el(key).oninput=applyFilters);
   el('seSearch').oninput=applyFilters;
   el('seSessionStatus').onchange=load;
+  el('seDataSource').onchange=applyFilters;
   el('seRefresh').onclick=load;
+  el('seHistoryType').insertAdjacentHTML('beforeend',Object.entries(labels).map(([value,label])=>`<option value="${esc(value)}">${esc(label)}</option>`).join(''));
   await load();
 }

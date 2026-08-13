@@ -778,7 +778,7 @@ class ReportRepository:
         ORDER BY po.code,p.sort_order,o.sort_order,o.id LIMIT 5000""")
         return {'sessions':sessions,'users':users,'operations':operations}
 
-    def session_exceptions(self,status:str|None=None,employee_id:int|None=None,limit:int=1000,workflow_status:str|None=None):
+    def session_exceptions(self,status:str|None=None,employee_id:int|None=None,limit:int=1000,workflow_status:str|None=None,inbox_only:bool=True):
         conditions=[];params=[]
         if employee_id:
             conditions.append('ws.employee_id=%s');params.append(employee_id)
@@ -791,7 +791,7 @@ class ReportRepository:
             else: conditions.append('r.workflow_status=%s');params.append(workflow_status)
         where=('WHERE '+' AND '.join(conditions)) if conditions else ''
         params.append(min(max(limit,1),5000))
-        return fetch_all(f"""WITH overlap_flags AS (
+        rows=fetch_all(f"""WITH overlap_flags AS (
           SELECT a.id session_id,b.id conflict_session_id,'OVERLAP' exception_code,'CRITICAL' severity,
             'Chồng thời gian với session #'||b.id exception_message
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
@@ -813,10 +813,34 @@ class ReportRepository:
             FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at
         ), all_flags AS (
           SELECT * FROM overlap_flags UNION ALL SELECT * FROM flags
-        ), detected AS (
-          SELECT f.*,f.exception_code||':'||COALESCE(f.conflict_session_id,0)::text exception_fingerprint,
-            true is_active
+        ), base_detected AS (
+          SELECT f.*,f.exception_code||':'||COALESCE(f.conflict_session_id,0)::text base_fingerprint
           FROM all_flags f
+        ), detected AS (
+          SELECT f.session_id,f.conflict_session_id,f.exception_code,f.severity,f.exception_message,
+            COALESCE(active_review.exception_fingerprint,
+              CASE WHEN completed_review.id IS NULL THEN f.base_fingerprint
+                   ELSE f.base_fingerprint||'#occurrence:'||(completed_review.id+1)::text END
+            ) exception_fingerprint,true is_active
+          FROM base_detected f
+          LEFT JOIN LATERAL (
+            SELECT r.exception_fingerprint
+            FROM session_exception_reviews r
+            WHERE r.session_id=f.session_id AND r.exception_code=f.exception_code
+              AND (r.exception_fingerprint=f.base_fingerprint
+                OR LEFT(r.exception_fingerprint,LENGTH(f.base_fingerprint)+12)=f.base_fingerprint||'#occurrence:')
+              AND r.workflow_status IN ('NEW','IN_PROGRESS')
+            ORDER BY r.id DESC LIMIT 1
+          ) active_review ON true
+          LEFT JOIN LATERAL (
+            SELECT r.id
+            FROM session_exception_reviews r
+            WHERE r.session_id=f.session_id AND r.exception_code=f.exception_code
+              AND (r.exception_fingerprint=f.base_fingerprint
+                OR LEFT(r.exception_fingerprint,LENGTH(f.base_fingerprint)+12)=f.base_fingerprint||'#occurrence:')
+              AND r.workflow_status IN ('RESOLVED','IGNORED')
+            ORDER BY r.id DESC LIMIT 1
+          ) completed_review ON true
         ), review_only AS (
           SELECT r.session_id,NULL::bigint conflict_session_id,r.exception_code,
             'INFO'::text severity,
@@ -838,13 +862,22 @@ class ReportRepository:
           ws.id session_id,ws.status session_status,ws.started_at,ws.ended_at,
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
           ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,ws.station_id,ws.device_uuid,
+          ws.note session_note,ws.start_request_id,ws.finish_request_id,
+          CASE
+            WHEN COALESCE(ws.start_request_id,'') LIKE 'QA-REAL-START-%%'
+              OR COALESCE(ws.start_request_id,'') LIKE 'QA-RUN-%%' THEN 'QA_TEST'
+            WHEN COALESCE(ws.start_request_id,'') LIKE 'TUT%%' OR COALESCE(ws.note,'') LIKE 'TUT%%'
+              OR e.employee_no LIKE 'TUT-%%' OR po.code LIKE 'TUT-%%' THEN 'TUTORIAL_DEMO'
+            ELSE 'UNKNOWN'
+          END data_source,
+          COALESCE(NULLIF(ws.start_request_id,''),NULLIF(ws.finish_request_id,''),'') source_trace_id,
           e.id employee_id,e.employee_no employee_code,e.name employee_name,
           o.id operation_id,o.code operation_code,o.name operation_name,
           po.code po_code,p.code part_code,
           COALESCE(r.workflow_status,'NEW') workflow_status,COALESCE(r.resolution,'') resolution,
           COALESCE(r.note,'') review_note,COALESCE(r.assigned_to,'') assigned_to,
           r.started_at review_started_at,COALESCE(r.started_by,'') started_by,
-          r.resolved_at,COALESCE(r.resolved_by,'') resolved_by,r.updated_at review_updated_at
+          r.created_at review_created_at,r.resolved_at,COALESCE(r.resolved_by,'') resolved_by,r.updated_at review_updated_at
         FROM exception_rows f JOIN work_sessions ws ON ws.id=f.session_id
         JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
         JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
@@ -856,11 +889,43 @@ class ReportRepository:
           CASE f.severity WHEN 'CRITICAL' THEN 0 WHEN 'ERROR' THEN 1 WHEN 'WARNING' THEN 2 ELSE 3 END,
           ws.started_at DESC
         LIMIT %s""",params)
+        # The detector remains authoritative; Inbox visibility is a separate,
+        # deterministic classification layer. QA/tutorial fixtures are retained
+        # in history but never presented as manager work.
+        def classify(row):
+            source=str(row.get('data_source') or 'UNKNOWN').upper()
+            active=bool(row.get('is_active'))
+            code=str(row.get('exception_code') or '').upper()
+            if source in ('QA_TEST','TUTORIAL_DEMO'):
+                return 'TEST_DATA'
+            if not active:
+                return 'HISTORY_ONLY'
+            if code in ('OVERLAP','INVALID_TIME','MISSING_STATION','OPEN_TOO_LONG'):
+                return 'ACTION_REQUIRED'
+            if code in ('ZERO_QTY_LONG',):
+                return 'CONFIRMATION'
+            return 'UNKNOWN'
+        for row in rows:
+            if str(row.get('data_source') or '').upper()=='UNKNOWN' and row.get('source_trace_id'):
+                row['data_source']='REAL_USER'
+            row['classification']=classify(row)
+            row['data_source']='TUTORIAL' if row.get('data_source')=='TUTORIAL_DEMO' else row.get('data_source')
+            row['data_impact']={
+                'OVERLAP':'working_time/kpi', 'OPEN_TOO_LONG':'working_time/employee_state',
+                'ZERO_QTY_LONG':'quantity/kpi/po_progress', 'MISSING_STATION':'kpi/po_progress',
+                'INVALID_TIME':'working_time/kpi'
+            }.get(str(row.get('exception_code') or '').upper(),'unknown')
+            row['human_decision_required']=row['classification'] in ('ACTION_REQUIRED','CONFIRMATION')
+        if inbox_only:
+            rows=[row for row in rows if row['classification'] in ('ACTION_REQUIRED','CONFIRMATION')]
+        return rows
 
     def update_session_exception_reviews(self,items:list[dict[str,Any]],workflow_status:str,note:str,actor_username:str,assigned_to:str='',resolution:str=''):
         target=(workflow_status or '').strip().upper()
         if target not in ('NEW','IN_PROGRESS','RESOLVED','IGNORED'):
             raise ValueError('Trạng thái xử lý không hợp lệ')
+        if target=='NEW':
+            raise ValueError('Không thể mở lại lịch sử; bất thường tái phát sẽ tạo một lần xử lý mới')
         if target in ('RESOLVED','IGNORED') and not (note or '').strip():
             raise ValueError('Phải nhập ghi chú khi kết thúc xử lý')
         if not items: raise ValueError('Chưa chọn Session Exception')
@@ -874,6 +939,11 @@ class ReportRepository:
                     if not code or not fingerprint: raise ValueError('Thiếu định danh Session Exception')
                     cur.execute('SELECT id FROM work_sessions WHERE id=%s',(session_id,))
                     if not cur.fetchone(): raise NotFoundError(f'Không tìm thấy Session #{session_id}')
+                    if target in ('RESOLVED','IGNORED'):
+                        cur.execute('SELECT workflow_status FROM session_exception_reviews WHERE session_id=%s AND exception_fingerprint=%s FOR UPDATE',(session_id,fingerprint))
+                        review=cur.fetchone()
+                        if not review or review['workflow_status']!='IN_PROGRESS':
+                            raise ValueError('Phải nhận xử lý trước khi hoàn tất hoặc bỏ qua')
                     started_by=actor_username if target=='IN_PROGRESS' else ''
                     resolved_by=actor_username if target in ('RESOLVED','IGNORED') else ''
                     cur.execute("""INSERT INTO session_exception_reviews(

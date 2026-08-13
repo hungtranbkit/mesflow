@@ -34,7 +34,7 @@ const menu=[
     {page:'users',label:'Người dùng',hint:'Tài khoản, vai trò và mật khẩu'},
     {page:'working-calendar',label:'Lịch làm việc',hint:'Ca làm và thời gian nghỉ'}
   ]},
-  {label:'Hướng dẫn sử dụng',page:'tutorials'}
+  {label:'Hướng dẫn',page:'tutorials'}
 ];
 const nav=document.getElementById('nav'),content=document.getElementById('content'),title=document.getElementById('pageTitle'),subtitle=document.getElementById('pageSubtitle');
 const appLayout=document.getElementById('appLayout'),sidebar=document.getElementById('appSidebar'),sidebarToggle=document.getElementById('sidebarToggle'),mobileMenuToggle=document.getElementById('mobileMenuToggle'),sidebarOverlay=document.getElementById('sidebarOverlay');
@@ -78,7 +78,7 @@ operationAggregateGuard.observe(document.body,{childList:true,subtree:true});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMobileSidebar()});
 document.getElementById('logout').onclick=async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/login'};
 function setActive(btn){document.body.dataset.page=btn?.dataset?.page||'';document.querySelectorAll('.nav-item,.sidebar-sub-item,.sidebar-group-trigger').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.sidebar-group').forEach(x=>x.classList.remove('has-active'));if(btn){btn.classList.add('active');const group=btn.closest('.sidebar-group');if(group){group.classList.add('has-active');group.classList.add('open');group.querySelector('.sidebar-group-trigger')?.classList.add('active')}}}
-async function openPage(id,btn){if(!canOpenPage(id)){content.innerHTML='<div class="empty danger"><b>Không có quyền truy cập</b><span>Liên hệ Admin để được cấp quyền cho màn hình này.</span></div>';return}if(document.body.dataset.page==='templates'&&id!=='templates'&&templateUi?.dirty&&!confirm('Template có thay đổi chưa lưu. Rời màn hình và bỏ thay đổi?'))return;setActive(btn||document.querySelector(`[data-page="${id}"]`));if(id==='overview')return renderOverview();if(id==='dashboard')return renderDashboard();if(id==='production-schedule')return renderProductionSchedule();if(id==='session-management')return renderSessionManagement();if(id==='session-exceptions')return renderSessionExceptions();if(id==='templates')return renderTemplates();if(id==='production-orders')return renderProductionOrders();if(id==='employees')return renderEmployees();if(id==='qr-print')return renderQrPrintCenter();if(id==='equipment')return renderEquipment();if(resources[id])return renderResource(id);if(id==='sessions')return renderSimple('Work Sessions','/api/work-sessions');if(id==='qc')return renderSimple('QC Inspections','/api/qc/inspections');if(id==='kiosk-events')return renderSimple('Kiosk Events','/api/kiosk-events');if(id==='notifications')return renderSimple('Thông báo','/api/notifications');if(id==='audit')return renderSimple('Audit Logs','/api/audit-logs');if(id==='kpi-employees')return renderSimple('KPI nhân viên','/api/kpi/employees');if(id==='kpi-operations')return renderSimple('KPI Operation','/api/kpi/operations');if(id==='users')return renderUsers();if(id==='working-calendar')return renderWorkingCalendar();if(id==='monitoring')return renderMonitoring();if(id==='kiosk-management')return renderKioskManagement();if(id==='system-logs')return renderSystemLogs();if(id==='tutorials')return renderTutorials()}
+async function openPage(id,btn){if(!canOpenPage(id)){content.innerHTML='<div class="empty danger"><b>Không có quyền truy cập</b><span>Liên hệ Admin để được cấp quyền cho màn hình này.</span></div>';return}if(document.body.dataset.page==='templates'&&id!=='templates'&&templateUi?.dirty&&!confirm('Template có thay đổi chưa lưu. Rời màn hình và bỏ thay đổi?'))return;setActive(btn||document.querySelector(`[data-page="${id}"]`));if(id==='overview')return renderOverview();if(id==='dashboard')return renderDashboard();if(id==='production-schedule')return renderProductionSchedule();if(id==='session-management')return renderSessionManagement();if(id==='session-exceptions')return renderSessionExceptions();if(id==='templates')return renderTemplates();if(id==='production-orders')return renderProductionOrders();if(id==='employees')return renderEmployees();if(id==='qr-print')return renderQrPrintCenter();if(id==='equipment')return renderEquipment();if(resources[id])return renderResource(id);if(id==='sessions')return renderSimple('Work Sessions','/api/work-sessions');if(id==='qc')return renderSimple('QC Inspections','/api/qc/inspections');if(id==='kiosk-events')return renderSimple('Kiosk Events','/api/kiosk-events');if(id==='notifications')return renderSimple('Thông báo','/api/notifications');if(id==='audit')return renderSimple('Audit Logs','/api/audit-logs');if(id==='kpi-employees')return renderSimple('KPI nhân viên','/api/kpi/employees');if(id==='kpi-operations')return renderSimple('KPI Operation','/api/kpi/operations');if(id==='users')return renderUsers();if(id==='working-calendar')return renderWorkingCalendar();if(id==='monitoring')return renderMonitoring();if(id==='kiosk-management')return renderKioskManagement();if(id==='esp-ota')return renderEspOta();if(id==='system-logs')return renderSystemLogs();if(id==='tutorials')return renderTutorials()}
 let dashboardTimer=null;
 const siteToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 async function renderDashboard(){
@@ -603,8 +603,14 @@ function showInstantiateTemplateModal(t,salesOrders){const box=document.createEl
 
 
 
+function attachGuideTabs(active){
+  const tabs=document.createElement('nav');tabs.className='guide-subtabs';tabs.setAttribute('aria-label','Nhóm hướng dẫn');
+  tabs.innerHTML=`<button type="button" class="${active==='mesflow'?'active':''}" aria-selected="${active==='mesflow'}">Hướng dẫn MESFlow</button><button type="button" class="${active==='esp'?'active':''}" aria-selected="${active==='esp'}">ESP Kiosk</button>`;
+  const buttons=tabs.querySelectorAll('button');buttons[0].onclick=()=>renderTutorials();buttons[1].onclick=()=>renderEspKioskTutorial();content.prepend(tabs);
+}
+
 async function renderTutorials(){
-  title.textContent='Hướng dẫn sử dụng';
+  title.textContent='Hướng dẫn';
   subtitle.textContent='Video hướng dẫn được lưu riêng và có thể cập nhật mà không cần build lại MESFlow';
   content.innerHTML=`<div class="tutorial-shell">
     <section class="tutorial-hero">
@@ -620,7 +626,7 @@ async function renderTutorials(){
         <video id="tutorialVideo" controls preload="metadata" playsinline></video>
       </div>
     </div>
-  </div>`;
+  </div>`;attachGuideTabs('mesflow');
   let items=[];
   try{
     const d=await api('/api/tutorials');
@@ -654,6 +660,21 @@ async function renderTutorials(){
   document.getElementById('tutorialClose').onclick=close;
   player.onclick=e=>{if(e.target===player)close()};
   search.oninput=draw;cat.onchange=draw;draw();
+}
+
+async function renderEspKioskTutorial(){
+  title.textContent='Hướng dẫn';subtitle.textContent='Hướng dẫn MESFlow và thiết bị ESP Kiosk';
+  content.innerHTML=`<div class="tutorial-shell esp-guide-shell"><section class="tutorial-hero esp-guide-hero"><div><span class="eyebrow">ESP KIOSK</span><h2>Hướng dẫn ESP Kiosk</h2><p>Video được mô phỏng theo giao diện firmware ESP Kiosk hiện tại.</p><div class="tutorial-meta" id="espTutorialVersions"></div></div></section><div id="espTutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn ESP Kiosk được publish.</b><span>Vui lòng liên hệ quản trị viên.</span></div><section id="espTutorialWorkspace" class="esp-guide-workspace" hidden><aside class="esp-guide-list"><h3>Danh sách video</h3><div id="espTutorialList"></div></aside><article class="esp-guide-player"><div class="esp-guide-player-copy"><span id="espTutorialOrder"></span><div><h3 id="espTutorialPlayerTitle"></h3><p id="espTutorialPlayerDesc"></p></div></div><video id="espTutorialVideo" controls preload="metadata" playsinline></video></article></section></div>`;attachGuideTabs('esp');
+  let manifest;
+  try{manifest=(await api('/api/esp-kiosk-tutorial')).manifest}catch(e){const empty=document.getElementById('espTutorialEmpty');empty.hidden=false;empty.innerHTML='<b>Không tải được bộ hướng dẫn ESP Kiosk.</b><span>Vui lòng liên hệ quản trị viên.</span>';return}
+  if(!manifest){document.getElementById('espTutorialEmpty').hidden=false;return}
+  document.getElementById('espTutorialVersions').innerHTML=`<span>Firmware áp dụng: <b>${esc(manifest.firmware_version||'—')}</b></span><span>Phiên bản hướng dẫn: <b>${esc(manifest.tutorial_version||'—')}</b></span>`;
+  const items=manifest.videos||[],empty=document.getElementById('espTutorialEmpty'),workspace=document.getElementById('espTutorialWorkspace');
+  if(!items.length){empty.hidden=false;return}workspace.hidden=false;
+  const list=document.getElementById('espTutorialList'),video=document.getElementById('espTutorialVideo');
+  list.innerHTML=items.map((x,i)=>`<button type="button" data-i="${i}"><span>${i+1}</span><b>${esc(x.title||'Video hướng dẫn')}</b><small>${x.duration_seconds?`${Math.round(Number(x.duration_seconds))} giây`:''}</small></button>`).join('');
+  const select=index=>{const item=items[index];video.pause();document.getElementById('espTutorialOrder').textContent=String(index+1).padStart(2,'0');document.getElementById('espTutorialPlayerTitle').textContent=item.title||'Video hướng dẫn';document.getElementById('espTutorialPlayerDesc').textContent=item.description||'';video.src=item.url;video.load();list.querySelectorAll('button').forEach((button,i)=>{button.classList.toggle('active',i===index);button.setAttribute('aria-current',i===index?'true':'false')})};
+  list.querySelectorAll('button').forEach(button=>button.onclick=()=>select(Number(button.dataset.i)));select(0);
 }
 
 async function renderSimple(t,url){title.textContent=t;subtitle.textContent='Dữ liệu trực tiếp từ PostgreSQL';content.innerHTML='<div class="panel">Đang tải...</div>';try{const d=await api(url);content.innerHTML=`<div class="panel"><div class="panel-head"><h2>${t}</h2><button class="btn" onclick="openPage('${document.querySelector('.nav-item.active')?.dataset.page}')">Làm mới</button></div>${table(d.items||[])}</div>`}catch(e){content.innerHTML=`<div class="panel danger">${esc(e.message)}</div>`}}

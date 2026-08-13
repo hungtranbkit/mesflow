@@ -147,7 +147,17 @@ class KioskRepository:
     def heartbeat(self,device_uuid:str,data:dict[str,Any]):
         with transaction() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT station_id FROM kiosk_identities WHERE device_uuid=%s AND status='ACTIVE'",(device_uuid,))
+                cur.execute("SELECT boot_id,boot_seen_at,boot_seen_at>CURRENT_TIMESTAMP-INTERVAL '15 minutes' boot_recent FROM kiosk_identities WHERE device_uuid=%s AND status='ACTIVE' FOR UPDATE",(device_uuid,))
+                previous_boot=cur.fetchone() or {};new_boot=str(data.get('boot_id') or '')[:120]
+                boot_loop=bool(new_boot and previous_boot.get('boot_id') and new_boot!=previous_boot.get('boot_id') and previous_boot.get('boot_recent') and int(data.get('uptime_seconds',0) or 0)<300)
+                cur.execute("""UPDATE kiosk_identities SET firmware_version=%s,firmware_build=%s,hardware_model=%s,
+                               ota_capable=%s,boot_id=%s,uptime_seconds=%s,boot_reason=%s,
+                               boot_seen_at=CASE WHEN boot_id<>%s AND %s<>'' THEN CURRENT_TIMESTAMP ELSE boot_seen_at END,
+                               last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+                               WHERE device_uuid=%s AND status='ACTIVE' RETURNING station_id""",
+                            (str(data.get('firmware_version') or data.get('app_version') or ''),str(data.get('firmware_build') or ''),
+                             str(data.get('hardware_model') or ''),bool(data.get('ota_capable',False)),new_boot,int(data.get('uptime_seconds',0) or 0),
+                             str(data.get('boot_reason') or '')[:120],new_boot,new_boot,device_uuid))
                 identity=cur.fetchone()
                 if not identity: raise NotFoundError('active kiosk identity not found')
                 cur.execute("""INSERT INTO kiosk_status(device_uuid,station_id,ui_state,health_state,queue_size,wifi_rssi,free_heap,last_error,last_heartbeat_at,updated_at)
@@ -155,7 +165,7 @@ class KioskRepository:
                 ON CONFLICT(device_uuid) DO UPDATE SET station_id=EXCLUDED.station_id,ui_state=EXCLUDED.ui_state,
                 health_state=EXCLUDED.health_state,queue_size=EXCLUDED.queue_size,wifi_rssi=EXCLUDED.wifi_rssi,
                 free_heap=EXCLUDED.free_heap,last_error=EXCLUDED.last_error,last_heartbeat_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
-                RETURNING *""",(device_uuid,identity['station_id'],str(data.get('ui_state','UNKNOWN')),str(data.get('health_state','OK')),int(data.get('queue_size',0) or 0),data.get('wifi_rssi'),data.get('free_heap'),str(data.get('last_error',''))))
+                RETURNING *""",(device_uuid,identity['station_id'],str(data.get('ui_state','UNKNOWN')),str(data.get('health_state','OK')),int(data.get('queue_size',0) or 0),data.get('wifi_rssi'),data.get('free_heap'),'OTA_BOOT_LOOP_SUSPECTED' if boot_loop else str(data.get('last_error',''))))
                 return cur.fetchone()
 
     def heartbeat_web_demo(self,device_uuid:str,data:dict[str,Any]):
@@ -221,14 +231,18 @@ class KioskRepository:
                 if station_code:
                     cur.execute('SELECT id FROM stations WHERE upper(code)=upper(%s) LIMIT 1',(station_code,)); st=cur.fetchone(); station_id=st['id'] if st else None
                 token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
-                cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,station_id,status,token_hash,firmware_version,last_ip,last_seen_at)
-                  VALUES(%s,%s,%s,'ACTIVE',%s,%s,%s,CURRENT_TIMESTAMP)
+                cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,station_id,status,token_hash,firmware_version,firmware_build,hardware_model,ota_capable,last_ip,last_seen_at)
+                  VALUES(%s,%s,%s,'ACTIVE',%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
                   ON CONFLICT(device_uuid) DO UPDATE SET device_name=EXCLUDED.device_name,
                     station_id=COALESCE(EXCLUDED.station_id,kiosk_identities.station_id),status='ACTIVE',
                     token_hash=EXCLUDED.token_hash,
-                    firmware_version=EXCLUDED.firmware_version,last_ip=EXCLUDED.last_ip,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+                    firmware_version=EXCLUDED.firmware_version,firmware_build=EXCLUDED.firmware_build,
+                    hardware_model=EXCLUDED.hardware_model,ota_capable=EXCLUDED.ota_capable,
+                    last_ip=EXCLUDED.last_ip,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                   RETURNING *, CASE WHEN token_hash=%s THEN TRUE ELSE FALSE END token_replaced""",
-                  (device_uuid,str(data.get('device_name') or device_uuid),station_id,token_hash,str(data.get('app_version') or data.get('firmware_version') or ''),last_ip,token_hash))
+                  (device_uuid,str(data.get('device_name') or device_uuid),station_id,token_hash,
+                   str(data.get('app_version') or data.get('firmware_version') or ''),str(data.get('firmware_build') or ''),
+                   str(data.get('hardware_model') or ''),bool(data.get('ota_capable',False)),last_ip,token_hash))
                 row=cur.fetchone()
                 # Old firmware needs a token. Reuse is impossible because only hash is stored, so bind rotates token safely.
                 return row,token

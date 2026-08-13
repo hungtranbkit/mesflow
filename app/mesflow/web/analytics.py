@@ -205,8 +205,10 @@ def session_exceptions():
         if role not in ('admin','manager','supervisor'):
             return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem session bất thường'),403
         employee_id=int(request.args['employee_id']) if request.args.get('employee_id','').strip() else None
+        view=str(request.args.get('view') or 'inbox').lower()
         return jsonify(ok=True,items=ReportRepository().session_exceptions(
-            request.args.get('status'),employee_id,int(request.args.get('limit',1000)),request.args.get('workflow_status')))
+            request.args.get('status'),employee_id,int(request.args.get('limit',1000)),request.args.get('workflow_status'),inbox_only=view not in ('history','all')),
+            view=view)
     except Exception as exc: return error(exc)
 
 @bp.patch('/session-exceptions/workflow')
@@ -226,8 +228,8 @@ def update_session_exception_workflow():
             body.get('items') or [],target_status,str(body.get('note') or '').strip(),
             current_actor,assigned_to,str(body.get('resolution') or '').strip())
         AuditRepository().log(actor(),'SESSION_EXCEPTION_WORKFLOW_UPDATE','session_exception','bulk',{
-            'workflow_status':body.get('workflow_status'),'note':body.get('note'),'assigned_to':body.get('assigned_to'),
-            'resolution':body.get('resolution'),'items':body.get('items') or []})
+            'workflow_status':target_status,'note':str(body.get('note') or '').strip(),'assigned_to':assigned_to,
+            'resolution':str(body.get('resolution') or '').strip(),'items':body.get('items') or []})
         return jsonify(ok=True,items=rows,updated_count=len(rows))
     except Exception as exc: return error(exc)
 

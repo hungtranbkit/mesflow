@@ -4,7 +4,8 @@ services:
     container_name: mesflow-postgres
     restart: unless-stopped
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mesflow}
       POSTGRES_USER: ${POSTGRES_USER:-mesflow}
@@ -22,13 +23,16 @@ services:
     stop_grace_period: 60s
 
   mesflow:
+    # Transitional source-ZIP fallback. Image releases always deploy with
+    # --no-build and an immutable MESFLOW_IMAGE=image@digest.
     build:
       context: .
-    image: mesflow-app:65.8.44.51
+    image: ${MESFLOW_IMAGE:-mesflow-app:65.8.44.65}
     container_name: mesflow-app
     restart: unless-stopped
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       MESFLOW_ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
@@ -43,6 +47,7 @@ services:
       MESFLOW_INTERNAL_QA_AUTO_LOGIN: ${MESFLOW_INTERNAL_QA_AUTO_LOGIN:-0}
       MESFLOW_INTERNAL_HTTP_SESSION: ${MESFLOW_INTERNAL_HTTP_SESSION:-1}
       MESFLOW_TUTORIAL_DIR: /data/tutorials
+      MESFLOW_INTERNAL_API_TOKEN: ${MESFLOW_INTERNAL_API_TOKEN:-}
       MESFLOW_LOG_RETENTION_ENABLED: ${MESFLOW_LOG_RETENTION_ENABLED:-1}
       MESFLOW_LOG_RETENTION_BATCH_SIZE: ${MESFLOW_LOG_RETENTION_BATCH_SIZE:-2000}
       MESFLOW_LOG_RETENTION_SUCCESS_DAYS: ${MESFLOW_LOG_RETENTION_SUCCESS_DAYS:-30}
@@ -62,6 +67,7 @@ services:
       - ./runtime/uploads:/data/uploads
       - ./runtime/backups:/data/backups
       - ./runtime/tutorials:/data/tutorials:ro
+      - ./runtime/firmware:/data/firmware
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/system/ready"]
       interval: 10s

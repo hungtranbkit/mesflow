@@ -15,6 +15,7 @@ from mesflow.web.execution import bp as execution_bp
 from mesflow.web.analytics import bp as analytics_bp
 from mesflow.web.excel_io import bp as excel_io_bp, template_excel_bp
 from mesflow.web.kiosk import bp as kiosk_bp
+from mesflow.web.internal_ota import bp as internal_ota_bp
 from mesflow.web.users import bp as users_bp
 from mesflow.web.action_logging import bp as action_logging_bp, begin_request, finish_request, unhandled_error
 from mesflow.web.auth import admin_required
@@ -62,6 +63,7 @@ def create_app():
     app.register_blueprint(excel_io_bp)
     app.register_blueprint(template_excel_bp)
     app.register_blueprint(kiosk_bp)
+    app.register_blueprint(internal_ota_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(action_logging_bp)
     app.before_request(begin_request)
@@ -238,6 +240,51 @@ def create_app():
         if not candidate.is_file():
             abort(404)
         return send_from_directory(tutorial_root,filename,conditional=True)
+
+    @app.get('/api/esp-kiosk-tutorial')
+    def esp_kiosk_tutorial_manifest():
+        if not session.get('user_id'):
+            return jsonify(ok=False,error='AUTH_REQUIRED'),401
+        root=Path(os.environ.get('MESFLOW_ESP_TUTORIAL_DIR','/data/tutorials/esp-kiosk')).resolve()
+        manifest_path=root/'manifest.json'
+        if not manifest_path.is_file():
+            return jsonify(ok=True,manifest=None)
+        try:
+            manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
+        except (OSError,json.JSONDecodeError) as ex:
+            return jsonify(ok=False,error='TUTORIAL_MANIFEST_INVALID',message=str(ex)),503
+        if not isinstance(manifest,dict) or manifest.get('type')!='esp-kiosk-tutorial':
+            return jsonify(ok=False,error='TUTORIAL_MANIFEST_INVALID'),503
+        safe=[]
+        for item in list(manifest.get('videos') or []):
+            if not isinstance(item,dict): continue
+            filename=str(item.get('filename') or '').strip()
+            if not filename or Path(filename).name!=filename or not filename.lower().endswith('.mp4'): continue
+            target=(root/'videos'/filename).resolve()
+            try: target.relative_to(root/'videos')
+            except ValueError: continue
+            if not target.is_file(): continue
+            version=str(manifest.get('tutorial_version') or '')
+            clean=dict(item);clean.pop('file',None);clean['url']='/esp-kiosk-tutorial/videos/'+filename+'?v='+version;clean['size_bytes']=target.stat().st_size
+            safe.append(clean)
+        response=dict(manifest);response['videos']=sorted(safe,key=lambda item:int(item.get('order',999)))
+        result=jsonify(ok=True,manifest=response)
+        result.headers['Cache-Control']='no-cache, max-age=0, must-revalidate'
+        return result
+
+    @app.get('/esp-kiosk-tutorial/videos/<path:filename>')
+    def esp_kiosk_tutorial_video(filename):
+        if not session.get('user_id'): return jsonify(ok=False,error='AUTH_REQUIRED'),401
+        if Path(filename).name!=filename or not filename.lower().endswith('.mp4'): abort(404)
+        root=Path(os.environ.get('MESFLOW_ESP_TUTORIAL_DIR','/data/tutorials/esp-kiosk')).resolve()
+        manifest_path=root/'manifest.json'
+        if not manifest_path.is_file(): abort(404)
+        try: allowed={str(item.get('filename')) for item in json.loads(manifest_path.read_text(encoding='utf-8')).get('videos',[]) if isinstance(item,dict)}
+        except (OSError,json.JSONDecodeError): abort(404)
+        if filename not in allowed: abort(404)
+        result=send_from_directory(root/'videos',filename,conditional=True)
+        result.headers['Cache-Control']='public, max-age=31536000, immutable'
+        return result
 
     @app.get('/dashboard')
     def dashboard_page():
