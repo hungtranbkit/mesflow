@@ -778,10 +778,16 @@ class ReportRepository:
         ORDER BY po.code,p.sort_order,o.sort_order,o.id LIMIT 5000""")
         return {'sessions':sessions,'users':users,'operations':operations}
 
-    def session_exceptions(self,status:str|None=None,employee_id:int|None=None,limit:int=1000,workflow_status:str|None=None,inbox_only:bool=True):
+    def session_exceptions(self,status:str|None=None,employee_id:int|None=None,limit:int=1000,workflow_status:str|None=None,inbox_only:bool=True,session_id:int|None=None):
         conditions=[];params=[]
         if employee_id:
             conditions.append('ws.employee_id=%s');params.append(employee_id)
+        if session_id:
+            conditions.append('ws.id=%s');params.append(int(session_id))
+            # A single-session lookup (the Session Detail drawer) always wants
+            # the full picture -- current exception plus resolved/ignored
+            # history for that exact session -- never just the Inbox subset.
+            inbox_only=False
         status=(status or '').strip().upper()
         if status=='OPEN': conditions.append("ws.status='OPEN'")
         elif status=='CLOSED': conditions.append("ws.status='CLOSED'")
@@ -789,38 +795,75 @@ class ReportRepository:
         if workflow_status in ('NEW','IN_PROGRESS','RESOLVED','IGNORED'):
             if workflow_status=='NEW': conditions.append("COALESCE(r.workflow_status,'NEW')='NEW'")
             else: conditions.append('r.workflow_status=%s');params.append(workflow_status)
+            # An explicit workflow_status filter is a targeted status lookup
+            # (e.g. "show me exactly what's IN_PROGRESS/RESOLVED"), not the
+            # manager's default Inbox judgement -- never apply the inbox
+            # visibility lens on top of an explicit status request.
+            inbox_only=False
         where=('WHERE '+' AND '.join(conditions)) if conditions else ''
         params.append(min(max(limit,1),5000))
         rows=fetch_all(f"""WITH overlap_flags AS (
           SELECT a.id session_id,b.id conflict_session_id,'OVERLAP' exception_code,'CRITICAL' severity,
-            'Chồng thời gian với session #'||b.id exception_message
+            'Chồng thời gian với session #'||b.id exception_message,
+            (
+              (COALESCE(a.good_qty,0)+COALESCE(a.defect_qty,0)+COALESCE(a.rework_qty,0)=0
+                AND EXTRACT(EPOCH FROM (COALESCE(a.ended_at,CURRENT_TIMESTAMP)-a.started_at))<300)
+              OR
+              (COALESCE(b.good_qty,0)+COALESCE(b.defect_qty,0)+COALESCE(b.rework_qty,0)=0
+                AND EXTRACT(EPOCH FROM (COALESCE(b.ended_at,CURRENT_TIMESTAMP)-b.started_at))<300)
+            ) secondary_evidence
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
            AND tstzrange(a.started_at,COALESCE(a.ended_at,'infinity'::timestamptz),'[)')
                && tstzrange(b.started_at,COALESCE(b.ended_at,'infinity'::timestamptz),'[)')
         ), flags AS (
+          -- secondary_evidence for OPEN_TOO_LONG: the employee has since started
+          -- other work, i.e. they moved on and likely just forgot to close this
+          -- one (ambiguous-forgotten-finish -> CONFIRMATION), vs a genuine orphan
+          -- with no later activity at all (-> ACTION_REQUIRED). See classify().
           SELECT ws.id session_id,NULL::bigint conflict_session_id,'OPEN_TOO_LONG' exception_code,'ERROR' severity,
-            'Session đang mở quá 12 giờ' exception_message FROM work_sessions ws
+            'Session đang mở quá 12 giờ' exception_message,
+            EXISTS(
+              SELECT 1 FROM work_sessions later
+              WHERE later.employee_id=ws.employee_id AND later.id<>ws.id AND later.started_at>ws.started_at
+            ) secondary_evidence
+          FROM work_sessions ws
             WHERE ws.status='OPEN' AND ws.started_at<CURRENT_TIMESTAMP-INTERVAL '12 hours'
           UNION ALL
-          SELECT ws.id,NULL,'ZERO_QTY_LONG','WARNING','Session đóng trên 4 giờ nhưng sản lượng bằng 0'
+          SELECT ws.id,NULL,'ZERO_QTY_LONG','WARNING','Session đóng trên 4 giờ nhưng sản lượng bằng 0',false
             FROM work_sessions ws WHERE ws.status='CLOSED' AND COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)=0
               AND ws.ended_at-ws.started_at>INTERVAL '4 hours'
           UNION ALL
-          SELECT ws.id,NULL,'MISSING_STATION','WARNING','Session không có trạm/kiosk'
+          SELECT ws.id,NULL,'MISSING_STATION','WARNING','Session không có trạm/kiosk',false
             FROM work_sessions ws WHERE ws.station_id IS NULL AND COALESCE(ws.device_uuid,'')=''
           UNION ALL
-          SELECT ws.id,NULL,'INVALID_TIME','CRITICAL','Giờ kết thúc trước giờ bắt đầu'
+          SELECT ws.id,NULL,'INVALID_TIME','CRITICAL','Giờ kết thúc trước giờ bắt đầu',false
             FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at
         ), all_flags AS (
           SELECT * FROM overlap_flags UNION ALL SELECT * FROM flags
         ), base_detected AS (
-          SELECT f.*,f.exception_code||':'||COALESCE(f.conflict_session_id,0)::text base_fingerprint
-          FROM all_flags f
+          SELECT f.*,f.exception_code||':'||COALESCE(f.conflict_session_id,0)::text base_fingerprint,
+            ws0.updated_at session_updated_at
+          FROM all_flags f JOIN work_sessions ws0 ON ws0.id=f.session_id
         ), detected AS (
+          -- Fingerprint bump policy: only mint a brand-new (unreviewed) occurrence
+          -- fingerprint when the session row was genuinely touched again AFTER the
+          -- prior review was completed (ws.updated_at > completed_review.resolved_at
+          -- -- real evidence something changed). If the session has not been
+          -- touched since, the condition never actually changed/went away; reuse
+          -- the completed review's own fingerprint so it keeps resolving to its
+          -- true RESOLVED/IGNORED status instead of reappearing as NEW on every
+          -- read (this was the reappearance bug).
           SELECT f.session_id,f.conflict_session_id,f.exception_code,f.severity,f.exception_message,
-            COALESCE(active_review.exception_fingerprint,
-              CASE WHEN completed_review.id IS NULL THEN f.base_fingerprint
-                   ELSE f.base_fingerprint||'#occurrence:'||(completed_review.id+1)::text END
+            f.secondary_evidence,
+            COALESCE(
+              active_review.exception_fingerprint,
+              CASE
+                WHEN completed_review.id IS NULL THEN f.base_fingerprint
+                WHEN f.session_updated_at IS NOT NULL AND completed_review.resolved_at IS NOT NULL
+                     AND f.session_updated_at>completed_review.resolved_at
+                  THEN f.base_fingerprint||'#occurrence:'||(completed_review.id+1)::text
+                ELSE completed_review.exception_fingerprint
+              END
             ) exception_fingerprint,true is_active
           FROM base_detected f
           LEFT JOIN LATERAL (
@@ -833,7 +876,7 @@ class ReportRepository:
             ORDER BY r.id DESC LIMIT 1
           ) active_review ON true
           LEFT JOIN LATERAL (
-            SELECT r.id
+            SELECT r.id,r.exception_fingerprint,r.resolved_at
             FROM session_exception_reviews r
             WHERE r.session_id=f.session_id AND r.exception_code=f.exception_code
               AND (r.exception_fingerprint=f.base_fingerprint
@@ -845,6 +888,7 @@ class ReportRepository:
           SELECT r.session_id,NULL::bigint conflict_session_id,r.exception_code,
             'INFO'::text severity,
             'Bất thường không còn được phát hiện sau khi dữ liệu Session thay đổi'::text exception_message,
+            false secondary_evidence,
             r.exception_fingerprint,false is_active
           FROM session_exception_reviews r
           JOIN work_sessions ws0 ON ws0.id=r.session_id
@@ -858,7 +902,7 @@ class ReportRepository:
           SELECT * FROM review_only
         )
         SELECT f.exception_code,f.exception_fingerprint,f.severity,f.exception_message,f.conflict_session_id,
-          f.is_active,
+          f.is_active,f.secondary_evidence,
           ws.id session_id,ws.status session_status,ws.started_at,ws.ended_at,
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
           ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,ws.station_id,ws.device_uuid,
@@ -891,18 +935,65 @@ class ReportRepository:
         LIMIT %s""",params)
         # The detector remains authoritative; Inbox visibility is a separate,
         # deterministic classification layer. QA/tutorial fixtures are retained
-        # in history but never presented as manager work.
+        # in history but never presented as manager work. A row already
+        # RESOLVED/IGNORED (including AUTO_IGNORED, see auto_ignore_session_
+        # exceptions()) is always HISTORY_ONLY even while the underlying
+        # condition is still technically detected (is_active=true) -- that is
+        # exactly the reappearance-prevention case: nothing genuinely changed
+        # since the review, so it must not resurface as new manager work.
         def classify(row):
             source=str(row.get('data_source') or 'UNKNOWN').upper()
             active=bool(row.get('is_active'))
             code=str(row.get('exception_code') or '').upper()
-            if source in ('QA_TEST','TUTORIAL_DEMO'):
-                return 'TEST_DATA'
-            if not active:
+            wf=str(row.get('workflow_status') or 'NEW').upper()
+            secondary=bool(row.get('secondary_evidence'))
+            if wf in ('RESOLVED','IGNORED'):
                 return 'HISTORY_ONLY'
-            if code in ('OVERLAP','INVALID_TIME','MISSING_STATION','OPEN_TOO_LONG'):
+            # QA/Tutorial fixtures never surface as manager work, full stop --
+            # including when their seeded/demo data happens to carry an
+            # IN_PROGRESS workflow_status (real bug caught live: a Tutorial
+            # session claimed as part of the tutorial's own demo flow was
+            # leaking into the default Inbox because the "keep claimed work
+            # visible" rule below was checked first). Source filtering must
+            # win over every other rule except an actual human RESOLVED/
+            # IGNORED, which is handled above and is source-agnostic on
+            # purpose (History shows everything, with source as a column).
+            if source=='QA_TEST':
+                return 'QA_TEST'
+            if source=='TUTORIAL_DEMO':
+                return 'TUTORIAL'
+            if wf=='IN_PROGRESS':
+                # Already claimed by a human -- keep it actionable in the
+                # default Inbox until they finish, even if the underlying
+                # condition self-corrects (is_active flips false) in the
+                # meantime. Disappearing mid-review would strand the reviewer.
                 return 'ACTION_REQUIRED'
-            if code in ('ZERO_QTY_LONG',):
+            if not active:
+                # The condition stopped matching on its own -- nobody (human or
+                # auto-ignore) has reviewed it yet, the data simply self-corrected
+                # (e.g. the session was edited for an unrelated reason, or a
+                # later valid action superseded the mistake). Distinct from
+                # HISTORY_ONLY, which means someone/something already closed it.
+                return 'AUTO_RECOVERED'
+            if code=='OVERLAP':
+                # Trivial mistake: one side has zero production impact and lasted
+                # under 5 minutes -- e.g. an accidental double scan immediately
+                # corrected. No working-time/KPI consequence -> USER_MISTAKE
+                # (auto-ignored). A genuine overlap affecting real work stays
+                # ACTION_REQUIRED. Matches the task's own example concept:
+                # wrong_scan AND no production mutation AND subsequent valid
+                # action -> AUTO_IGNORED.
+                return 'USER_MISTAKE' if secondary else 'ACTION_REQUIRED'
+            if code in ('INVALID_TIME','MISSING_STATION'):
+                return 'ACTION_REQUIRED'
+            if code=='OPEN_TOO_LONG':
+                # secondary_evidence = employee has later activity, i.e. they
+                # moved on to other work -- strong evidence of "forgot to close"
+                # but unsafe to auto-resolve (don't know true finish time or
+                # quantities) -> CONFIRMATION. No later activity at all -> a
+                # genuinely orphaned session -> ACTION_REQUIRED.
+                return 'CONFIRMATION' if secondary else 'ACTION_REQUIRED'
+            if code=='ZERO_QTY_LONG':
                 return 'CONFIRMATION'
             return 'UNKNOWN'
         for row in rows:
@@ -919,6 +1010,33 @@ class ReportRepository:
         if inbox_only:
             rows=[row for row in rows if row['classification'] in ('ACTION_REQUIRED','CONFIRMATION')]
         return rows
+
+    def auto_ignore_session_exceptions(self)->int:
+        """Deterministically auto-ignore trivial user-mistake exceptions that
+        left no operational data impact (see AUTO_IGNORE rules in
+        reports/SESSION_EXCEPTION_SIMPLIFICATION.md). Idempotent and safe to
+        call on every Inbox read: it only INSERTs a review row where none
+        exists yet for that exact fingerprint (ON CONFLICT DO NOTHING), so it
+        can never overwrite a human decision -- including one already
+        IN_PROGRESS. The original detection evidence is preserved; this only
+        adds a review record, nothing is deleted."""
+        rows=self.session_exceptions(inbox_only=False,limit=5000)
+        candidates=[row for row in rows if row.get('classification')=='USER_MISTAKE'
+                    and str(row.get('workflow_status') or 'NEW').upper()=='NEW']
+        if not candidates: return 0
+        ignored=0
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                for row in candidates:
+                    note=f"Tự động bỏ qua: {row.get('exception_message') or ''} - không ảnh hưởng dữ liệu vận hành (thời lượng ngắn, không có sản lượng)."
+                    cur.execute("""INSERT INTO session_exception_reviews(
+                      session_id,exception_code,exception_fingerprint,workflow_status,resolution,note,
+                      resolved_by,resolved_at,updated_at)
+                      VALUES(%s,%s,%s,'IGNORED','AUTO_IGNORED',%s,'system:auto_ignore',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                      ON CONFLICT(session_id,exception_fingerprint) DO NOTHING""",
+                      (row['session_id'],row['exception_code'],row['exception_fingerprint'],note))
+                    ignored+=cur.rowcount
+        return ignored
 
     def update_session_exception_reviews(self,items:list[dict[str,Any]],workflow_status:str,note:str,actor_username:str,assigned_to:str='',resolution:str=''):
         target=(workflow_status or '').strip().upper()
@@ -1052,6 +1170,46 @@ class ReportRepository:
           'stations':fetch_all("SELECT id,code,name FROM stations WHERE active=TRUE ORDER BY code")
         }
         return {'items':items,'filters':filters}
+
+    def session_detail(self,session_id:int):
+        """Full single-session picture for the Session Detail drawer/modal --
+        shared by Session Management and Session Exceptions so both reuse the
+        exact same fields instead of maintaining two renderers. Returns the
+        session itself, its current/history exceptions, its kiosk activity
+        timeline, and its full resolution history (every
+        session_exception_reviews row ever recorded for this session, not
+        just the latest per fingerprint)."""
+        session_id=int(session_id)
+        row=fetch_one("""SELECT ws.id session_id,ws.employee_id,ws.operation_id,ws.station_id,ws.device_uuid,ws.status,
+          ws.started_at,ws.ended_at,ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,ws.note,
+          ws.created_at,ws.updated_at,ws.start_request_id,ws.finish_request_id,
+          e.employee_no employee_code,e.name employee_name,
+          po.id po_id,po.code po_code,
+          p.id part_id,p.code part_code,p.name part_name,
+          o.id operation_id_ref,o.code operation_code,o.name operation_name,
+          s.code station_code,s.name station_name,
+          GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
+          CASE
+            WHEN COALESCE(ws.start_request_id,'') LIKE 'QA-REAL-START-%%' OR COALESCE(ws.start_request_id,'') LIKE 'QA-RUN-%%' THEN 'QA_TEST'
+            WHEN COALESCE(ws.start_request_id,'') LIKE 'TUT%%' OR COALESCE(ws.note,'') LIKE 'TUT%%'
+              OR e.employee_no LIKE 'TUT-%%' OR po.code LIKE 'TUT-%%' THEN 'TUTORIAL_DEMO'
+            ELSE 'UNKNOWN'
+          END data_source
+        FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
+        JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
+        LEFT JOIN stations s ON s.id=ws.station_id WHERE ws.id=%s""",(session_id,))
+        if not row: raise NotFoundError(f'Không tìm thấy Session #{session_id}')
+        if str(row.get('data_source') or '').upper()=='UNKNOWN' and (row.get('start_request_id') or row.get('finish_request_id')):
+            row['data_source']='REAL_USER'
+        row['data_source']='TUTORIAL' if row.get('data_source')=='TUTORIAL_DEMO' else row.get('data_source')
+        exceptions=self.session_exceptions(limit=200,session_id=session_id)
+        activity=fetch_all("""SELECT id,event_type,severity,status,message,occurred_at,received_at,
+          resolved_at,resolved_by,resolution_note
+          FROM kiosk_events WHERE session_id=%s ORDER BY occurred_at DESC,id DESC LIMIT 200""",(session_id,))
+        reviews=fetch_all("""SELECT id,exception_code,exception_fingerprint,workflow_status,resolution,note,
+          assigned_to,started_by,started_at,resolved_by,resolved_at,created_at,updated_at
+          FROM session_exception_reviews WHERE session_id=%s ORDER BY created_at DESC,id DESC LIMIT 200""",(session_id,))
+        return {'session':row,'exceptions':exceptions,'activity':activity,'reviews':reviews}
 
     def recent_session_operations(self,po_id=None,part_id=None,operation_id=None,employee_id=None,activity='recent',limit=50):
         conditions=['EXISTS (SELECT 1 FROM work_sessions wx WHERE wx.operation_id=o.id)']; params=[]

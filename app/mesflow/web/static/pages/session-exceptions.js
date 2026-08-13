@@ -100,22 +100,9 @@ async function renderSessionExceptions(){
     </div>
   </div>`;
 
-  const labels={
-    OVERLAP:'Chồng thời gian',
-    OPEN_TOO_LONG:'Mở quá lâu',
-    ZERO_QTY_LONG:'Không có sản lượng',
-    MISSING_STATION:'Thiếu trạm',
-    INVALID_TIME:'Sai thời gian'
-  };
-  const hints={
-    OVERLAP:'Kiểm tra hai Session trùng giờ. Thường cần sửa thời gian hoặc Session ghi nhầm.',
-    OPEN_TOO_LONG:'Kiểm tra công nhân đã kết thúc công việc chưa. Nếu quên đóng, sửa Session và nhập giờ kết thúc đúng.',
-    ZERO_QTY_LONG:'Đối chiếu phiếu sản xuất. Chỉ nhập sản lượng khi có bằng chứng; nếu thực tế không sản xuất, ghi rõ lý do.',
-    MISSING_STATION:'Xác minh công nhân làm tại trạm nào. Chỉ bổ sung trạm nếu có căn cứ.',
-    INVALID_TIME:'Giờ kết thúc đang trước giờ bắt đầu. Cần sửa lại thời gian đúng trước khi hoàn tất xử lý.'
-  };
-  const workflowLabels={NEW:'Mới',IN_PROGRESS:'Đang xử lý',RESOLVED:'Đã xử lý',IGNORED:'Bỏ qua'};
-  const severityLabels={CRITICAL:'Nghiêm trọng',ERROR:'Cần xử lý',WARNING:'Cảnh báo',INFO:'Đã thay đổi'};
+  // Shared vocabulary lives in session-detail.js (window.MF_*) so this page
+  // and the Session Detail drawer never drift into separate label sets.
+  const labels=MF_EXCEPTION_LABELS,hints=MF_EXCEPTION_HINTS,workflowLabels=MF_WORKFLOW_LABELS,severityLabels=MF_SEVERITY_LABELS,impactLabels=MF_IMPACT_LABELS;
 
   let allItems=[],visible=[],current=null,targetStatus='',currentView='NEW';
 
@@ -164,19 +151,37 @@ async function renderSessionExceptions(){
       <article><span>Đã xử lý hôm nay</span><b>${doneToday.length}</b></article>`;
   };
 
-  const queueRow=x=>{
+  // Active list card — fixed Header/Body/Footer structure, inline actions.
+  // Never patch this per-row with arbitrary margins; extend .se-card* in
+  // ui.css instead.
+  const queueCard=x=>{
     const selected=current&&itemKey(current)===itemKey(x);
     const inactive=x.is_active===false;
-    return `<button class="se-item ${selected?'selected':''} ${inactive?'inactive':''}" data-key="${esc(itemKey(x))}" type="button">
-      <span class="se-item-state">
-        <span class="workflow-badge ${String(x.workflow_status||'NEW').toLowerCase()}">${esc(workflowLabels[x.workflow_status]||x.workflow_status)}</span>
-        <span class="se-source-badge ${String(x.data_source||'UNKNOWN').toLowerCase()}">${esc(({QA_TEST:'QA Test',TUTORIAL_DEMO:'Tutorial/Demo',REAL_USER:'Thực tế',UNKNOWN:'Không xác định'})[x.data_source]||'Không xác định')}</span>
-        ${inactive?'<span class="se-fixed-badge">Không còn phát hiện</span>':`<span class="log-level ${String(x.severity||'').toLowerCase()}">${esc(severityLabels[x.severity]||x.severity)}</span>`}
-      </span>
-      <span class="se-item-main"><b>${esc(labels[x.exception_code]||x.exception_code)} · Session #${x.session_id}</b><small>${esc(x.employee_code||'')} · ${esc(x.employee_name||'')}</small></span>
-      <span class="se-item-op"><b>${esc(x.operation_code||'—')} · ${esc(x.operation_name||'')}</b><small>${esc(x.po_code||'—')} / ${esc(x.part_code||'—')}</small></span>
-      <span class="se-item-time"><b>${fmt(x.started_at)}</b><small>${x.ended_at?fmt(x.ended_at):'Đang mở'} · ${fmtDuration(Number(x.duration_seconds||0))}</small></span>
-    </button>`;
+    const done=isDone(x);
+    return `<article class="se-card ${selected?'selected':''} ${inactive?'inactive':''}" data-key="${esc(itemKey(x))}">
+      <button class="se-card-trigger" type="button" data-key="${esc(itemKey(x))}">
+        <div class="se-card-header">
+          <div class="se-card-who"><b>${esc(x.employee_name||'—')}</b><small>${esc(x.employee_code||'—')} · Session #${x.session_id}</small></div>
+          <div class="se-card-badges">
+            <span class="workflow-badge ${String(x.workflow_status||'NEW').toLowerCase()}">${esc(workflowLabels[x.workflow_status]||x.workflow_status)}</span>
+            ${inactive?'<span class="se-fixed-badge">Không còn phát hiện</span>':`<span class="log-level ${String(x.severity||'').toLowerCase()}">${esc(severityLabels[x.severity]||x.severity)}</span>`}
+          </div>
+        </div>
+        <div class="se-card-body">
+          <span class="se-card-op">${esc(x.operation_code||'—')} · ${esc(x.operation_name||'')} · ${esc(x.po_code||'—')}</span>
+          <span class="se-card-message">${esc(x.exception_message||'')}</span>
+          <span class="se-card-impact">${esc(impactLabels[x.exception_code]||'')}</span>
+        </div>
+      </button>
+      <div class="se-card-footer">
+        <span class="se-card-meta">Phát hiện: ${fmt(x.started_at)} · ${sourceBadgeHtml(x.data_source)}</span>
+        <span class="se-card-actions">
+          ${!done?`<button class="btn primary se-card-act" data-act="process" data-key="${esc(itemKey(x))}" type="button">Xử lý</button>`:''}
+          ${!done?`<button class="btn se-card-act" data-act="ignore" data-key="${esc(itemKey(x))}" type="button">Bỏ qua</button>`:''}
+          <button class="btn se-card-act" data-act="view" data-key="${esc(itemKey(x))}" type="button">Xem session</button>
+        </span>
+      </div>
+    </article>`;
   };
 
   const detailHtml=x=>{
@@ -213,7 +218,7 @@ async function renderSessionExceptions(){
       ${x.review_note||x.assigned_to||isDone(x)?`<div class="se-review-note"><b>Dấu vết xử lý</b>
         <span>Ghi nhận: ${fmt(x.review_created_at||x.started_at)} · Phụ trách: ${esc(x.assigned_to||'Chưa phân công')}</span>
         <span>Bắt đầu: ${fmt(x.review_started_at)} · bởi ${esc(x.started_by||'—')}</span>
-        ${isDone(x)?`<span>Kết thúc: ${fmt(x.resolved_at)} · bởi ${esc(x.resolved_by||'—')} · ${esc(x.workflow_status==='IGNORED'?'Bỏ qua có lý do':x.resolution||'Đã xử lý')}</span>`:''}
+        ${isDone(x)?`<span>Kết thúc: ${fmt(x.resolved_at)} · bởi ${esc(x.resolved_by==='system:auto_ignore'?'Hệ thống (tự động)':x.resolved_by||'—')} · ${esc(x.resolution==='AUTO_IGNORED'?'Tự động bỏ qua (không ảnh hưởng dữ liệu)':x.workflow_status==='IGNORED'?'Bỏ qua có lý do':x.resolution||'Đã xử lý')}</span>`:''}
         <p>${esc(x.review_note||'Chưa có ghi chú')}</p></div>`:''}
 
       <div class="se-steps">
@@ -227,27 +232,51 @@ async function renderSessionExceptions(){
       </div>`;
   };
 
+  // Opens the shared Session Detail drawer in place -- never navigates to
+  // Session Management. "Mở trong Quản lý Session" inside the drawer remains
+  // the optional, explicit secondary path for advanced/admin editing.
+  const viewSessionDetail=x=>{
+    SessionDetailDrawer.open(x.session_id,{
+      exceptionCode:x.exception_code,
+      exceptionFingerprint:x.exception_fingerprint,
+      onClaim:fresh=>{current=fresh||x;openWorkflow('IN_PROGRESS')},
+      onResolve:fresh=>{current=fresh||x;openWorkflow('RESOLVED')},
+      onIgnore:fresh=>{current=fresh||x;openWorkflow('IGNORED')},
+      onOpenManagement:()=>{
+        window.MESFLOW_SESSION_EXCEPTION_CONTEXT={
+          sessionId:Number(x.session_id),
+          startedAt:x.started_at,
+          exceptionCode:x.exception_code,
+          exceptionLabel:labels[x.exception_code]||x.exception_code
+        };
+        SessionDetailDrawer.close();
+        openPage('session-management',document.querySelector('[data-page="session-management"]'));
+      }
+    });
+  };
+
   const bindDetail=()=>{
     const start=el('seStartOne');if(start)start.onclick=()=>openWorkflow('IN_PROGRESS');
     const resolve=el('seResolveOne');if(resolve)resolve.onclick=()=>openWorkflow('RESOLVED');
     const ignore=el('seIgnoreOne');if(ignore)ignore.onclick=()=>openWorkflow('IGNORED');
-    const open=el('seOpenSession');if(open)open.onclick=()=>{
-      window.MESFLOW_SESSION_EXCEPTION_CONTEXT={
-        sessionId:Number(current.session_id),
-        startedAt:current.started_at,
-        exceptionCode:current.exception_code,
-        exceptionLabel:labels[current.exception_code]||current.exception_code
-      };
-      openPage('session-management',document.querySelector('[data-page="session-management"]'));
-    };
+    const open=el('seOpenSession');if(open)open.onclick=()=>viewSessionDetail(current);
   };
 
   const draw=()=>{
     drawSummary();
     el('seCount').textContent=`${visible.length} mục`;
-    el('seList').innerHTML=visible.length?visible.map(queueRow).join(''):'<div class="control-clear-state"><b>Không có mục phù hợp</b><span>Không còn việc trong bộ lọc hiện tại.</span></div>';
+    el('seList').innerHTML=visible.length?visible.map(queueCard).join(''):'<div class="control-clear-state"><b>Không có mục phù hợp</b><span>Không còn việc trong bộ lọc hiện tại.</span></div>';
     el('seDetail').innerHTML=detailHtml(current);
-    document.querySelectorAll('.se-item').forEach(b=>b.onclick=()=>{current=visible.find(x=>itemKey(x)===b.dataset.key)||null;draw()});
+    document.querySelectorAll('.se-card-trigger').forEach(b=>b.onclick=()=>{current=visible.find(x=>itemKey(x)===b.dataset.key)||null;draw()});
+    document.querySelectorAll('.se-card-act').forEach(b=>b.onclick=e=>{
+      e.stopPropagation();
+      const item=visible.find(x=>itemKey(x)===b.dataset.key);
+      if(!item)return;
+      current=item;
+      if(b.dataset.act==='process')openWorkflow(item.workflow_status==='IN_PROGRESS'?'RESOLVED':'IN_PROGRESS');
+      else if(b.dataset.act==='ignore')openWorkflow('IGNORED');
+      else if(b.dataset.act==='view')viewSessionDetail(item);
+    });
     bindDetail();
   };
 
@@ -319,28 +348,33 @@ async function renderSessionExceptions(){
       await api('/api/session-exceptions/workflow',{method:'PATCH',body:JSON.stringify(payload)});
       const selected=current;
       close();
-      if(openSessionAfter&&targetStatus==='IN_PROGRESS'){
-        window.MESFLOW_SESSION_EXCEPTION_CONTEXT={
-          sessionId:Number(selected.session_id),
-          startedAt:selected.started_at,
-          exceptionCode:selected.exception_code,
-          exceptionLabel:labels[selected.exception_code]||selected.exception_code
-        };
-        toast('Đã nhận xử lý. Đang mở Session cần kiểm tra...');
-        openPage('session-management',document.querySelector('[data-page="session-management"]'));
-        return;
-      }
+      // Update the active list and either close or refresh the drawer --
+      // never navigate to Session Management. Filters/tab/scroll on this
+      // page are untouched by any of this.
+      if(SessionDetailDrawer.isOpenFor(selected.session_id))SessionDetailDrawer.close();
       toast(targetStatus==='RESOLVED'?'Đã hoàn tất xử lý':targetStatus==='IN_PROGRESS'?'Đã nhận xử lý':targetStatus==='IGNORED'?'Đã bỏ qua có lý do':'Đã mở lại xử lý');
       await load();
+      if(openSessionAfter&&targetStatus==='IN_PROGRESS'){
+        const refreshed=allItems.find(x=>String(x.session_id)===String(selected.session_id)&&x.exception_code===selected.exception_code)||selected;
+        current=refreshed;
+        viewSessionDetail(refreshed);
+        return;
+      }
     }catch(e){alert(e.message)}
   };
   el('seModalSave').onclick=()=>saveWorkflow();
   el('seModalSecondary').onclick=()=>saveWorkflow({openSessionAfter:true});
 
   document.querySelectorAll('[data-se-view]').forEach(button=>button.onclick=()=>{
+    const wasHistory=currentView==='HISTORY';
     currentView=button.dataset.seView;
     document.querySelectorAll('[data-se-view]').forEach(x=>{const selected=x===button;x.classList.toggle('primary',selected);x.setAttribute('aria-selected',String(selected))});
-    el('seHistoryFilters').hidden=currentView!=='HISTORY';current=null;applyFilters();
+    el('seHistoryFilters').hidden=currentView!=='HISTORY';current=null;
+    // Inbox tabs (Cần xử lý / Cần xác nhận) share one server-side fetch
+    // (view=inbox); History is a different, wider server-side fetch
+    // (view=history) -- crossing that boundary needs a real reload, not
+    // just re-filtering the already-fetched Inbox subset.
+    if(wasHistory!==(currentView==='HISTORY'))load();else applyFilters();
   });
   ['seHistoryFrom','seHistoryEmployee','seHistoryPo','seHistoryType','seHistoryResult','seHistoryHandler'].forEach(key=>el(key).oninput=applyFilters);
   el('seSearch').oninput=applyFilters;

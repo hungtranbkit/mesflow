@@ -197,6 +197,21 @@ def session_management():
         return jsonify(ok=True,**report)
     except Exception as exc: return error(exc)
 
+@bp.get('/session-management/<int:session_id>')
+@login_required
+def session_detail(session_id):
+    """Single-session detail (fields + current/history exceptions + kiosk
+    activity timeline + full resolution history) -- shared by the Session
+    Management accordion and the Session Exception detail drawer so both
+    reuse the exact same backend shape."""
+    try:
+        role=str(session.get('role') or '').lower()
+        if role not in ('admin','manager','supervisor'):
+            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem chi tiết session'),403
+        return jsonify(ok=True,**ReportRepository().session_detail(session_id))
+    except NotFoundError as exc: return jsonify(ok=False,error='NOT_FOUND',message=str(exc)),404
+    except Exception as exc: return error(exc)
+
 @bp.get('/session-exceptions')
 @login_required
 def session_exceptions():
@@ -206,6 +221,11 @@ def session_exceptions():
             return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem session bất thường'),403
         employee_id=int(request.args['employee_id']) if request.args.get('employee_id','').strip() else None
         view=str(request.args.get('view') or 'inbox').lower()
+        # Reconcile deterministic auto-ignore rules on every read (idempotent,
+        # never touches a human-owned review -- see auto_ignore_session_
+        # exceptions()) so trivial user mistakes never sit in the active
+        # Inbox waiting for a manager to look at them.
+        ReportRepository().auto_ignore_session_exceptions()
         return jsonify(ok=True,items=ReportRepository().session_exceptions(
             request.args.get('status'),employee_id,int(request.args.get('limit',1000)),request.args.get('workflow_status'),inbox_only=view not in ('history','all')),
             view=view)
