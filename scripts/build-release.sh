@@ -7,13 +7,85 @@ command -v docker >/dev/null || die "DOCKER_NOT_FOUND"
 version="$(tr -d '[:space:]' < VERSION.txt)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION_INVALID"
 image="${MESFLOW_IMAGE_REPOSITORY:-mesflow-app}:$version"
-dist="$ROOT/../artifacts/releases/$version"; mkdir -p "$dist"
-docker build -t "$image" .
-image_id="$(docker image inspect "$image" --format '{{.Id}}')"; [[ "$image_id" == sha256:* ]] || die "IMAGE_ID_UNAVAILABLE"
+dist="$ROOT/../artifacts/releases/$version"
+
+# --- immutable release guard --------------------------------------------
+# A version may be built only once. Never overwrite a frozen release.json /
+# checksums.txt / deploy ZIP / image-info.json — that is exactly how
+# 65.8.44.65 ended up with two different image digests under one version
+# number (a second build silently overwrote the first's release record and
+# moved the Docker tag). Any rebuild must use a new VERSION.txt.
+if [[ -f "$dist/release.json" ]]; then
+  die "VERSION_ALREADY_RELEASED: artifacts/releases/$version/release.json already exists (frozen). A version may be built only once. Bump VERSION.txt to a new version (e.g. the next patch) and rebuild."
+fi
+mkdir -p "$dist"
+
+# Build into a disposable local tag first. Only promote it to the canonical
+# version tag ($image) after confirming that tag isn't already in use by a
+# *different* image — moving an existing tag to new bytes under the same
+# version number is exactly the contamination bug this guards against.
+build_tag="${image}__building_$$"
+cleanup_build_tag(){ docker rmi "$build_tag" >/dev/null 2>&1 || true; }
+trap cleanup_build_tag EXIT
+docker build -t "$build_tag" .
+new_id="$(docker image inspect "$build_tag" --format '{{.Id}}')"
+[[ "$new_id" == sha256:* ]] || die "IMAGE_ID_UNAVAILABLE"
+if docker image inspect "$image" >/dev/null 2>&1; then
+  existing_id="$(docker image inspect "$image" --format '{{.Id}}')"
+  if [[ "$existing_id" != "$new_id" ]]; then
+    die "IMAGE_TAG_CONTAMINATED: $image already exists (id=$existing_id) and differs from the image just built from current source (id=$new_id). A version may be built only once. Bump VERSION.txt to a new version and rebuild — never retag over an existing version."
+  fi
+  echo "NOTE: $image already exists and matches the freshly built image exactly (idempotent rebuild, no source change) — proceeding."
+fi
+docker tag "$build_tag" "$image"
+image_id="$new_id"
 digest="$image_id"
 source_commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
-schema_revision="$(find app -path '*alembic*' -type f -name '*.py' -printf '%f\n' 2>/dev/null | sort | tail -1 || echo unknown)"
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+
+# Resolve the true Alembic head by walking the revision/down_revision graph
+# under app/migrations/versions — NOT a filename-sort heuristic, and NOT the
+# path pattern '*alembic*' (migrations live under app/migrations/versions,
+# which does not match that pattern; the old heuristic silently produced an
+# empty schema_revision on every build).
+schema_revision="$(python3 - "$ROOT/app/migrations/versions" <<'PY'
+import ast, pathlib, sys
+versions_dir = pathlib.Path(sys.argv[1])
+revisions = {}
+down_of = set()
+for f in sorted(versions_dir.glob("*.py")):
+    if f.name == "__init__.py":
+        continue
+    tree = ast.parse(f.read_text(encoding="utf-8"))
+    rev = down = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name == "revision" and isinstance(node.value, ast.Constant):
+                rev = node.value.value
+            elif name == "down_revision":
+                if isinstance(node.value, ast.Constant):
+                    down = node.value.value
+                elif isinstance(node.value, (ast.Tuple, ast.List)):
+                    down = [e.value for e in node.value.elts if isinstance(e, ast.Constant)]
+    if rev:
+        revisions[rev] = f.name
+        if down:
+            down_of.update(down if isinstance(down, list) else [down])
+heads = [r for r in revisions if r not in down_of]
+if len(heads) == 1:
+    print(heads[0])
+elif len(heads) > 1:
+    print("MULTIPLE_HEADS:" + ",".join(sorted(heads)), file=sys.stderr)
+    sys.exit(1)
+else:
+    print("unknown")
+PY
+)" || die "SCHEMA_REVISION_RESOLUTION_FAILED (multiple Alembic heads or unreadable migrations — see stderr above)"
+[[ -n "$schema_revision" ]] || schema_revision="unknown"
+
+tmp="$(mktemp -d)"
+cleanup_all(){ cleanup_build_tag; rm -rf "$tmp"; }
+trap cleanup_all EXIT
 root="$tmp/mesflow-release"; mkdir -p "$root"
 cp VERSION.txt "$root/VERSION.txt"
 cp compose.yml "$root/compose.yml"
@@ -49,7 +121,8 @@ cat > "$dist/BUILD_REPORT.md" <<EOF
 - Image: $image
 - Digest: $digest
 - Source commit: $source_commit
+- Schema revision (Alembic head): $schema_revision
 - Distribution: bundle
 - Server-side source build: disabled for this package
 EOF
-echo "IMAGE RELEASE PASS"; echo "Version: $version"; echo "Image: $image"; echo "Digest: $digest"; echo "Package: $dist/MESFlow_${version}.deploy.zip"
+echo "IMAGE RELEASE PASS"; echo "Version: $version"; echo "Image: $image"; echo "Digest: $digest"; echo "Schema: $schema_revision"; echo "Package: $dist/MESFlow_${version}.deploy.zip"
