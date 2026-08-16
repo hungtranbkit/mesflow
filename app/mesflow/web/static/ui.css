@@ -1257,3 +1257,37 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
   .trace-filters .btn,.trace-filters input,.trace-filters select
   {height:44px!important;min-height:44px!important}
 }
+
+/* ==========================================================================
+   UI Template Standard -- canonical PageHeader (docs/architecture/
+   UI_TEMPLATE_STANDARD.md, Phase 6). MESFlow already had six different
+   in-content header implementations (.panel-head, .po-list-head,
+   .ui-page-header, .overview-intro, .daily-command-copy, .template-command)
+   none of which matched DESIGN.md's own typography table (Section title:
+   18/24, weight 650-700) -- all either 15px (too small, a Panel title, not
+   a Section/page title) or 20-21px (close but each a different value).
+   .page-header is the ONE new shared class golden-reference pages adopt;
+   existing classes are untouched for backward compatibility -- pages that
+   haven't migrated yet keep working exactly as before.
+   ========================================================================== */
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:var(--ui-space-4);padding-bottom:var(--ui-space-4);margin-bottom:var(--ui-space-4);border-bottom:1px solid var(--border-default)}
+.page-header h2{margin:0;font-size:18px;line-height:24px;font-weight:700;color:var(--text-primary)}
+.page-header p{margin:4px 0 0;font-size:13px;line-height:18px;color:var(--text-secondary)}
+.page-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media(max-width:900px){.page-header{align-items:flex-start;flex-direction:column}}
+
+/* Numeric table columns (DESIGN.md 5.5: "so phai" -- numbers right-aligned,
+   header included). Opt-in via .num on both <th> and <td> since existing
+   tables were never marked up for this; applied to the golden pages'
+   quantity columns in this migration, not swept across every table. */
+.table-wrap table th.num,.table-wrap table td.num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* .ec-command's <h2> ("Action Required") had no explicit size and fell back
+   to the browser's default h2 (~24px), an accidental value with no token
+   behind it. This is an intentional exception to the shared .page-header
+   pattern -- Exception Center is the WORKFLOW archetype, and DESIGN.md's
+   own attention order puts "su co can can thiep" first, so this banner
+   correctly stays the first thing on screen instead of sitting below a
+   second, lighter PageHeader. Only its typography is being put on the
+   token scale here, not its position or dark treatment. */
+.ec-command h2{font-size:20px;line-height:26px;font-weight:750}
