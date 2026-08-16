@@ -978,4 +978,112 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 .ba-affected{margin:6px 0 0;font-size:12.5px;color:#3a4453}
 .ba-card-actions{display:flex;gap:8px;margin-top:10px}
 .ba-raw{font-family:ui-monospace,monospace;font-size:11.5px;white-space:pre-wrap;word-break:break-word;background:#101827;color:#d8e2f2;padding:10px;border-radius:8px;max-height:280px;overflow:auto}
+
+/* ==========================================================================
+   UI Visual Polish Pass 2 -- same workflows/markup, sharper visual system.
+   Additive on top of the "Industrial Soft-3D" tokens above (line ~514/564/
+   926): never redeclares a token's meaning, only extends the scale and
+   strengthens a handful of shared primitives that were under-differentiated
+   (button hierarchy, KPI card identity, nav active state, status tones,
+   classic table headers). Every rule here targets a class already shared by
+   many pages, so the effect is visible across the whole app from one place.
+   ========================================================================== */
+:root{
+  --ui-space-6:32px; /* completes the 4/8/12/16/24/32 scale from the standard */
+  --ui-fs-page-title:22px;--ui-fs-section-title:15px;--ui-fs-card-title:13px;
+  --ui-fs-body:13px;--ui-fs-meta:12px;--ui-fs-kpi:26px;
+}
+
+/* --- Button hierarchy: .tertiary/.ghost were used in markup (MFUI.filterBar's
+   "Xóa bộ lọc", panel "Đóng" actions, etc.) but had ZERO CSS definition, so
+   every secondary action rendered with the exact same border+shadow weight
+   as the primary action next to it. Give them a real recessed, low-weight
+   treatment so the primary button in a toolbar/panel is unambiguous. */
+.btn.tertiary,.btn.ghost{
+  border-color:transparent!important;background:transparent!important;
+  box-shadow:none!important;color:var(--text-secondary);font-weight:600;
+}
+.btn.tertiary:hover,.btn.ghost:hover{
+  background:var(--surface-subtle)!important;border-color:var(--border-subtle)!important;color:var(--text-primary);
+}
+.btn.tertiary:active,.btn.ghost:active{transform:none!important;box-shadow:none!important}
+
+/* --- KPI/summary cards: give every stat tile a visible top-accent identity
+   strip (was only drawn for .daily-kpi/.pc-kpi in the critical/warning case;
+   the neutral/default case had no accent at all, so a row of KPI cards read
+   as one undifferentiated grey block). Neutral accent by default, semantic
+   color when the card is flagged -- consistent with the rest of the app's
+   "border/background/spacing, not color alone" status convention. */
+.card,.daily-kpi,.pc-kpi,.catalog-summary article,.system-user-summary article,.employee-summary article{
+  position:relative;overflow:hidden;
+}
+.card:before,.daily-kpi:before,.pc-kpi:before,.catalog-summary article:before,.system-user-summary article:before,.employee-summary article:before{
+  content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--action-primary);opacity:.3;
+}
+.daily-kpi.critical:before,.pc-kpi.critical:before{background:var(--status-danger)!important;opacity:1}
+.daily-kpi.warning:before,.pc-kpi.warning:before{background:var(--status-warning)!important;opacity:1}
+.metric small,.daily-kpi small,.catalog-summary span,.system-user-summary span,.employee-summary span{
+  letter-spacing:.02em;font-weight:700;
+}
+
+/* --- Card/KPI row rhythm: 12px read as slightly cramped once the accent
+   strip above gave each tile its own visual edge; 14px keeps the grid dense
+   (still well under the "spacious SaaS" anti-pattern) while letting each
+   card read as a distinct unit rather than a fused block. */
+.cards,.daily-kpis,.catalog-summary,.system-user-summary{gap:14px}
+
+/* --- Sidebar navigation: the shipped "active item" indicator was a 1px
+   white inset line against a dark-navy background -- essentially invisible
+   (confirmed via screenshot: no reliable way to tell the active page from a
+   hovered one at a glance). Replace it with a clearly visible accent bar and
+   a distinct hover vs. active fill so "what page am I on" is unambiguous. */
+.sidebar-item.active,.sidebar-item[aria-current="page"],.sidebar-group.has-active>.sidebar-group-trigger,.sidebar-group-trigger.active,.sidebar-sub-item.active{
+  background:#1c3d59!important;box-shadow:inset 3px 0 #4fa8dd!important;color:#fff!important;
+}
+.sidebar-item.active .sidebar-item-icon,.sidebar-item[aria-current="page"] .sidebar-item-icon,.sidebar-group.has-active>.sidebar-group-trigger .sidebar-item-icon{
+  color:#8fd0f2!important;
+}
+.sidebar-item:hover,.sidebar-group-trigger:hover,.sidebar-sub-item:hover{background:#152d42!important}
+.sidebar-item.active:hover,.sidebar-group-trigger.active:hover,.sidebar-sub-item.active:hover{background:#204468!important}
+
+/* --- Status system: RUNNING/OPEN are "still in progress", not "needs
+   attention" -- they previously shared the amber WARNING tone with
+   DEGRADED/BLOCKED/ACKNOWLEDGED, so a queue mixing active and at-risk items
+   scanned as uniformly "orange". Add a proper info (blue) tone; core/ui.js's
+   tone() now maps RUNNING/OPEN here instead of to warning. */
+.ui-status-info{color:#1c5f96;background:#e7f2fa}
+
+/* --- Classic (.table-wrap table) header vs. the newer .ui-data-table had
+   drifted apart: the newer table uppercases its header with letter-spacing
+   for a crisper scan line, the classic one didn't. Bring them to the same
+   header language so every table in the app reads the same way. Also widen
+   the header/body separator slightly so the header row reads as a fixed
+   reference line, not just another row. */
+.table-wrap table th{
+  text-transform:uppercase;letter-spacing:.03em;font-size:11px;
+  border-bottom-width:2px!important;
+}
+
+/* --- Page header micro-polish: strengthen the title weight slightly and
+   make the header's bottom rule consistently visible across both the
+   classic .workspace-header and the V71 .ui-page-header shell, so every
+   page opens with the same clear "title / description / actions" band. */
+.workspace-header h1{font-weight:750}
+.ui-page-header h2{font-weight:750}
+.ui-page-header{border-bottom-color:var(--border-strong)}
+
+/* --- Page-specific: Kiosk Management renders 25+ .kiosk-card tiles in a
+   dense grid and every one is cursor:pointer (opens the device drawer), but
+   had no hover feedback at all -- on a grid this dense, "which tile am I
+   about to open" was only answered by the cursor icon. Give it the same
+   lift+border treatment already used by .tutorial-card elsewhere. */
+.kiosk-card{transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
+.kiosk-card:hover{transform:translateY(-2px);border-color:var(--border-emphasis)!important;box-shadow:var(--shadow-section)!important}
+
+/* --- Page-specific: Business Audit's category filter chips and the KPI/
+   toolbar controls next to them were both min-height:auto text buttons of
+   slightly different heights, so the toolbar row looked uneven. Bring the
+   chips to the same control height as the rest of the app's inputs/buttons. */
+.ba-chip{min-height:32px}
+
 @media(max-width:720px){.ba-card-head{flex-direction:column;align-items:flex-start}}
