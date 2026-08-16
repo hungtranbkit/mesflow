@@ -357,7 +357,7 @@ body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
 @media(max-width:620px){.session-accordion-panel{padding:12px}.session-accordion-trigger{min-height:0;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px}.session-row-employee,.session-row-operation,.session-row-time,.session-row-output{grid-column:1}.session-row-status{grid-column:2;grid-row:1/5;align-self:start}.session-row-status .badge{white-space:nowrap}.session-accordion-detail{padding:10px}.session-accordion-detail .kv-grid{grid-template-columns:1fr}.session-accordion-detail .kv-row .kv-label{border-bottom:0;padding-bottom:2px;font-size:11px}.session-accordion-detail .kv-row .kv-value{padding-top:2px}.session-detail-actions .btn{width:100%;min-height:44px}}
 
 /* Production Order list — plan, find, then operate */
-.po-list-panel{border-top:3px solid #18324a}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:1px solid #d9dee7}.po-list-head h2{margin:0;color:#18324a;font-size:20px}.po-list-head p{margin:6px 0 0;max-width:68ch;color:#667382;line-height:1.5}.po-primary-actions{display:flex;align-items:stretch;gap:8px}.po-primary-actions>div{display:flex;gap:6px}.po-primary-actions .btn{white-space:nowrap}.po-list-summary{display:flex;flex-wrap:wrap;gap:0;margin:14px 0;color:#667382}.po-list-summary span{padding:0 14px;border-right:1px solid #d9dee7}.po-list-summary span:first-child{padding-left:0}.po-list-summary span:last-child{border-right:0}.po-list-summary b{color:#18324a;font-size:16px}.po-list-toolbar{display:grid;grid-template-columns:minmax(260px,1fr) minmax(180px,240px) auto;gap:9px;align-items:end;margin-bottom:14px;padding:13px;border:1px solid #d9dee7;border-radius:8px;background:#f8fafb}.po-list-toolbar label{display:grid;gap:5px}.po-list-toolbar label>span{color:#667382;font-size:11px;font-weight:700}.po-list-toolbar input,.po-list-toolbar select{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;border:1px solid #c9d1db;border-radius:5px;background:#fff;color:#202938;font:inherit}.po-list-toolbar input:focus-visible,.po-list-toolbar select:focus-visible{outline:3px solid rgba(36,91,130,.2);outline-offset:1px;border-color:#245b82}.po-reload{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px}.po-reload i{width:12px;height:12px;border:2px solid currentColor;border-left-color:transparent;border-radius:50%}.po-empty{display:grid;justify-items:start;gap:7px;max-width:560px;margin:24px auto 8px;padding:24px;border:1px dashed #c9d1db;border-radius:8px;background:#f8fafb}.po-empty strong{color:#202938;font-size:16px}.po-empty span{color:#667382;line-height:1.5}.po-empty .btn{margin-top:5px}.po-status.in_progress{background:#e5f5ed;color:#16845b}.po-status.paused{background:#fff2d8;color:#8b5e0b}.po-status.completed{background:#eef1f4;color:#526171}.po-actions{white-space:normal}.po-actions .btn{margin:2px}
+.po-list-panel{border-top:3px solid #18324a}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding-bottom:16px;border-bottom:1px solid #d9dee7}.po-list-head h2{margin:0;color:#18324a;font-size:20px}.po-list-head p{margin:6px 0 0;max-width:none;white-space:nowrap;color:#667382;line-height:1.5}.po-primary-actions{display:flex;align-items:stretch;gap:8px}.po-primary-actions>div{display:flex;gap:6px}.po-primary-actions .btn{white-space:nowrap}.po-list-summary{display:flex;flex-wrap:wrap;gap:0;margin:14px 0;color:#667382}.po-list-summary span{padding:0 14px;border-right:1px solid #d9dee7}.po-list-summary span:first-child{padding-left:0}.po-list-summary span:last-child{border-right:0}.po-list-summary b{color:#18324a;font-size:16px}.po-list-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) minmax(160px,200px) auto auto;gap:9px;align-items:end;margin-bottom:14px;padding:13px;border:1px solid #d9dee7;border-radius:8px;background:#f8fafb}.po-list-toolbar label{display:grid;gap:5px}.po-list-toolbar label>span{color:#667382;font-size:11px;font-weight:700}.po-list-toolbar input,.po-list-toolbar select{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;border:1px solid #c9d1db;border-radius:5px;background:#fff;color:#202938;font:inherit}.po-list-toolbar input:focus-visible,.po-list-toolbar select:focus-visible{outline:3px solid rgba(36,91,130,.2);outline-offset:1px;border-color:#245b82}#poReset{white-space:nowrap}.po-reload{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;white-space:nowrap}.po-reload i{width:12px;height:12px;border:2px solid currentColor;border-left-color:transparent;border-radius:50%}.po-empty{display:grid;justify-items:start;gap:7px;max-width:560px;margin:24px auto 8px;padding:24px;border:1px dashed #c9d1db;border-radius:8px;background:#f8fafb}.po-empty strong{color:#202938;font-size:16px}.po-empty span{color:#667382;line-height:1.5}.po-empty .btn{margin-top:5px}.po-status.in_progress{background:#e5f5ed;color:#16845b}.po-status.paused{background:#fff2d8;color:#8b5e0b}.po-status.completed{background:#eef1f4;color:#526171}.po-actions{white-space:normal}.po-actions .btn{margin:2px}
 @media(max-width:900px){.po-list-head{display:grid}.po-primary-actions{width:100%;justify-content:space-between}.po-list-toolbar{grid-template-columns:1fr 1fr}.po-reload{grid-column:1/-1}.po-list-summary span{flex:1 1 50%;box-sizing:border-box;margin:4px 0}.po-list-summary span:nth-child(2){border-right:0}}
 @media(max-width:650px){.po-list-panel{padding:16px}.po-list-head{gap:14px}.po-list-head h2{font-size:19px}.po-primary-actions{display:grid}.po-primary-actions>div{display:grid;grid-template-columns:1fr 1fr;grid-row:2}.po-primary-actions .btn{width:100%}.po-list-toolbar{grid-template-columns:1fr;padding:12px}.po-reload{grid-column:auto}.po-list-summary{display:grid;grid-template-columns:1fr 1fr}.po-list-summary span{padding:5px 9px!important;border-right:0}.po-list-summary span:nth-child(odd){border-right:1px solid #d9dee7}.po-empty{margin-top:16px;padding:18px}.po-empty .btn{width:100%}}
 @media(max-width:1500px){.overview-hero{display:grid}.overview-intro{max-width:none}.overview-hero .pc-actions{width:100%;grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(150px,1fr)) auto}}
@@ -931,6 +931,17 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 }
 .ui-page-shell{display:grid;gap:var(--ui-space-3);min-width:0}.ui-page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--ui-space-4);padding-bottom:var(--ui-space-3);border-bottom:1px solid var(--border-default)}
 .ui-page-header h2{margin:2px 0 3px;font-size:21px;line-height:1.25}.ui-page-header p{max-width:760px;margin:0;color:var(--text-secondary);line-height:1.45}.ui-eyebrow{color:var(--action-primary);font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}.ui-page-actions,.ui-toolbar,.ui-filter-controls,.ui-filter-meta{display:flex;align-items:center;gap:var(--ui-space-2);flex-wrap:wrap}.ui-toolbar{justify-content:space-between;padding:var(--ui-space-3);border:1px solid var(--border-default);border-radius:var(--ui-radius-md);background:var(--surface-subtle)}
+/* .ui-filter-controls mixes two shapes of child: label-wrapped fields
+   (label text + control, ~58px tall -- Ngày/PO/Nhân viên/Trạng thái) and
+   bare single-line controls (the free-text search input, the "Thêm bộ
+   lọc" <details><summary> button, ~36px tall). The shared rule above
+   centers them (align-items:center), so the bare controls' vertical
+   midpoint lands on the row's midpoint while the labeled fields' actual
+   input sits near the row's bottom (below its label) -- the bare controls
+   visibly "float up" out of line with the rest (real defect reported on
+   Session Management). flex-end puts every control's bottom edge on one
+   shared line regardless of whether it has a label above it. */
+.ui-filter-controls{align-items:flex-end}
 .ui-page-content{min-width:0}.ui-filter-bar{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--ui-space-3);width:100%}.ui-filter-controls{flex:1;min-width:0}.ui-filter-controls label{display:grid;gap:5px;min-width:0}.ui-filter-meta{justify-content:flex-end;color:var(--text-secondary);font-size:12px}.ui-filter-active{padding:4px 7px;border-radius:999px;background:#dcecf5;color:#155779;font-weight:750}
 .ui-status{display:inline-flex;align-items:center;gap:5px;width:max-content;max-width:100%;padding:3px 7px;border:1px solid currentColor;border-radius:999px;font-size:10.5px;font-weight:800;line-height:1.2;white-space:nowrap}.ui-status-mark{width:6px;height:6px;border-radius:50%;background:currentColor}.ui-status-success{color:#13704f;background:#e8f7f0}.ui-status-warning{color:#805400;background:#fff4d1}.ui-status-danger{color:#9b2525;background:#fff0ef}.ui-status-neutral{color:#536875;background:#edf2f5}
 .ui-data-table{width:100%;border-collapse:separate;border-spacing:0;background:#fff}.ui-data-table th{position:sticky;top:0;z-index:var(--ui-z-sticky);height:var(--ui-row-h);padding:8px 10px;background:#edf3f6;border-bottom:1px solid var(--border-default);color:var(--text-secondary);font-size:11px;text-align:left;text-transform:uppercase;letter-spacing:.035em}.ui-data-table td{height:var(--ui-row-h);padding:7px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}.ui-data-table tbody tr:hover{background:#f4f8fa}.ui-data-table tbody tr[aria-selected="true"]{background:#eaf4f9;box-shadow:inset 3px 0 var(--action-primary)}
@@ -1087,3 +1098,162 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 .ba-chip{min-height:32px}
 
 @media(max-width:720px){.ba-card-head{flex-direction:column;align-items:flex-start}}
+
+/* ========================================================================
+   GPT visual normalization pass — v71.0.0.10
+   Aligns the accumulated legacy/new UI layers to DESIGN.md without changing
+   page structure or business behavior. Keep this as the final normalization
+   layer until legacy page CSS is progressively consolidated.
+   ======================================================================== */
+:root{
+  --brand:#23658b;
+  --line:#d6dce3;
+  --muted:#647180;
+  --card:#fff;
+  --text:#17212b;
+  --bg-command:#18364e;
+  --action-primary:#23658b;
+  --action-hover:#1b5274;
+  --status-success:#177451;
+  --status-warning:#a85f08;
+  --status-danger:#c43232;
+  --status-offline:#56616d;
+  --control-height:36px;
+  --control-height-compact:32px;
+  --page-gap:16px;
+  --panel-padding:16px;
+}
+
+/* App shell: restore the canonical 248px command rail and a tighter,
+   predictable workspace rhythm. */
+.app-layout{grid-template-columns:248px minmax(0,1fr)}
+.app-sidebar{width:248px;background:var(--bg-command);border-right-color:#28465d}
+.sidebar-brand{height:68px;padding:10px 12px;border-bottom-color:#31516a}
+.sidebar-logo{width:36px;height:36px;border-radius:5px;background:#24455f;box-shadow:inset 0 0 0 1px #517086}
+.sidebar-brand-text b{font-size:16px;line-height:20px}.sidebar-brand-text small{font-size:11px}
+.sidebar-nav{gap:2px;padding:10px 8px 14px}.sidebar-group-panel{margin-left:16px;padding-left:9px}
+.sidebar-item,.sidebar-group-trigger{min-height:38px;padding:7px 9px;border-radius:5px;font-weight:650}
+.sidebar-sub-item{min-height:34px;padding:7px 8px;border-radius:5px}.sidebar-sub-copy b{font-size:12.5px}
+.sidebar-item:hover,.sidebar-group-trigger:hover,.sidebar-item.active,.sidebar-group-trigger.active,.sidebar-group.has-active>.sidebar-group-trigger{background:#24455f}
+.sidebar-sub-item:hover,.sidebar-sub-item.active{background:#203f57}
+.sidebar-account{padding:10px 12px;border-top-color:#31516a}
+
+.workspace-header{height:68px;min-height:68px;padding:9px 24px;box-shadow:0 1px 3px rgba(16,43,63,.08)}
+.workspace-header h1{font-size:24px;line-height:30px;letter-spacing:-.01em}.workspace-header p{margin-top:2px;font-size:12px;line-height:16px}
+.workspace-main{padding:20px 24px 28px}.workspace-main>section,#content{min-width:0}.workspace-main>section,#content,.ui-page-shell{gap:var(--page-gap)}
+
+/* Shared visual hierarchy. */
+.panel{padding:var(--panel-padding)!important;border-color:var(--border-default)!important;box-shadow:0 3px 9px rgba(16,43,63,.085)!important}
+.card,.daily-kpi,.catalog-summary article,.system-user-summary article,.employee-summary article,.pc-kpi,.dash-metric,.qr-catalog-card,.template-old-list-panel,.template-old-part,.kiosk-card,.shift-config-card,.session-accordion-item{box-shadow:0 1px 3px rgba(16,43,63,.075)!important}
+.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border-subtle)}
+.panel-head:has(>h2:only-child){align-items:center}.panel-head h2,.panel h2{font-size:15px;line-height:20px;font-weight:700}.panel-head p{margin:3px 0 0;color:var(--text-secondary);font-size:12px;line-height:17px}
+.ui-page-header{gap:16px;padding-bottom:12px}.ui-page-header h2{font-size:22px;line-height:28px;letter-spacing:-.01em}.ui-page-header p{font-size:13px;line-height:18px}
+.cards,.daily-kpis,.catalog-summary,.system-user-summary,.employee-summary{gap:12px}
+.metric strong,.daily-kpi strong,.catalog-summary b,.system-user-summary b,.employee-summary b{font-variant-numeric:tabular-nums;font-size:24px;line-height:30px}
+
+/* Toolbars and filters should read as one control strip, not loose controls. */
+.toolbar,.catalog-toolbar,.qr-toolbar,.system-user-tools,.template-old-toolbar,.panel-toolbar,.ui-toolbar,.ui-filter-bar{gap:8px;padding:10px 12px;border:1px solid var(--border-default);border-radius:var(--radius-panel);background:var(--surface-subtle);box-shadow:none}
+.toolbar{margin-bottom:12px}.toolbar.wrap{align-items:center}.panel-actions,.ui-page-actions{gap:8px}
+.toolbar label,.catalog-toolbar label,.qr-toolbar label,.system-user-tools label,.ui-filter-bar label{gap:4px;color:var(--text-secondary);font-size:11px;font-weight:700}
+
+/* Controls: exact shared height, radius and baseline. */
+/* :where() zeroes out the two :not() clauses' specificity so the input
+   branch and the select branch of this rule stay EQUALLY specific (both
+   just a bare element selector). Without :where(), each :not([type=...])
+   silently adds specificity like a class, so `input:not(...):not(...)`
+   (0,2,1) out-ranked page-specific rules like `.po-list-toolbar input`
+   (0,1,1) while the plain `select` (0,0,1) did not -- real bug found live:
+   Production Orders' search input rendered at 36px while its status
+   <select> next to it rendered at 40px, same toolbar, same intended size. */
+.btn,button.primary,.primary,:where(input:not([type="checkbox"]):not([type="radio"])),select{min-height:var(--control-height)}
+.btn,button.primary,.primary{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 11px;border-radius:var(--radius-control)!important;font-size:13px;line-height:20px;font-weight:650;white-space:nowrap}
+.btn.mini{min-height:var(--control-height-compact);padding:5px 9px;font-size:12px}
+:where(input:not([type="checkbox"]):not([type="radio"])),select,textarea{border-radius:var(--radius-control)!important;padding:7px 10px;font:inherit;color:var(--text-primary)}
+textarea{min-height:82px;line-height:1.45}
+.btn:hover,button.primary:hover,.primary:hover{transform:none!important;box-shadow:0 1px 2px rgba(16,43,63,.11)!important}.btn:active,button.primary:active,.primary:active{transform:none!important}
+
+/* Dense tables: same scan line and predictable action alignment everywhere. */
+.table-wrap{border:1px solid var(--border-default);border-radius:var(--radius-panel);background:#fff;box-shadow:none!important}
+table{font-size:13px;line-height:18px}th,td{padding:10px 12px}th{height:38px;color:#52606e;font-size:11px;font-weight:750;letter-spacing:.035em;background:#eef2f5!important}td{height:42px;color:var(--text-primary)}
+tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!important;transform:none!important}tbody tr:hover td{background:#f2f6f8!important}
+.ui-data-table th{height:38px;padding:9px 12px}.ui-data-table td{height:42px;padding:9px 12px}
+
+/* Dense row/card collections must highlight by surface/border, not movement. */
+/* .kiosk-card intentionally excluded from this list: it's a clickable card
+   *grid* (like .tutorial-card elsewhere), not a dense operational table
+   row, and keeps its own hover-lift defined above (see "Page-specific:
+   Kiosk Management" rule) -- this list is for rows that scroll past quickly
+   in a dense list, where movement is distracting. */
+:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row){transform:none!important}
+:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row):hover{transform:none!important;box-shadow:0 2px 6px rgba(16,43,63,.09)!important;border-color:var(--border-strong)!important;background:#f7fafb!important}
+
+/* Status language: compact, restrained, and semantically consistent. */
+.badge,.status-pill,.workflow-badge,.pc-state,.pc-priority,.equipment-state,.user-role,.user-access,.user-security,.log-level,.ota-badge{min-height:22px;padding:2px 7px;border-radius:999px;font-size:11px;line-height:16px;font-weight:700;letter-spacing:0;text-transform:none}
+.badge.success,.workflow-badge.resolved,.pc-state.on_track,.ota-success,.ota-completed{background:#e8f4ef;color:#126345}.badge.warning,.workflow-badge.in_progress,.pc-state.warning,.ota-pending{background:#fff4e5;color:#854a05}.badge.danger,.pc-state.critical,.log-level.error,.log-level.critical,.ota-failed{background:#fdecec;color:#a42323}
+
+/* Dialogs and drawers: consistent internal rhythm and boundaries. */
+.modal,.modal-card,.shift-edit-card,.ui-modal{border-radius:var(--radius-overlay)!important}.modal{padding:18px}.modal h2,.ui-modal>header h2,.ui-drawer-header h2{font-size:18px;line-height:24px}.modal-actions,.ui-modal>footer,.ui-drawer-footer{gap:8px}.ui-drawer-header{padding:14px 16px}.ui-drawer-body{padding:16px}.ui-drawer-footer{padding:11px 16px}
+
+/* Empty/loading states should look intentional but stay compact. */
+.empty,.empty-hint,.overview-empty,.ui-state{min-height:112px;padding:22px;color:var(--text-secondary);background:var(--surface-subtle);border-radius:var(--radius-panel)}
+
+@media(max-width:1400px){
+  .app-layout{grid-template-columns:228px minmax(0,1fr)}.app-sidebar{width:228px}
+  .workspace-header{padding-left:20px;padding-right:20px}.workspace-main{padding:16px 20px 24px}
+  .panel{padding:14px!important}.cards,.daily-kpis{gap:10px}
+}
+@media(max-width:900px){
+  .app-layout{display:block}.app-sidebar{width:min(280px,86vw)}.workspace-main{padding:12px}.workspace-header{padding:9px 14px}
+  .panel-head,.ui-page-header{gap:10px}.toolbar,.catalog-toolbar,.qr-toolbar,.system-user-tools,.template-old-toolbar,.panel-toolbar,.ui-toolbar,.ui-filter-bar{padding:9px}
+}
+@media(max-width:520px){
+  .workspace-header h1{font-size:20px;line-height:25px}.panel{padding:12px!important}.panel-head{padding-bottom:8px;margin-bottom:10px}
+  .btn,button.primary,.primary,:where(input:not([type="checkbox"]):not([type="radio"])),select{min-height:44px}
+}
+
+/* --- Final control-height unification for every toolbar/filter row.
+   Several legacy per-page rules (.po-list-toolbar, .overview-filters,
+   .catalog-toolbar, etc.) set their own input/select height (40/42px) with
+   a matching button rule, but those pairs don't share the same CSS
+   specificity as each other or as the later global `.btn{min-height:36px}`
+   rule -- so ties got broken by file order instead of intent, and real
+   toolbars ended up with the button silently 4-6px shorter/taller than the
+   input/select right next to it (confirmed live, e.g. Production Order's
+   "Làm mới" button vs its search input). Rather than chase every
+   individual legacy rule's specificity, this is the one authoritative,
+   `!important` statement: every button/input/select inside a recognized
+   toolbar/filter container is exactly var(--control-height) tall. */
+.toolbar .btn,.toolbar input,.toolbar select,
+.catalog-toolbar .btn,.catalog-toolbar input,.catalog-toolbar select,
+.qr-toolbar .btn,.qr-toolbar input,.qr-toolbar select,
+.system-user-tools .btn,.system-user-tools input,.system-user-tools select,
+.employee-tools .btn,.employee-tools input,.employee-tools select,
+.template-old-toolbar .btn,.template-old-toolbar input,.template-old-toolbar select,
+.panel-toolbar .btn,.panel-toolbar input,.panel-toolbar select,
+.ui-toolbar .btn,.ui-toolbar input,.ui-toolbar select,
+.ui-filter-bar .btn,.ui-filter-bar input,.ui-filter-bar select,
+.ui-filter-controls .btn,.ui-filter-controls input,.ui-filter-controls select,
+.po-list-toolbar .btn,.po-list-toolbar input,.po-list-toolbar select,.po-reload,
+.overview-filters .btn,.overview-filters input,.overview-filters select,.overview-reload,
+.overview-hero .pc-actions .btn,.overview-hero .pc-actions input,.overview-hero .pc-actions select,
+.ec-filters .btn,.ec-filters input,.ec-filters select,
+.trace-filters .btn,.trace-filters input,.trace-filters select
+{height:var(--control-height)!important;min-height:var(--control-height)!important}
+@media(max-width:520px){
+  .toolbar .btn,.toolbar input,.toolbar select,
+  .catalog-toolbar .btn,.catalog-toolbar input,.catalog-toolbar select,
+  .qr-toolbar .btn,.qr-toolbar input,.qr-toolbar select,
+  .system-user-tools .btn,.system-user-tools input,.system-user-tools select,
+  .employee-tools .btn,.employee-tools input,.employee-tools select,
+  .template-old-toolbar .btn,.template-old-toolbar input,.template-old-toolbar select,
+  .panel-toolbar .btn,.panel-toolbar input,.panel-toolbar select,
+  .ui-toolbar .btn,.ui-toolbar input,.ui-toolbar select,
+  .ui-filter-bar .btn,.ui-filter-bar input,.ui-filter-bar select,
+  .ui-filter-controls .btn,.ui-filter-controls input,.ui-filter-controls select,
+  .po-list-toolbar .btn,.po-list-toolbar input,.po-list-toolbar select,.po-reload,
+  .overview-filters .btn,.overview-filters input,.overview-filters select,.overview-reload,
+  .overview-hero .pc-actions .btn,.overview-hero .pc-actions input,.overview-hero .pc-actions select,
+  .ec-filters .btn,.ec-filters input,.ec-filters select,
+  .trace-filters .btn,.trace-filters input,.trace-filters select
+  {height:44px!important;min-height:44px!important}
+}
