@@ -1,9 +1,39 @@
 #!/usr/bin/env bash
+# Usage:
+#   build-release.sh                # build VERSION.txt exactly as it is now (default, unchanged)
+#   build-release.sh --bump         # scripts/bump-version.sh (+1 last segment) first, then build
+#   build-release.sh --bump X.Y.Z.W # bump to an explicit version first, then build
+#
+# --bump is opt-in, not the default: this script is also what Deploy
+# Agent's own "Build Release" button runs unattended on every click
+# (POST /api/release-manager/build), and that must keep building whatever
+# VERSION.txt already declares -- auto-bumping there would silently burn a
+# version number on every retry/click. Bumping is a deliberate human
+# decision; --bump only exists so a manual "bump then build" doesn't need
+# two separate commands (real friction: previously the only way to do
+# both was to run scripts/bump-version.sh by hand first).
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 die(){ echo "ERROR: $*" >&2; exit 1; }
 command -v docker >/dev/null || die "DOCKER_NOT_FOUND"
+
+BUMP=0
+BUMP_TARGET=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bump)
+      BUMP=1; shift
+      if [[ $# -gt 0 && "$1" != --* ]]; then BUMP_TARGET="$1"; shift; fi
+      ;;
+    *) die "Unknown argument: $1 (usage: build-release.sh [--bump [VERSION]])" ;;
+  esac
+done
+if [[ "$BUMP" -eq 1 ]]; then
+  echo "Bumping version first (scripts/bump-version.sh)..."
+  bash "$ROOT/scripts/bump-version.sh" ${BUMP_TARGET:+"$BUMP_TARGET"}
+fi
+
 version="$(tr -d '[:space:]' < VERSION.txt)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION_INVALID"
 image="${MESFLOW_IMAGE_REPOSITORY:-mesflow-app}:$version"
