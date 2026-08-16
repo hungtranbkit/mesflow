@@ -40,19 +40,34 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script>window.MESFLOW_USER={{ {'id':session_user_id,'username':username,'role':role,'permissions':permissions}|tojson }};</script>
   <script src="/static/core/api.js?v={{ version }}"></script>
+  <script src="/static/core/nav.js?v={{ version }}"></script>
+  <script src="/static/core/ui.js?v={{ version }}"></script>
   <script src="/static/pages/session-detail.js?v={{ version }}"></script>
   <script src="/static/app.js?v={{ version }}"></script>
   <script src="/static/pages/overview.js?v={{ version }}"></script>
   <script src="/static/pages/session-exceptions.js?v={{ version }}"></script>
+  <script src="/static/pages/exception-center.js?v={{ version }}"></script>
+  <script src="/static/pages/production-trace.js?v={{ version }}"></script>
   <script src="/static/pages/qr-print.js?v={{ version }}"></script>
   <script src="/static/pages/system-logs.js?v={{ version }}"></script>
   <script src="/static/pages/material-flow.js?v={{ version }}"></script>
   <script>
     // Bootstrap only after all page renderers are loaded.
-    if(new URLSearchParams(location.search).get('guide')==='esp-kiosk'){
+    const bootParams=new URLSearchParams(location.search);
+    if(bootParams.get('guide')==='esp-kiosk'){
       setActive(document.querySelector('[data-page="tutorials"]'));
       renderEspKioskTutorial();
-    }else openPage('overview', document.querySelector('[data-page="overview"]'));
+    }else{
+      const initialPage=bootParams.get('page')||'overview';
+      openPage(initialPage, document.querySelector(`[data-page="${initialPage}"]`));
+      // Deep link support: a shared `?session=123` URL (or a page refresh
+      // while the drawer was open) reopens the Session Detail drawer on top
+      // of the default landing page. There is no recorded "previous
+      // screen" for a cold load, so Back/Close on the drawer intentionally
+      // falls back to staying on Overview instead of trying to guess one.
+      const deepLinkSessionId=bootParams.get('session');
+      if(deepLinkSessionId&&window.SessionDetailDrawer)window.SessionDetailDrawer.open(deepLinkSessionId);
+    }
   </script>
 </body>
 </html>

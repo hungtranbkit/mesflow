@@ -4,6 +4,7 @@
 .impeccable/
 node_modules/
 runtime/
+runtime-projectflow-local/
 test-results/
 dist/
 *.zip

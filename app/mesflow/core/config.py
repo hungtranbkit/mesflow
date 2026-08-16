@@ -37,6 +37,83 @@ class Settings:
     log_retention_security_days: int = int(os.environ.get("MESFLOW_LOG_RETENTION_SECURITY_DAYS", "365"))
     log_retention_error_resolved_days: int = int(os.environ.get("MESFLOW_LOG_RETENTION_ERROR_TRACE_RESOLVED_DAYS", "180"))
     log_retention_error_unresolved_days: int = int(os.environ.get("MESFLOW_LOG_RETENTION_ERROR_TRACE_UNRESOLVED_DAYS", "365"))
+    health_agent_url: str = os.environ.get("MESFLOW_SERVER_AGENT_URL", "").rstrip("/")
+    health_qa_url: str = os.environ.get("MESFLOW_QA_CENTER_URL", "").rstrip("/")
+    health_external_timeout_seconds: float = float(os.environ.get("MESFLOW_HEALTH_EXTERNAL_TIMEOUT_SECONDS", "2.5"))
+    health_cache_seconds: int = int(os.environ.get("MESFLOW_HEALTH_CACHE_SECONDS", "10"))
+    health_kiosk_degraded_seconds: int = int(os.environ.get("MESFLOW_HEALTH_KIOSK_DEGRADED_SECONDS", "120"))
+    health_kiosk_offline_seconds: int = int(os.environ.get("MESFLOW_HEALTH_KIOSK_OFFLINE_SECONDS", "300"))
+    health_db_latency_warning_ms: int = int(os.environ.get("MESFLOW_HEALTH_DB_LATENCY_WARNING_MS", "250"))
+    health_qa_stale_hours: int = int(os.environ.get("MESFLOW_HEALTH_QA_STALE_HOURS", "24"))
+    health_error_window_minutes: int = int(os.environ.get("MESFLOW_HEALTH_ERROR_WINDOW_MINUTES", "60"))
+    # Phase 1 Health Center additions -- Deploy Agent already collects host
+    # CPU/RAM/Disk/Docker (agent.py ops_summary()); MESFlow reuses that
+    # rather than probing the OS itself (it has no Docker socket access).
+    health_deploy_agent_url: str = os.environ.get("MESFLOW_DEPLOY_AGENT_URL", "").rstrip("/")
+    # Browser-facing URL for Deploy Agent's Operations Center (section 12:
+    # MESFlow links out to it rather than duplicating its storage). Distinct
+    # from health_deploy_agent_url above, which is a Docker-network URL used
+    # for server-to-server calls, not necessarily reachable from a browser.
+    operations_center_url: str = os.environ.get("MESFLOW_OPERATIONS_CENTER_URL", "").rstrip("/")
+    # Monitoring ownership cutover (reports/SYSTEM_LOG_AUDIT_SEPARATION.md):
+    # Deploy Agent is now authoritative for SYSTEM/INFRASTRUCTURE monitoring.
+    # This legacy V69 writer (component_health_state/history,
+    # scheduled_job_health, health_alerts, notification_deliveries,
+    # health_diagnostics_snapshots, health_metric_samples,
+    # predictive_insights, ai_incident_analyses) is OFF by default -- it no
+    # longer creates new rows. The tables and their read APIs are kept for
+    # legacy/read-only history; nothing is dropped. Existing tests still
+    # exercise the underlying write mechanism by turning this back on
+    # explicitly (compose.test.yml sets it for mesflow-test-api) --
+    # that proves the code isn't rotted for a future rollback, without it
+    # running in real deployments.
+    legacy_health_writer_enabled: bool = str(os.environ.get("MESFLOW_LEGACY_HEALTH_WRITER_ENABLED", "0")).lower() in {"1", "true", "yes", "on"}
+    internal_api_token: str = os.environ.get("MESFLOW_INTERNAL_API_TOKEN", "")
+    health_deploy_agent_stale_seconds: int = int(os.environ.get("MESFLOW_HEALTH_DEPLOY_AGENT_STALE_SECONDS", "60"))
+    health_cpu_warning_percent: int = int(os.environ.get("MESFLOW_HEALTH_CPU_WARNING_PERCENT", "75"))
+    health_cpu_critical_percent: int = int(os.environ.get("MESFLOW_HEALTH_CPU_CRITICAL_PERCENT", "90"))
+    health_ram_warning_percent: int = int(os.environ.get("MESFLOW_HEALTH_RAM_WARNING_PERCENT", "80"))
+    health_ram_critical_percent: int = int(os.environ.get("MESFLOW_HEALTH_RAM_CRITICAL_PERCENT", "90"))
+    health_disk_warning_percent: int = int(os.environ.get("MESFLOW_HEALTH_DISK_WARNING_PERCENT", "80"))
+    health_disk_critical_percent: int = int(os.environ.get("MESFLOW_HEALTH_DISK_CRITICAL_PERCENT", "90"))
+    # Phase 2 Notification + Diagnosis. Email/Telegram are optional -- an
+    # empty host/token means NOT_CONFIGURED, never DOWN (section 25).
+    smtp_host: str = os.environ.get("MESFLOW_SMTP_HOST", "")
+    smtp_port: int = int(os.environ.get("MESFLOW_SMTP_PORT", "587"))
+    smtp_user: str = os.environ.get("MESFLOW_SMTP_USER", "")
+    smtp_password: str = os.environ.get("MESFLOW_SMTP_PASSWORD", "")
+    smtp_from: str = os.environ.get("MESFLOW_SMTP_FROM", "")
+    smtp_to: str = os.environ.get("MESFLOW_SMTP_TO", "")  # comma-separated
+    smtp_use_tls: bool = os.environ.get("MESFLOW_SMTP_USE_TLS", "1").strip().lower() in {"1","true","yes","on"}
+    telegram_bot_token: str = os.environ.get("MESFLOW_TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.environ.get("MESFLOW_TELEGRAM_CHAT_ID", "")
+    # Severity routing (section 29): minimum severity that triggers each
+    # external channel. WEB always fires for every opened/resolved alert.
+    notify_email_min_severity: str = os.environ.get("MESFLOW_NOTIFY_EMAIL_MIN_SEVERITY", "HIGH")
+    notify_telegram_min_severity: str = os.environ.get("MESFLOW_NOTIFY_TELEGRAM_MIN_SEVERITY", "HIGH")
+    notification_timeout_seconds: float = float(os.environ.get("MESFLOW_NOTIFICATION_TIMEOUT_SECONDS", "5"))
+    notification_retry_attempts: int = int(os.environ.get("MESFLOW_NOTIFICATION_RETRY_ATTEMPTS", "3"))
+    # Phase 3 Predictive / AI. Forecasts/anomalies/recurrence are always on
+    # (pure deterministic code); AI is opt-in and defaults OFF (no API key).
+    predictive_disk_component: str = os.environ.get("MESFLOW_PREDICTIVE_DISK_COMPONENT", "/")
+    predictive_forecast_min_samples: int = int(os.environ.get("MESFLOW_PREDICTIVE_FORECAST_MIN_SAMPLES", "6"))
+    predictive_forecast_min_span_hours: float = float(os.environ.get("MESFLOW_PREDICTIVE_FORECAST_MIN_SPAN_HOURS", "24"))
+    predictive_forecast_window_days: int = int(os.environ.get("MESFLOW_PREDICTIVE_FORECAST_WINDOW_DAYS", "30"))
+    # Days-until-critical-threshold -> risk band (section 71), configurable.
+    predictive_risk_high_days: float = float(os.environ.get("MESFLOW_PREDICTIVE_RISK_HIGH_DAYS", "7"))
+    predictive_risk_medium_days: float = float(os.environ.get("MESFLOW_PREDICTIVE_RISK_MEDIUM_DAYS", "14"))
+    predictive_risk_low_days: float = float(os.environ.get("MESFLOW_PREDICTIVE_RISK_LOW_DAYS", "30"))
+    predictive_anomaly_min_samples: int = int(os.environ.get("MESFLOW_PREDICTIVE_ANOMALY_MIN_SAMPLES", "20"))
+    predictive_anomaly_zscore_threshold: float = float(os.environ.get("MESFLOW_PREDICTIVE_ANOMALY_ZSCORE_THRESHOLD", "3"))
+    predictive_recurrence_window_days: int = int(os.environ.get("MESFLOW_PREDICTIVE_RECURRENCE_WINDOW_DAYS", "7"))
+    predictive_recurrence_min_count: int = int(os.environ.get("MESFLOW_PREDICTIVE_RECURRENCE_MIN_COUNT", "3"))
+    metric_sample_retention_days: int = int(os.environ.get("MESFLOW_METRIC_SAMPLE_RETENTION_DAYS", "14"))
+    ai_enabled: bool = os.environ.get("MESFLOW_AI_ENABLED", "0").strip().lower() in {"1","true","yes","on"}
+    ai_provider: str = os.environ.get("MESFLOW_AI_PROVIDER", "")  # "" or "anthropic"
+    ai_api_key: str = os.environ.get("MESFLOW_AI_API_KEY", "")
+    ai_model: str = os.environ.get("MESFLOW_AI_MODEL", "claude-haiku-4-5")
+    ai_timeout_seconds: float = float(os.environ.get("MESFLOW_AI_TIMEOUT_SECONDS", "15"))
+    ai_max_context_chars: int = int(os.environ.get("MESFLOW_AI_MAX_CONTEXT_CHARS", "8000"))
 
 
 settings = Settings()

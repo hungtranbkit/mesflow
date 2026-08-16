@@ -7,6 +7,7 @@ from mesflow.db.connection import transaction, fetch_all
 from .base import BaseRepository, NotFoundError, ConflictError, RepositoryError
 from .production_state import reconcile_operation_and_po
 from .dependency_graph import validate_operation_dependencies
+from mesflow.domain.trace import record_event
 
 class EmployeeRepository(BaseRepository):
     table='employees'; id_column='id'
@@ -546,4 +547,5 @@ class TemplateTreeRepository:
                 source_id=template_to_actual.get(source_code) if source_code else None
                 source_kind=source_kind if source_kind in ('GOOD','REWORK') else 'GOOD'
                 conn.execute('UPDATE operations SET input_flow_enabled=%s,input_source_operation_id=%s,input_source_kind=%s,defects_consume_input=%s WHERE id=%s',(enabled and bool(source_id),source_id,source_kind,consume_defects,actual_id))
+            with conn.cursor() as cur:record_event(cur,event_type='PO_CREATED',category='PO',title='Production Order được tạo',po_id=po['id'],source='NATIVE',metadata={'template_id':template['id'],'template_code':template['code'],'planned_quantity':planned_quantity})
             return {'production_order_id':po['id'],'production_order_code':code,'template_id':template['id'],'template_code':template['code'],'template_version':template['version'],'parts_created':len(part_map),'operations_created':len(operation_ids)}

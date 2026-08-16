@@ -1,0 +1,75 @@
+# Isolated local sandbox for ProjectFlow's local_deploy/smoke/status/logs/
+# stop actions. Deliberately standalone (no `extends`/override merge with
+# compose.yml) so there is no risk of accidentally inheriting the
+# deployment-target service/container names, network, or bind mounts.
+#
+# Safety properties (see reports/PROJECTFLOW_STANDARDIZATION_ASSESSMENT.md §5):
+#   - distinct compose project name (mesflow-projectflow-local)
+#   - distinct container names (never "mesflow-app" / "mesflow-postgres")
+#   - distinct network (no external mesflow-edge; cannot be reached by/alias
+#     into whatever real containers exist under that network)
+#   - distinct bind-mount directory (runtime-projectflow-local/, never
+#     runtime/postgres-v65 or anything under /opt)
+#   - no `build:` block -- this file can only ever run an already-built
+#     image (set MESFLOW_IMAGE), matching the Build Once / never-rebuild-at-
+#     deploy-time contract even for local validation.
+#
+# Not a second deployment engine: this file exists only so ProjectFlow can
+# safely validate BUILD -> DEPLOY LOCAL -> HEALTH -> SMOKE on a shared host.
+# The real, documented "DEV LOCAL" path remains scripts/deploy-local.sh at
+# the workspace root (drives the live Deploy Agent) -- unmodified.
+name: mesflow-projectflow-local
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mesflow-projectflow-local-postgres
+    environment:
+      POSTGRES_DB: mesflow_projectflow_local
+      POSTGRES_USER: mesflow_projectflow_local
+      POSTGRES_PASSWORD: mesflow_projectflow_local_password
+      TZ: Asia/Ho_Chi_Minh
+      PGTZ: UTC
+    volumes:
+      - ./runtime-projectflow-local/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesflow_projectflow_local -d mesflow_projectflow_local"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  mesflow:
+    image: ${MESFLOW_IMAGE:-mesflow-app:dev}
+    container_name: mesflow-projectflow-local-app
+    environment:
+      MESFLOW_ENV: local
+      DATABASE_URL: postgresql://mesflow_projectflow_local:mesflow_projectflow_local_password@postgres:5432/mesflow_projectflow_local
+      WORKSHOP_DATABASE_URL: postgresql://mesflow_projectflow_local:mesflow_projectflow_local_password@postgres:5432/mesflow_projectflow_local
+      MESFLOW_SECRET_KEY: mesflow-projectflow-local-secret-key-not-for-prod
+      WORKSHOP_COOKIE_SECURE: "0"
+      MESFLOW_ADMIN_USERNAME: admin
+      MESFLOW_ADMIN_PASSWORD: Local@123456
+      MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
+      MESFLOW_LOCAL_AUTO_LOGIN: "0"
+      MESFLOW_DEPLOYMENT_ID: projectflow-local-sandbox
+      TZ: Asia/Ho_Chi_Minh
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${MESFLOW_LOCAL_PORT:-18280}:8080"
+    volumes:
+      - ./runtime-projectflow-local/uploads:/data/uploads
+      - ./runtime-projectflow-local/backups:/data/backups
+      - ./runtime-projectflow-local/firmware:/data/firmware
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/system/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    stop_grace_period: 20s
+
+networks:
+  default:
+    name: mesflow-projectflow-local_network

@@ -10,15 +10,21 @@ from mesflow.core.config import settings
 from mesflow.db.repositories.system_repository import SystemRepository
 from mesflow.db.repositories.user_repository import UserRepository
 from mesflow.db.repositories.rbac import RBACRepository
+from mesflow.db.repositories.analytics import AuditRepository
 from mesflow.web.master_data import bp as master_data_bp
 from mesflow.web.execution import bp as execution_bp
 from mesflow.web.analytics import bp as analytics_bp
+from mesflow.web.exceptions import bp as exceptions_bp
+from mesflow.web.trace import bp as production_trace_bp
+from mesflow.web.system_health import bp as system_health_bp
 from mesflow.web.excel_io import bp as excel_io_bp, template_excel_bp
 from mesflow.web.kiosk import bp as kiosk_bp
 from mesflow.web.internal_ota import bp as internal_ota_bp
 from mesflow.web.users import bp as users_bp
 from mesflow.web.action_logging import bp as action_logging_bp, begin_request, finish_request, unhandled_error
 from mesflow.web.auth import admin_required
+from mesflow.domain.events import event_bus
+from mesflow.domain.event_handlers import register_default_handlers
 
 def _is_direct_local_request():
     """Direct localhost diagnostics only; requests forwarded by nginx are excluded."""
@@ -60,6 +66,9 @@ def create_app():
     app.register_blueprint(master_data_bp)
     app.register_blueprint(execution_bp)
     app.register_blueprint(analytics_bp)
+    app.register_blueprint(exceptions_bp)
+    app.register_blueprint(production_trace_bp)
+    app.register_blueprint(system_health_bp)
     app.register_blueprint(excel_io_bp)
     app.register_blueprint(template_excel_bp)
     app.register_blueprint(kiosk_bp)
@@ -67,6 +76,12 @@ def create_app():
     app.register_blueprint(users_bp)
     app.register_blueprint(action_logging_bp)
     app.before_request(begin_request)
+    # V66 domain event foundation: register the built-in handlers exactly
+    # once per process. create_app() itself is only called once at process
+    # startup (see mesflow.cli / the WSGI entrypoint), so this is safe --
+    # tests that call create_app() multiple times in one process should use
+    # a fresh EventBus() instead of the module-level singleton.
+    register_default_handlers(event_bus)
 
     @app.errorhandler(HTTPException)
     def handle_http_error(exc):
@@ -318,11 +333,19 @@ def create_app():
 
     @app.post('/api/auth/login')
     def login():
+        # SECURITY_AUDIT (section 3): login attempts are business/account
+        # events that belong with MESFlow, not buried only in the generic
+        # technical action_logs trace. Never logs the submitted password.
         b=request.get_json(silent=True) or {}
-        u=UserRepository().get_by_username(str(b.get('username','')).strip())
+        username=str(b.get('username','')).strip()
+        u=UserRepository().get_by_username(username)
         if not u or not u['active'] or not check_password_hash(u['password_hash'],str(b.get('password',''))):
+            try: AuditRepository().log(username,'LOGIN_FAILED','user','',{'reason':'inactive' if u and not u['active'] else 'invalid_credentials'})
+            except Exception: pass
             return jsonify(ok=False,error='INVALID_CREDENTIALS'),401
         session['user_id']=u['id']; session['username']=u['username']; session['role']=u['role']
+        try: AuditRepository().log(u['username'],'LOGIN_SUCCESS','user',str(u['id']),{})
+        except Exception: pass
         return jsonify(ok=True,user={'id':u['id'],'username':u['username'],'role':u['role'],'must_change_password':u['must_change_password'],'permissions':RBACRepository().permissions_for_role(u['role'])})
 
     @app.post('/api/auth/logout')

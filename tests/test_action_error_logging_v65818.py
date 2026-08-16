@@ -10,5 +10,11 @@ def test_hooks_and_masking():
     assert 'before_request(begin_request)' in a and 'finish_request(response)' in a
     assert "'password'" in l and 'X-Trace-ID' in l and 'traceback.format_exception' in l
 def test_ui():
+    # The System Logs page renderer/API call were extracted into their own
+    # module (pages/system-logs.js) during the V71 UI-foundation
+    # modularization; app.js keeps only the menu entry + dispatch.
     j=(ROOT/'app/mesflow/web/static/app.js').read_text()
-    assert "page:'system-logs'" in j and 'renderSystemLogs' in j and '/api/system/action-logs' in j
+    s=(ROOT/'app/mesflow/web/static/pages/system-logs.js').read_text()
+    assert "page:'system-logs'" in j
+    assert "id==='system-logs'" in j and 'renderSystemLogs' in j
+    assert '/api/system/action-logs' in s

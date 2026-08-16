@@ -1,5 +1,5 @@
 async function renderSystemLogs(){
-  title.textContent='Nhật ký hệ thống';subtitle.textContent='Action Log, Error Trace và lịch sử Retention';
+  title.textContent='Nhật ký ứng dụng';subtitle.textContent='Action Log, Error Trace và lịch sử Retention — application-level tracing, không phải hạ tầng';
   content.innerHTML=`<div class="panel system-log-tabs"><div class="toolbar wrap"><button class="btn sl-tab active" data-tab="actions">Hoạt động hệ thống</button><button class="btn sl-tab" data-tab="errors">Lỗi cần xử lý</button><button class="btn sl-tab" data-tab="retention">Lịch sử lưu trữ</button></div></div><div id="slView"></div>`;
   const $=id=>document.getElementById(id),view=$('slView');
   const items=d=>Array.isArray(d)?d:Array.isArray(d?.items)?d.items:Array.isArray(d?.data?.items)?d.data.items:[];

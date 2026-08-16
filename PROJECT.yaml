@@ -1,0 +1,118 @@
+schema_version: 1
+
+project:
+  code: mesflow-app
+  name: MESFlow App
+  type: WEB_APP
+  role: APPLICATION
+
+source:
+  root: .
+
+version:
+  file: VERSION.txt
+
+runtime:
+  type: docker-compose
+
+service:
+  healthcheck:
+    type: http
+    # Isolated local sandbox port (see deployment.local below) -- never the
+    # deployment-target compose's 8080, which on this host may already be
+    # serving a live deployment (see reports/PROJECTFLOW_STANDARDIZATION_ASSESSMENT.md §5).
+    url: http://127.0.0.1:${MESFLOW_LOCAL_PORT:-18280}/api/system/ready
+    timeout_seconds: 15
+
+commands:
+
+  preflight:
+    command: ./scripts/projectflow/preflight.sh
+    working_directory: .
+    timeout_seconds: 120
+
+  build:
+    command: ./scripts/projectflow/build.sh
+    working_directory: .
+    timeout_seconds: 1800
+
+  test:
+    command: ./scripts/projectflow/test.sh
+    working_directory: .
+    timeout_seconds: 1800
+
+  smoke:
+    command: ./scripts/projectflow/smoke.sh
+    working_directory: .
+    timeout_seconds: 300
+
+  local_deploy:
+    command: ./scripts/projectflow/deploy-local.sh
+    working_directory: .
+    timeout_seconds: 900
+
+  local_stop:
+    command: ./scripts/projectflow/stop-local.sh
+    working_directory: .
+    timeout_seconds: 300
+
+  local_status:
+    command: ./scripts/projectflow/status-local.sh
+    working_directory: .
+
+  logs:
+    command: ./scripts/projectflow/logs-local.sh
+    working_directory: .
+
+artifacts:
+  strategy: immutable
+  # Deliberately OUTSIDE this project's source root (../ = workspace root),
+  # per mesflow/AGENTS.md Rule 8: "Runtime/data/artifacts do not belong in
+  # the source repository." The real build engine (scripts/projectflow/build.sh
+  # -> scripts/build-release.sh) already writes here; this is a pointer, not
+  # a second location.
+  directory: ../artifacts/releases
+  metadata: ../artifacts/latest/mesflow-app.json
+
+deployment:
+  build_once: true
+  promote_same_artifact: true
+
+  local:
+    enabled: true
+    approval_required: false
+    notes: >
+      Deploys into an isolated sandbox (compose project
+      "mesflow-projectflow-local", containers
+      mesflow-projectflow-local-{postgres,app}, port ${MESFLOW_LOCAL_PORT:-18280},
+      bind-mounts under runtime-projectflow-local/) that is structurally
+      unable to collide with the real deployment-target stack
+      (mesflow-app/mesflow-postgres/mesflow-nginx, compose.yml, /opt/mesflow).
+      This is intentionally NOT the same path as scripts/deploy-local.sh at
+      the workspace root, which drives the live local Deploy Agent
+      (127.0.0.1:8090) and is out of scope for ProjectFlow-driven local
+      validation on a host where that Agent may already be managing a real
+      deployment.
+
+  test:
+    enabled: true
+
+  staging:
+    enabled: true
+    notes: >
+      Promotion to Production Test is scripts/promote-test.sh at the
+      workspace root (uploads the same release ZIP built by
+      scripts/projectflow/build.sh, --no-build on the target). Not wired as a
+      ProjectFlow direct action in this pass -- requires
+      TARGET_AGENT_URL/TARGET_PASSWORD for a real Production Test host.
+
+  production:
+    enabled: true
+    approval_required: true
+    projectflow_direct_execution: false
+    notes: >
+      Human-gated only, via the Deploy Agent Release Manager UI
+      ("Promote Production" button). This Agent build's own
+      /api/release-manager/promote-production endpoint returns 501
+      (wiring only) even when explicitly confirmed. ProjectFlow must never
+      call this directly.

@@ -94,8 +94,47 @@ def record_deployment():
     print(f'[DEPLOY] Recorded {deployment_id}')
 
 
+def run_predictive():
+    """Phase 3 scheduled job (section 48): sample metrics, clean up old
+    samples past retention, recompute forecast/anomaly/recurrence, and
+    report its own status through Phase 1's Jobs card (scheduled_job_health)
+    so a silently-dead predictive job shows up as MISSED, not as a
+    falsely-green Health Center (section 53).
+
+    Monitoring ownership cutover (reports/SYSTEM_LOG_AUDIT_SEPARATION.md):
+    Deploy Agent is now authoritative for infra monitoring/diagnostics. This
+    legacy job is a no-op unless MESFLOW_LEGACY_HEALTH_WRITER_ENABLED=1 --
+    it no longer writes health_metric_samples, predictive_insights, or
+    scheduled_job_health. Not removed: still callable to prove the
+    mechanism still works, and to allow a deliberate rollback."""
+    if not settings.legacy_health_writer_enabled:
+        print('[PREDICTIVE] legacy health writer disabled; skipped (Deploy Agent is authoritative for infra monitoring)')
+        return
+    t0=time.time();job='predictive_metrics_collection'
+    def report(status,error=''):
+        with psycopg.connect(settings.database_url) as c:
+            c.execute("""UPDATE scheduled_job_health SET last_started_at=%s,last_finished_at=CURRENT_TIMESTAMP,
+                last_status=%s,duration_ms=%s,last_error=%s,
+                consecutive_failures=CASE WHEN %s='SUCCESS' THEN 0 ELSE consecutive_failures+1 END,
+                next_expected_at=CURRENT_TIMESTAMP+(expected_interval_seconds||' seconds')::interval
+                WHERE job_name=%s""",
+                (started_at,status,int((time.time()-t0)*1000),error,status,job))
+    started_at=datetime.now(timezone.utc)
+    try:
+        from mesflow.services.metrics_service import MetricsCollector
+        from mesflow.services.predictive_service import PredictiveService
+        written=MetricsCollector().collect()
+        MetricsCollector().cleanup()
+        insights=PredictiveService().sync(correlation_id=f'cli-run-predictive-{int(time.time())}')
+        report('SUCCESS')
+        print(f'[PREDICTIVE] collected {len(written)} samples, {len(insights)} active insight(s)')
+    except Exception as e:
+        report('FAILED',f'{type(e).__name__}: {e}')
+        raise
+
+
 if __name__=='__main__':
     cmd=sys.argv[1] if len(sys.argv)>1 else ''
-    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'reset-admin':reset_admin,'verify-schema':verify_schema,'record-deployment':record_deployment}
+    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'reset-admin':reset_admin,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive}
     if cmd not in funcs: raise SystemExit('unknown command')
     funcs[cmd]()

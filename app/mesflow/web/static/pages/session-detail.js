@@ -52,6 +52,7 @@ const mfDisplayDuration=seconds=>{
   const minutes=Math.floor(seconds/60);
   return `${Math.floor(minutes/60)}h ${String(minutes%60).padStart(2,'0')}m`;
 };
+const traceTimelineHtml=events=>events.length?`<ol class="trace-mini">${events.map(e=>`<li class="trace-${String(e.category).toLowerCase()}"><time>${esc(fmt(e.occurred_at))}</time><div><b>${esc(e.title)}</b>${e.quantity_delta!=null?`<strong>${e.quantity_delta>0?'+':''}${e.quantity_delta}</strong>`:''}<p>${esc(e.description||'')}</p><small>${esc(e.actor_name||e.source||'Hệ thống')}</small></div></li>`).join('')}</ol>`:'<p class="drawer-empty">Chưa có trace native. Dữ liệu cũ có thể chỉ được suy ra một phần.</p>';
 
 // Core session field rows shared between the drawer and Session Management.
 function sessionCoreFieldRows(x){
@@ -115,30 +116,10 @@ function resolutionHistoryHtml(reviews){
 
 // --- Session Detail drawer ---------------------------------------------
 const SessionDetailDrawer=(()=>{
-  let root=null,openSessionId=null;
-  const ensureRoot=()=>{
-    if(root)return root;
-    root=document.createElement('div');
-    root.id='sessionDetailDrawerRoot';
-    root.className='drawer-backdrop hidden';
-    document.body.appendChild(root);
-    root.addEventListener('click',e=>{if(e.target===root)close()});
-    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!root.classList.contains('hidden'))close()});
-    return root;
-  };
-  const setUrlState=id=>{
-    try{
-      const url=new URL(location.href);
-      if(id)url.searchParams.set('session',String(id));else url.searchParams.delete('session');
-      history.replaceState(history.state,'',url.toString());
-    }catch(e){/* URL state is optional; never block the drawer on it */}
-  };
+  let drawer=null,openSessionId=null;
   const close=()=>{
-    if(!root)return;
-    root.classList.add('hidden');
-    document.body.classList.remove('drawer-open');
     openSessionId=null;
-    setUrlState(null);
+    if(drawer){const active=drawer;drawer=null;active.close()}
   };
   const isOpenFor=sessionId=>openSessionId!==null&&Number(sessionId)===openSessionId;
   const actionButtonsHtml=opts=>{
@@ -154,14 +135,14 @@ const SessionDetailDrawer=(()=>{
       ?(data.exceptions||[]).find(e=>e.exception_code===opts.exceptionCode&&e.exception_fingerprint===opts.exceptionFingerprint)
       :(data.exceptions||[]).find(e=>e.is_active!==false&&['NEW','IN_PROGRESS'].includes(e.workflow_status));
     const exceptionStatus=activeException?activeException.workflow_status:null;
-    const panel=root.querySelector('.drawer-panel');
-    panel.querySelector('.drawer-head').innerHTML=`
+    const panel=drawer.panel;
+    drawer.header.innerHTML=`
       <div>
         <h2>Session #${esc(x.session_id)}</h2>
         <p>${esc(x.employee_name||'')} · ${esc(x.operation_code||'')} ${esc(x.operation_name||'')}</p>
         <div class="drawer-badges">${sourceBadgeHtml(x.data_source)}${x.status==='OPEN'?'<span class="badge warning">Đang chạy</span>':'<span class="badge success">Đã kết thúc</span>'}${activeException?`<span class="workflow-badge ${String(activeException.workflow_status||'NEW').toLowerCase()}">${esc(MF_WORKFLOW_LABELS[activeException.workflow_status]||activeException.workflow_status)}</span>`:''}</div>
       </div>
-      <button class="btn drawer-close" id="sdClose" type="button">Đóng</button>`;
+      <button class="ui-icon-button" id="sdClose" type="button" aria-label="Đóng chi tiết">×</button>`;
     const currentExceptionSection=activeException?`
       <section class="drawer-section">
         <h3>Bất thường hiện tại</h3>
@@ -172,14 +153,17 @@ const SessionDetailDrawer=(()=>{
           <p>${esc(MF_EXCEPTION_HINTS[activeException.exception_code]||'Kiểm tra Session và bằng chứng liên quan trước khi thay đổi dữ liệu.')}</p>
         </div>
       </section>`:'';
-    panel.querySelector('.drawer-body').innerHTML=`
+    drawer.body.innerHTML=`
       ${currentExceptionSection}
       <section class="drawer-section"><h3>Thông tin Session</h3>${kvGrid(sessionCoreFieldRows(x))}</section>
       <section class="drawer-section"><h3>Dòng thời gian hoạt động</h3>${activityTimelineHtml(data.activity)}</section>
+      <section class="drawer-section"><h3>Production Trace · V68</h3>${traceTimelineHtml(data.trace?.events||[])}</section>
       <section class="drawer-section"><h3>Lịch sử bất thường</h3>${exceptionHistoryHtml(data.exceptions)}</section>
       <section class="drawer-section"><h3>Lịch sử xử lý</h3>${resolutionHistoryHtml(data.reviews)}</section>
       <section class="drawer-section">${technicalDetailsHtml(x)}</section>`;
-    panel.querySelector('.drawer-actions').innerHTML=`
+    drawer.footer.hidden=false;
+    drawer.footer.classList.add('drawer-actions');
+    drawer.footer.innerHTML=`
       <div class="drawer-actions-primary">${actionButtonsHtml({...opts,exceptionStatus})}</div>
       ${opts.onOpenManagement?'<button class="btn" id="sdActOpenManagement" type="button">Mở trong Quản lý Session</button>':''}`;
     panel.querySelector('#sdClose').onclick=close;
@@ -191,24 +175,15 @@ const SessionDetailDrawer=(()=>{
   const open=async(sessionId,opts={})=>{
     sessionId=Number(sessionId);
     openSessionId=sessionId;
-    const r=ensureRoot();
-    r.innerHTML=`<div class="drawer-panel" role="dialog" aria-modal="true" aria-label="Chi tiết Session">
-      <div class="drawer-head"><div><h2>Session #${esc(sessionId)}</h2><p>Đang tải...</p></div><button class="btn drawer-close" id="sdClose" type="button">Đóng</button></div>
-      <div class="drawer-body" aria-busy="true"><p class="drawer-empty">Đang tải chi tiết Session…</p></div>
-      <div class="drawer-actions"></div>
-    </div>`;
-    r.querySelector('#sdClose').onclick=close;
-    r.classList.remove('hidden');
-    document.body.classList.add('drawer-open');
-    setUrlState(sessionId);
+    drawer=MFUI.openDrawer({id:'sessionDetail',size:'LG',title:`Session #${sessionId}`,subtitle:'Đang tải chi tiết…',content:MFUI.loadingState('Đang tải chi tiết Session…'),urlParam:'session',urlValue:sessionId,onClose:()=>{openSessionId=null;drawer=null}});
     try{
-      const data=await api(`/api/session-management/${sessionId}`);
+      const [data,trace]=await Promise.all([api(`/api/session-management/${sessionId}`),api(`/api/sessions/${sessionId}/trace?limit=100`)]);data.trace=trace;
       if(openSessionId!==sessionId)return; // a newer open() superseded this one
       render(data,opts);
     }catch(e){
       if(openSessionId!==sessionId)return;
-      r.querySelector('.drawer-body').innerHTML=`<div class="empty danger"><b>Không tải được Session</b><span>${esc(e.message||'Thử lại.')}</span></div>`;
-      r.querySelector('.drawer-body').removeAttribute('aria-busy');
+      drawer.body.innerHTML=MFUI.errorState(e.message||'Không tải được Session.','sdRetry');
+      drawer.body.querySelector('#sdRetry').onclick=()=>open(sessionId,opts);
     }
   };
   return {open,close,isOpenFor};

@@ -8,6 +8,7 @@ from mesflow.core.working_calendar import get_working_calendar, get_work_shift, 
 from mesflow.core.time_policy import coerce_utc,utc_now,business_date
 from mesflow.db.repositories.scheduling import priority_for_operation,priority_sort_key
 from mesflow.core.config import settings
+from mesflow.domain.audit_presentation import ACTION_CATALOG,CATEGORY_LABELS,present as present_audit_row
 
 class AuditRepository:
     def log(self,actor_username:str,action:str,entity_type:str='',entity_id:str='',details:dict[str,Any]|None=None):
@@ -16,13 +17,87 @@ class AuditRepository:
                 cur.execute("""INSERT INTO audit_logs(actor_username,action,entity_type,entity_id,details_json)
                 VALUES(%s,%s,%s,%s,%s) RETURNING *""",(actor_username or '',action,entity_type,entity_id,json.dumps(details or {},ensure_ascii=False)))
                 return cur.fetchone()
-    def list(self,limit:int=200,action:str='',entity_type:str=''):
+    def list(self,limit:int=200,action:str='',entity_type:str='',entity_id:str='',actor:str='',
+             employee_id:int|None=None,date_from:str='',date_to:str='',correlation_id:str='',category:str=''):
+        # Business Audit Trail filters (Nhật ký nghiệp vụ) -- Time/User/
+        # Employee/PO/Session/Operation are all reachable via
+        # entity_type+entity_id (e.g. entity_type='work_session',
+        # entity_id=<session id>) plus the V66-added employee_id/
+        # correlation_id columns; kept as one flexible query rather than a
+        # bespoke endpoint per entity kind. `category` is the friendly
+        # filter group (section 13: Session/Sản lượng/PO/Công đoạn/Lịch làm
+        # việc/Nhân viên/Xử lý bất thường/Quản trị) -- resolved here to the
+        # underlying action codes so a manager never needs to know one.
         where=[]; params=[]
         if action: where.append('action=%s'); params.append(action)
+        if category:
+            actions=[code for code,meta in ACTION_CATALOG.items() if meta['category']==category]
+            where.append('action=ANY(%s)'); params.append(actions or ['__none__'])
         if entity_type: where.append('entity_type=%s'); params.append(entity_type)
+        if entity_id: where.append('entity_id=%s'); params.append(entity_id)
+        if actor: where.append('actor_username ILIKE %s'); params.append(f'%{actor}%')
+        if employee_id is not None: where.append('employee_id=%s'); params.append(employee_id)
+        if correlation_id: where.append('correlation_id=%s'); params.append(correlation_id)
+        if date_from: where.append('created_at>=%s'); params.append(date_from)
+        if date_to: where.append('created_at<=%s'); params.append(date_to)
         clause=(' WHERE '+' AND '.join(where)) if where else ''
         params.append(min(max(limit,1),1000))
-        return fetch_all(f'SELECT * FROM audit_logs{clause} ORDER BY id DESC LIMIT %s',params)
+        rows=fetch_all(f'SELECT * FROM audit_logs{clause} ORDER BY id DESC LIMIT %s',params)
+        return self._enrich(rows)
+
+    def _enrich(self,rows:list[dict[str,Any]]):
+        """Attach a human-readable `presentation` to each row (section 1-11),
+        via batched lookups -- never one query per row (section 8). The raw
+        columns (action/entity_type/entity_id/details_json/before_json/
+        after_json/correlation_id/source) are returned unchanged alongside
+        it, so the "Thông tin kỹ thuật" section always has complete,
+        untouched evidence (section 10/14)."""
+        if not rows: return rows
+        session_ids:set[int]=set(); employee_ids:set[int]=set(); operation_ids:set[int]=set(); station_ids:set[int]=set()
+        parsed:list[tuple[dict,dict,dict]]=[]
+        for row in rows:
+            details=_safe_json(row.get('details_json')); before=_safe_json(row.get('before_json')); after=_safe_json(row.get('after_json'))
+            parsed.append((details,before,after))
+            action=row.get('action') or ''
+            if row.get('entity_type')=='work_session' and str(row.get('entity_id') or '').isdigit():
+                session_ids.add(int(row['entity_id']))
+            if action=='SESSION_EXCEPTION_WORKFLOW_UPDATE':
+                for it in (details.get('items') or []):
+                    sid=it.get('session_id')
+                    if sid: session_ids.add(int(sid))
+            if action in ('EXCEPTION_ACKNOWLEDGED','EXCEPTION_RESOLVED','EXCEPTION_IGNORED','EXCEPTION_AUTO_IGNORED'):
+                sid=details.get('session_id') or after.get('session_id') or before.get('session_id')
+                if sid: session_ids.add(int(sid))
+            for snapshot in (details.get('old'),details.get('new'),before,after):
+                if not snapshot: continue
+                if snapshot.get('employee_id'): employee_ids.add(int(snapshot['employee_id']))
+                if snapshot.get('operation_id'): operation_ids.add(int(snapshot['operation_id']))
+                if snapshot.get('station_id'): station_ids.add(int(snapshot['station_id']))
+        sessions:dict[int,dict]={}
+        if session_ids:
+            for r in fetch_all('SELECT id,employee_id,operation_id,station_id FROM work_sessions WHERE id=ANY(%s)',(list(session_ids),)):
+                sessions[r['id']]=r
+                if r.get('employee_id'): employee_ids.add(r['employee_id'])
+                if r.get('operation_id'): operation_ids.add(r['operation_id'])
+                if r.get('station_id'): station_ids.add(r['station_id'])
+        employees={r['id']:r for r in fetch_all('SELECT id,employee_no,name FROM employees WHERE id=ANY(%s)',(list(employee_ids),))} if employee_ids else {}
+        operations={r['id']:r for r in fetch_all('SELECT id,code,name FROM operations WHERE id=ANY(%s)',(list(operation_ids),))} if operation_ids else {}
+        stations={r['id']:r for r in fetch_all('SELECT id,code,name FROM stations WHERE id=ANY(%s)',(list(station_ids),))} if station_ids else {}
+        out=[]
+        for row,(details,before,after) in zip(rows,parsed):
+            enriched=dict(row)
+            enriched['details_json']=details; enriched['before_json']=before; enriched['after_json']=after
+            enriched['presentation']=present_audit_row(enriched,employees=employees,operations=operations,stations=stations,sessions=sessions)
+            out.append(enriched)
+        return out
+
+def _safe_json(value):
+    if isinstance(value,dict): return value
+    if not value: return {}
+    try:
+        parsed=json.loads(value)
+        return parsed if isinstance(parsed,dict) else {}
+    except (TypeError,ValueError): return {}
 
 class DashboardRepository:
     def summary(self):

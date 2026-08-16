@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, Response, session
+from flask import Blueprint, jsonify, request, Response, session, g
 import os
 from mesflow.web.auth import login_required,roles_required
 from pathlib import Path
@@ -12,6 +12,7 @@ from mesflow.db.repositories.production_state import reconcile_production_order
 from mesflow.db.repositories.analytics import AuditRepository
 from mesflow.core.upload_policy import validate_drawing_upload
 from mesflow.web.errors import api_error_response
+from mesflow.domain.trace import record_event
 
 bp=Blueprint('master_data',__name__,url_prefix='/api')
 RESOURCES={
@@ -430,6 +431,8 @@ def start_production_order(po_id):
             started=conn.execute("""UPDATE production_orders
                 SET status='IN_PROGRESS',updated_at=CURRENT_TIMESTAMP
                 WHERE id=%s RETURNING *""",(po_id,)).fetchone()
+            with conn.cursor() as cur:record_event(cur,event_type='PO_STARTED',category='PO',title='Production Order bắt đầu',po_id=po_id,
+                actor_id=session.get('user_id'),actor_name=str(session.get('username') or ''),correlation_id=getattr(g,'trace_id',''),metadata={'previous_status':current,'status':'IN_PROGRESS'})
         return jsonify(ok=True,item=dict(started),operation_count=op_count,already_started=False)
     except Exception as exc:
         return response_error(exc)

@@ -35,6 +35,12 @@ services:
       MESFLOW_DEPLOYMENT_ID: docker-e2e
       MESFLOW_ESP_TUTORIAL_DIR: /data/tutorials/esp-kiosk
       MESFLOW_INTERNAL_API_TOKEN: ${MESFLOW_INTERNAL_API_TOKEN:-local-internal-readiness-token}
+      # Monitoring ownership cutover (reports/SYSTEM_LOG_AUDIT_SEPARATION.md):
+      # off by default in real deployments -- kept on here so the existing
+      # V69/Phase2/Phase3 test suite still exercises the underlying write
+      # mechanism (proves it isn't rotted for a future rollback) without
+      # requiring every test file to flip it on itself.
+      MESFLOW_LEGACY_HEALTH_WRITER_ENABLED: "1"
     volumes:
       - ./runtime/tutorials:/data/tutorials:ro
     depends_on:

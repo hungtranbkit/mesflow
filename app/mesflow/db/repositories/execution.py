@@ -9,6 +9,8 @@ from mesflow.db.connection import transaction,fetch_all,fetch_one
 from .base import NotFoundError,ConflictError,RepositoryError
 from .production_state import lock_idempotency_key,lock_startable_operation,reconcile_operation_and_po
 from .scheduling import dispatch_state_from_db
+from mesflow.domain.audit import record_audit
+from mesflow.domain.trace import record_event,record_quantities
 
 
 def _json_safe(value: Any):
@@ -284,7 +286,7 @@ class WorkSessionRepository:
             if row and str(row.get('action') or '').upper()!=str(action).upper():
                 raise ConflictError(f'idempotency key đã được dùng cho action {row.get("action")}')
             return row['response_json'] if row else None
-    def start(self,data):
+    def start(self,data,audit_actor_username='',audit_actor_user_id=None,audit_correlation_id=''):
         request_id=str(data.get('request_id','')).strip()
         if not request_id: raise ValueError('request_id required')
         with transaction() as conn:
@@ -343,8 +345,18 @@ class WorkSessionRepository:
                 reconcile_operation_and_po(cur,operation_id)
                 response=_json_safe({'ok':True,'session':dict(row),'idempotent_replay':False})
                 cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'START',Jsonb(response)))
+                # V66: transactionally-consistent audit row -- same cursor/commit as the
+                # INSERT above, so a session can never exist without a matching audit
+                # entry (or vice versa). audit_actor_* defaults keep kiosk/device callers
+                # (which have no web user session) working unchanged.
+                record_audit(cur,action='SESSION_STARTED',entity_type='work_session',entity_id=str(row['id']),
+                    actor_username=audit_actor_username,actor_user_id=audit_actor_user_id,employee_id=employee_id,
+                    correlation_id=audit_correlation_id or request_id,after=response['session'],source='mesflow.web')
+                record_event(cur,event_type='SESSION_STARTED',category='SESSION',title='Session bắt đầu',operation_id=operation_id,
+                    session_id=row['id'],actor_id=audit_actor_user_id,actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,
+                    metadata={'employee_id':employee_id,'request_id':request_id})
                 return response
-    def finish(self,session_id,data):
+    def finish(self,session_id,data,audit_actor_username='',audit_actor_user_id=None,audit_correlation_id=''):
         request_id=str(data.get('request_id','')).strip()
         if not request_id: raise ValueError('request_id required')
         good=max(int(data.get('good_qty',0) or 0),0); defect=max(int(data.get('defect_qty',0) or 0),0); rework=max(int(data.get('rework_qty',0) or 0),0)
@@ -361,10 +373,25 @@ class WorkSessionRepository:
                 cur.execute("SELECT CURRENT_TIMESTAMP now_at")
                 finish_at=cur.fetchone()['now_at']
                 _raise_overlap(_find_employee_session_overlap(cur,row['employee_id'],row['started_at'],finish_at,session_id))
+                movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=audit_actor_user_id,
+                    actor_name=audit_actor_username,source='SESSION_FINISH',reason=str(data.get('note','')),correlation_id=audit_correlation_id or request_id)
                 cur.execute("UPDATE work_sessions SET status='CLOSED',ended_at=%s,good_qty=%s,defect_qty=%s,rework_qty=%s,note=%s,finish_request_id=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *",(finish_at,good,defect,rework,str(data.get('note','')),request_id,session_id)); closed=cur.fetchone()
                 reconcile_operation_and_po(cur,row['operation_id'])
                 response=_json_safe({'ok':True,'session':dict(closed),'idempotent_replay':False})
                 cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'FINISH',Jsonb(response)))
+                # V66: transactionally-consistent audit row, same cursor/commit as the
+                # UPDATE above -- see start() for the same rationale. before=the OPEN
+                # session snapshot captured under FOR UPDATE at the top of this method.
+                record_audit(cur,action='SESSION_FINISHED',entity_type='work_session',entity_id=str(session_id),
+                    actor_username=audit_actor_username,actor_user_id=audit_actor_user_id,employee_id=row['employee_id'],
+                    correlation_id=audit_correlation_id or request_id,before=_json_safe(dict(row)),after=response['session'],source='mesflow.web')
+                for movement in movements:
+                    record_event(cur,event_type={'GOOD':'GOOD_QUANTITY_RECORDED','DEFECT':'DEFECT_QUANTITY_RECORDED','REPAIRABLE':'REPAIRABLE_DEFECT_RECORDED'}[movement['movement_type']],
+                      category={'GOOD':'QUANTITY','DEFECT':'DEFECT','REPAIRABLE':'REWORK'}[movement['movement_type']],title={'GOOD':'Ghi nhận sản lượng đạt','DEFECT':'Ghi nhận sản lượng lỗi','REPAIRABLE':'Ghi nhận lỗi sửa được'}[movement['movement_type']],
+                      operation_id=row['operation_id'],session_id=session_id,actor_id=audit_actor_user_id,actor_name=audit_actor_username,quantity_delta=movement['delta'],correlation_id=audit_correlation_id or request_id,metadata={'movement_id':movement['id']})
+                record_event(cur,event_type='SESSION_FINISHED',category='SESSION',title='Session kết thúc',operation_id=row['operation_id'],session_id=session_id,
+                    actor_id=audit_actor_user_id,actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,occurred_at=finish_at,
+                    metadata={'good':good,'defect':defect,'repairable':rework,'request_id':request_id})
                 return response
     def list(self,limit=200):
         return fetch_all("""SELECT s.*,e.employee_no,e.name employee_name,o.code operation_code,o.name operation_name
@@ -402,10 +429,13 @@ class SupervisorRepository:
                 if not row: raise NotFoundError('session not found')
                 if row['status']=='CLOSED':
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
+                cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
+                movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
                 cur.execute('UPDATE work_sessions SET good_qty=%s,defect_qty=%s,rework_qty=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s',(good,defect,rework,session_id))
                 reconcile_operation_and_po(cur,row['operation_id'])
                 cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,old_defect_qty,new_defect_qty,old_rework_qty,new_rework_qty,reason,adjusted_by)
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",(session_id,row['operation_id'],row['good_qty'],good,row['defect_qty'],defect,int(row.get('rework_qty') or 0),rework,reason,user_id)); result=_json_safe(dict(cur.fetchone()))
+                record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Điều chỉnh sản lượng Session',description=reason,operation_id=row['operation_id'],session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'adjustment_id':result['id'],'movements':[x['id'] for x in movements]})
                 if request_id:cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_ADJUST',Jsonb(result)))
                 return result
     def edit_session(self,session_id,data,user_id):
@@ -445,12 +475,15 @@ class SupervisorRepository:
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=operation_id,good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 else:
                     cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
+                cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
+                movements=record_quantities(cur,session=old,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
                 cur.execute("""UPDATE work_sessions SET employee_id=%s,operation_id=%s,station_id=%s,status=%s,started_at=%s::timestamptz,ended_at=%s::timestamptz,good_qty=%s,defect_qty=%s,rework_qty=%s,note=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *""",(employee_id,operation_id,station_id,status,started_at,ended_at,good,defect,rework,note,session_id)); new=cur.fetchone()
                 cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,old_defect_qty,new_defect_qty,old_rework_qty,new_rework_qty,reason,adjusted_by) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(session_id,operation_id,old['good_qty'],good,old['defect_qty'],defect,int(old.get('rework_qty') or 0),rework,reason,user_id))
                 reconcile_operation_and_po(cur,old['operation_id'])
                 if int(old['operation_id'])!=operation_id:
                     reconcile_operation_and_po(cur,operation_id)
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
+                record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Chỉnh sửa Session',description=reason,operation_id=operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'before':_json_safe(dict(old)),'after':_json_safe(dict(new)),'movement_ids':[x['id'] for x in movements]})
                 if request_id:cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_EDIT',Jsonb(result)))
                 return result
 

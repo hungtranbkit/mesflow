@@ -249,6 +249,10 @@ async function renderSessionExceptions(){
           exceptionCode:x.exception_code,
           exceptionLabel:labels[x.exception_code]||x.exception_code
         };
+        // Recorded so the "← Quay lại bất thường" button inside Session
+        // Management returns to this exact tab/filter/scroll state instead
+        // of always reloading Session bất thường from scratch.
+        AppNav.push(()=>openPage('session-exceptions',document.querySelector('[data-page="session-exceptions"]')));
         SessionDetailDrawer.close();
         openPage('session-management',document.querySelector('[data-page="session-management"]'));
       }

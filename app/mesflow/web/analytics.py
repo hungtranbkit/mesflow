@@ -1,5 +1,5 @@
 from flask import Blueprint,jsonify,request,session
-from mesflow.web.auth import login_required,roles_required
+from mesflow.web.auth import login_required,roles_required,permission_required
 from mesflow.core.config import settings
 from mesflow.db.repositories.base import NotFoundError,ConflictError,RepositoryError
 from mesflow.db.repositories.analytics import AuditRepository,DashboardRepository,ReportRepository,KPIRepository,KioskEventRepository,NotificationRepository
@@ -298,9 +298,29 @@ def snapshot_kpi():
     except Exception as exc: return error(exc)
 
 @bp.get('/audit-logs')
-@login_required
+@permission_required('business_audit.view')
 def audit_logs():
-    try: return jsonify(ok=True,items=AuditRepository().list(int(request.args.get('limit',200)),request.args.get('action',''),request.args.get('entity_type','')))
+    # Nhật ký nghiệp vụ (Business Audit Trail) -- section 11. Never
+    # populated with technical/system errors; those live in action_logs/
+    # error_traces (MESFlow's own "Nhật ký ứng dụng" page, logs.view) or,
+    # for infrastructure incidents, Deploy Agent's Operations Center.
+    # Each item is returned enriched with `presentation` -- see
+    # mesflow.domain.audit_presentation -- a human-readable summary/changes/
+    # context built from the same unmodified raw evidence.
+    try:
+        employee_id=request.args.get('employee_id')
+        return jsonify(ok=True,items=AuditRepository().list(
+            limit=int(request.args.get('limit',200)),
+            action=request.args.get('action',''),
+            category=request.args.get('category',''),
+            entity_type=request.args.get('entity_type',''),
+            entity_id=request.args.get('entity_id',''),
+            actor=request.args.get('actor',''),
+            employee_id=int(employee_id) if employee_id else None,
+            date_from=request.args.get('date_from',''),
+            date_to=request.args.get('date_to',''),
+            correlation_id=request.args.get('correlation_id',''),
+        ))
     except Exception as exc: return error(exc)
 
 @bp.post('/kiosk/events')

@@ -1,5 +1,5 @@
 import uuid
-from flask import Blueprint,jsonify,request,session
+from flask import Blueprint,g,jsonify,request,session
 from mesflow.web.auth import login_required,production_client_required,roles_required
 from mesflow.db.repositories.base import NotFoundError,ConflictError,RepositoryError
 from mesflow.db.repositories.execution import KioskRepository,WorkSessionRepository,QCRepository,SupervisorRepository,_json_safe
@@ -8,7 +8,9 @@ from mesflow.db.connection import transaction,fetch_one
 from mesflow.db.repositories.production_state import reconcile_operation_and_po,reconcile_po_tree
 from mesflow.db.repositories.offline_sync import OfflineSyncRepository
 from mesflow.web.errors import api_error_response
+from mesflow.services.session_service import SessionService,StartSessionCommand,FinishSessionCommand
 bp=Blueprint('execution',__name__,url_prefix='/api')
+_session_service=SessionService()
 
 class KioskRepositoryLookup:
     @staticmethod
@@ -53,12 +55,39 @@ def list_sessions(): return jsonify(ok=True,items=WorkSessionRepository().list()
 @bp.post('/work-sessions/start')
 @production_client_required
 def start_session():
-    try: return jsonify(WorkSessionRepository().start(request.get_json(silent=True) or {})),201
+    # V66 flagship migration: Route -> Typed Command -> Service -> Domain
+    # validation -> Repository -> single transaction -> Audit -> Domain
+    # Event. Response shape is unchanged: {"ok":true,"session":{...},
+    # "idempotent_replay":bool}, HTTP 201, same as before this migration.
+    body=request.get_json(silent=True) or {}
+    try:
+        command=StartSessionCommand(
+            employee_id=int(body.get('employee_id') or 0),operation_id=int(body.get('operation_id') or 0),
+            request_id=str(body.get('request_id','')),station_id=int(body['station_id']) if body.get('station_id') else None,
+            device_uuid=str(body.get('device_uuid','')),actor_username=str(session.get('username','')),
+            actor_user_id=session.get('user_id'),correlation_id=str(getattr(g,'trace_id','') or ''))
+        result=_session_service.start_session(command)
+        return jsonify(ok=True,session=result.session,idempotent_replay=result.idempotent_replay),201
     except Exception as exc: return err(exc)
 @bp.post('/work-sessions/<int:session_id>/finish')
 @production_client_required
 def finish_session(session_id):
-    try: return jsonify(WorkSessionRepository().finish(session_id,request.get_json(silent=True) or {}))
+    # V66 flagship migration (see start_session above). Response shape
+    # unchanged: {"ok":true,"session":{...},"idempotent_replay":bool}, HTTP
+    # 200, same as before this migration. The Kiosk-facing
+    # /api/kiosk-web/finish/<id> route (mesflow.web.kiosk) is intentionally
+    # left calling WorkSessionRepository directly -- device protocol is out
+    # of scope for this migration.
+    body=request.get_json(silent=True) or {}
+    try:
+        command=FinishSessionCommand(
+            session_id=session_id,request_id=str(body.get('request_id','')),
+            good_qty=max(int(body.get('good_qty',0) or 0),0),defect_qty=max(int(body.get('defect_qty',0) or 0),0),
+            rework_qty=max(int(body.get('rework_qty',0) or 0),0),note=str(body.get('note','')),
+            actor_username=str(session.get('username','')),actor_user_id=session.get('user_id'),
+            correlation_id=str(getattr(g,'trace_id','') or ''))
+        result=_session_service.finish_session(command)
+        return jsonify(ok=True,session=result.session,idempotent_replay=result.idempotent_replay)
     except Exception as exc: return err(exc)
 @bp.post('/production-state/reconcile')
 @roles_required('admin','manager')

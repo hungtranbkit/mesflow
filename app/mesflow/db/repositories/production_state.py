@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .base import ConflictError, NotFoundError
+from mesflow.domain.trace import record_event
 
 
 TERMINAL_OPERATION_STATUSES = {'COMPLETED', 'CANCELLED'}
@@ -52,6 +53,10 @@ def reconcile_operation(cur, operation_id: int):
           RETURNING id,production_order_id,done_qty,defect_qty,rework_qty,status''',
         (good, defect, rework, status, operation_id))
     result = dict(cur.fetchone())
+    if status!=current:
+        record_event(cur,event_type='OPERATION_COMPLETED' if status=='COMPLETED' else ('OPERATION_STARTED' if status=='IN_PROGRESS' else 'OPERATION_STATUS_CHANGED'),
+          category='OPERATION',title='Operation hoàn tất' if status=='COMPLETED' else ('Operation bắt đầu' if status=='IN_PROGRESS' else 'Trạng thái Operation thay đổi'),
+          operation_id=operation_id,source='NATIVE',metadata={'previous_status':current,'status':status})
     result.update(session_count=sessions, open_session_count=open_sessions)
     return result
 
@@ -84,6 +89,9 @@ def reconcile_production_order(cur, po_id: int):
     cur.execute('UPDATE production_orders SET status=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING id,code,status',
                 (status, po_id))
     result = dict(cur.fetchone())
+    if status!=current:
+        record_event(cur,event_type='PO_COMPLETED' if status=='COMPLETED' else 'PO_STATUS_CHANGED',category='PO',
+          title='Production Order hoàn tất' if status=='COMPLETED' else 'Trạng thái Production Order thay đổi',po_id=po_id,source='NATIVE',metadata={'previous_status':current,'status':status})
     result.update(operation_count=total, completed_count=int(facts.get('completed_count') or 0),
                   cancelled_count=int(facts.get('cancelled_count') or 0))
     return result
