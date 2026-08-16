@@ -5,222 +5,301 @@ Project: `~/workspace/mesflow/mesflow`
 Branch: `main`
 
 Companion document: `docs/architecture/UI_TEMPLATE_STANDARD.md` (Phases 1–11:
-audit, canonical shell/archetypes/primitives/tokens/contracts). This report
-covers Phase 12 onward: foundation implementation, the three Golden
-Reference pages, testing, build/deploy, and evidence.
+audit, canonical shell/archetypes/primitives/tokens/contracts).
+
+## Revision note (v2 — supersedes the first pass of this report)
+
+The first version of this report claimed **READY TO FREEZE UI STANDARD: YES**
+after attaching a shared `.page-header` CSS class onto each page's existing,
+still-different bespoke container (`.po-list-panel` wrapped title+stats+
+filters+table in one bordered box; Session Management's header/filters sat
+unwrapped on the canvas; Exception Center had no separate header at all).
+**Rejected on visual review**: same class name, three different geometries —
+confirmed by the reviewer that the three pages still read as three different
+UI systems, not one. Corrected finding: *same CSS class ≠ same visual
+template.* This revision replaces that work with real structural
+convergence — the three pages now share literal markup/geometry, not just a
+class name — verified with `getBoundingClientRect()` measurements, not just
+visual impression.
 
 ## CURRENT UI ARCHITECTURE
 
 `app.html`'s App Shell (`.app-layout > .app-sidebar + .app-workspace
 (.workspace-header + #content)`) is universal and was already consistent.
-The problem was entirely inside `#content`: MESFlow had **six different
-in-content page-header implementations** (`.panel-head`, `.po-list-head`,
-`.ui-page-header`, `.overview-intro`, `.daily-command-copy`,
-`.template-command`), none of which matched `DESIGN.md`'s own typography
-table (Section title: 18/24, weight 650–700) — they ranged from 15px to
-21px, each a different value. Repeated CSS-only polish passes earlier this
-session (documented in `reports/UI_QUALITY_AUDIT_FINAL.md` and
-`reports/UI_VISUAL_POLISH_PASS2.md`) fixed real defects but never touched
-this structural root cause, which is why pages kept reading as
-inconsistent no matter how much individual-property polish was applied.
+The problem was entirely inside `#content`. First pass found six different
+in-content page-header *class names*; the deeper problem the reviewer
+caught is that even after adding one shared class, the *surrounding
+geometry* — whether the header/stats/filters sat inside one bordered panel,
+sat bare on the canvas, or didn't exist at all; whether the filter row was a
+bespoke grid or the shared toolbar; whether the data region was its own
+bordered panel or fused into a bigger box — still differed page to page.
+Visual consistency lives in that surrounding geometry, not in the header
+class alone.
 
-## NEW UI CONTRACT
+## NEW UI CONTRACT (v2 — real shared geometry, not shared class names)
 
 ```
-MESFlowAppShell
-├── Sidebar          (unchanged, already consistent)
-├── Topbar            .workspace-header — compact, title+1-line context, no actions
-└── PageShell         #content
-    ├── PageHeader     NEW: .page-header — title/description left, actions right
-    ├── FilterBar      MFUI.filterBar() + unified toolbar-container CSS (already done pre-task)
-    ├── StatsRow       optional, already consistent (ordering fixed pre-task)
-    ├── ContentSection Panel / DataTable
-    └── Drawer/Modal   MFUI.openDrawer/openModal (already correct)
+#content (already display:grid;gap:16px — the single source of truth for
+          left/right edges and vertical rhythm; nothing below introduces
+          its own outer padding, so nothing can drift out of sync)
+└── .page-shell            display:grid;gap:16px — direct child of #content
+    ├── .page-header        PLAIN (no border/background — DESIGN.md 5.2:
+    │                        "don't wrap the header in a hero card").
+    │                        title h2 18/24/700 + description + actions.
+    ├── .stats-row          optional, plain text counts strip
+    ├── .ec-command         optional, the ONE sanctioned bordered/dark
+    │                        "Command/Status panel" variant (Workflow
+    │                        archetype only)
+    ├── .ui-filter-bar      MFUI.filterBar() — same generated markup for
+    │                        every page that has a filter row, not three
+    │                        implementations wearing a matching class
+    └── .content-panel      PanelHeader (title + optional meta, left) +
+         ├─ .content-panel-head   PanelBody (table / card list / empty state)
+         └─ .content-panel-body
 ```
 
-Full detail in `docs/architecture/UI_TEMPLATE_STANDARD.md`.
+Every one of PageHeader/StatsRow/CommandPanel/FilterBar/ContentPanel is now
+a **direct sibling inside the same `.page-shell` grid**, so left/right edges
+and vertical gaps come from one place (`#content`'s and `.page-shell`'s own
+`display:grid;gap:16px`) instead of each page choosing its own wrapper.
 
 ## PAGE ARCHETYPES
 
-A. List (Production Orders, Employees, Equipment, Users, Working Calendar)
-B. Detail (PO workspace, Session Detail, Template editor)
-C. Monitor (Dashboard, Production Trace, Kiosk Management)
-D. Workflow (Session Exception Center)
-E. Audit (Business Audit, System Logs)
+Unchanged from the first pass: A. List, B. Detail, C. Monitor, D. Workflow,
+E. Audit. Full detail in `docs/architecture/UI_TEMPLATE_STANDARD.md`.
 
 ## PRIMITIVES
 
-| Primitive | Status |
-|---|---|
-| PageShell | Existing (`#content` + optional `MFUI.pageShell()`) — unchanged |
-| **PageHeader** | **New shared `.page-header` class** — the one structural gap; added this task |
-| FilterBar | Existing (`MFUI.filterBar()` + shared toolbar CSS), documented as canonical |
-| StatsRow | Existing, unchanged |
-| Panel | Existing, already matched `DESIGN.md` §5.3 |
-| DataTable | Existing `<table>`/`.table-wrap`; added `.num` numeric-column-alignment utility |
-| Drawer/Modal | Existing `MFUI.openDrawer`/`openModal`, unchanged |
+| Primitive | v1 (rejected) | v2 (this revision) |
+|---|---|---|
+| PageShell | n/a | **New `.page-shell`** — `display:grid;gap:16px`, the actual layout parent all sections share |
+| PageHeader | `.page-header` class layered onto 2 different old containers | Same class, but now truly standalone (no border, no wrapper padding) — identical markup shape on all 3 pages |
+| StatsRow | `.po-list-summary` (PO only) | **New `MFUI.statsRow()`** + `.stats-row` — one real shared implementation |
+| Command/StatusPanel | n/a (EC's banner had no separate header above it) | Formalized as the one sanctioned bordered/dark variant for the Workflow archetype; `.ec-command` |
+| FilterBar | 3 separate implementations (`.po-list-toolbar`, `MFUI.filterBar()`, `.ec-filters`) each with different padding/grid | **Consolidated to one**: `MFUI.filterBar()` generates the exact same markup for all 3 pages now (`filterBar()` extended with `clearLabel`/`actions` params to cover PO's "Đặt lại"+"Làm mới" and EC's "Áp dụng") |
+| ContentPanel | table/list left inside the old bespoke wrapper | **New `MFUI.contentPanel()`** + `.content-panel`/`.content-panel-head`/`.content-panel-body` — one shared bordered region for every page's actual data |
+| DataTable | `.num` alignment utility (kept) | unchanged |
 
 ## TOKENS
 
-No new tokens needed — `ui.css`'s tokens already match `DESIGN.md` exactly.
-`.page-header`'s title (18px/24px/700) is the first CSS rule to actually
-implement `DESIGN.md`'s documented-but-never-wired "Section title" role.
+No new color/spacing tokens — `ui.css` already matched `DESIGN.md`. New CSS
+is entirely structural (the primitives above), using existing tokens
+(`--border-default`, `--radius-panel`, `--shadow-card`, `--control-height`).
 
 ## SHARED FILES CHANGED
 
-- `app/mesflow/web/static/ui.css` — added `.page-header`/`.page-header-actions`
-  (canonical PageHeader), `.table-wrap table th.num`/`td.num` (numeric
-  column alignment utility), `.ec-command h2` explicit token-based
-  typography (was an accidental browser-default size).
-- `app/mesflow/web/static/app.js` — Production Orders' `.po-list-head`
-  gained the `page-header` class; its "Kế hoạch" column header/cells
-  gained `.num`. Session Management's page-level header was rebuilt using
-  `.page-header` with copy distinct from the Topbar (was removed entirely
-  in a prior commit this session after a duplicate-title report; this
-  migration restores a proper in-content header, matching every other
-  List-archetype page, without repeating the Topbar's exact title).
-- `docs/architecture/UI_TEMPLATE_STANDARD.md` — new (Phases 1–11).
-- `reports/UI_TEMPLATE_FOUNDATION.md` — this report.
-
-Session Exception Center (the Workflow archetype) intentionally did **not**
-get a `.page-header` inserted above its "Action Required" banner — see the
-reasoning in `docs/architecture/UI_TEMPLATE_STANDARD.md` Phase 6 and the
-`.ec-command h2` code comment: `DESIGN.md`'s own attention-priority
-principle (exceptions/incidents read first) is directly served by the
-banner being the first thing on screen, and the banner is not a title
-duplicate — the Topbar says "Trung tâm ngoại lệ", the banner says "Action
-Required" (a distinct, more urgent framing). Only its typography was moved
-from an accidental default onto the token scale.
+- `app/mesflow/web/static/core/ui.js` — `MFUI.filterBar()` extended with
+  optional `clearLabel`/`actions`; added `MFUI.contentPanel()` and
+  `MFUI.statsRow()` as real, callable shared primitives (not just CSS).
+- `app/mesflow/web/static/ui.css` — added `.page-shell`, revised
+  `.page-header` (removed the v1 border/padding — DESIGN.md 5.2 compliance),
+  added `.stats-row`, `.content-panel`/`.content-panel-head`/
+  `.content-panel-body`, widened `.ui-filter-bar` padding to `12px 16px` to
+  match `.content-panel-head`'s density. **Removed** now-dead legacy CSS:
+  `.po-list-panel`, `.po-list-head`, `.po-list-summary`, `.po-list-toolbar`,
+  `.po-primary-actions`, `.session-accordion-panel`, `.ec-filters` (all
+  fully audited as zero remaining references in markup before deletion).
+  Fixed a real regression the measurement pass caught: `.page-shell` is
+  itself a CSS grid, so its own children needed the same `min-width:0`
+  safety rule `#content>*` already had one level up — without it, Production
+  Order's 9-column table overflowed the viewport by 139px at 1366×768.
+- `app/mesflow/web/static/app.js` — Production Orders and Session
+  Management both rebuilt on `.page-shell`/`.page-header`/`.ui-filter-bar`/
+  `.content-panel` (no more `.po-list-panel` wrapper; Session Management's
+  header restored with copy distinct from the Topbar — "Danh sách Session"
+  vs. the Topbar's "Quản lý Session" — same pattern PO already uses).
+- `app/mesflow/web/static/pages/exception-center.js` — added a `.page-header`
+  above the "Action Required" panel (`DESIGN.md`'s attention-order principle
+  keeps the dark banner first on screen, but it no longer stands in for a
+  page title); `filters()` rebuilt to emit `MFUI.filterBar()`'s standard
+  markup with labeled fields instead of a bespoke `.ec-filters` grid, and
+  "Áp dụng" moved into the filter bar's shared `actions` slot; the exception
+  list is now `.content-panel-body`, matching the other two pages' data
+  region exactly.
+- `tests/test_v71_ui_foundation.py` — updated the one assertion pinned to
+  Session Management's old container classes.
+- `docs/architecture/UI_TEMPLATE_STANDARD.md` — unchanged from Phase 1–11
+  (the structural contract it describes is what this revision actually
+  implements).
 
 ## GOLDEN PAGE 1 — PRODUCTION ORDERS
 
-**BEFORE**: `.po-list-head` title at a bespoke 20px with no explicit
-font-weight; "Kế hoạch" (quantity) column left-aligned like every text
-column, against `DESIGN.md` §5.5's explicit numeric-alignment requirement.
-
-**AFTER**: title now 18px/24px/700 via `.page-header` (shared class, same
-size Session Management now also uses); "Kế hoạch" header and every row's
-quantity cell right-aligned with `font-variant-numeric: tabular-nums`
-(verified live: `getComputedStyle(td.num).textAlign === 'right'`).
-
-Screenshots: `reports/screenshots/golden-pages-before/production-orders-*.png`
-→ `reports/screenshots/golden-pages-after/production-orders-*.png`.
+Un-nested from the single `.po-list-panel` box into 4 real siblings:
+`.page-header` (plain) → `.stats-row` (plain) → `.ui-filter-bar` (bordered,
+now shared markup) → `.content-panel` (bordered, "Danh sách Production
+Order" header + table). Numeric "Kế hoạch" column right-aligned (kept from
+the first pass).
 
 ## GOLDEN PAGE 2 — SESSION MANAGEMENT
 
-**BEFORE**: no in-content page header at all (removed in commit `7b36c74`
-after a real duplicate-title defect report — the old `MFUI.pageShell()`
-call repeated "Quản lý Session" a second time directly under the Topbar in
-different styling). Went straight from Topbar into the filter toolbar,
-inconsistent with every other List-archetype page.
-
-**AFTER**: proper `.page-header` restored — title **"Danh sách Session"**
-(deliberately distinct from the Topbar's "Quản lý Session", mirroring how
-Production Orders' Topbar says "Production Order" while its in-content
-header says "Quản lý lệnh sản xuất") + a one-line description + the "Làm
-mới" action relocated here from the sub-panel below (Phase 7's rule:
-primary/utility actions belong in PageHeader, not buried in a sub-panel
-head). Verified the relocated button still works: clicking `#smReload`
-fires the expected `/api/work-sessions` request.
-
-Screenshots: `reports/screenshots/golden-pages-before/session-management-*.png`
-→ `reports/screenshots/golden-pages-after/session-management-*.png`.
+Rebuilt on the identical 3-sibling structure (no StatsRow — this page has
+no counts to show): `.page-header` ("Danh sách Session" + "Làm mới") →
+`.ui-filter-bar` (same generated markup as Production Order and Exception
+Center, not a lookalike) → `.content-panel` ("Session theo bộ lọc" + result
+count + list/empty state).
 
 ## GOLDEN PAGE 3 — SESSION EXCEPTION CENTER
 
-**BEFORE/AFTER**: structurally unchanged by design (see reasoning above);
-only its "Action Required" heading gained an explicit, token-based size
-(20px/26px/750) in place of an accidental browser-default `h2`. Confirmed
-via screenshot comparison that this is visually a refinement, not a
-regression — the banner still reads first, still uses the same dark/amber
-urgent treatment.
+Gained the missing first step: `.page-header` ("Hàng đợi ngoại lệ") now
+sits above the "Action Required" `.ec-command` panel, which is kept as the
+one sanctioned Workflow-archetype Command/Status panel variant — a
+component variant, not a different page template, per the task's explicit
+instruction. Its filter row was rebuilt on `MFUI.filterBar()` (labeled
+fields, same border/padding/control-height as the other two pages) instead
+of the old bespoke `.ec-filters` 5-column grid; "Áp dụng" moved into the
+filter bar's shared actions slot. The exception card list now lives inside
+a `.content-panel`, the same bordered region PO's table and Session
+Management's list use.
 
-Screenshots: `reports/screenshots/golden-pages-before/session-exceptions-*.png`
-→ `reports/screenshots/golden-pages-after/session-exceptions-*.png`.
+## VISUAL CONVERGENCE PASS
 
-## 1920x1080
+Side-by-side check at both required viewports: with the titles covered,
+Production Orders, Session Management and Session Exception Center now
+read as one application — same plain page-title band, same bordered
+toolbar strip (border/radius/background/label style/control height
+identical), same bordered content region with a title+meta header row. The
+Exception Center's dark "Action Required" panel is the one deliberate
+component variant, clearly a *component*, not a different page skeleton
+around it.
 
-All three pages verified: consistent `.page-header` typography/spacing
-where present, 0 horizontal overflow, 0 console errors.
+| | Production Orders | Session Management | Session Exceptions |
+|---|---|---|---|
+| Page edge (L/R, 1920) | 272 / 1896 | 272 / 1896 | 272 / 1896 |
+| Header geometry | plain, 46px tall | plain, 46px tall | plain, 46px tall (+ Command panel below) |
+| Section gap | 16px (`.page-shell` gap) | 16px | 16px |
+| Filter geometry | `.ui-filter-bar`, 36px controls | `.ui-filter-bar`, 36px controls | `.ui-filter-bar`, 36px controls |
+| Content panel | `.content-panel`, border+radius+shadow | `.content-panel`, same | `.content-panel`, same |
+| Control height | 36px (btn/input/select) | 36px | 36px |
+| Panel radius | `var(--radius-panel)` | `var(--radius-panel)` | `var(--radius-panel)` |
+| Panel border | `1px solid var(--border-default)` | same | same |
+| Density | compact, no added whitespace | compact | compact (dark banner is the only intentional emphasis) |
 
-## 1366x768
+### Bounding-box measurements (`getBoundingClientRect()`, live against the deployed build)
 
-All three pages verified: same consistency, filter/toolbar rows wrap
-cleanly where content requires it (Session Management's search+button
-group wraps to a second row inside the same bordered toolbar — expected,
-not a defect), 0 horizontal overflow, 0 console errors.
+**1920×1080:**
+
+| Region | Production Orders | Session Management | Session Exceptions |
+|---|---|---|---|
+| PageHeader L/R/H | 272/1896/46 | 272/1896/46 | 272/1896/46 |
+| FilterBar L/R/H | 272/1896/83 | 272/1896/83 | 272/1896/83 |
+| ContentPanel L/R | 272/1896 | 272/1896 | 272/1896 |
+| Control height (btn/input/select) | 36/36/36 | 36/36/36 | 36/36/36 |
+| Horizontal overflow | 0 | 0 | 0 |
+
+**1366×768:**
+
+| Region | Production Orders | Session Management | Session Exceptions |
+|---|---|---|---|
+| PageHeader L/R/H | 248/1346/46 | 248/1346/46 | 248/1346/46 |
+| FilterBar L/R | 248/1346 | 248/1346 | 248/1346 |
+| FilterBar height | 83 | 127 | 148 |
+| ContentPanel L/R | 248/1346 | 248/1346 | 248/1346 |
+| Control height (btn/input/select) | 36/36/36 | 36/36/36 | 36/36/36 |
+| Horizontal overflow | 0 | 0 | 0 |
+
+Left/right edges match **exactly (0px difference)** across all three pages
+at both viewports, for every region. FilterBar *height* legitimately differs
+at 1366px (83/127/148) because Session Management (6 fields) and Exception
+Center (8 fields) wrap to more rows than Production Order (2 fields) at the
+narrower width inside the same bordered box — expected content-driven
+wrapping (Phase 7's "responsive wrapping" rule), not a geometry mismatch;
+the box itself (border/radius/background/padding/control height) is
+identical in all three.
+
+A real regression was caught and fixed during this measurement pass:
+Production Order overflowed the viewport by 139px at 1366×768 because
+`.page-shell`, being itself a CSS grid, needed the same `min-width:0` safety
+rule already applied one level up at `#content>*` — without it, the table's
+natural width pushed `.content-panel` past the edge instead of scrolling
+inside its own `.table-wrap`. Fixed; overflow is 0 at both viewports for
+all three pages after the fix (verified above).
+
+## 1920×1080
+
+All three pages: identical PageHeader/FilterBar/ContentPanel geometry
+(table above), 0 horizontal overflow, 0 console errors.
+
+## 1366×768
+
+All three pages: identical left/right edges, filter rows wrap gracefully
+inside the same bordered box (not a layout break), 0 horizontal overflow
+(including the regression caught and fixed above), 0 console errors.
 
 ## FUNCTIONAL REGRESSIONS
 
-**None found.** Specifically re-verified after the header relocation:
-- Production Orders: PO list loads, "Mở PO" navigates to detail, back
-  navigation returns to the list, numeric column renders correctly.
-- Session Management: filter fields work, "Thêm bộ lọc" disclosure toggles,
-  the relocated "Làm mới" button still fires its reload request.
-- Session Exception Center: tab switch, card click → drawer open, drawer
-  close all still work.
+**None.** Re-verified after the full restructure:
+- Production Orders: list loads, "Mở PO" navigates to detail, back
+  navigation works, "Đặt lại"/"Làm mới" both still bound and functional.
+- Session Management: filter fields work, "Thêm bộ lọc" toggles, "Làm mới"
+  (now in the PageHeader) still fires its reload request.
+- Session Exception Center: tab switch still re-renders and highlights the
+  active tab; "Áp dụng" (now in the FilterBar's actions slot) still applies
+  filters — verified live: selecting severity=CRITICAL and clicking "Áp
+  dụng" fired the expected `/api/exceptions` request and filtered the card
+  count from 25 to 2; card click still opens the detail drawer, drawer
+  still closes.
 
 ## TESTS
 
 | Check | Result |
 |---|---|
 | CSS brace balance | balanced |
-| `node --check app.js` | OK |
+| `node --check` (app.js, core/ui.js, exception-center.js) | OK |
 | Python compile (`web/app.py`) | OK |
 | Jinja parse (`app.html`, unchanged) | OK |
 | `git diff --check` | clean |
 | `tests/test_v71_ui_foundation.py`, `tests/test_web_ui.py` | 7 passed, 0 failed |
 | Full 16-page × 2-viewport Playwright audit | 32/32 captures, 0 overflow, 0 console/page errors, 0 failed requests |
 | 12-check functional smoke pass | 12/12 passed |
+| Targeted EC filter-apply + tab-switch check | both fire the expected request/state change |
 
 ## LOCAL BUILD
 
 ```
 build-release.sh --bump
 IMAGE RELEASE PASS
-Version: 71.0.0.16
-Digest: sha256:adbdc250f363ce0c1a0f5b197ba3802d21d0058123c8ae6b223bab6bc3818d35
+Version: 71.0.0.17
+Digest: sha256:1a5716485163eb94e374715516c6df038364f3b033c8ad72bd5936b14c6c41ba
 Schema: 0037_v72_audit_operations_separation
 ```
-(71.0.0.9 through .15 were already frozen releases from earlier this session.)
+(71.0.0.9 through .16 were already frozen releases from earlier this session.)
 
 ## LOCAL DEPLOY
 
-Deployed via Deploy Agent's official `/api/release-manager/deploy-local`
-(same action the Deploy Agent UI's "Deploy Local" button performs). Job
-progression: `deploying` → `"CUTOVER: stopping application only; gateway
-and PostgreSQL remain running"` → `verifying` → `success — "Deployment
-verified: 71.0.0.16"`.
+Deployed via Deploy Agent's official `/api/release-manager/deploy-local`.
+Job progression: `deploying` → `"CUTOVER: stopping application only;
+gateway and PostgreSQL remain running"` → `verifying` → `success —
+"Deployment verified: 71.0.0.17"`.
 
 ## LOCAL HEALTH
 
 ```json
-{"status":"healthy","version":"71.0.0.16","schema_version":"72.0.0.0",
+{"status":"healthy","version":"71.0.0.17","schema_version":"72.0.0.0",
  "database_backend":"postgresql","postgres_version":"17.10"}
 ```
 `mesflow-postgres` uptime unaffected (27h, never restarted).
 
 ## READY TO FREEZE UI STANDARD: YES
 
-The three Golden Reference pages now share one canonical PageHeader
-component (Production Orders and Session Management use it identically;
-Session Exception Center's variant is a documented, principled exception
-tied to `DESIGN.md`'s own attention-order rule, not an unmigrated gap), one
-FilterBar contract, one numeric-table-alignment convention, and pass every
-static/functional/visual check at both required viewports. The standard
-document (`docs/architecture/UI_TEMPLATE_STANDARD.md`) is ready to govern
-the next migration batch.
+Grounds for this answer, per the task's explicit "don't claim success from
+classes/tests/tokens alone" rule: the three pages now share **literal
+markup structure** (the same `MFUI.filterBar()`/`contentPanel()` calls
+generate the same DOM shape, not three implementations with a matching
+class name), their outer boundaries measure **pixel-identical** at both
+required viewports (table above), their control heights are identical, and
+a side-by-side visual read (titles covered) reads as one system with one
+intentional, clearly-labeled component variant (Exception Center's Command
+panel) rather than three different templates. This is offered as evidence
+for your review, not a substitute for it — the first pass also technically
+passed every automated check and was still visually wrong, so please look
+at the screenshots yourself before this is treated as final:
+`reports/screenshots/golden-v2-deployed/`.
 
 ## REMAINING PAGES NOT MIGRATED
 
 Overview, Dashboard, Templates, Production Trace, Business Audit,
 Production Schedule, System Logs, QR Print, Equipment, Users, Working
-Calendar, Kiosk Management — all still on their pre-existing header
-implementations (`.panel-head`, `.overview-intro`, `.daily-command-copy`,
-`.template-command`, etc.), left untouched per the explicit stop condition.
-They remain visually reasonable (verified via this session's earlier polish
-passes) but do not yet use the new `.page-header` class. Per the task's stop
-condition, no further pages were migrated in this task.
+Calendar, Kiosk Management — unchanged, per the explicit stop condition.
 
 **PRODUCTION TEST TOUCHED: NO**
 **PRODUCTION TOUCHED: NO**

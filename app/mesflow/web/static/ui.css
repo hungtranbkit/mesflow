@@ -334,7 +334,9 @@ body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
 @media(max-width:520px){.schedule-sticky-toolbar .panel-head{display:grid;gap:10px}.schedule-sticky-toolbar .panel-head>div:first-child p{display:none}.schedule-sticky-toolbar .schedule-legend{display:none}.schedule-actions{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important}.schedule-actions label{grid-column:1/-1}.schedule-po-head{top:calc(var(--schedule-workspace-offset) + var(--schedule-toolbar-height));grid-template-columns:minmax(0,1fr) auto;padding:10px 12px}.schedule-po-progress{grid-column:1;justify-items:start}.schedule-po-progress span{white-space:normal}.schedule-po-actions{grid-column:2;grid-row:1/3}.schedule-po-actions .badge{display:none}}
 
 /* Session management: full-width list with one inline expanded detail. */
-.session-accordion-panel{min-width:0}
+/* .session-accordion-panel removed -- Session Management's list now sits
+   in the shared .content-panel-body (already min-width:0), not a
+   page-specific panel wrapper. */
 .session-accordion-list{display:grid;gap:8px}
 .session-accordion-item{overflow:hidden;border:1px solid var(--border-default,#d6dce3);border-radius:var(--radius-panel,6px);background:var(--surface-default,#fff)}
 .session-accordion-item.open{border-color:color-mix(in srgb,var(--status-success,#177451) 42%,var(--border-default,#d6dce3))}
@@ -354,12 +356,17 @@ body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
 .session-accordion-detail .kv-grid{background:var(--surface-default,#fff)}
 .session-detail-actions{display:flex;justify-content:flex-end;margin-top:12px}
 @media(max-width:1100px){.session-accordion-trigger{grid-template-columns:minmax(150px,1fr) minmax(240px,1.5fr) minmax(170px,1fr) auto}.session-row-output{grid-column:2}.session-row-status{grid-column:4;grid-row:1/3}}
-@media(max-width:620px){.session-accordion-panel{padding:12px}.session-accordion-trigger{min-height:0;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px}.session-row-employee,.session-row-operation,.session-row-time,.session-row-output{grid-column:1}.session-row-status{grid-column:2;grid-row:1/5;align-self:start}.session-row-status .badge{white-space:nowrap}.session-accordion-detail{padding:10px}.session-accordion-detail .kv-grid{grid-template-columns:1fr}.session-accordion-detail .kv-row .kv-label{border-bottom:0;padding-bottom:2px;font-size:11px}.session-accordion-detail .kv-row .kv-value{padding-top:2px}.session-detail-actions .btn{width:100%;min-height:44px}}
+@media(max-width:620px){.session-accordion-trigger{min-height:0;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px}.session-row-employee,.session-row-operation,.session-row-time,.session-row-output{grid-column:1}.session-row-status{grid-column:2;grid-row:1/5;align-self:start}.session-row-status .badge{white-space:nowrap}.session-accordion-detail{padding:10px}.session-accordion-detail .kv-grid{grid-template-columns:1fr}.session-accordion-detail .kv-row .kv-label{border-bottom:0;padding-bottom:2px;font-size:11px}.session-accordion-detail .kv-row .kv-value{padding-top:2px}.session-detail-actions .btn{width:100%;min-height:44px}}
 
 /* Production Order list — plan, find, then operate */
-.po-list-panel{border-top:3px solid #18324a}.po-list-head{display:flex;justify-content:space-between;align-items:center;gap:24px;padding-bottom:16px;border-bottom:1px solid #d9dee7}.po-list-head h2{margin:0;color:#18324a;font-size:20px}.po-list-head p{margin:6px 0 0;max-width:none;white-space:nowrap;color:#667382;line-height:1.5}.po-primary-actions{display:flex;align-items:stretch;gap:8px}.po-primary-actions>div{display:flex;gap:6px}.po-primary-actions .btn{white-space:nowrap}.po-list-summary{display:flex;flex-wrap:wrap;gap:0;margin:14px 0;color:#667382}.po-list-summary span{padding:0 14px;border-right:1px solid #d9dee7}.po-list-summary span:first-child{padding-left:0}.po-list-summary span:last-child{border-right:0}.po-list-summary b{color:#18324a;font-size:16px}.po-list-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) minmax(160px,200px) auto auto;gap:9px;align-items:end;margin-bottom:14px;padding:13px;border:1px solid #d9dee7;border-radius:8px;background:#f8fafb}.po-list-toolbar label{display:grid;gap:5px}.po-list-toolbar label>span{color:#667382;font-size:11px;font-weight:700}.po-list-toolbar input,.po-list-toolbar select{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;border:1px solid #c9d1db;border-radius:5px;background:#fff;color:#202938;font:inherit}.po-list-toolbar input:focus-visible,.po-list-toolbar select:focus-visible{outline:3px solid rgba(36,91,130,.2);outline-offset:1px;border-color:#245b82}#poReset{white-space:nowrap}.po-reload{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;white-space:nowrap}.po-reload i{width:12px;height:12px;border:2px solid currentColor;border-left-color:transparent;border-radius:50%}.po-empty{display:grid;justify-items:start;gap:7px;max-width:560px;margin:24px auto 8px;padding:24px;border:1px dashed #c9d1db;border-radius:8px;background:#f8fafb}.po-empty strong{color:#202938;font-size:16px}.po-empty span{color:#667382;line-height:1.5}.po-empty .btn{margin-top:5px}.po-status.in_progress{background:#e5f5ed;color:#16845b}.po-status.paused{background:#fff2d8;color:#8b5e0b}.po-status.completed{background:#eef1f4;color:#526171}.po-actions{white-space:normal}.po-actions .btn{margin:2px}
-@media(max-width:900px){.po-list-head{display:grid}.po-primary-actions{width:100%;justify-content:space-between}.po-list-toolbar{grid-template-columns:1fr 1fr}.po-reload{grid-column:1/-1}.po-list-summary span{flex:1 1 50%;box-sizing:border-box;margin:4px 0}.po-list-summary span:nth-child(2){border-right:0}}
-@media(max-width:650px){.po-list-panel{padding:16px}.po-list-head{gap:14px}.po-list-head h2{font-size:19px}.po-primary-actions{display:grid}.po-primary-actions>div{display:grid;grid-template-columns:1fr 1fr;grid-row:2}.po-primary-actions .btn{width:100%}.po-list-toolbar{grid-template-columns:1fr;padding:12px}.po-reload{grid-column:auto}.po-list-summary{display:grid;grid-template-columns:1fr 1fr}.po-list-summary span{padding:5px 9px!important;border-right:0}.po-list-summary span:nth-child(odd){border-right:1px solid #d9dee7}.po-empty{margin-top:16px;padding:18px}.po-empty .btn{width:100%}}
+/* .po-list-panel/.po-list-head/.po-list-summary/.po-list-toolbar/
+   .po-primary-actions removed -- Production Order no longer uses any of
+   them (migrated to the shared .page-shell/.page-header/.stats-row/
+   .ui-filter-bar/.content-panel geometry). Still-live classes kept below:
+   .po-reload (icon spinner), .po-empty, .po-status/.po-actions (table
+   cells). */
+.po-reload{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}.po-reload i{width:12px;height:12px;border:2px solid currentColor;border-left-color:transparent;border-radius:50%}.po-empty{display:grid;justify-items:start;gap:7px;max-width:560px;margin:24px auto 8px;padding:24px;border:1px dashed #c9d1db;border-radius:8px;background:#f8fafb}.po-empty strong{color:#202938;font-size:16px}.po-empty span{color:#667382;line-height:1.5}.po-empty .btn{margin-top:5px}.po-status.in_progress{background:#e5f5ed;color:#16845b}.po-status.paused{background:#fff2d8;color:#8b5e0b}.po-status.completed{background:#eef1f4;color:#526171}.po-actions{white-space:normal}.po-actions .btn{margin:2px}
+@media(max-width:650px){.po-empty{margin-top:16px;padding:18px}.po-empty .btn{width:100%}}
 @media(max-width:1500px){.overview-hero{display:grid}.overview-intro{max-width:none}.overview-hero .pc-actions{width:100%;grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(150px,1fr)) auto}}
 @media(max-width:1050px){.overview-hero .pc-actions{grid-template-columns:1fr 1fr}.overview-hero .pc-actions #ovSearch{grid-column:1/-1}.overview-hero .pc-actions .primary{width:100%}.pc-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){.overview-hero{padding:16px}.overview-hero .pc-actions{grid-template-columns:1fr}.overview-hero .pc-actions #ovSearch{grid-column:auto}.overview-hero .pc-actions input,.overview-hero .pc-actions select,.overview-hero .pc-actions .btn,.overview-orders .btn{min-height:44px}.daily-kpis.pc-kpis{grid-template-columns:1fr 1fr;gap:10px}.overview-sections{gap:14px}.overview-operations .panel-head{flex-direction:row}.overview-orders .panel-head{flex-direction:column}.overview-orders .panel-head .btn{width:100%}.pc-kpi{min-height:72px;padding:11px 13px}.pc-kpi:before{left:13px;right:13px}.pc-kpi strong{font-size:26px}}
@@ -492,9 +499,9 @@ body[data-page="system-logs"] #slView .toolbar.wrap{display:grid;grid-template-c
 @media(max-width:520px){body[data-page="session-exceptions"] #seSummary,body[data-page="kiosk-management"] #kmSummary{grid-template-columns:1fr 1fr}.session-exception-actions{display:grid;grid-template-columns:1fr 1fr}.session-exception-actions>label,.session-exception-actions #seSelectedCount{grid-column:1/-1}.session-exception-actions .btn{width:100%;white-space:normal}body[data-page="system-logs"] #slView>.cards{grid-template-columns:1fr 1fr}body[data-page="system-logs"] #slView .toolbar.wrap{display:grid;grid-template-columns:1fr 1fr;overflow:hidden}body[data-page="system-logs"] #slView .toolbar.wrap>*{min-width:0;width:100%}body[data-page="system-logs"] #slView .toolbar.wrap>input:first-child{grid-column:1/-1}.system-log-tabs{padding:0 10px}.system-log-tabs .toolbar{display:grid;grid-template-columns:1fr}.system-log-tabs .sl-tab{width:100%}}
 
 /* V67 Exception Center */
-.ec-command{display:flex;justify-content:space-between;gap:24px;align-items:center;padding:18px 20px;background:#10283f;color:#fff;border-radius:8px;border-left:5px solid #f59e0b}.ec-command h2{margin:0 0 4px}.ec-command p{margin:0;color:#c8d5e2}.ec-command #ecSummary{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.ec-command #ecSummary small{color:#c8d5e2}.ec-tabs{display:flex;gap:2px;margin-top:14px;border-bottom:1px solid #cbd5df;overflow-x:auto}.ec-tabs button{border:0;background:transparent;padding:11px 15px;font-weight:700;white-space:nowrap;border-bottom:3px solid transparent}.ec-tabs button.active{color:#0c5d91;border-color:#0c79b8}.ec-filters{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:8px;padding:12px;background:#f2f5f7;border:1px solid #d9e1e7;border-top:0}.ec-filters>*{min-width:0}.ec-list{display:grid;gap:8px;margin-top:12px}.ec-card{display:grid;grid-template-columns:125px minmax(0,1fr) auto;gap:16px;align-items:center;background:#fff;border:1px solid #d7dfe6;border-left:5px solid #94a3b8;border-radius:6px;padding:14px;box-shadow:0 1px 2px #10283f0d;cursor:pointer}.ec-card:hover,.ec-card:focus{border-color:#5f829b;box-shadow:0 3px 12px #10283f1a;outline:none}.ec-card.severity-critical{border-left-color:#a71930}.ec-card.severity-high{border-left-color:#dc5f13}.ec-card.severity-medium{border-left-color:#d69b00}.ec-card.severity-low{border-left-color:#287aa5}.ec-severity{align-self:stretch;border-right:1px solid #e3e8ec;display:flex;flex-direction:column;justify-content:center}.ec-severity b{font-size:13px}.ec-severity span{font-size:12px;color:#536574;margin-top:5px}.ec-card-main{min-width:0}.ec-card-main header{display:flex;justify-content:space-between;gap:12px}.ec-card h3{font-size:17px;margin:0;color:#142b3e}.ec-card time{font-size:12px;color:#60717e;white-space:nowrap}.ec-card p{margin:6px 0;color:#344a5b}.ec-context{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px}.ec-context span{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ec-recommend{font-size:13px;margin-top:9px;padding-top:8px;border-top:1px dashed #d7dfe6;color:#344a5b}.ec-drawer-shell{position:fixed;inset:0;z-index:1200}.ec-drawer-backdrop{position:absolute;inset:0;border:0;background:#07182770}.ec-drawer{position:absolute;right:0;top:0;width:min(640px,92vw);height:100vh;background:#f7f9fa;box-shadow:-10px 0 30px #07182740;display:grid;grid-template-rows:auto minmax(0,1fr) auto}.ec-drawer>header{background:#10283f;color:#fff;padding:18px 22px;display:flex;justify-content:space-between}.ec-drawer>header small{color:#b9cad7}.ec-drawer>header h2{margin:3px 0 6px;font-size:21px}.ec-drawer>header button{background:transparent;color:#fff;border:0;font-size:30px;width:42px;height:42px}.ec-status{display:inline-block;border:1px solid #8eabba;border-radius:3px;padding:2px 7px;font-size:12px}.ec-drawer-body{overflow-y:auto;padding:16px 20px}.ec-drawer-body section{background:#fff;border:1px solid #d9e1e7;border-radius:5px;padding:13px;margin-bottom:10px}.ec-drawer-body h3{font-size:14px;text-transform:uppercase;letter-spacing:.04em;margin:0 0 11px;color:#29455a}.ec-drawer dl{display:grid;grid-template-columns:120px minmax(0,1fr);gap:7px;margin:0}.ec-drawer dt{color:#647783}.ec-drawer dd{margin:0;font-weight:650;overflow-wrap:anywhere}.ec-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ec-metrics span{padding:9px;background:#f1f5f7;border-left:3px solid #7892a4}.ec-metrics small,.ec-metrics b{display:block}.ec-metrics b{font-size:13px;margin-top:4px}.ec-related{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf0f2;padding:7px 0;margin:0}.ec-timeline{list-style:none;padding:0;margin:0}.ec-timeline li{display:grid;grid-template-columns:125px 1fr;gap:10px;border-left:2px solid #b4c5d0;padding:5px 0 8px 12px}.ec-timeline time{font-size:12px;color:#60717e}.ec-timeline small{display:block;color:#60717e}.ec-drawer>footer{display:flex;justify-content:flex-end;gap:8px;padding:13px 20px;background:#fff;border-top:1px solid #d9e1e7}
-@media(max-width:1366px){.ec-filters{grid-template-columns:repeat(4,minmax(120px,1fr))}.ec-card{grid-template-columns:105px minmax(0,1fr) auto}.ec-drawer{width:min(580px,94vw)}}
-@media(max-width:700px){.ec-command{align-items:flex-start;flex-direction:column}.ec-command #ecSummary{justify-content:flex-start}.ec-filters{grid-template-columns:1fr 1fr}.ec-card{grid-template-columns:1fr}.ec-severity{border-right:0;border-bottom:1px solid #e3e8ec;padding-bottom:8px}.ec-card .ec-review{width:100%}.ec-card-main header{display:block}.ec-card time{display:block;margin-top:4px}.ec-drawer{width:100vw}.ec-metrics{grid-template-columns:1fr 1fr}.ec-drawer dl{grid-template-columns:90px 1fr}.ec-drawer>footer{display:grid;grid-template-columns:1fr}.ec-drawer>footer .btn{width:100%}}
+.ec-command{display:flex;justify-content:space-between;gap:24px;align-items:center;padding:18px 20px;background:#10283f;color:#fff;border-radius:8px;border-left:5px solid #f59e0b}.ec-command h2{margin:0 0 4px}.ec-command p{margin:0;color:#c8d5e2}.ec-command #ecSummary{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.ec-command #ecSummary small{color:#c8d5e2}.ec-tabs{display:flex;gap:2px;margin-top:14px;border-bottom:1px solid #cbd5df;overflow-x:auto}.ec-tabs button{border:0;background:transparent;padding:11px 15px;font-weight:700;white-space:nowrap;border-bottom:3px solid transparent}.ec-tabs button.active{color:#0c5d91;border-color:#0c79b8}.ec-list{display:grid;gap:8px}.ec-card{display:grid;grid-template-columns:125px minmax(0,1fr) auto;gap:16px;align-items:center;background:#fff;border:1px solid #d7dfe6;border-left:5px solid #94a3b8;border-radius:6px;padding:14px;box-shadow:0 1px 2px #10283f0d;cursor:pointer}.ec-card:hover,.ec-card:focus{border-color:#5f829b;box-shadow:0 3px 12px #10283f1a;outline:none}.ec-card.severity-critical{border-left-color:#a71930}.ec-card.severity-high{border-left-color:#dc5f13}.ec-card.severity-medium{border-left-color:#d69b00}.ec-card.severity-low{border-left-color:#287aa5}.ec-severity{align-self:stretch;border-right:1px solid #e3e8ec;display:flex;flex-direction:column;justify-content:center}.ec-severity b{font-size:13px}.ec-severity span{font-size:12px;color:#536574;margin-top:5px}.ec-card-main{min-width:0}.ec-card-main header{display:flex;justify-content:space-between;gap:12px}.ec-card h3{font-size:17px;margin:0;color:#142b3e}.ec-card time{font-size:12px;color:#60717e;white-space:nowrap}.ec-card p{margin:6px 0;color:#344a5b}.ec-context{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px}.ec-context span{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ec-recommend{font-size:13px;margin-top:9px;padding-top:8px;border-top:1px dashed #d7dfe6;color:#344a5b}.ec-drawer-shell{position:fixed;inset:0;z-index:1200}.ec-drawer-backdrop{position:absolute;inset:0;border:0;background:#07182770}.ec-drawer{position:absolute;right:0;top:0;width:min(640px,92vw);height:100vh;background:#f7f9fa;box-shadow:-10px 0 30px #07182740;display:grid;grid-template-rows:auto minmax(0,1fr) auto}.ec-drawer>header{background:#10283f;color:#fff;padding:18px 22px;display:flex;justify-content:space-between}.ec-drawer>header small{color:#b9cad7}.ec-drawer>header h2{margin:3px 0 6px;font-size:21px}.ec-drawer>header button{background:transparent;color:#fff;border:0;font-size:30px;width:42px;height:42px}.ec-status{display:inline-block;border:1px solid #8eabba;border-radius:3px;padding:2px 7px;font-size:12px}.ec-drawer-body{overflow-y:auto;padding:16px 20px}.ec-drawer-body section{background:#fff;border:1px solid #d9e1e7;border-radius:5px;padding:13px;margin-bottom:10px}.ec-drawer-body h3{font-size:14px;text-transform:uppercase;letter-spacing:.04em;margin:0 0 11px;color:#29455a}.ec-drawer dl{display:grid;grid-template-columns:120px minmax(0,1fr);gap:7px;margin:0}.ec-drawer dt{color:#647783}.ec-drawer dd{margin:0;font-weight:650;overflow-wrap:anywhere}.ec-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ec-metrics span{padding:9px;background:#f1f5f7;border-left:3px solid #7892a4}.ec-metrics small,.ec-metrics b{display:block}.ec-metrics b{font-size:13px;margin-top:4px}.ec-related{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf0f2;padding:7px 0;margin:0}.ec-timeline{list-style:none;padding:0;margin:0}.ec-timeline li{display:grid;grid-template-columns:125px 1fr;gap:10px;border-left:2px solid #b4c5d0;padding:5px 0 8px 12px}.ec-timeline time{font-size:12px;color:#60717e}.ec-timeline small{display:block;color:#60717e}.ec-drawer>footer{display:flex;justify-content:flex-end;gap:8px;padding:13px 20px;background:#fff;border-top:1px solid #d9e1e7}
+@media(max-width:1366px){.ec-card{grid-template-columns:105px minmax(0,1fr) auto}.ec-drawer{width:min(580px,94vw)}}
+@media(max-width:700px){.ec-command{align-items:flex-start;flex-direction:column}.ec-command #ecSummary{justify-content:flex-start}.ec-card{grid-template-columns:1fr}.ec-severity{border-right:0;border-bottom:1px solid #e3e8ec;padding-bottom:8px}.ec-card .ec-review{width:100%}.ec-card-main header{display:block}.ec-card time{display:block;margin-top:4px}.ec-drawer{width:100vw}.ec-metrics{grid-template-columns:1fr 1fr}.ec-drawer dl{grid-template-columns:90px 1fr}.ec-drawer>footer{display:grid;grid-template-columns:1fr}.ec-drawer>footer .btn{width:100%}}
 body[data-page="system-logs"] .app-workspace,body[data-page="kiosk-management"] .app-workspace{overflow:hidden}
 body[data-page="system-logs"] .workspace-main,body[data-page="system-logs"] #content,body[data-page="system-logs"] #slView,body[data-page="system-logs"] #slView>.panel,body[data-page="system-logs"] .table-wrap{width:100%;min-width:0;max-width:100%}
 @media(max-width:520px){body[data-page="kiosk-management"] .panel-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}body[data-page="kiosk-management"] .panel-head p{line-height:1.4}body[data-page="kiosk-management"] .toolbar{display:grid;grid-template-columns:minmax(0,1fr);width:100%;min-width:0}body[data-page="kiosk-management"] .toolbar>*{width:100%;min-width:0}body[data-page="system-logs"] #slView>.cards .card:last-child:nth-child(odd){grid-column:1/-1}}
@@ -536,6 +543,16 @@ html{background:var(--surface-canvas);scrollbar-color:#9aa6b2 transparent}body{c
    already applies this exact fix for phones; this is the same rule made
    unconditional so it also covers 1366x768/1600x900, not just phones. */
 #content>*,.workspace-main>section>*,.panel{min-width:0;max-width:100%}
+/* .page-shell is itself a CSS grid (display:grid;gap:16px), so its own
+   children (.page-header/.stats-row/.ui-filter-bar/.content-panel) are a
+   SECOND level of grid items that also default to min-width:auto -- the
+   #content>* rule above only covers .page-shell itself, one level too
+   shallow. Real regression caught by the mandatory getBoundingClientRect()
+   measurement pass (UI_TEMPLATE_STANDARD Phase 12): Production Order
+   overflowed 139px at 1366x768 because its wide 9-column table pushed
+   .content-panel past the viewport instead of scrolling inside its own
+   .table-wrap. */
+.page-shell>*{min-width:0;max-width:100%}
 .panel,.card,.daily-kpi,.catalog-summary article,.system-user-summary article,.template-old-list-panel,.template-old-part,.qr-catalog-card{border:1px solid var(--border-default)!important;border-radius:var(--radius-panel)!important;background:var(--surface-default)!important;box-shadow:none!important}.panel,.card{padding:16px}.panel+.panel{margin-top:0}.panel-head{margin-bottom:12px;gap:16px}.panel-head h2,.panel h2{margin:0;color:var(--text-primary);font-size:15px;line-height:20px;font-weight:700}.panel-head p,.panel-head small,.panel p{color:var(--text-secondary)}.panel-head p{margin:3px 0 0;font-size:12px;line-height:17px}.panel-actions{gap:8px}.grid-2{gap:16px;margin-top:0}
 .cards,.daily-kpis,.catalog-summary,.system-user-summary{gap:12px;margin:0}.card,.daily-kpi,.catalog-summary article,.system-user-summary article{min-height:82px;padding:12px 14px}.metric small,.daily-kpi small,.catalog-summary span,.system-user-summary span{color:var(--text-secondary);font-size:12px;line-height:16px}.metric strong,.daily-kpi strong,.catalog-summary b,.system-user-summary b{margin-top:4px;color:var(--text-primary)!important;font-size:24px!important;line-height:30px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}.daily-kpi:before,.pc-kpi:before{width:1px!important}.daily-kpi.critical:before,.pc-kpi.critical:before{background:var(--status-danger)}.daily-kpi.warning:before,.pc-kpi.warning:before{background:var(--status-warning)}
 .btn,button.primary,.primary,.login-card button{min-height:36px;padding:7px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-control)!important;background:var(--surface-default);color:var(--text-primary);font-size:13px;font-weight:650;line-height:20px;box-shadow:none;transition:background-color .14s ease,border-color .14s ease,color .14s ease}.btn:hover{border-color:#8795a3;background:#f1f4f6}.btn.primary,button.primary,.primary,.login-card button{border-color:var(--action-primary);background:var(--action-primary);color:#fff}.btn.primary:hover,button.primary:hover,.primary:hover,.login-card button:hover{border-color:var(--action-hover);background:var(--action-hover)}.btn.danger,.danger-button{border-color:var(--status-danger);background:#fff;color:var(--status-danger)}.btn:disabled,button:disabled{opacity:.48;cursor:not-allowed}.btn.mini{min-height:32px;padding:5px 9px;font-size:12px}
@@ -609,8 +626,8 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 :where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row):hover{position:relative;z-index:1;background:#f3f6f8!important;box-shadow:0 4px 10px rgba(16,43,63,.11);transform:translateY(-1px)}
 
 /* Production hierarchy: PO owns the section, Part owns a card, Operation stays a compact row. */
-:where(.schedule-po,.gantt-po,.ct-po,.dash-po-card,.pc-po-card,.po-list-panel){border:1px solid var(--border-strong)!important;border-radius:var(--radius-panel)!important;background:#fff!important;box-shadow:var(--shadow-section-strong)!important}
-:where(.schedule-po-head,.po-list-head,.dash-po-head){border-bottom:1px solid var(--border-strong)!important;background:#eef3f6!important}
+:where(.schedule-po,.gantt-po,.ct-po,.dash-po-card,.pc-po-card){border:1px solid var(--border-strong)!important;border-radius:var(--radius-panel)!important;background:#fff!important;box-shadow:var(--shadow-section-strong)!important}
+:where(.schedule-po-head,.dash-po-head){border-bottom:1px solid var(--border-strong)!important;background:#eef3f6!important}
 :where(.po-part-card,.ct-part,.gantt-part,.schedule-part,.template-old-part){border:1px solid var(--border-default)!important;border-radius:var(--radius-card)!important;background:#f8fafb!important;box-shadow:var(--shadow-card)!important}
 :where(.po-part-head,.template-old-part-head){border-bottom:1px solid var(--border-default)!important;background:#f1f4f6!important}
 :where(.po-op-row,.ct-op,.schedule-op,.operation-row,.template-old-op-row){border-color:var(--border-subtle)!important;background:#fff;box-shadow:var(--shadow-row)}
@@ -1233,10 +1250,8 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
 .ui-toolbar .btn,.ui-toolbar input,.ui-toolbar select,
 .ui-filter-bar .btn,.ui-filter-bar input,.ui-filter-bar select,
 .ui-filter-controls .btn,.ui-filter-controls input,.ui-filter-controls select,
-.po-list-toolbar .btn,.po-list-toolbar input,.po-list-toolbar select,.po-reload,
 .overview-filters .btn,.overview-filters input,.overview-filters select,.overview-reload,
 .overview-hero .pc-actions .btn,.overview-hero .pc-actions input,.overview-hero .pc-actions select,
-.ec-filters .btn,.ec-filters input,.ec-filters select,
 .trace-filters .btn,.trace-filters input,.trace-filters select
 {height:var(--control-height)!important;min-height:var(--control-height)!important}
 @media(max-width:520px){
@@ -1250,31 +1265,71 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
   .ui-toolbar .btn,.ui-toolbar input,.ui-toolbar select,
   .ui-filter-bar .btn,.ui-filter-bar input,.ui-filter-bar select,
   .ui-filter-controls .btn,.ui-filter-controls input,.ui-filter-controls select,
-  .po-list-toolbar .btn,.po-list-toolbar input,.po-list-toolbar select,.po-reload,
-  .overview-filters .btn,.overview-filters input,.overview-filters select,.overview-reload,
+    .overview-filters .btn,.overview-filters input,.overview-filters select,.overview-reload,
   .overview-hero .pc-actions .btn,.overview-hero .pc-actions input,.overview-hero .pc-actions select,
-  .ec-filters .btn,.ec-filters input,.ec-filters select,
-  .trace-filters .btn,.trace-filters input,.trace-filters select
+    .trace-filters .btn,.trace-filters input,.trace-filters select
   {height:44px!important;min-height:44px!important}
 }
 
 /* ==========================================================================
-   UI Template Standard -- canonical PageHeader (docs/architecture/
-   UI_TEMPLATE_STANDARD.md, Phase 6). MESFlow already had six different
-   in-content header implementations (.panel-head, .po-list-head,
-   .ui-page-header, .overview-intro, .daily-command-copy, .template-command)
-   none of which matched DESIGN.md's own typography table (Section title:
-   18/24, weight 650-700) -- all either 15px (too small, a Panel title, not
-   a Section/page title) or 20-21px (close but each a different value).
-   .page-header is the ONE new shared class golden-reference pages adopt;
-   existing classes are untouched for backward compatibility -- pages that
-   haven't migrated yet keep working exactly as before.
+   UI Template Standard v2 -- real structural convergence (docs/architecture/
+   UI_TEMPLATE_STANDARD.md). v1 (above) attached a shared .page-header class
+   onto three still-different bespoke containers (.po-list-panel wrapped
+   EVERYTHING -- header, stats, filters and table -- in one bordered box;
+   Session Management's header/filters sat unwrapped directly on the canvas;
+   Exception Center had no separate header at all). Same class name, three
+   different geometries -- confirmed visually not to read as one system.
+   This block is the actual shared geometry: PageHeader, StatsRow, FilterBar
+   and ContentPanel are now real siblings with identical widths (all direct
+   children of #content's own grid, so they inherit its 16px gap and the
+   workspace's padding automatically -- no page introduces its own outer
+   wrapper padding to drift out of sync) and identical panel/toolbar
+   geometry. Only ContentPanel's *body* content differs by archetype.
    ========================================================================== */
-.page-header{display:flex;align-items:center;justify-content:space-between;gap:var(--ui-space-4);padding-bottom:var(--ui-space-4);margin-bottom:var(--ui-space-4);border-bottom:1px solid var(--border-default)}
+.page-shell{display:grid;gap:16px;min-width:0}
+
+/* PageHeader: DESIGN.md 5.2 -- "H1 + one line context. Do not wrap the
+   header in a hero card unless there's a real reason." Deliberately plain:
+   no border, no background, no card. Visual separation from what follows
+   comes from the page-shell's own 16px gap, not from a rule drawn under it. */
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .page-header h2{margin:0;font-size:18px;line-height:24px;font-weight:700;color:var(--text-primary)}
 .page-header p{margin:4px 0 0;font-size:13px;line-height:18px;color:var(--text-secondary)}
 .page-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 @media(max-width:900px){.page-header{align-items:flex-start;flex-direction:column}}
+
+/* StatsRow: plain counts strip directly under PageHeader (Production
+   Order's "3 lệnh đang hiển thị · 0 đang lập kế hoạch · ..."). Text-only by
+   design -- MESFlow stays information-dense, not a KPI-tile dashboard, for
+   a row that's just a scan-line of counts. */
+.stats-row{display:flex;flex-wrap:wrap;gap:4px 20px;padding:2px 0;color:var(--text-secondary);font-size:13px}
+.stats-row b{color:var(--text-primary);font-size:16px;font-variant-numeric:tabular-nums;margin-right:4px}
+
+/* ContentPanel: the one bordered "PanelHeader + PanelBody" region for a
+   page's actual data (table / card list / empty state). Identical
+   border/radius/background/shadow to the shared .panel token set already
+   used elsewhere in the app -- new class names only so this migration
+   doesn't inherit the ~30 responsive .panel-head overrides accumulated by
+   unmigrated pages, not because the underlying geometry differs. */
+.content-panel{border:1px solid var(--border-default);border-radius:var(--radius-panel);background:var(--surface-default);box-shadow:var(--shadow-card)}
+.content-panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid var(--border-subtle)}
+.content-panel-head h3{margin:0;font-size:15px;line-height:20px;font-weight:700;color:var(--text-primary)}
+.content-panel-head p{margin:2px 0 0;font-size:12px;line-height:16px;color:var(--text-secondary)}
+.content-panel-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.content-panel-body{min-width:0;padding:12px}
+.content-panel-body:has(>.table-wrap){padding:0}
+.content-panel-body>.table-wrap{border:0;border-radius:0}
+.content-panel-body>.table-wrap table th:first-child,.content-panel-body>.table-wrap table td:first-child{padding-left:16px}
+.content-panel-body>.table-wrap table th:last-child,.content-panel-body>.table-wrap table td:last-child{padding-right:16px}
+
+/* The shared FilterBar (.ui-filter-bar, already used by Session
+   Management's MFUI.filterBar() output) is now also Production Order's and
+   Exception Center's filter row -- literally the same generated markup,
+   not three implementations wearing a matching class. Widened slightly
+   from its original 10px/12px so it reads at the same density as
+   .content-panel-head's 14px/16px. */
+.ui-filter-bar{padding:12px 16px!important}
+.ui-filter-bar-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
 
 /* Numeric table columns (DESIGN.md 5.5: "so phai" -- numbers right-aligned,
    header included). Opt-in via .num on both <th> and <td> since existing

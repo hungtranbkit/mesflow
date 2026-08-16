@@ -22,7 +22,25 @@ const MFUI=(()=>{
   const statusBadge=(status,label='')=>`<span class="ui-status ui-status-${tone(status)}"><span aria-hidden="true" class="ui-status-mark"></span>${escHtml(label||labels[String(status||'').toUpperCase()]||status||'Chưa rõ')}</span>`;
   const pageHeader=({eyebrow='',title='',description='',actions=''})=>`<header class="ui-page-header"><div>${eyebrow?`<small class="ui-eyebrow">${escHtml(eyebrow)}</small>`:''}<h2>${escHtml(title)}</h2>${description?`<p>${escHtml(description)}</p>`:''}</div>${actions?`<div class="ui-page-actions">${actions}</div>`:''}</header>`;
   const pageShell=({id='',eyebrow='',title='',description='',actions='',toolbar='',content=''})=>`<div class="ui-page-shell"${id?` id="${escHtml(id)}"`:''}>${pageHeader({eyebrow,title,description,actions})}${toolbar?`<div class="ui-toolbar">${toolbar}</div>`:''}<div class="ui-page-content">${content}</div></div>`;
-  const filterBar=({content='',count='',activeCount=0,clearId=''})=>`<div class="ui-filter-bar" role="search"><div class="ui-filter-controls">${content}</div><div class="ui-filter-meta">${activeCount?`<span class="ui-filter-active">Bộ lọc (${Number(activeCount)})</span>`:''}${clearId?`<button class="btn tertiary" id="${escHtml(clearId)}" type="button">Xóa bộ lọc</button>`:''}${count!==''?`<span aria-live="polite">${escHtml(count)} kết quả</span>`:''}</div></div>`;
+  // clearLabel/actions added for the UI Template Standard's Golden Reference
+  // pages: Production Order's toolbar needs BOTH a filter-reset action
+  // ("Đặt lại") and an unrelated utility action ("Làm mới" -- reload from
+  // server, not a filter operation). Every prior filterBar() caller only
+  // ever needed the one built-in "Xóa bộ lọc" clear button, so this stays
+  // backward compatible: omitting clearLabel/actions reproduces the exact
+  // markup those callers already depend on.
+  const filterBar=({content='',count='',activeCount=0,clearId='',clearLabel='Xóa bộ lọc',actions=''})=>`<div class="ui-filter-bar" role="search"><div class="ui-filter-controls">${content}</div><div class="ui-filter-meta">${activeCount?`<span class="ui-filter-active">Bộ lọc (${Number(activeCount)})</span>`:''}${clearId?`<button class="btn tertiary" id="${escHtml(clearId)}" type="button">${escHtml(clearLabel)}</button>`:''}${count!==''?`<span aria-live="polite">${escHtml(count)} kết quả</span>`:''}${actions?`<div class="ui-filter-bar-actions">${actions}</div>`:''}</div></div>`;
+  // ContentPanel: the one shared "PanelHeader (title/meta left, actions
+  // right) + PanelBody" wrapper for a Golden Reference page's actual data
+  // region -- a table, a card list, or a standard empty/loading state. Only
+  // PanelBody's content differs by archetype (DataTable for List pages,
+  // workflow cards for Session Exceptions); the panel itself is identical
+  // markup/CSS for every page that adopts it.
+  const contentPanel=({id='',title='',description='',actions='',body=''})=>`<section class="content-panel"${id?` id="${escHtml(id)}"`:''}>${(title||description||actions)?`<div class="content-panel-head"><div>${title?`<h3>${escHtml(title)}</h3>`:''}${description?`<p>${escHtml(description)}</p>`:''}</div>${actions?`<div class="content-panel-actions">${actions}</div>`:''}</div>`:''}<div class="content-panel-body">${body}</div></section>`;
+  // StatsRow: the plain (unbordered-child) counts strip used directly under
+  // a PageHeader -- e.g. Production Order's "3 lệnh đang hiển thị · 0 đang
+  // lập kế hoạch · ...". items: [[label, value], ...].
+  const statsRow=(items,{id=''}={})=>`<div class="stats-row"${id?` id="${escHtml(id)}"`:''} aria-live="polite">${items.map(([label,value])=>`<span><b>${escHtml(value)}</b> ${escHtml(label)}</span>`).join('')}</div>`;
   const loadingState=(message='Đang tải dữ liệu…')=>`<div class="ui-state ui-loading" aria-busy="true"><span class="ui-spinner" aria-hidden="true"></span><p>${escHtml(message)}</p></div>`;
   const emptyState=(title='Không có dữ liệu',message='')=>`<div class="ui-state ui-empty"><b>${escHtml(title)}</b>${message?`<p>${escHtml(message)}</p>`:''}</div>`;
   const errorState=(message='Không thể tải dữ liệu.',retryId='')=>`<div class="ui-state ui-error" role="alert"><b>Đã có lỗi</b><p>${escHtml(message)}</p>${retryId?`<button class="btn" id="${escHtml(retryId)}" type="button">Thử lại</button>`:''}</div>`;
@@ -89,6 +107,6 @@ const MFUI=(()=>{
   const formatQuantity=value=>new Intl.NumberFormat('vi-VN',{maximumFractionDigits:2}).format(Number(value||0));
   const formatDateTime=value=>value?new Intl.DateTimeFormat('vi-VN',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Ho_Chi_Minh'}).format(new Date(value)):'—';
   const formatDuration=seconds=>{seconds=Math.max(0,Number(seconds||0));const min=Math.floor(seconds/60),h=Math.floor(min/60);return h?`${h} giờ ${min%60} phút`:`${min} phút`};
-  return {statusBadge,pageHeader,pageShell,filterBar,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,debounce,formatQuantity,formatDateTime,formatDuration};
+  return {statusBadge,pageHeader,pageShell,filterBar,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,debounce,formatQuantity,formatDateTime,formatDuration};
 })();
 window.MFUI=MFUI;
