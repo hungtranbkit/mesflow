@@ -28,7 +28,17 @@ def test_shared_drawer_has_keyboard_history_focus_and_standard_sizes():
 def test_session_management_uses_shared_vertical_slice():
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     session = (STATIC / "pages" / "session-detail.js").read_text(encoding="utf-8")
-    assert "MFUI.pageShell({id:'sessionManagementPage'" in app
+    # Session Management builds its shell inline (not via MFUI.pageShell)
+    # so it can skip pageShell's always-on eyebrow/title/description header
+    # -- that header duplicated the page title already shown by the outer
+    # workspace-header, which looked inconsistent with every other classic
+    # page (real defect reported live). It still uses the same shared V71
+    # classes pageShell would have emitted (ui-page-shell/ui-toolbar/
+    # ui-page-content), just composed directly for this one page.
+    assert 'id="sessionManagementPage"' in app
+    assert '"ui-page-shell"' in app
+    assert '"ui-toolbar"' in app
+    assert '"ui-page-content"' in app
     assert "MFUI.filterBar" in app
     assert "SessionDetailDrawer.open" in app
     assert "MFUI.openDrawer" in session
