@@ -328,3 +328,140 @@ focus trap/restore, standard width tiers (`--ui-drawer-sm/md/lg/xl`,
 `--ui-modal-sm/lg`). Already matches `DESIGN.md` §5.9. Not modified in this
 task — Session Exception Center's drawer (via `MFUI.openDrawer`) already
 uses this contract correctly.
+
+---
+
+## PHASE 14 — Content Hierarchy contract (mandatory)
+
+Phases 1–13 made every migrated page's *geometry* consistent (edges,
+header height, filter/panel/control dimensions), but geometry consistency
+does not by itself guarantee a page is easy to read. A migration can
+produce a page that is structurally perfect and still show the same idea
+twice — a large Topbar title immediately followed by a smaller in-content
+heading that says essentially the same thing, or a technical
+implementation detail (database backend, schema version) sitting in the
+same visual band as the page's real content. This phase names that
+problem and fixes it, without touching geometry, workflows, or business
+logic. Real incident: Dashboard's Topbar ("Dashboard theo ngày" / "Tình
+hình sản xuất, nhân lực và chất lượng theo từng ca") was immediately
+followed by an in-content heading ("Báo cáo ca sản xuất" / "Chọn ngày và
+ca để xem sản lượng...") saying the same thing in different words, plus a
+static "PostgreSQL" badge with no operational meaning to a shift
+supervisor — three redundant/irrelevant elements before the page's real
+content (filters, KPIs) ever appeared.
+
+### Roles
+
+- **Topbar** (`.workspace-header`, `#pageTitle`/`#pageSubtitle`, set via
+  `title.textContent`/`subtitle.textContent`) — global/module context
+  only. Compact (72px, fixed). Persistent across every page. This is
+  where the page's one real title+description live — see Page Title Rule
+  below.
+- **PageHeader** (`.page-header`, in-content, first child of
+  `.page-shell` when present) — exactly one primary page title *only
+  when the Topbar's title does not already cover it*, one concise
+  supporting description, and/or primary/secondary page actions
+  (`.page-header-actions`). **Optional as a whole.** A page with no
+  distinct title to add and no page-level actions to host simply has no
+  `.page-header` — content starts directly with FilterBar/StatsRow/
+  ContentPanel. A page with page-level actions but no distinct title
+  keeps `.page-header` as an **actions-only** row (`.page-header
+  > .page-header-actions`, right-aligned via `margin-left:auto`) — this
+  is not a violation of "PageHeader is the main heading," it is
+  PageHeader's action-hosting role used on its own.
+- **SectionHeader** (a `ContentPanel`'s `.content-panel-head`, or a
+  page-specific banner like `.ec-command`) — only when there are multiple
+  meaningful peer sections and the label describes a *real* subsection
+  ("Operation cần chú ý", "Session đang mở", "Nhật ký theo bộ lọc"). Must
+  not restate the PageHeader/Topbar's subject with a generic prefix swap
+  ("Danh sách" + the same noun already named above it).
+- **Technical metadata** (database backend, schema version, API mode,
+  debug/runtime info) — must not appear in the primary business-content
+  flow an operator scans every time they open a page. It stays available
+  for admin/diagnostics (the dedicated Monitoring page already surfaces
+  live `/api/system/monitoring` data; `/api/system/health` covers
+  automated checks) but is demoted out of the persistent, always-visible
+  chrome shown on every operational screen.
+
+### No duplicate semantic headings
+
+Before adding or keeping an in-content title, check it against the
+Topbar's current title: **do they name the same subject with only a
+generic qualifier different** ("Quản lý X" / "Danh sách X" / "X sản
+xuất", or the same concept translated between English and Vietnamese —
+"Production Order" vs. "Quản lý lệnh sản xuất")? If yes, it is a
+duplicate — drop the in-content title (keep any actions). If the
+in-content text names a genuinely different angle not covered by the
+Topbar (QR Print's Topbar names the *catalogue* — "Danh sách QR Code" —
+while its PageHeader names the *action* — "In tem QR"; Production
+Schedule's Topbar names the *topic* — "Tiến trình sản xuất" — while its
+PageHeader names the *specific visualization* — "Gantt + Material Flow"),
+it earns its place and stays.
+
+### Page Title Rule
+
+Each page answers "what page am I on?" with **one** clear primary
+heading — normally the Topbar's, since it is universal, always visible,
+and already carries the larger "Page title" typography (24/30/700) one
+level above PageHeader's "Section title" role (18/24/650–700). Do not
+create a second near-synonym immediately below it merely to satisfy "the
+template wants a PageHeader" — Phase 6's PageHeader contract is a
+*format* for when a page-level title/description/actions block is
+needed, not a mandate that one must always be manufactured.
+
+### Panel Title Rule
+
+ContentPanel/SectionHeader titles are optional. Use one only when it adds
+information the page context doesn't already make obvious — real
+examples already in the codebase: "Operation cần chú ý", "Lịch sử
+retention", "Kiosk theo bộ lọc" (the "theo bộ lọc" qualifier is doing real
+work — it tells the reader this list reflects the current filter state,
+distinct from the StatsRow's unfiltered totals above it). Do not add a
+bare "Danh sách"/"Báo cáo"/"Nội dung"/"Thông tin" panel title when the
+page's own PageHeader or Topbar has already named the same subject one
+qualifier away.
+
+### Copy quality
+
+Descriptions are one concise sentence. They orient the reader to *why*
+this page exists, not enumerate every element already visible below it —
+"Chọn ngày và ca để xem sản lượng, người đang làm, Operation có vấn đề và
+lịch sử hoạt động" (lists four things the reader is about to see anyway)
+became "Theo dõi sản lượng, nhân lực và tình trạng sản xuất theo ngày và
+ca" (states the page's purpose once; the visible sections explain
+themselves). Prefer this direction whenever a description reads as a
+table of contents for what's already on screen.
+
+### Do not force PageHeader + PanelHeader
+
+The Golden template never required every page to stack a PageHeader and
+another title immediately below it. **Required**: exactly one primary
+heading, shown once (normally the Topbar's). **Optional**: PageHeader (as
+title+description, or as an actions-only row, or omitted entirely) and
+SectionHeader/PanelHeader, each used only where it adds real information.
+This rule is why Phase 6's PageHeader contract describes a *format*, and
+this phase describes *when to use it at all*.
+
+### Applied fixes (this pass)
+
+Removed a redundant in-content PageHeader title+description (content now
+starts directly at FilterBar/StatsRow, or at an actions-only header row
+when the page has page-level actions) on: Production Orders, Session
+Management, Session Exception Center (its `.ec-command` banner also lost
+its own duplicate "Action Required" heading — `#ecSummary`'s live counts
+are the section's real content), Employees, Equipment, Working Calendar,
+Overview, Dashboard, Production Trace, Kiosk Management, Business Audit
+(whose in-content title was a byte-for-byte copy of its Topbar title).
+Dashboard's Topbar description was also tightened per the Copy Quality
+rule above. Kept as-is, on the genuinely-distinct-angle test: Users
+("Người dùng hệ thống" vs. "Danh sách tài khoản" — people vs. their login
+credentials, a real distinction), QR Print, Production Schedule, System
+Logs, Templates.
+
+The static `PostgreSQL` badge (`.db-state`, previously in the persistent
+Topbar on every single page) was moved to a small `.sidebar-db-state`
+line in the sidebar's account footer — demoted from "shown at the top of
+every business screen" to "available near the account/system area for
+whoever needs it," per the Technical Metadata rule. It was never a live
+health indicator (no JS ever updated it); real diagnostics remain on the
+Monitoring page and `/api/system/health`.

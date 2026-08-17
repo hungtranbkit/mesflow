@@ -18,7 +18,7 @@
       </div>
       <nav id="nav" class="sidebar-nav"></nav>
       <div class="sidebar-account">
-        <div class="sidebar-user"><b>{{ username }}</b><small>{{ role }}</small></div>
+        <div class="sidebar-user"><b>{{ username }}</b><small>{{ role }}</small><span class="sidebar-db-state" title="Cơ sở dữ liệu"><i></i>PostgreSQL</span></div>
         <button id="logout" type="button">Đăng xuất</button>
       </div>
     </aside>
@@ -28,9 +28,6 @@
         <div class="legacy-brand">
           <h1 id="pageTitle">Dashboard</h1>
           <p id="pageSubtitle">Tổng quan hoạt động sản xuất</p>
-        </div>
-        <div class="legacy-user compact-user">
-          <div class="db-state"><i></i> PostgreSQL</div>
         </div>
       </header>
       <main class="admin-page workspace-main"><section id="content"></section></main>
