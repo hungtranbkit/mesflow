@@ -112,7 +112,7 @@ function auditCardHtml(x){
     ${extra.length?`<div class="ba-extra">${extra.map(e=>`<span><b>${esc(e.label)}:</b> ${esc(String(e.value??'—'))}</span>`).join('')}</div>`:''}
     ${affected}
     ${p.reason?`<p class="ba-reason">Lý do: ${esc(p.reason)}</p>`:''}
-    <div class="ba-card-actions">${p.session_id?`<button class="btn small" data-open-session="${p.session_id}">Xem Session</button>`:''}<button class="btn small" data-open-audit="${x.id}">Chi tiết thay đổi</button></div>
+    <div class="ba-card-actions">${p.session_id?`<button class="btn mini" data-open-session="${p.session_id}">Xem Session</button>`:''}<button class="btn mini" data-open-audit="${x.id}">Chi tiết thay đổi</button></div>
   </article>`;
 }
 function baTechnicalHtml(x){
@@ -654,9 +654,8 @@ async function productionOrderModal(item){
 
 async function renderProductionSchedule(){
   if(dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
-  title.textContent='Tiến trình sản xuất';subtitle.textContent='Gantt thời gian và dòng vật liệu theo Production Order';
+  title.textContent='Tiến trình sản xuất';subtitle.textContent='Theo dõi kế hoạch, thực tế, tiến độ và dòng vật liệu giữa các Operation theo Production Order.';
   content.innerHTML=`<div class="page-shell">
-    <div class="page-header"><div><h2>Gantt + Material Flow</h2><p>So sánh kế hoạch, thực tế, tiến độ và lượng bán thành phẩm giữa các Operation.</p></div></div>
     <section class="panel schedule-control-panel" id="schedulePanel">
     <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar">${MFUI.filterBar({content:'<label for="schedulePoFilter"><span>Production Order</span><select id="schedulePoFilter"><option value="">Tất cả PO</option></select></label>',actions:'<button class="btn" id="scheduleReload">↻ Cập nhật</button>'})}
     <div class="schedule-legend"><span><i class="gantt-dot planned"></i>Kế hoạch</span><span><i class="gantt-dot running"></i>Đang chạy</span><span><i class="gantt-dot done"></i>Hoàn thành</span><span><i class="gantt-dot blocked"></i>Đang chờ</span></div></div>
@@ -707,9 +706,9 @@ async function renderProductionSchedule(){
 let templateUi={items:[],current:null,tree:null,equipment:[],dirty:false,isNew:false};
 window.addEventListener('beforeunload',event=>{if(!templateUi.dirty)return;event.preventDefault();event.returnValue=''});
 async function renderTemplates(selectId=null){
-  title.textContent='Quy trình sản xuất mẫu';subtitle.textContent='Chuẩn hóa Part, Operation và thời gian định mức trước khi lập lệnh sản xuất';
+  title.textContent='Quy trình sản xuất mẫu';subtitle.textContent='Chuẩn hóa Part, Operation và thời gian định mức để tái sử dụng khi lập Production Order.';
   content.innerHTML=`<div class="page-shell">
-   <div class="page-header"><div><h2>Thư viện Template</h2><p>Tạo một quy trình chuẩn để dùng lại khi lập Production Order.</p></div><div class="page-header-actions"><button class="btn primary" id="tplNew">+ Tạo Template</button><button class="btn success" id="tplCreatePO">Tạo Production Order</button><details class="template-tools"><summary class="btn">Công cụ</summary><div><button class="btn" id="tplImport">Nhập từ Excel</button><input id="tplImportFile" type="file" accept=".xlsx" hidden><button class="btn" id="tplExport">Xuất Excel</button><button class="btn" id="tplClone">Nhân bản Template</button><span></span><button class="btn" id="tplSeedDemo">Nạp dữ liệu mẫu</button><button class="btn danger" id="tplDeleteDemo">Xóa dữ liệu mẫu</button></div></details></div></div>
+   <div class="page-header"><div class="page-header-actions"><button class="btn primary" id="tplNew">+ Tạo Template</button><button class="btn success" id="tplCreatePO">Tạo Production Order</button><details class="template-tools"><summary class="btn">Công cụ</summary><div><button class="btn" id="tplImport">Nhập từ Excel</button><input id="tplImportFile" type="file" accept=".xlsx" hidden><button class="btn" id="tplExport">Xuất Excel</button><button class="btn" id="tplClone">Nhân bản Template</button><span></span><button class="btn" id="tplSeedDemo">Nạp dữ liệu mẫu</button><button class="btn danger" id="tplDeleteDemo">Xóa dữ liệu mẫu</button></div></details></div></div>
    ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="tplSearch" placeholder="Nhập theo mã, tên hoặc sản phẩm"></label>'})}
    <section class="template-old-grid">
     <aside class="content-panel template-old-list-panel"><div class="content-panel-head"><div><h3>Danh sách Template</h3><p id="tplCount">0 mẫu</p></div></div><div id="tplList" class="content-panel-body template-old-list" aria-live="polite">Đang tải...</div></aside>
@@ -766,19 +765,21 @@ function showInstantiateTemplateModal(t,salesOrders){const box=document.createEl
 
 
 function attachGuideTabs(active){
-  // Small vertical tab column on the left (not a top horizontal bar) --
-  // re-parents whatever this render pass already put into #content (the
-  // MESFlow hero+grid or the ESP hero+workspace) into a right-hand column
-  // next to it, so both render functions stay unchanged otherwise.
+  // Compact horizontal sub-tab bar below the PageHeader, inside the page
+  // content area -- reuses the same tab visual language as System Logs'
+  // .sl-tab (canonical "sub-tabs under a page title" pattern, shared via
+  // .guide-tabs,.system-log-tabs{...} rather than inventing a new one).
+  // Re-parents whatever this render pass already put into #content (the
+  // MESFlow hero+grid or the ESP hero+workspace) below the tab bar, inside
+  // one .page-shell, so both render functions stay unchanged otherwise.
   const inner=content.firstElementChild;
-  const tabs=document.createElement('nav');tabs.className='guide-subtabs';tabs.setAttribute('aria-label','Nhóm hướng dẫn');
-  tabs.innerHTML=`<button type="button" class="${active==='mesflow'?'active':''}" aria-selected="${active==='mesflow'}"><span>Hướng dẫn MESFlow</span></button><button type="button" class="${active==='esp'?'active':''}" aria-selected="${active==='esp'}"><span>ESP Kiosk</span></button>`;
+  const tabs=document.createElement('div');tabs.className='guide-tabs';
+  tabs.innerHTML=`<div class="toolbar wrap"><button type="button" class="btn sl-tab ${active==='mesflow'?'active':''}" data-tab="mesflow">MESFlow</button><button type="button" class="btn sl-tab ${active==='esp'?'active':''}" data-tab="esp">ESP Kiosk</button></div>`;
   const buttons=tabs.querySelectorAll('button');buttons[0].onclick=()=>renderTutorials();buttons[1].onclick=()=>renderEspKioskTutorial();
-  const wrap=document.createElement('div');wrap.className='guide-layout';
-  const right=document.createElement('div');right.className='guide-layout-content';
-  if(inner)right.appendChild(inner);
-  wrap.appendChild(tabs);wrap.appendChild(right);
-  content.innerHTML='';content.appendChild(wrap);
+  const shell=document.createElement('div');shell.className='page-shell';
+  shell.appendChild(tabs);
+  if(inner)shell.appendChild(inner);
+  content.innerHTML='';content.appendChild(shell);
 }
 
 async function renderTutorials(){
@@ -786,8 +787,7 @@ async function renderTutorials(){
   subtitle.textContent='Video hướng dẫn được lưu riêng và có thể cập nhật mà không cần build lại MESFlow';
   content.innerHTML=`<div class="tutorial-shell">
     <section class="tutorial-hero">
-      <div><span class="eyebrow">MESFLOW LEARNING CENTER</span><h2>Hướng dẫn sử dụng MESFlow</h2>
-      <p>Xem tổng quan trước, sau đó chọn video theo nghiệp vụ hoặc vai trò.</p></div>
+      <div><span class="eyebrow">MESFLOW LEARNING CENTER</span></div>
       <div class="tutorial-tools"><input id="tutorialSearch" placeholder="Tìm PO, Kiosk, Session, phân quyền..."><select id="tutorialCategory"><option value="">Tất cả nhóm</option></select></div>
     </section>
     <div id="tutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn</b><span>Chạy script tạo video rồi publish vào runtime/tutorials.</span></div>
@@ -836,7 +836,7 @@ async function renderTutorials(){
 
 async function renderEspKioskTutorial(){
   title.textContent='Hướng dẫn';subtitle.textContent='Hướng dẫn MESFlow và thiết bị ESP Kiosk';
-  content.innerHTML=`<div class="tutorial-shell esp-guide-shell"><section class="tutorial-hero esp-guide-hero"><div><span class="eyebrow">ESP KIOSK</span><h2>Hướng dẫn ESP Kiosk</h2><p>Video được mô phỏng theo giao diện firmware ESP Kiosk hiện tại.</p><div class="tutorial-meta" id="espTutorialVersions"></div></div></section><div id="espTutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn ESP Kiosk được publish.</b><span>Vui lòng liên hệ quản trị viên.</span></div><section id="espTutorialWorkspace" class="esp-guide-workspace" hidden><aside class="esp-guide-list"><h3>Danh sách video</h3><div id="espTutorialList"></div></aside><article class="esp-guide-player"><div class="esp-guide-player-copy"><span id="espTutorialOrder"></span><div><h3 id="espTutorialPlayerTitle"></h3><p id="espTutorialPlayerDesc"></p></div></div><video id="espTutorialVideo" controls preload="metadata" playsinline></video></article></section></div>`;attachGuideTabs('esp');
+  content.innerHTML=`<div class="tutorial-shell esp-guide-shell"><section class="tutorial-hero esp-guide-hero"><div><span class="eyebrow">ESP KIOSK</span><div class="tutorial-meta" id="espTutorialVersions"></div></div></section><div id="espTutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn ESP Kiosk được publish.</b><span>Vui lòng liên hệ quản trị viên.</span></div><section id="espTutorialWorkspace" class="esp-guide-workspace" hidden><aside class="esp-guide-list"><h3>Danh sách video</h3><div id="espTutorialList"></div></aside><article class="esp-guide-player"><div class="esp-guide-player-copy"><span id="espTutorialOrder"></span><div><h3 id="espTutorialPlayerTitle"></h3><p id="espTutorialPlayerDesc"></p></div></div><video id="espTutorialVideo" controls preload="metadata" playsinline></video></article></section></div>`;attachGuideTabs('esp');
   let manifest;
   try{manifest=(await api('/api/esp-kiosk-tutorial')).manifest}catch(e){const empty=document.getElementById('espTutorialEmpty');empty.hidden=false;empty.innerHTML='<b>Không tải được bộ hướng dẫn ESP Kiosk.</b><span>Vui lòng liên hệ quản trị viên.</span>';return}
   if(!manifest){document.getElementById('espTutorialEmpty').hidden=false;return}
@@ -853,7 +853,7 @@ async function renderSimple(t,url){title.textContent=t;subtitle.textContent='D�
 async function renderMonitoring(){title.textContent='Monitoring';subtitle.textContent='Trạng thái dịch vụ và PostgreSQL';content.innerHTML='<div class="panel">Đang tải...</div>';try{const d=await api('/api/system/monitoring');content.innerHTML=`<div class="panel"><pre class="json">${esc(JSON.stringify(d,null,2))}</pre></div>`}catch(e){content.innerHTML=`<div class="panel danger">${esc(e.message)}</div>`}}
 
 async function renderUsers(){
-  title.textContent='Người dùng hệ thống';subtitle.textContent='Quản lý quyền truy cập, trạng thái tài khoản và yêu cầu đổi mật khẩu';
+  title.textContent='Người dùng hệ thống';subtitle.textContent='Quản lý tài khoản, vai trò, quyền truy cập và trạng thái sử dụng.';
   if(!hasPermission('users.view')){
     content.innerHTML='<section class="panel empty">Bạn không có quyền xem danh sách người dùng.</section>';return;
   }
@@ -862,7 +862,7 @@ async function renderUsers(){
     window.userAdminData={items,roles:d.roles||[]};
     const active=items.filter(x=>x.active).length,admins=items.filter(x=>x.role==='admin').length,mustChange=items.filter(x=>x.must_change_password).length;
     content.innerHTML=`<div class="page-shell">
-  <div class="page-header"><div><h2>Danh sách tài khoản</h2><p>Tạo tài khoản theo đúng vai trò công việc; khóa tài khoản không còn sử dụng thay vì chia sẻ mật khẩu.</p></div><div class="page-header-actions"><button class="btn" id="rolePermissions">Vai trò & phân quyền</button><button class="btn" id="ownPassword">Đổi mật khẩu của tôi</button><button class="btn primary" id="addUser">+ Tạo người dùng</button></div></div>
+  <div class="page-header"><div class="page-header-actions"><button class="btn" id="rolePermissions">Vai trò & phân quyền</button><button class="btn" id="ownPassword">Đổi mật khẩu của tôi</button><button class="btn primary" id="addUser">+ Tạo người dùng</button></div></div>
   <div class="system-user-summary"><article><span>Tổng tài khoản</span><b>${items.length}</b></article><article><span>Đang hoạt động</span><b>${active}</b></article><article><span>Quản trị viên</span><b>${admins}</b></article><article><span>Chờ đổi mật khẩu</span><b>${mustChange}</b></article></div>
   ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="userSearch" placeholder="Tên đăng nhập hoặc tên hiển thị"></label><label><span>Vai trò</span><select id="userRole"><option value="">Tất cả vai trò</option>'+(d.roles||[]).map(r=>`<option value="${esc(r)}">${esc(userRoleText(r))}</option>`).join('')+'</select></label><label><span>Trạng thái</span><select id="userState"><option value="">Tất cả trạng thái</option><option value="active">Đang hoạt động</option><option value="locked">Đã khóa</option><option value="password">Chờ đổi mật khẩu</option></select></label>'})}
   <section class="content-panel"><div class="content-panel-head"><div><h3>Tài khoản theo bộ lọc</h3></div></div><div class="content-panel-body" id="userList"></div></section>

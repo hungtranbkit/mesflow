@@ -1,7 +1,6 @@
 async function renderSystemLogs(){
-  title.textContent='Nhật ký ứng dụng';subtitle.textContent='Action Log, Error Trace và lịch sử Retention — application-level tracing, không phải hạ tầng';
+  title.textContent='Nhật ký ứng dụng';subtitle.textContent='Theo dõi Action Log, Error Trace và lịch sử retention của ứng dụng.';
   content.innerHTML=`<div class="page-shell">
-   <div class="page-header"><div><h2>Theo dõi vận hành hệ thống</h2><p>Action Log, Error Trace và lịch sử dọn dữ liệu theo từng nhóm bên dưới.</p></div></div>
    <div class="system-log-tabs"><div class="toolbar wrap"><button class="btn sl-tab active" data-tab="actions">Hoạt động hệ thống</button><button class="btn sl-tab" data-tab="errors">Lỗi cần xử lý</button><button class="btn sl-tab" data-tab="retention">Lịch sử lưu trữ</button></div></div>
    <div id="slView"></div>
   </div>`;

@@ -1,10 +1,10 @@
 async function renderQrPrintCenter(){
-  title.textContent='Danh sách QR Code';subtitle.textContent='Lọc, chọn và in tem QR nhân viên, Production Order, Part và Operation';
+  title.textContent='In tem QR';subtitle.textContent='Lọc, chọn và in tem QR cho nhân viên, Production Order, Part và Operation.';
   content.innerHTML=`<div class="page-shell">
-   <div class="page-header"><div><h2>In tem QR</h2><p>Chọn đúng nhóm dữ liệu, kiểm tra nội dung và kích thước tem trước khi in.</p></div><div class="page-header-actions"><button class="btn" id="qrSelectAll">Chọn tất cả đang hiển thị</button><button class="btn" id="qrClear">Bỏ chọn</button><button class="btn primary" id="qrPrint">In tem đã chọn</button></div></div>
+   <div class="page-header"><div class="page-header-actions"><button class="btn" id="qrSelectAll">Chọn tất cả đang hiển thị</button><button class="btn" id="qrClear">Bỏ chọn</button><button class="btn primary" id="qrPrint">In tem đã chọn</button></div></div>
    ${MFUI.filterBar({content:'<label><span>Loại mã QR</span><select id="qrType"><option value="EMPLOYEE">Nhân viên</option><option value="OPERATION">Operation</option><option value="PART">Part</option><option value="PRODUCTION_ORDER">Production Order</option></select></label><label><span>Production Order</span><select id="qrPo"><option value="">Tất cả Production Order</option></select></label><label class="qr-search-field"><span>Tìm nhanh</span><input id="qrSearch" placeholder="Mã, tên, PO hoặc bộ phận"></label><label><span>Kích thước in</span><select id="qrSize"><option value="50x30">Tem 50 × 30 mm</option><option value="70x40">Tem 70 × 40 mm</option><option value="90x55">Tem 90 × 55 mm</option><option value="a4-card">Thẻ A4 lớn</option></select></label>',actions:'<button class="btn" id="qrReload">Làm mới</button>'})}
    <div class="qr-selection-summary" id="qrSummary">Đang tải danh sách...</div>
-   <section class="content-panel"><div class="content-panel-body" id="qrList"><div class="empty">Đang tải...</div></div></section>
+   <section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách QR Code</h3></div></div><div class="content-panel-body" id="qrList"><div class="empty">Đang tải...</div></div></section>
   </div><div class="qr-print-sheet" id="qrPrintSheet" aria-hidden="true"></div>`;
   const $=id=>document.getElementById(id);
   const selected=new Map();let items=[];
