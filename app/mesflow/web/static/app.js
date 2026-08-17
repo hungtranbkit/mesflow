@@ -654,7 +654,7 @@ async function renderProductionSchedule(){
   if(dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
   title.textContent='Tiến trình sản xuất';subtitle.textContent='Theo dõi kế hoạch, thực tế, tiến độ và dòng vật liệu giữa các Operation theo Production Order.';
   content.innerHTML=`<div class="page-shell">
-    <section class="panel schedule-control-panel" id="schedulePanel">
+    <section class="schedule-control-panel" id="schedulePanel">
     <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar">${MFUI.filterBar({content:'<label for="schedulePoFilter"><span>Production Order</span><select id="schedulePoFilter"><option value="">Tất cả PO</option></select></label>',actions:'<button class="btn" id="scheduleReload">↻ Cập nhật</button>'})}
     <div class="schedule-legend"><span><i class="gantt-dot planned"></i>Kế hoạch</span><span><i class="gantt-dot running"></i>Đang chạy</span><span><i class="gantt-dot done"></i>Hoàn thành</span><span><i class="gantt-dot blocked"></i>Đang chờ</span></div></div>
     <div id="scheduleBody">Đang tải...</div></section>

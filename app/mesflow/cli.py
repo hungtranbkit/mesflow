@@ -39,6 +39,22 @@ def seed_default_users():
 
     Existing users are never overwritten. Passwords come from environment; no
     production password is hard-coded in source.
+
+    RBAC only defines 5 roles (rbac_roles: admin, manager, supervisor,
+    operator, viewer -- see mesflow.web.users.ROLES). The extra personas
+    below (QA Inspector, Maintenance, Kiosk User) have no dedicated role or
+    permission scope of their own, so per "do not invent new roles unless
+    already defined by MESFlow" each is mapped to its closest real role
+    rather than given a fabricated one: QA Inspector -> viewer (read-only
+    across granted screens, matching an auditor/inspector who reviews but
+    never edits); Maintenance and Kiosk User -> operator (operator's own
+    permission set is literally "Thao tac san xuat va kiosk" -- production
+    ops and kiosk -- the closest floor-level fit; equipment.edit is
+    manager/admin-only in the real RBAC, so a dedicated low-privilege
+    maintenance-edit role does not exist today). The original 4 entries
+    (manager/supervisor/operator/viewer, one per role) are kept verbatim
+    for backward compatibility with any environment that already ran this
+    with the old spec list; the rest are additive.
     """
     enabled=str(os.environ.get('MESFLOW_SEED_DEFAULT_USERS','0')).lower() in {'1','true','yes','on'}
     if not enabled:
@@ -50,6 +66,11 @@ def seed_default_users():
       ('supervisor','MESFlow Supervisor','supervisor','MESFLOW_SUPERVISOR_PASSWORD'),
       ('operator','MESFlow Operator','operator','MESFLOW_OPERATOR_PASSWORD'),
       ('viewer','MESFlow Viewer','viewer','MESFLOW_VIEWER_PASSWORD'),
+      ('operator2','MESFlow Operator - Kiosk ca 2','operator','MESFLOW_OPERATOR2_PASSWORD'),
+      ('qa','MESFlow QA Inspector','viewer','MESFLOW_QA_PASSWORD'),
+      ('maintenance','MESFlow Maintenance','operator','MESFLOW_MAINTENANCE_PASSWORD'),
+      ('kiosk01','MESFlow Kiosk User 01','operator','MESFLOW_KIOSK01_PASSWORD'),
+      ('kiosk02','MESFlow Kiosk User 02','operator','MESFLOW_KIOSK02_PASSWORD'),
     ]
     for username,name,role,key in specs:
         if repo.get_by_username(username):

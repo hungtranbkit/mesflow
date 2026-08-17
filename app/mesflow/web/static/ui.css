@@ -296,8 +296,16 @@ body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
    Gantt content visibly showed through. Real bug, found by measuring
    .workspace-header's live getBoundingClientRect() (68px), not assumed
    from the old comment. */
-.schedule-control-panel{--schedule-workspace-offset:68px;--schedule-toolbar-height:0px;overflow:visible!important;padding-top:0}
-.schedule-sticky-toolbar{position:sticky;top:var(--schedule-workspace-offset);z-index:20;margin:0 -18px 12px;padding:16px 18px 0;border-bottom:1px solid var(--border-default,#d6dce3);background:var(--surface-default,#fff)}
+/* .schedule-control-panel is a plain layout wrapper, NOT a .panel card:
+   it holds the sticky toolbar AND every PO's full Gantt/Material Flow
+   (thousands of px tall), so giving it .panel's border/shadow/16px-padding
+   turned the whole page into one giant bordered white frame with the
+   compact Production Order filter bar looking like a small card
+   awkwardly stranded inside it. Each PO block (.gantt-po) already draws
+   its own card border -- this wrapper only needs to host the sticky
+   toolbar's positioning context. */
+.schedule-control-panel{--schedule-workspace-offset:68px;--schedule-toolbar-height:0px;overflow:visible!important}
+.schedule-sticky-toolbar{position:sticky;top:var(--schedule-workspace-offset);z-index:20;margin:0 0 12px;padding:12px 0 0;border-bottom:1px solid var(--border-default,#d6dce3);background:var(--surface-default,#fff)}
 .schedule-sticky-toolbar .ui-filter-bar{margin-bottom:8px}
 .schedule-sticky-toolbar .schedule-legend{padding:6px 0 10px}
 .schedule-po.gantt-po{overflow:visible;scroll-margin-top:calc(var(--schedule-workspace-offset) + var(--schedule-toolbar-height))}
@@ -964,7 +972,7 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
    which records the same list below shows, they don't switch to a
    different view, so they deliberately look like chips, not .mf-tab. */
 .ba-categories{display:flex;gap:7px;flex-wrap:wrap;flex-basis:100%}
-.ba-chip{border:1px solid var(--line);background:#fff;color:#4b5768;padding:7px 13px;border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer}
+.ba-chip{display:inline-flex;align-items:center;height:32px;border:1px solid var(--line);background:#fff;color:#4b5768;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer}
 .ba-chip:hover{border-color:#b7c2d6}
 .ba-chip.active{background:var(--brand);border-color:var(--brand);color:#fff}
 /* Compact disclosure control, sized to its own content -- not stretched
@@ -1103,12 +1111,6 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
    lift+border treatment already used by .tutorial-card elsewhere. */
 .kiosk-card{transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
 .kiosk-card:hover{transform:translateY(-2px);border-color:var(--border-emphasis)!important;box-shadow:var(--shadow-section)!important}
-
-/* --- Page-specific: Business Audit's category filter chips and the KPI/
-   toolbar controls next to them were both min-height:auto text buttons of
-   slightly different heights, so the toolbar row looked uneven. Bring the
-   chips to the same control height as the rest of the app's inputs/buttons. */
-.ba-chip{min-height:32px}
 
 @media(max-width:720px){.ba-card-head{flex-direction:column;align-items:flex-start}}
 
