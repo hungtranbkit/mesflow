@@ -164,8 +164,7 @@ async function renderBusinessAudit(){
   title.textContent='Nhật ký nghiệp vụ';subtitle.textContent='Ai đã làm gì, với đối tượng nào, khi nào, thay đổi gì và tại sao';
   baState.category='';
   content.innerHTML=`<div class="page-shell">
-   <div class="ba-categories">${BA_CATEGORIES.map(([v,l],i)=>`<button type="button" class="ba-chip${i===0?' active':''}" data-cat="${v}">${esc(l)}</button>`).join('')}</div>
-   ${MFUI.filterBar({content:'<label><span>Từ ngày</span><input type="date" id="baFrom"></label><label><span>Đến ngày</span><input type="date" id="baTo"></label><label><span>Người thực hiện</span><input id="baActor" placeholder="username"></label><details class="ba-advanced"><summary>Bộ lọc nâng cao</summary><div class="ba-advanced-fields"><label><span>Loại đối tượng</span><input id="baEntityType" placeholder="work_session, operation..."></label><label><span>ID đối tượng</span><input id="baEntityId"></label><label><span>Mã hành động</span><input id="baAction" placeholder="SESSION_EDIT..."></label></div></details>',actions:'<button class="btn primary" id="baSearch">Lọc</button>'})}
+   ${MFUI.filterBar({content:`<div class="ba-categories" role="group" aria-label="Loại nghiệp vụ">${BA_CATEGORIES.map(([v,l],i)=>`<button type="button" class="ba-chip${i===0?' active':''}" data-cat="${v}">${esc(l)}</button>`).join('')}</div><label><span>Từ ngày</span><input type="date" id="baFrom"></label><label><span>Đến ngày</span><input type="date" id="baTo"></label><label><span>Người thực hiện</span><input id="baActor" placeholder="username"></label><details class="ba-advanced"><summary>Bộ lọc nâng cao</summary><div class="ba-advanced-fields"><label><span>Loại đối tượng</span><input id="baEntityType" placeholder="work_session, operation..."></label><label><span>ID đối tượng</span><input id="baEntityId"></label><label><span>Mã hành động</span><input id="baAction" placeholder="SESSION_EDIT..."></label></div></details>`,actions:'<button class="btn primary" id="baSearch">Lọc</button>'})}
    <section class="content-panel"><div class="content-panel-head"><div><h3>Nhật ký theo bộ lọc</h3><p id="baCount" aria-live="polite">Đang tải…</p></div></div><div class="content-panel-body ba-list" id="baList"></div></section>
   </div>`;
   const load=async()=>{
@@ -499,8 +498,7 @@ async function renderProductionOrders(){
   title.textContent='Production Order';
   subtitle.textContent='Tạo lệnh từ Template, lên lịch và theo dõi trạng thái sản xuất';
   content.innerHTML=`<div class="page-shell">
-    <div class="page-header"><div class="page-header-actions"><button class="btn primary" id="addPO">+ Tạo PO từ Template</button><button class="btn" id="importExcel">Nhập Excel</button><button class="btn" id="exportExcel">Xuất Excel</button></div></div>
-    <div class="stats-row" id="poSummary" aria-live="polite"></div>
+    <div class="page-header"><div class="stats-row" id="poSummary" aria-live="polite"></div><div class="page-header-actions"><button class="btn primary" id="addPO">+ Tạo PO từ Template</button><button class="btn" id="importExcel">Nhập Excel</button><button class="btn" id="exportExcel">Xuất Excel</button></div></div>
     ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="poSearch" placeholder="Mã PO hoặc tên sản phẩm"></label><label><span>Trạng thái</span><select id="poStatus"><option value="">Tất cả trạng thái</option><option value="DRAFT">Bản nháp</option><option value="PLANNED">Đang lập kế hoạch</option><option value="RELEASED">Sẵn sàng sản xuất</option><option value="IN_PROGRESS">Đang sản xuất</option><option value="PAUSED">Tạm dừng</option><option value="COMPLETED">Đã hoàn thành</option><option value="CANCELLED">Đã hủy</option></select></label>',clearId:'poReset',clearLabel:'Đặt lại',actions:'<button class="btn po-reload" id="reloadPO"><i aria-hidden="true"></i>Làm mới</button>'})}
     <section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách Production Order</h3></div></div><div class="content-panel-body" id="poList">Đang tải...</div></section>
   </div>`;
@@ -766,15 +764,15 @@ function showInstantiateTemplateModal(t,salesOrders){const box=document.createEl
 
 function attachGuideTabs(active){
   // Compact horizontal sub-tab bar below the PageHeader, inside the page
-  // content area -- reuses the same tab visual language as System Logs'
-  // .sl-tab (canonical "sub-tabs under a page title" pattern, shared via
-  // .guide-tabs,.system-log-tabs{...} rather than inventing a new one).
+  // content area -- reuses the app's one canonical navigation-tab
+  // component (.mf-tabs/.mf-tab, shared with Exception Center/Production
+  // Trace/System Logs) rather than inventing another tab visual language.
   // Re-parents whatever this render pass already put into #content (the
   // MESFlow hero+grid or the ESP hero+workspace) below the tab bar, inside
   // one .page-shell, so both render functions stay unchanged otherwise.
   const inner=content.firstElementChild;
-  const tabs=document.createElement('div');tabs.className='guide-tabs';
-  tabs.innerHTML=`<div class="toolbar wrap"><button type="button" class="btn sl-tab ${active==='mesflow'?'active':''}" data-tab="mesflow">MESFlow</button><button type="button" class="btn sl-tab ${active==='esp'?'active':''}" data-tab="esp">ESP Kiosk</button></div>`;
+  const tabs=document.createElement('nav');tabs.className='guide-tabs mf-tabs';
+  tabs.innerHTML=`<button type="button" class="mf-tab ${active==='mesflow'?'active':''}" data-tab="mesflow">MESFlow</button><button type="button" class="mf-tab ${active==='esp'?'active':''}" data-tab="esp">ESP Kiosk</button>`;
   const buttons=tabs.querySelectorAll('button');buttons[0].onclick=()=>renderTutorials();buttons[1].onclick=()=>renderEspKioskTutorial();
   const shell=document.createElement('div');shell.className='page-shell';
   shell.appendChild(tabs);
@@ -786,10 +784,7 @@ async function renderTutorials(){
   title.textContent='Hướng dẫn';
   subtitle.textContent='Video hướng dẫn được lưu riêng và có thể cập nhật mà không cần build lại MESFlow';
   content.innerHTML=`<div class="tutorial-shell">
-    <section class="tutorial-hero">
-      <div><span class="eyebrow">MESFLOW LEARNING CENTER</span></div>
-      <div class="tutorial-tools"><input id="tutorialSearch" placeholder="Tìm PO, Kiosk, Session, phân quyền..."><select id="tutorialCategory"><option value="">Tất cả nhóm</option></select></div>
-    </section>
+    ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="tutorialSearch" placeholder="Tìm PO, Kiosk, Session, phân quyền..."></label><label><span>Nhóm</span><select id="tutorialCategory"><option value="">Tất cả nhóm</option></select></label>'})}
     <div id="tutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn</b><span>Chạy script tạo video rồi publish vào runtime/tutorials.</span></div>
     <section id="tutorialGrid" class="tutorial-grid"></section>
     <div class="tutorial-player-backdrop" id="tutorialPlayer" hidden>
@@ -901,8 +896,7 @@ function changeOwnPasswordModal(){const box=document.createElement('div');box.cl
 async function renderKioskManagement(){
   title.textContent='Quản lý trạm Kiosk';subtitle.textContent='Đăng ký thiết bị, theo dõi online/offline, action log và lỗi theo từng trạm';
   content.innerHTML=`<div class="page-shell">
-  <div class="page-header"><div class="page-header-actions"><button class="btn" id="kmReload">Làm mới</button></div></div>
-  <div id="kmSummary" class="daily-kpis"></div>
+  <div class="page-header"><div id="kmSummary" class="daily-kpis kiosk-kpis"></div><div class="page-header-actions"><button class="btn" id="kmReload">Làm mới</button></div></div>
   ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="kmSearch" placeholder="Tìm device, tên, trạm, IP, firmware..."></label><label><span>Trạng thái</span><select id="kmState"><option value="">Tất cả trạng thái</option><option value="online">Online</option><option value="offline">Offline</option><option value="error">Có lỗi</option><option value="PENDING">Chờ duyệt</option><option value="DISABLED">Đã khóa</option></select></label>'})}
   <section class="content-panel"><div class="content-panel-head"><div><h3>Kiosk theo bộ lọc</h3></div></div><div class="content-panel-body" id="kmList">Đang tải...</div></section>
   <div class="panel" id="kmDetail"><div class="empty">Chọn một kiosk để xem action timeline.</div></div>

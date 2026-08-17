@@ -1,7 +1,7 @@
 async function renderSystemLogs(){
   title.textContent='Nhật ký ứng dụng';subtitle.textContent='Theo dõi Action Log, Error Trace và lịch sử retention của ứng dụng.';
   content.innerHTML=`<div class="page-shell">
-   <div class="system-log-tabs"><div class="toolbar wrap"><button class="btn sl-tab active" data-tab="actions">Hoạt động hệ thống</button><button class="btn sl-tab" data-tab="errors">Lỗi cần xử lý</button><button class="btn sl-tab" data-tab="retention">Lịch sử lưu trữ</button></div></div>
+   <nav class="system-log-tabs mf-tabs"><button class="mf-tab active" data-tab="actions">Hoạt động hệ thống</button><button class="mf-tab" data-tab="errors">Lỗi cần xử lý</button><button class="mf-tab" data-tab="retention">Lịch sử lưu trữ</button></nav>
    <div id="slView"></div>
   </div>`;
   const $=id=>document.getElementById(id),view=$('slView');
@@ -55,6 +55,6 @@ async function renderSystemLogs(){
     }catch(e){box.innerHTML=`<div class="empty danger">${esc(e.message||String(e))}</div>`}
   }
   async function loadRetention(){view.innerHTML='<section class="content-panel"><div class="content-panel-head"><div><h3>Lịch sử retention</h3></div></div><div class="content-panel-body" id="lrRows">Đang tải lịch sử retention...</div></section>';try{const d=await api('/api/system/log-retention/runs?limit=200'),rows=items(d);$('lrRows').innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Bắt đầu</th><th>Kết thúc</th><th>Dry run</th><th>Action Log đã xóa</th><th>Error Trace đã xóa</th><th>Chi tiết</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${esc(fmt(x.started_at))}</td><td>${esc(fmt(x.finished_at))}</td><td>${x.dry_run?'Có':'Không'}</td><td>${esc(x.action_deleted??0)}</td><td>${esc(x.error_deleted??0)}</td><td><pre class="json">${esc(prettyJson(x.details_json))}</pre></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có lần chạy retention.</div>';}catch(e){$('lrRows').innerHTML=`<div class="empty danger">${esc(e.message||String(e))}</div>`}}
-  async function switchTab(tab){document.querySelectorAll('.sl-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));if(tab==='actions')await loadActions();else if(tab==='errors')await loadErrors();else await loadRetention();}
-  document.querySelectorAll('.sl-tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));await switchTab('actions');
+  async function switchTab(tab){document.querySelectorAll('.mf-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));if(tab==='actions')await loadActions();else if(tab==='errors')await loadErrors();else await loadRetention();}
+  document.querySelectorAll('.mf-tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));await switchTab('actions');
 }
