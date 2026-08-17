@@ -163,19 +163,12 @@ function openAuditDrawer(id){
 async function renderBusinessAudit(){
   title.textContent='Nhật ký nghiệp vụ';subtitle.textContent='Ai đã làm gì, với đối tượng nào, khi nào, thay đổi gì và tại sao';
   baState.category='';
-  content.innerHTML=`<section class="panel"><div class="panel-head"><div><h2>Nhật ký nghiệp vụ</h2><p>Không hiển thị lỗi kỹ thuật server/container — xem "Nhật ký ứng dụng" cho việc đó.</p></div></div>
+  content.innerHTML=`<div class="page-shell">
+   <div class="page-header"><div><h2>Nhật ký nghiệp vụ</h2><p>Không hiển thị lỗi kỹ thuật server/container — xem "Nhật ký ứng dụng" cho việc đó.</p></div></div>
    <div class="ba-categories">${BA_CATEGORIES.map(([v,l],i)=>`<button type="button" class="ba-chip${i===0?' active':''}" data-cat="${v}">${esc(l)}</button>`).join('')}</div>
-   <div class="toolbar ba-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
-     <input type="date" id="baFrom" title="Từ ngày"><input type="date" id="baTo" title="Đến ngày">
-     <input id="baActor" placeholder="Người thực hiện (username)" style="min-width:180px">
-     <details class="ba-advanced"><summary>Bộ lọc nâng cao</summary><div class="ba-advanced-fields">
-       <input id="baEntityType" placeholder="Loại đối tượng (work_session, operation...)" style="min-width:220px">
-       <input id="baEntityId" placeholder="ID đối tượng" style="max-width:110px">
-       <input id="baAction" placeholder="Mã hành động (SESSION_EDIT...)" style="min-width:200px">
-     </div></details>
-     <button class="btn primary" id="baSearch">Lọc</button>
-   </div>
-   <div id="baList" class="ba-list"></div></section>`;
+   ${MFUI.filterBar({content:'<label><span>Từ ngày</span><input type="date" id="baFrom"></label><label><span>Đến ngày</span><input type="date" id="baTo"></label><label><span>Người thực hiện</span><input id="baActor" placeholder="username"></label><details class="ba-advanced"><summary>Bộ lọc nâng cao</summary><div class="ba-advanced-fields"><label><span>Loại đối tượng</span><input id="baEntityType" placeholder="work_session, operation..."></label><label><span>ID đối tượng</span><input id="baEntityId"></label><label><span>Mã hành động</span><input id="baAction" placeholder="SESSION_EDIT..."></label></div></details>',actions:'<button class="btn primary" id="baSearch">Lọc</button>'})}
+   <section class="content-panel"><div class="content-panel-head"><div><h3>Nhật ký theo bộ lọc</h3><p id="baCount" aria-live="polite">Đang tải…</p></div></div><div class="content-panel-body ba-list" id="baList"></div></section>
+  </div>`;
   const load=async()=>{
     const params=new URLSearchParams();
     if(baState.category)params.set('category',baState.category);
@@ -189,6 +182,7 @@ async function renderBusinessAudit(){
     baState.itemsById={};
     for(const x of (d.items||[]))baState.itemsById[x.id]=x;
     baList.innerHTML=(d.items||[]).map(auditCardHtml).join('')||'<div class="empty">Không có bản ghi phù hợp.</div>';
+    document.getElementById('baCount').textContent=`${(d.items||[]).length} bản ghi phù hợp`;
     baList.querySelectorAll('[data-open-audit]').forEach(b=>b.onclick=()=>openAuditDrawer(Number(b.dataset.openAudit)));
     baList.querySelectorAll('[data-open-session]').forEach(b=>b.onclick=()=>window.SessionDetailDrawer?.open(Number(b.dataset.openSession)));
   };
@@ -663,10 +657,13 @@ async function productionOrderModal(item){
 async function renderProductionSchedule(){
   if(dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
   title.textContent='Tiến trình sản xuất';subtitle.textContent='Gantt thời gian và dòng vật liệu theo Production Order';
-  content.innerHTML=`<section class="panel schedule-control-panel" id="schedulePanel">
-    <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar"><div class="panel-head"><div><h2>Gantt + Material Flow</h2><p>So sánh kế hoạch, thực tế, tiến độ và lượng bán thành phẩm giữa các Operation.</p></div><div class="schedule-actions"><label for="schedulePoFilter">Production Order</label><select id="schedulePoFilter"><option value="">Tất cả PO</option></select><button class="btn" id="scheduleReload">↻ Cập nhật</button></div></div>
+  content.innerHTML=`<div class="page-shell">
+    <div class="page-header"><div><h2>Gantt + Material Flow</h2><p>So sánh kế hoạch, thực tế, tiến độ và lượng bán thành phẩm giữa các Operation.</p></div></div>
+    <section class="panel schedule-control-panel" id="schedulePanel">
+    <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar">${MFUI.filterBar({content:'<label for="schedulePoFilter"><span>Production Order</span><select id="schedulePoFilter"><option value="">Tất cả PO</option></select></label>',actions:'<button class="btn" id="scheduleReload">↻ Cập nhật</button>'})}
     <div class="schedule-legend"><span><i class="gantt-dot planned"></i>Kế hoạch</span><span><i class="gantt-dot running"></i>Đang chạy</span><span><i class="gantt-dot done"></i>Hoàn thành</span><span><i class="gantt-dot blocked"></i>Đang chờ</span></div></div>
-    <div id="scheduleBody">Đang tải...</div></section>`;
+    <div id="scheduleBody">Đang tải...</div></section>
+  </div>`;
   let cached=[];
   const panel=document.getElementById('schedulePanel'),stickyToolbar=document.getElementById('scheduleStickyToolbar');
   const syncStickyOffset=()=>panel?.style.setProperty('--schedule-toolbar-height',`${stickyToolbar?.offsetHeight||0}px`);
