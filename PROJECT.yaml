@@ -11,6 +11,13 @@ source:
 
 version:
   file: VERSION.txt
+  # build_once=true + artifacts.strategy=immutable below => the canonical
+  # versioning contract applies. policy/bump describe intent for humans and
+  # any policy-aware tooling; the actual enforcement (never reuse a frozen
+  # X.Y.Z.W, bump the last segment only) lives in commands.version_prepare /
+  # commands.version_verify (scripts/bump-version.sh, scripts/check-version-sync.sh).
+  policy: immutable_release
+  bump: patch
 
 runtime:
   type: docker-compose
