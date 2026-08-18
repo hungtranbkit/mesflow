@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "run_id": "20260818-103838-6e3dc3",
+  "status": "READY_FOR_REVIEW",
+  "task": "ProjectFlow Pipeline Smoke Test",
+  "task_prompt": "# Task title\r\n\r\nProjectFlow Pipeline Smoke Test\r\n\r\n# Goal\r\n\r\nTạo một file tài liệu nhỏ để xác nhận toàn bộ AI Coding Loop hoạt động end-to-end.\r\n\r\n# Requirements\r\n\r\nTạo file:\r\n\r\n`docs/projectflow-ai-loop-test.md`\r\n\r\nvới nội dung:\r\n\r\n```text\r\n# ProjectFlow AI Loop Test\r\n\r\nStatus: TEST\r\n\r\nThis file was created by a ProjectFlow AI Coding task.\r\n```\r\n\r\n# Scope\r\n\r\n* Chỉ tạo file trên.\r\n* Không sửa business code.\r\n* Không sửa database.\r\n* Không sửa authentication.\r\n* Không thay đổi Docker/deployment configuration.\r\n* Không refactor file khác.\r\n\r\n# Validation\r\n\r\nProjectFlow vẫn phải chạy các gate được khai báo trong `PROJECT.yaml`:\r\n\r\n* preflight\r\n* baseline test\r\n* optional test author\r\n* version prepare / verify nếu áp dụng\r\n* build\r\n* full test suite\r\n* local deploy\r\n* smoke\r\n\r\n# Safety\r\n\r\n* Chỉ làm trên branch `ai/...` do ProjectFlow tạo.\r\n* Không deploy Production.\r\n* Không merge Pull Request.\r\n* Không sửa unrelated files.\r\n\r\n# Completion\r\n\r\nBáo:\r\n\r\n* changed files\r\n* build result\r\n* test result\r\n* local deploy result\r\n* smoke result\r\n* risks",
+  "executor": "CLAUDE",
+  "reviewer": "CHATGPT_WEB",
+  "project": {
+    "code": "mesflow-mesflow",
+    "name": "Mesflow"
+  },
+  "branch": "ai/projectflow-pipeline-smoke-test-6e3dc3",
+  "commit_sha": "351bcfd13364c997ca030bb15e18dde2fcc30359",
+  "changed_files": [
+    "VERSION.txt",
+    "app/mesflow/__init__.py",
+    "compose.yml",
+    "docs/projectflow-ai-loop-test.md",
+    "release.json"
+  ],
+  "verification": {
+    "build": "PASS",
+    "test": "PASS",
+    "local_deploy": "PASS",
+    "smoke": "PASS"
+  },
+  "review_contract": {
+    "architecture": true,
+    "regression": true,
+    "security": true,
+    "clean_code": true,
+    "tests": true,
+    "verdicts": [
+      "PASS",
+      "FIX_REQUIRED",
+      "STOP_FOR_HUMAN"
+    ]
+  }
+}
