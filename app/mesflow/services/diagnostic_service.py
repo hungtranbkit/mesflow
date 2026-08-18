@@ -14,7 +14,7 @@ from mesflow.db.connection import fetch_all,fetch_one,transaction
 # Server-defined allowlist only -- the browser can never supply an arbitrary
 # path/command (section 21/48). Mirrors the exact source names Deploy
 # Agent's own /api/ops/logs already allowlists.
-LOG_SOURCES={'mesflow':'MESFlow application (Docker)','postgres':'PostgreSQL (Docker)','qa':'QA Center (systemd)','agent':'Deploy Agent (systemd)'}
+LOG_SOURCES={'mesflow':'MESFlow application (Docker)','postgres':'Database (Docker)','qa':'QA Center (systemd)','agent':'Deploy Agent (systemd)'}
 _SECRET_PATTERNS=('password','token','authorization','cookie','secret','api_key','apikey')
 
 
