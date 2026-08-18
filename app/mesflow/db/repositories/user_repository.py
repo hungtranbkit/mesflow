@@ -69,5 +69,5 @@ class UserRepository:
                         must_change_password=false,
                         updated_at=now()
                     RETURNING id
-                ''', (username, 'MESFlow Administrator', generate_password_hash(password), role, activate))
+                ''', (username, 'KIMEX Administrator', generate_password_hash(password), role, activate))
                 return cur.fetchone()['id']

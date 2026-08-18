@@ -213,7 +213,7 @@ def create_app():
             return jsonify(ok=False,error='AUTH_REQUIRED'),401
         tutorial_root=Path(os.environ.get('MESFLOW_TUTORIAL_DIR','/data/tutorials')).resolve()
         manifest_path=tutorial_root/'manifest.json'
-        data={'version':1,'title':'Hướng dẫn sử dụng MESFlow','items':[]}
+        data={'version':1,'title':'Hướng dẫn sử dụng KIMEX','items':[]}
         if manifest_path.is_file():
             try:
                 loaded=json.loads(manifest_path.read_text(encoding='utf-8'))

@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "run_id": "20260818-110905-a8622d",
+  "status": "READY_FOR_REVIEW",
+  "task": "Rename MESFlow UI Branding to KIMEX",
+  "task_prompt": "# Task title\r\n\r\nRename MESFlow UI Branding to KIMEX\r\n\r\n# Goal\r\n\r\nĐổi tên thương hiệu hiển thị trên giao diện người dùng từ:\r\n\r\n`MESFlow`\r\n\r\nthành:\r\n\r\n`KIMEX`\r\n\r\n# Scope\r\n\r\nChỉ thay đổi **text/branding hiển thị trên UI**.\r\n\r\nBao gồm các vị trí như:\r\n\r\n* Header\r\n* Sidebar\r\n* Login screen\r\n* Page title\r\n* Dashboard title\r\n* Footer\r\n* Empty states\r\n* User-facing labels\r\n* User-facing tutorial/help text nếu đang hiển thị tên MESFlow\r\n\r\n# Requirements\r\n\r\n1. Mọi vị trí giao diện chính đang hiển thị tên sản phẩm `MESFlow` phải đổi thành `KIMEX`.\r\n2. Giữ nguyên layout, style, màu sắc và behavior hiện tại.\r\n3. Không thay đổi business logic.\r\n4. Không thay đổi database schema hoặc dữ liệu nghiệp vụ.\r\n5. Không đổi repository name.\r\n6. Không đổi Python/module/package names.\r\n7. Không đổi Docker container/service names.\r\n8. Không đổi environment variable names.\r\n9. Không đổi API paths.\r\n10. Không đổi Cloudflare/domain/deployment identifiers.\r\n11. Không đổi internal constants/identifiers chỉ vì chúng chứa từ `mesflow`, trừ khi chúng trực tiếp tạo text hiển thị cho user.\r\n12. Không refactor unrelated code.\r\n\r\n# Important distinction\r\n\r\nĐây là **UI branding rename**, không phải technical/internal rename.\r\n\r\nVí dụ:\r\n\r\nĐược đổi:\r\n\r\n```text\r\nMESFlow\r\nMESFlow Dashboard\r\nWelcome to MESFlow\r\nMESFlow Production\r\n```\r\n\r\nthành:\r\n\r\n```text\r\nKIMEX\r\nKIMEX Dashboard\r\nWelcome to KIMEX\r\nKIMEX Production\r\n```\r\n\r\nKhông được tự ý đổi:\r\n\r\n```text\r\nmesflow-app\r\nmesflow-postgres\r\nMESFLOW_BUILD_ENABLED\r\n/api/mesflow/...\r\npython package mesflow\r\nrepository mesflow\r\n```\r\n\r\n# Discovery\r\n\r\nTrước khi sửa:\r\n\r\n* Search toàn repo các text `MESFlow`, `MESFLOW`, `mesflow`.\r\n* Phân loại từng occurrence thành:\r\n\r\n  * USER_FACING\r\n  * INTERNAL_IDENTIFIER\r\n  * DEPLOYMENT\r\n  * TEST\r\n  * DOCUMENTATION\r\n* Chỉ sửa USER_FACING trong phạm vi task.\r\n* Nếu test hiện tại kiểm tra đúng UI branding cũ, update test đó theo requirement mới.\r\n* Không sửa test chỉ để che regression.\r\n\r\n# Validation\r\n\r\nSau thay đổi ProjectFlow phải chạy các gate từ `PROJECT.yaml`:\r\n\r\n* version prepare / verify nếu cần\r\n* build\r\n* full test suite\r\n* local deploy\r\n* smoke\r\n\r\nNgoài ra verify:\r\n\r\n* UI chính hiển thị `KIMEX`\r\n* không còn `MESFlow` ở các vị trí user-facing chính\r\n* internal identifiers/deployment vẫn giữ nguyên\r\n\r\n# Completion report\r\n\r\nBáo:\r\n\r\n* Các file đã thay đổi\r\n* Danh sách vị trí UI đổi `MESFlow → KIMEX`\r\n* Các occurrence `mesflow/MESFLOW` cố ý giữ nguyên và lý do\r\n* Build result\r\n* Test result\r\n* Local deploy result\r\n* Smoke result\r\n* Risks/limitations\r\n\r\n# Safety\r\n\r\n* Chỉ làm trên branch `ai/...` do ProjectFlow tạo.\r\n* Không deploy Production.\r\n* Không merge PR.\r\n* Không đổi internal technical identity của hệ thống.\r\n* Không sửa unrelated code.",
+  "executor": "CLAUDE",
+  "reviewer": "CHATGPT_WEB",
+  "project": {
+    "code": "mesflow-mesflow",
+    "name": "Mesflow"
+  },
+  "branch": "ai/rename-mesflow-ui-branding-to-kimex-a8622d",
+  "commit_sha": "351bcfd13364c997ca030bb15e18dde2fcc30359",
+  "changed_files": [
+    "VERSION.txt",
+    "app/mesflow/__init__.py",
+    "app/mesflow/cli.py",
+    "app/mesflow/db/repositories/user_repository.py",
+    "app/mesflow/services/notification_service.py",
+    "app/mesflow/web/app.py",
+    "app/mesflow/web/kiosk.py",
+    "app/mesflow/web/static/app.js",
+    "app/mesflow/web/static/pages/production-trace.js",
+    "app/mesflow/web/templates/app.html",
+    "app/mesflow/web/templates/kiosk.html",
+    "app/mesflow/web/templates/login.html",
+    "compose.yml",
+    "release.json"
+  ],
+  "verification": {
+    "build": "PASS",
+    "test": "PASS",
+    "local_deploy": "PASS",
+    "smoke": "PASS"
+  },
+  "review_contract": {
+    "architecture": true,
+    "regression": true,
+    "security": true,
+    "clean_code": true,
+    "tests": true,
+    "verdicts": [
+      "PASS",
+      "FIX_REQUIRED",
+      "STOP_FOR_HUMAN"
+    ]
+  }
+}

@@ -27,7 +27,7 @@ def seed_admin():
     if repo.count()==0:
         if not settings.admin_password or len(settings.admin_password) < 10:
             raise RuntimeError('MESFLOW_ADMIN_PASSWORD must be explicitly set to at least 10 characters for first production bootstrap')
-        repo.create(settings.admin_username,'MESFlow Administrator',settings.admin_password,'admin',True)
+        repo.create(settings.admin_username,'KIMEX Administrator',settings.admin_password,'admin',True)
         print('[SEED] Initial administrator created')
     else:
         print('[SEED] Users already exist; skipped')
@@ -62,15 +62,15 @@ def seed_default_users():
         return
     repo=UserRepository()
     specs=[
-      ('manager','MESFlow Manager','manager','MESFLOW_MANAGER_PASSWORD'),
-      ('supervisor','MESFlow Supervisor','supervisor','MESFLOW_SUPERVISOR_PASSWORD'),
-      ('operator','MESFlow Operator','operator','MESFLOW_OPERATOR_PASSWORD'),
-      ('viewer','MESFlow Viewer','viewer','MESFLOW_VIEWER_PASSWORD'),
-      ('operator2','MESFlow Operator - Kiosk ca 2','operator','MESFLOW_OPERATOR2_PASSWORD'),
-      ('qa','MESFlow QA Inspector','viewer','MESFLOW_QA_PASSWORD'),
-      ('maintenance','MESFlow Maintenance','operator','MESFLOW_MAINTENANCE_PASSWORD'),
-      ('kiosk01','MESFlow Kiosk User 01','operator','MESFLOW_KIOSK01_PASSWORD'),
-      ('kiosk02','MESFlow Kiosk User 02','operator','MESFLOW_KIOSK02_PASSWORD'),
+      ('manager','KIMEX Manager','manager','MESFLOW_MANAGER_PASSWORD'),
+      ('supervisor','KIMEX Supervisor','supervisor','MESFLOW_SUPERVISOR_PASSWORD'),
+      ('operator','KIMEX Operator','operator','MESFLOW_OPERATOR_PASSWORD'),
+      ('viewer','KIMEX Viewer','viewer','MESFLOW_VIEWER_PASSWORD'),
+      ('operator2','KIMEX Operator - Kiosk ca 2','operator','MESFLOW_OPERATOR2_PASSWORD'),
+      ('qa','KIMEX QA Inspector','viewer','MESFLOW_QA_PASSWORD'),
+      ('maintenance','KIMEX Maintenance','operator','MESFLOW_MAINTENANCE_PASSWORD'),
+      ('kiosk01','KIMEX Kiosk User 01','operator','MESFLOW_KIOSK01_PASSWORD'),
+      ('kiosk02','KIMEX Kiosk User 02','operator','MESFLOW_KIOSK02_PASSWORD'),
     ]
     for username,name,role,key in specs:
         if repo.get_by_username(username):
