@@ -11,7 +11,7 @@
     "name": "Mesflow"
   },
   "branch": "ai/projectflow-pipeline-smoke-test-b4f0a0",
-  "commit_sha": "0ed5003da4830b85c82d84bc67e0b55e51399e4d",
+  "commit_sha": "0572be8aeec4b04f93a693befb80204ca5263749",
   "changed_files": [],
   "verification": {
     "build": "PASS",
