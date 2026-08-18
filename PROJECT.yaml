@@ -31,6 +31,23 @@ commands:
     working_directory: .
     timeout_seconds: 120
 
+  # Idempotent version-contract gate. version_prepare bumps VERSION.txt
+  # (and synchronizes every other legitimate declaration onto it) only when
+  # the release currently named by VERSION.txt is already frozen in
+  # artifacts/releases/ (immutable, never reused/overwritten); otherwise it
+  # just self-heals any drift onto the existing VERSION.txt value. Running
+  # it twice back to back with no other changes is a no-op the second time.
+  # version_verify is read-only and fails loudly on any drift.
+  version_prepare:
+    command: ./scripts/bump-version.sh --if-released
+    working_directory: .
+    timeout_seconds: 60
+
+  version_verify:
+    command: bash ./scripts/check-version-sync.sh
+    working_directory: .
+    timeout_seconds: 60
+
   build:
     command: ./scripts/projectflow/build.sh
     working_directory: .
