@@ -16,7 +16,7 @@ def _error(exc):
     lowered = message.lower()
     if isinstance(exc, NotFoundError):
         return jsonify(ok=False, error='NOT_FOUND', error_code='DAT-404', message=message,
-                       action='Kiểm tra mã QR hoặc dữ liệu đã được khai báo trên MESFlow.'), 404
+                       action='Kiểm tra mã QR hoặc dữ liệu đã được khai báo trên KIMEX.'), 404
     if isinstance(exc, ConflictError):
         code = 'SES-409'
         action = 'Quét lại thẻ nhân viên. Nếu vẫn lỗi, báo quản đốc kiểm tra phiên đang mở.'

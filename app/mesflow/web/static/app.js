@@ -417,7 +417,7 @@ function employeeModal(item=null){
 
 function operationExcelImportModal(reload){
   const box=document.createElement('div');box.className='modal-backdrop';
-  box.innerHTML=`<div class="modal"><h2>Nhập Operation từ Excel</h2><p class="muted">Hỗ trợ file Operations do MESFlow xuất và file quy trình nhiều sheet của bản SQLite.</p><form id="excelImportForm"><label>File Excel<input id="excelFile" type="file" accept=".xlsx" required></label><div class="excel-mode"><label><input type="radio" name="excelMode" value="merge" checked> <b>Gộp</b> — thêm mới hoặc cập nhật theo operation_id</label><label><input type="radio" name="excelMode" value="replace"> <b>Thay toàn bộ</b> — xóa Operation hiện tại trước khi nhập</label></div><div id="excelResult"></div><div class="modal-actions"><button type="button" class="btn" id="excelCancel">Hủy</button><button class="btn primary" type="submit">Nhập Excel</button></div></form></div>`;
+  box.innerHTML=`<div class="modal"><h2>Nhập Operation từ Excel</h2><p class="muted">Hỗ trợ file Operations do KIMEX xuất và file quy trình nhiều sheet của bản SQLite.</p><form id="excelImportForm"><label>File Excel<input id="excelFile" type="file" accept=".xlsx" required></label><div class="excel-mode"><label><input type="radio" name="excelMode" value="merge" checked> <b>Gộp</b> — thêm mới hoặc cập nhật theo operation_id</label><label><input type="radio" name="excelMode" value="replace"> <b>Thay toàn bộ</b> — xóa Operation hiện tại trước khi nhập</label></div><div id="excelResult"></div><div class="modal-actions"><button type="button" class="btn" id="excelCancel">Hủy</button><button class="btn primary" type="submit">Nhập Excel</button></div></form></div>`;
   document.body.appendChild(box);box.querySelector('#excelCancel').onclick=()=>box.remove();
   box.querySelector('#excelImportForm').onsubmit=async e=>{e.preventDefault();const file=box.querySelector('#excelFile').files[0];if(!file)return;const mode=box.querySelector('input[name="excelMode"]:checked').value;if(mode==='replace'&&!confirm('Chế độ Thay toàn bộ sẽ xóa Work Session, Operation và Part hiện tại. Tiếp tục?'))return;const submit=e.submitter;submit.disabled=true;submit.textContent='Đang nhập...';const data=new FormData();data.append('file',file);data.append('mode',mode);try{const r=await fetch('/api/operations/import',{method:'POST',body:data});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false){const detail=(d.errors||[]).join('\n')||d.detail||d.message||`HTTP ${r.status}`;throw new Error(detail)}box.querySelector('#excelResult').innerHTML=`<div class="excel-success"><b>${esc(d.message)}</b><div>Đã xử lý ${d.processed}, thêm ${d.inserted}, cập nhật ${d.updated}, tạo ${d.production_orders_created||0} PO và ${d.parts_created||0} Part.</div></div>`;toast('Đã nhập Excel');await reload()}catch(err){box.querySelector('#excelResult').innerHTML=`<div class="excel-error">${esc(err.message)}</div>`}finally{submit.disabled=false;submit.textContent='Nhập Excel'}};
 }
@@ -771,7 +771,7 @@ function attachGuideTabs(active){
   // one .page-shell, so both render functions stay unchanged otherwise.
   const inner=content.firstElementChild;
   const tabs=document.createElement('nav');tabs.className='guide-tabs mf-tabs';
-  tabs.innerHTML=`<button type="button" class="mf-tab ${active==='mesflow'?'active':''}" data-tab="mesflow">MESFlow</button><button type="button" class="mf-tab ${active==='esp'?'active':''}" data-tab="esp">ESP Kiosk</button>`;
+  tabs.innerHTML=`<button type="button" class="mf-tab ${active==='mesflow'?'active':''}" data-tab="mesflow">KIMEX</button><button type="button" class="mf-tab ${active==='esp'?'active':''}" data-tab="esp">ESP Kiosk</button>`;
   const buttons=tabs.querySelectorAll('button');buttons[0].onclick=()=>renderTutorials();buttons[1].onclick=()=>renderEspKioskTutorial();
   const shell=document.createElement('div');shell.className='page-shell';
   shell.appendChild(tabs);
@@ -781,7 +781,7 @@ function attachGuideTabs(active){
 
 async function renderTutorials(){
   title.textContent='Hướng dẫn';
-  subtitle.textContent='Video hướng dẫn được lưu riêng và có thể cập nhật mà không cần build lại MESFlow';
+  subtitle.textContent='Video hướng dẫn được lưu riêng và có thể cập nhật mà không cần build lại KIMEX';
   content.innerHTML=`<div class="tutorial-shell">
     ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="tutorialSearch" placeholder="Tìm PO, Kiosk, Session, phân quyền..."></label><label><span>Nhóm</span><select id="tutorialCategory"><option value="">Tất cả nhóm</option></select></label>'})}
     <div id="tutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn</b><span>Chạy script tạo video rồi publish vào runtime/tutorials.</span></div>
@@ -829,7 +829,7 @@ async function renderTutorials(){
 }
 
 async function renderEspKioskTutorial(){
-  title.textContent='Hướng dẫn';subtitle.textContent='Hướng dẫn MESFlow và thiết bị ESP Kiosk';
+  title.textContent='Hướng dẫn';subtitle.textContent='Hướng dẫn KIMEX và thiết bị ESP Kiosk';
   content.innerHTML=`<div class="tutorial-shell esp-guide-shell"><section class="tutorial-hero esp-guide-hero"><div><span class="eyebrow">ESP KIOSK</span><div class="tutorial-meta" id="espTutorialVersions"></div></div></section><div id="espTutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn ESP Kiosk được publish.</b><span>Vui lòng liên hệ quản trị viên.</span></div><section id="espTutorialWorkspace" class="esp-guide-workspace" hidden><aside class="esp-guide-list"><h3>Danh sách video</h3><div id="espTutorialList"></div></aside><article class="esp-guide-player"><div class="esp-guide-player-copy"><span id="espTutorialOrder"></span><div><h3 id="espTutorialPlayerTitle"></h3><p id="espTutorialPlayerDesc"></p></div></div><video id="espTutorialVideo" controls preload="metadata" playsinline></video></article></section></div>`;attachGuideTabs('esp');
   let manifest;
   try{manifest=(await api('/api/esp-kiosk-tutorial')).manifest}catch(e){const empty=document.getElementById('espTutorialEmpty');empty.hidden=false;empty.innerHTML='<b>Không tải được bộ hướng dẫn ESP Kiosk.</b><span>Vui lòng liên hệ quản trị viên.</span>';return}

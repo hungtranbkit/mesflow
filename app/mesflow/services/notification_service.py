@@ -44,9 +44,9 @@ class EmailChannel:
  name='EMAIL'
  def configured(self):return bool(settings.smtp_host and settings.smtp_from and settings.smtp_to)
  def send(self,alert,event_type):
-  subject=(f"[{alert['severity']}] MESFlow — {alert['title']}" if event_type=='OPENED'
-           else f"[RECOVERED] MESFlow — {alert['title']}" if event_type=='RESOLVED'
-           else "MESFlow notification test")
+  subject=(f"[{alert['severity']}] KIMEX — {alert['title']}" if event_type=='OPENED'
+           else f"[RECOVERED] KIMEX — {alert['title']}" if event_type=='RESOLVED'
+           else "KIMEX notification test")
   body=(alert.get('message') or '')+(f"\n\nHealth Center alert: {alert['fingerprint']}" if alert.get('fingerprint') else '')
   msg=MIMEText(body);msg['Subject']=subject;msg['From']=settings.smtp_from;msg['To']=settings.smtp_to
   try:
@@ -62,9 +62,9 @@ class TelegramChannel:
  name='TELEGRAM'
  def configured(self):return bool(settings.telegram_bot_token and settings.telegram_chat_id)
  def send(self,alert,event_type):
-  text=(f"[{alert['severity']}] MESFlow — {alert['title']}\n{alert.get('message') or ''}" if event_type=='OPENED'
-        else f"[RECOVERED] MESFlow — {alert['title']}" if event_type=='RESOLVED'
-        else "MESFlow notification test")
+  text=(f"[{alert['severity']}] KIMEX — {alert['title']}\n{alert.get('message') or ''}" if event_type=='OPENED'
+        else f"[RECOVERED] KIMEX — {alert['title']}" if event_type=='RESOLVED'
+        else "KIMEX notification test")
   url=f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
   req=urllib.request.Request(url,data=json.dumps({'chat_id':settings.telegram_chat_id,'text':text[:4000]}).encode(),
                               headers={'Content-Type':'application/json'})
@@ -124,7 +124,7 @@ class NotificationDispatcher:
   channel=self.channels.get(channel_name)
   if not channel:return {'ok':False,'error':'UNKNOWN_CHANNEL'}
   if not settings.legacy_health_writer_enabled:return {'ok':False,'status':'DISABLED','error':'LEGACY_WRITER_DISABLED'}
-  fake={'fingerprint':f'TEST:{channel_name}:{int(time.time())}','severity':'LOW','title':'MESFlow notification test','message':'Đây là tin nhắn kiểm tra kênh thông báo MESFlow.'}
+  fake={'fingerprint':f'TEST:{channel_name}:{int(time.time())}','severity':'LOW','title':'KIMEX notification test','message':'Đây là tin nhắn kiểm tra kênh thông báo KIMEX.'}
   status,error,attempts=self._attempt(channel,fake,'TEST',settings.notification_retry_attempts if channel_name!='WEB' else 1)
   with transaction() as conn:
    with conn.cursor() as cur:

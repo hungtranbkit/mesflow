@@ -27,7 +27,7 @@ services:
     # --no-build and an immutable MESFLOW_IMAGE=image@digest.
     build:
       context: .
-    image: ${MESFLOW_IMAGE:-mesflow-app:71.0.0.29}
+    image: ${MESFLOW_IMAGE:-mesflow-app:71.0.0.31}
     container_name: mesflow-app
     restart: unless-stopped
     env_file:
