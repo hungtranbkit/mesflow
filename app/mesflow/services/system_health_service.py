@@ -41,8 +41,8 @@ class PostgreSQLProvider(Provider):
   try:
    x=fetch_one("SELECT version() database_version,(SELECT COUNT(*) FROM pg_stat_activity) connections,(SELECT setting::int FROM pg_settings WHERE name='max_connections') max_connections,(SELECT version_num FROM alembic_version) migration_revision")
    ms=int((time.perf_counter()-t)*1000);x['expected_revision']=_latest_migration_revision();bad=x['migration_revision']!=x['expected_revision']
-   return self.r(HealthStatus.DEGRADED if bad or ms>settings.health_db_latency_warning_ms else HealthStatus.HEALTHY,'Migration không khớp' if bad else 'PostgreSQL phản hồi',ms,x)
-  except Exception as e:return self.r(HealthStatus.DOWN,'Không kết nối được PostgreSQL',int((time.perf_counter()-t)*1000),{'error':type(e).__name__})
+   return self.r(HealthStatus.DEGRADED if bad or ms>settings.health_db_latency_warning_ms else HealthStatus.HEALTHY,'Migration không khớp' if bad else 'Cơ sở dữ liệu phản hồi',ms,x)
+  except Exception as e:return self.r(HealthStatus.DOWN,'Không kết nối được cơ sở dữ liệu',int((time.perf_counter()-t)*1000),{'error':type(e).__name__})
 class HTTPProvider(Provider):
  def __init__(self,name,url):self.component=name;self.url=url
  def check(self):
@@ -117,7 +117,7 @@ class JobProvider(Provider):
  def check(self):
   rows=fetch_all("SELECT *,CASE WHEN NOT enabled THEN 'DISABLED' WHEN next_expected_at IS NOT NULL AND CURRENT_TIMESTAMP>next_expected_at+(grace_seconds||' seconds')::interval THEN 'MISSED' ELSE last_status END normalized_status FROM scheduled_job_health ORDER BY display_name");bad=sum(x['normalized_status'] in ('FAILED','MISSED') for x in rows);return self.r(HealthStatus.DEGRADED if bad else (HealthStatus.HEALTHY if rows else HealthStatus.UNKNOWN),f'{bad} job cần chú ý',details={'items':rows})
 SEVERITY_ORDER={'CRITICAL':0,'HIGH':1,'MEDIUM':2,'LOW':3}
-LABELS={'MESFLOW':'MESFlow','POSTGRESQL':'PostgreSQL','SERVER':'Server','DOCKER':'Docker','DEPLOY_AGENT':'Deploy Agent','QA_CENTER':'QA Center','KIOSK_FLEET':'Kiosk Fleet'}
+LABELS={'MESFLOW':'MESFlow','POSTGRESQL':'Database','SERVER':'Server','DOCKER':'Docker','DEPLOY_AGENT':'Deploy Agent','QA_CENTER':'QA Center','KIOSK_FLEET':'Kiosk Fleet'}
 class SystemHealthService:
  def providers(self):
   fetch=DeployAgentFetch().fetch()

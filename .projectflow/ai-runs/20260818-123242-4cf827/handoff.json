@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "run_id": "20260818-123242-4cf827",
+  "status": "READY_FOR_REVIEW",
+  "task": "Remove PostgreSQL Branding From UI",
+  "task_prompt": "# Task title\r\nRemove PostgreSQL Branding From UI\r\n\r\n# Goal\r\nXóa các text user-facing có chữ:\r\n\r\nPostgres\r\nPostgreSQL\r\n\r\nkhỏi giao diện MESFlow/KIMEX.\r\n\r\nMục tiêu là làm giao diện bớt lộ chi tiết kỹ thuật backend/database cho người dùng.\r\n\r\n# Scope\r\nChỉ sửa text hiển thị trên UI.\r\n\r\nCác vị trí cần kiểm tra:\r\n- System Health\r\n- Health Center\r\n- Server/Service status cards\r\n- Dashboard\r\n- Admin pages\r\n- Settings\r\n- Diagnostics\r\n- Error/help text hiển thị cho user\r\n- Tooltip/label/badge có nhắc Postgres/PostgreSQL\r\n\r\n# Requirements\r\n1. Search toàn repo các occurrence:\r\n   - Postgres\r\n   - PostgreSQL\r\n   - postgres\r\n   - postgresql\r\n\r\n2. Phân loại thành:\r\n   - USER_FACING\r\n   - INTERNAL_IDENTIFIER\r\n   - CONFIG\r\n   - DATABASE\r\n   - DEPLOYMENT\r\n   - TEST\r\n   - DOCUMENTATION\r\n\r\n3. Chỉ thay đổi USER_FACING.\r\n\r\n4. Với UI label, ưu tiên bỏ chi tiết database thay vì thay bằng tên database khác.\r\n\r\nVí dụ:\r\n\r\nĐược đổi:\r\n\r\nPostgreSQL\r\nPostgres Status\r\nPostgreSQL Database\r\nPostgres Connection\r\nPostgreSQL Health\r\n\r\nthành các label phù hợp ngữ cảnh như:\r\n\r\nDatabase\r\nDatabase Status\r\nDatabase Connection\r\nDatabase Health\r\n\r\nhoặc bỏ label nếu thông tin đó không cần thiết cho user.\r\n\r\n5. Không được đổi:\r\n   - postgres service/container name\r\n   - database driver\r\n   - connection string\r\n   - environment variables\r\n   - Docker Compose service\r\n   - schema\r\n   - migration\r\n   - SQL\r\n   - health-check implementation\r\n   - internal metrics identifiers\r\n   - API fields nếu việc đổi gây breaking change\r\n\r\n# Important distinction\r\nĐây là UI cleanup, không phải database migration hoặc database rename.\r\n\r\nKhông được đổi ví dụ:\r\n\r\nmesflow-postgres\r\npostgres:17-alpine\r\nPOSTGRES_DB\r\nPOSTGRES_USER\r\nPOSTGRES_PASSWORD\r\npostgresql://...\r\npsycopg\r\nSQLAlchemy PostgreSQL config\r\ndocker-compose postgres service\r\n\r\n# Validation\r\nSau thay đổi phải chạy các gate trong PROJECT.yaml:\r\n\r\n- preflight\r\n- build\r\n- full tests\r\n- local deploy\r\n- smoke\r\n\r\nNgoài ra verify:\r\n\r\n- UI chính không còn hiển thị `Postgres` hoặc `PostgreSQL`\r\n- Database functionality vẫn hoạt động\r\n- Health/status vẫn hiển thị đúng trạng thái database\r\n- Không đổi internal database configuration\r\n- Không có unrelated changes\r\n\r\n# ChatGPT Reviewer expectations\r\nReviewer đặc biệt kiểm tra:\r\n\r\n1. Có còn text `Postgres/PostgreSQL` user-facing nào bị bỏ sót không.\r\n2. Có vô tình sửa internal DB identifier/config không.\r\n3. Health/diagnostic UI có còn dễ hiểu sau khi bỏ tên PostgreSQL không.\r\n4. Có sửa ngoài scope không.\r\n\r\nReviewer phải trả:\r\n\r\nPROJECTFLOW_VERDICT: PASS\r\n\r\nhoặc:\r\n\r\nPROJECTFLOW_VERDICT: FIX_REQUIRED\r\n\r\nNếu FIX_REQUIRED, kèm actionable findings.\r\n\r\n# Completion report\r\nBáo:\r\n\r\n- changed files\r\n- các vị trí UI đã bỏ Postgres/PostgreSQL\r\n- text thay thế đã dùng\r\n- các occurrence postgres/postgresql được giữ nguyên và lý do\r\n- build result\r\n- test result\r\n- local deploy result\r\n- smoke result\r\n- PR URL\r\n- reviewer verdict\r\n- số review rounds\r\n- final status\r\n\r\n# Safety\r\n- Chỉ làm trên branch ai/... của ProjectFlow.\r\n- Không deploy Production.\r\n- Không merge PR.\r\n- Không sửa database schema/data.\r\n- Không đổi Docker/database configuration.\r\n- Không refactor unrelated code.",
+  "executor": "CLAUDE",
+  "reviewer": "CHATGPT_WEB",
+  "project": {
+    "code": "mesflow-mesflow",
+    "name": "Mesflow"
+  },
+  "branch": "ai/remove-postgresql-branding-from-ui-4cf827",
+  "commit_sha": "351bcfd13364c997ca030bb15e18dde2fcc30359",
+  "changed_files": [
+    "VERSION.txt",
+    "app/mesflow/__init__.py",
+    "app/mesflow/services/diagnostic_service.py",
+    "app/mesflow/services/system_health_service.py",
+    "app/mesflow/web/static/app.js",
+    "app/mesflow/web/templates/app.html",
+    "compose.yml",
+    "release.json"
+  ],
+  "verification": {
+    "build": "PASS",
+    "test": "PASS",
+    "local_deploy": "PASS",
+    "smoke": "PASS"
+  },
+  "review_contract": {
+    "architecture": true,
+    "regression": true,
+    "security": true,
+    "clean_code": true,
+    "tests": true,
+    "verdicts": [
+      "PASS",
+      "FIX_REQUIRED",
+      "STOP_FOR_HUMAN"
+    ]
+  }
+}

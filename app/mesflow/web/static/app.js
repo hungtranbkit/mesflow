@@ -843,8 +843,8 @@ async function renderEspKioskTutorial(){
   list.querySelectorAll('button').forEach(button=>button.onclick=()=>select(Number(button.dataset.i)));select(0);
 }
 
-async function renderSimple(t,url){title.textContent=t;subtitle.textContent='Dữ liệu trực tiếp từ PostgreSQL';content.innerHTML='<div class="panel">Đang tải...</div>';try{const d=await api(url);content.innerHTML=`<div class="panel"><div class="panel-head"><h2>${t}</h2><button class="btn" onclick="openPage('${document.querySelector('.nav-item.active')?.dataset.page}')">Làm mới</button></div>${table(d.items||[])}</div>`}catch(e){content.innerHTML=`<div class="panel danger">${esc(e.message)}</div>`}}
-async function renderMonitoring(){title.textContent='Monitoring';subtitle.textContent='Trạng thái dịch vụ và PostgreSQL';content.innerHTML='<div class="panel">Đang tải...</div>';try{const d=await api('/api/system/monitoring');content.innerHTML=`<div class="panel"><pre class="json">${esc(JSON.stringify(d,null,2))}</pre></div>`}catch(e){content.innerHTML=`<div class="panel danger">${esc(e.message)}</div>`}}
+async function renderSimple(t,url){title.textContent=t;subtitle.textContent='Dữ liệu trực tiếp từ cơ sở dữ liệu';content.innerHTML='<div class="panel">Đang tải...</div>';try{const d=await api(url);content.innerHTML=`<div class="panel"><div class="panel-head"><h2>${t}</h2><button class="btn" onclick="openPage('${document.querySelector('.nav-item.active')?.dataset.page}')">Làm mới</button></div>${table(d.items||[])}</div>`}catch(e){content.innerHTML=`<div class="panel danger">${esc(e.message)}</div>`}}
+async function renderMonitoring(){title.textContent='Monitoring';subtitle.textContent='Trạng thái dịch vụ và cơ sở dữ liệu';content.innerHTML='<div class="panel">Đang tải...</div>';try{const d=await api('/api/system/monitoring');content.innerHTML=`<div class="panel"><pre class="json">${esc(JSON.stringify(d,null,2))}</pre></div>`}catch(e){content.innerHTML=`<div class="panel danger">${esc(e.message)}</div>`}}
 
 async function renderUsers(){
   title.textContent='Người dùng hệ thống';subtitle.textContent='Quản lý tài khoản, vai trò, quyền truy cập và trạng thái sử dụng.';
