@@ -92,6 +92,65 @@ def reset_admin():
     print(f'[SEED] Administrator password reset for {settings.admin_username}; id={user_id}')
 
 
+def reset_password():
+    """Emergency, server-side password reset for an EXISTING user, invoked
+    as `python -m mesflow.cli reset-password <username>` (same
+    `docker compose run --rm mesflow ...` pattern scripts/reset-admin-password.sh
+    already uses for reset-admin). For "I'm locked out and cannot log in at
+    all" -- the in-app path at Users & Roles -> reset password
+    (mesflow.web.users.reset_user_password, audit action USER_PASSWORD_RESET)
+    already covers the case where an admin is still logged in and resetting
+    someone ELSE's password; this is the fallback when nobody can log in.
+
+    Deliberately does NOT reuse UserRepository.reset_password() (the
+    upsert reset_admin() above calls): that method creates the user if
+    missing and unconditionally forces role='admin', active=True on
+    conflict -- correct for recovering the one fixed admin account, wrong
+    for any other username (it would silently promote whoever you name to
+    admin). This uses UserRepository.set_password() instead, which only
+    ever touches password_hash/must_change_password/updated_at -- role,
+    active, display_name and every other column are left exactly as they
+    were. Refuses to run against a username that doesn't already exist
+    (no upsert) so a typo can't silently create a stray account.
+
+    Records audit_logs action ADMIN_PASSWORD_RESET (distinct from
+    USER_PASSWORD_RESET above -- this one means "done from a root/server
+    shell, outside any web session"). Password is read via getpass (never
+    echoed, never logged, never passed as a CLI argument that would land in
+    shell history or `docker compose run` process listings) and never
+    printed. No destructive DB changes -- one UPDATE on one existing row.
+    """
+    if len(sys.argv) < 3 or not sys.argv[2].strip():
+        raise SystemExit('usage: python -m mesflow.cli reset-password <username>')
+    username = sys.argv[2].strip()
+    repo = UserRepository()
+    user = repo.get_by_username(username)
+    if not user:
+        raise SystemExit(
+            f"ERROR: no user '{username}' exists -- this command never creates one. "
+            f"Verify the exact username first (Users & Roles page, or "
+            f"'SELECT username, role FROM users;' via psql) before retrying."
+        )
+    import getpass
+    password = getpass.getpass(f"New password for '{username}' (>=8 chars, letters+digits, not echoed): ")
+    # Same policy as mesflow.web.users._password_error -- keep both in sync
+    # if the policy ever changes.
+    if len(password) < 8 or not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
+        raise SystemExit('ERROR: password must be at least 8 characters and contain both a letter and a digit')
+    confirm = getpass.getpass('Confirm new password: ')
+    if password != confirm:
+        raise SystemExit('ERROR: passwords do not match; nothing was changed')
+    repo.set_password(user['id'], password, must_change=False)
+    password = confirm = None  # drop references promptly; never logged/printed
+    from mesflow.db.repositories.analytics import AuditRepository
+    AuditRepository().log(
+        'cli:reset-password', 'ADMIN_PASSWORD_RESET', 'user', str(user['id']),
+        {'target_username': username, 'source': 'server_cli'},
+    )
+    print(f"[CLI] Password reset for '{username}' (id={user['id']}, role='{user['role']}' unchanged). "
+          f"Audit event ADMIN_PASSWORD_RESET recorded in audit_logs.")
+
+
 def verify_schema():
     required=['users','employees','stations','operations','work_sessions','kiosk_events','notifications','rbac_roles','rbac_permissions','rbac_role_permissions','alembic_version']
     with psycopg.connect(settings.database_url) as c:
@@ -156,6 +215,6 @@ def run_predictive():
 
 if __name__=='__main__':
     cmd=sys.argv[1] if len(sys.argv)>1 else ''
-    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'reset-admin':reset_admin,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive}
+    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'reset-admin':reset_admin,'reset-password':reset_password,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive}
     if cmd not in funcs: raise SystemExit('unknown command')
     funcs[cmd]()

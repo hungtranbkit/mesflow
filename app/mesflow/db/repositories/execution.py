@@ -202,26 +202,31 @@ class KioskRepository:
                 return cur.fetchone()
 
     def management_overview(self):
+        generation=fetch_one("SELECT cluster_id,generation_id,bumped_at,bumped_by,reason FROM server_generation WHERE id=1") or {}
         summary=fetch_one("""SELECT
           COUNT(*) identity_count,
           COUNT(*) FILTER (WHERE ki.status='PENDING') pending_count,
           COUNT(*) FILTER (WHERE ki.status='ACTIVE') active_count,
           COUNT(*) FILTER (WHERE ks.last_heartbeat_at>=CURRENT_TIMESTAMP-INTERVAL '2 minutes') online_count,
           COUNT(*) FILTER (WHERE ks.last_error<>'' OR ks.health_state IN ('ERROR','DEGRADED')) error_count,
-          (SELECT COUNT(*) FROM kiosk_client_events WHERE status='rejected') offline_conflict_count
+          (SELECT COUNT(*) FROM kiosk_client_events WHERE status='rejected') offline_conflict_count,
+          COUNT(*) FILTER (WHERE ki.status='ACTIVE' AND ki.last_generation_id<>'' AND ki.last_generation_id<>(SELECT generation_id FROM server_generation WHERE id=1)) reconciling_count
         FROM kiosk_identities ki LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid""") or {}
         kiosks=fetch_all("""SELECT ki.id,ki.device_uuid,ki.device_name,ki.station_id,ki.status,ki.firmware_version,ki.last_ip,ki.last_seen_at,ki.created_at,
+          ki.last_sequence_received,ki.duplicate_replay_count,ki.last_generation_id,
           s.code station_code,s.name station_name,s.workshop,s.production_line,
           ks.ui_state,ks.health_state,ks.queue_size,ks.wifi_rssi,ks.free_heap,ks.last_error,ks.last_heartbeat_at,
           CASE WHEN ks.last_heartbeat_at>=CURRENT_TIMESTAMP-INTERVAL '2 minutes' THEN TRUE ELSE FALSE END online,
+          CASE WHEN ki.status='ACTIVE' AND ki.last_generation_id<>'' AND ki.last_generation_id<>%s THEN TRUE ELSE FALSE END generation_stale,
           (SELECT COUNT(*) FROM kiosk_events ke WHERE ke.device_uuid=ki.device_uuid AND ke.status='OPEN' AND ke.severity IN ('ERROR','CRITICAL')) open_error_count,
           (SELECT MAX(ke.occurred_at) FROM kiosk_events ke WHERE ke.device_uuid=ki.device_uuid) last_event_at,
           (SELECT COUNT(*) FROM kiosk_client_events ce WHERE ce.kiosk_id=ki.device_uuid AND ce.status='accepted') offline_synced_count,
           (SELECT COUNT(*) FROM kiosk_client_events ce WHERE ce.kiosk_id=ki.device_uuid AND ce.status='rejected') offline_conflict_count,
+          (SELECT COUNT(*) FROM kiosk_client_events ce WHERE ce.kiosk_id=ki.device_uuid AND ce.source='RECONCILE_REPLAY') reconcile_replay_count,
           (SELECT MAX(ce.processed_at) FROM kiosk_client_events ce WHERE ce.kiosk_id=ki.device_uuid) last_offline_sync_at
         FROM kiosk_identities ki LEFT JOIN stations s ON s.id=ki.station_id LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid
-        ORDER BY online DESC,open_error_count DESC,ki.status,ki.device_name,ki.device_uuid""")
-        return {'summary':dict(summary),'kiosks':[dict(x) for x in kiosks]}
+        ORDER BY online DESC,open_error_count DESC,ki.status,ki.device_name,ki.device_uuid""",(generation.get('generation_id',''),))
+        return {'summary':dict(summary),'kiosks':[dict(x) for x in kiosks],'generation':dict(generation)}
 
     def bind_legacy(self,data:dict[str,Any],last_ip:str=''):
         device_uuid=str(data.get('device_uuid') or data.get('device_id') or '').strip()

@@ -7,9 +7,10 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
-from mesflow.db.connection import fetch_one, transaction
+from mesflow.db.connection import fetch_all, fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError, RepositoryError
 from mesflow.db.repositories.execution import WorkSessionRepository
+from mesflow.services.kiosk_reconciliation import ReconciliationResult, compute_missing, ranges
 
 
 BUSINESS_ERRORS = (ValueError, ConflictError, NotFoundError, RepositoryError)
@@ -77,22 +78,35 @@ class OfflineSyncRepository:
         quality = str(event.get('time_quality') or 'unknown').lower()
         if quality not in {'synced', 'estimated', 'unknown'}:
             quality = 'unknown'
+        # 'sync_source' is set by the kiosk only when replaying a
+        # previously-ACKed event during DR reconciliation (see
+        # esp-kiosk/esp/mesflow_app.cpp's runGenerationReconciliation()); a
+        # normal first-time sync omits it and keeps the column's own
+        # 'OFFLINE_SYNC' default. This is how a reconciliation-triggered
+        # conflict is told apart from an ordinary one for the Session
+        # Exceptions KIOSK_SYNC_CONFLICT branch (see analytics.py) without a
+        # dedicated column.
+        source = 'RECONCILE_REPLAY' if str(event.get('sync_source') or '').lower() == 'reconcile_replay' else 'OFFLINE_SYNC'
         with transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute("""INSERT INTO kiosk_client_events(
                     client_event_id,payload_hash,kiosk_id,local_sequence,local_session_id,
                     session_trace_id,event_type,event_time,time_quality,device_uptime_ms,
-                    boot_id,snapshot_revision,status,reason_code,reason,server_session_id,
+                    boot_id,snapshot_revision,source,status,reason_code,reason,server_session_id,
                     payload_json,result_json,processed_at)
-                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
                   ON CONFLICT(client_event_id) DO NOTHING""", (
                     str(event['client_event_id']), payload_hash, kiosk_id,
                     int(event.get('local_sequence') or 0), str(event.get('local_session_id') or ''),
                     str(event.get('session_trace_id') or ''), str(event.get('event_type') or '').upper(),
                     _event_time(event.get('event_time'), quality, event.get('event_time_epoch')), quality,
                     int(event.get('device_uptime_ms') or 0), str(event.get('boot_id') or ''),
-                    str(event.get('offline_snapshot_revision') or ''), status, reason_code, reason,
+                    str(event.get('offline_snapshot_revision') or ''), source, status, reason_code, reason,
                     session_id, Jsonb(event), Jsonb(result)))
+                cur.execute("""UPDATE kiosk_identities SET
+                    last_sequence_received=GREATEST(last_sequence_received,%s)
+                    WHERE device_uuid=%s""",
+                    (int(event.get('local_sequence') or 0), kiosk_id))
 
     def process_event(self, kiosk_id: str, station_id: int | None, event: dict[str, Any]) -> dict[str, Any]:
         event_id = str(event.get('client_event_id') or event.get('event_id') or '').strip()
@@ -105,6 +119,20 @@ class OfflineSyncRepository:
         if existing:
             if existing['payload_hash'] != payload_hash:
                 return {'client_event_id': event_id, 'status': 'rejected', 'reason_code': 'IDEMPOTENCY_PAYLOAD_CONFLICT'}
+            # A genuine replay (reboot-before-local-ACK, lost response retry,
+            # or DR reconciliation resending an already-ACKed event -- see
+            # audit failure case B/C/E). Not an error: this is the exact
+            # protection kiosk_client_events' UNIQUE(client_event_id) exists
+            # for. Tracked (not silently a no-op) so the admin view can show
+            # a real duplicate count instead of the previous "invisible"
+            # behavior -- audit section 11/4.
+            with transaction() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""UPDATE kiosk_identities SET
+                        duplicate_replay_count=duplicate_replay_count+1,
+                        last_sequence_received=GREATEST(last_sequence_received,%s)
+                        WHERE device_uuid=%s""",
+                        (int(existing.get('local_sequence') or 0), kiosk_id))
             return {'client_event_id': event_id, 'status': 'duplicate', 'server_session_id': existing.get('server_session_id')}
 
         sequence = int(event.get('local_sequence') or event.get('device_sequence') or 0)
@@ -165,3 +193,54 @@ class OfflineSyncRepository:
         result = {'client_event_id': event_id, 'status': 'accepted', 'server_session_id': session_id}
         self._record(kiosk_id, event, payload_hash, 'accepted', result, session_id=session_id)
         return result
+
+    def reconcile(self, kiosk_id: str, seq_min: int, seq_max: int,
+                   recent_event_ids: list[str]) -> dict[str, Any]:
+        """DR reconciliation manifest compare -- audit section 7.
+
+        The kiosk sends its local sequence range plus the event_ids it
+        believes are already ACKed (its retained recent-ACK replay window).
+        This never trusts the kiosk's belief about WHAT was accepted --
+        only compares against what kiosk_client_events actually has a row
+        for, terminal status or not. A REJECTED row still counts as
+        "received" (the server resolved it; it does not need replay). Only
+        a true gap -- a sequence/event_id the server has never seen at all
+        -- is reported missing. Bounded to a sane manifest size so a
+        misbehaving/very-old device can't force an unbounded query.
+        """
+        seq_min = max(int(seq_min or 0), 0)
+        seq_max = max(int(seq_max or 0), seq_min)
+        if seq_max - seq_min > 5000:
+            seq_min = seq_max - 5000
+        recent_event_ids = [str(x) for x in (recent_event_ids or [])][:500]
+
+        rows = fetch_all(
+            'SELECT local_sequence, client_event_id FROM kiosk_client_events '
+            'WHERE kiosk_id=%s AND local_sequence BETWEEN %s AND %s',
+            (kiosk_id, seq_min, seq_max),
+        ) if seq_max >= seq_min else []
+        known_sequences = {int(r['local_sequence']) for r in rows}
+
+        known_event_ids: set[str] = set()
+        if recent_event_ids:
+            existing_rows = fetch_all(
+                'SELECT client_event_id FROM kiosk_client_events WHERE kiosk_id=%s AND client_event_id = ANY(%s)',
+                (kiosk_id, recent_event_ids),
+            )
+            known_event_ids = {r['client_event_id'] for r in existing_rows}
+
+        result: ReconciliationResult = compute_missing(seq_min, seq_max, known_sequences, recent_event_ids, known_event_ids)
+
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'UPDATE kiosk_identities SET last_generation_id=(SELECT generation_id FROM server_generation WHERE id=1) '
+                    'WHERE device_uuid=%s',
+                    (kiosk_id,),
+                )
+
+        return {
+            'missing_sequences': result.missing_sequences,
+            'missing_ranges': ranges(result.missing_sequences),
+            'missing_event_ids': result.missing_event_ids,
+        }

@@ -7,6 +7,7 @@ from mesflow.db.repositories.analytics import AuditRepository,KioskEventReposito
 from mesflow.db.connection import transaction,fetch_one
 from mesflow.db.repositories.production_state import reconcile_operation_and_po,reconcile_po_tree
 from mesflow.db.repositories.offline_sync import OfflineSyncRepository
+from mesflow.db.repositories.server_generation import ServerGenerationRepository
 from mesflow.web.errors import api_error_response
 from mesflow.services.session_service import SessionService,StartSessionCommand,FinishSessionCommand
 bp=Blueprint('execution',__name__,url_prefix='/api')
@@ -200,7 +201,8 @@ def legacy_kiosk_bind():
     try:
         row,token=KioskRepository().bind_legacy(body,request.remote_addr or '')
         station = KioskRepositoryLookup.station(str(body.get('station_code') or '')) if body.get('station_code') else None
-        return jsonify(ok=True,kiosk_token=token,device_uuid=row['device_uuid'],device_id=str(body.get('device_id') or row['device_uuid']),device_name=row.get('device_name'),station_id=row.get('station_id'),station_code=(station or {}).get('code') if station else body.get('station_code'),enabled=row['status']=='ACTIVE',config_version=1)
+        generation=ServerGenerationRepository().current()
+        return jsonify(ok=True,kiosk_token=token,device_uuid=row['device_uuid'],device_id=str(body.get('device_id') or row['device_uuid']),device_name=row.get('device_name'),station_id=row.get('station_id'),station_code=(station or {}).get('code') if station else body.get('station_code'),enabled=row['status']=='ACTIVE',config_version=1,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
     except Exception as exc: return err(exc)
 
 @bp.post('/station/heartbeat')
@@ -220,7 +222,38 @@ def legacy_station_heartbeat():
           'uptime_seconds':body.get('uptime_seconds') or 0,
           'boot_reason':body.get('boot_reason') or ''}
         status=KioskRepository().heartbeat(device,mapped)
-        return jsonify(ok=True,enabled=True,config_version=1,status=status)
+        # DR reconciliation trigger (audit section 6/8): every heartbeat carries
+        # the CURRENT cluster/generation. The kiosk compares generation_id to
+        # what it stored at last bind/reconcile; a mismatch means it is now
+        # talking to a server that was restored/failed-over since its last
+        # successful sync, and it must enter RECONCILING before trusting its
+        # "everything up to my last ACK is durable" assumption again.
+        generation=ServerGenerationRepository().current()
+        return jsonify(ok=True,enabled=True,config_version=1,status=status,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
+    except Exception as exc: return err(exc)
+
+@bp.post('/kiosk/reconcile')
+def kiosk_reconcile():
+    """DR reconciliation manifest compare -- audit section 7. Called by the
+    kiosk only when it detects generation_id changed (see heartbeat/bind
+    above). Body: {device_uuid|device_id, sequence_min, sequence_max,
+    recent_event_ids:[...]}. Never mutates any business data -- read-only
+    comparison, plus updating the calling kiosk's own last_generation_id
+    bookkeeping (OfflineSyncRepository.reconcile). Actual replay of missing
+    events goes back through the existing /api/station/events/sync, so all
+    of that endpoint's idempotency guarantees still apply unchanged."""
+    body=request.get_json(silent=True) or {}
+    try:
+        identity=_legacy_kiosk_identity(body)
+        device=str(identity['device_uuid'])
+        result=OfflineSyncRepository().reconcile(
+            device,
+            int(body.get('sequence_min') or 0),
+            int(body.get('sequence_max') or 0),
+            list(body.get('recent_event_ids') or []),
+        )
+        generation=ServerGenerationRepository().current()
+        return jsonify(ok=True,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'],**result)
     except Exception as exc: return err(exc)
 
 @bp.post('/station/events/sync')
@@ -271,6 +304,30 @@ def kiosk_management_status(identity_id):
         body=request.get_json(silent=True) or {}; row=KioskRepository().set_status(identity_id,body.get('status'),body.get('station_id'))
         AuditRepository().log(str(session.get('username','')),'KIOSK_STATUS_CHANGE','kiosk_identity',str(identity_id),body)
         return jsonify(ok=True,item=row)
+    except Exception as exc:return err(exc)
+
+@bp.get('/kiosk-management/generation')
+@roles_required('admin','manager')
+def kiosk_management_generation():
+    try:return jsonify(ok=True,generation=ServerGenerationRepository().current())
+    except Exception as exc:return err(exc)
+
+@bp.post('/kiosk-management/generation/bump')
+@roles_required('admin')
+def kiosk_management_generation_bump():
+    """Explicit DR marker -- audit section 6. Call this exactly once after
+    a real failover/DB-restore event, never automatically/heuristically.
+    Every bound kiosk's next heartbeat/bind will see the new generation_id
+    and enter RECONCILING (see esp-kiosk/esp/mesflow_app.cpp). admin-only
+    (tighter than the other kiosk-management routes' admin+manager) because
+    this is a cluster-wide DR signal, not routine kiosk administration."""
+    try:
+        body=request.get_json(silent=True) or {}
+        reason=str(body.get('reason') or '').strip()
+        if not reason: raise ValueError('reason required -- record why this generation was bumped')
+        generation=ServerGenerationRepository().bump(reason,str(session.get('username','')))
+        AuditRepository().log(str(session.get('username','')),'SERVER_GENERATION_BUMP','server_generation','1',{'reason':reason,'generation_id':generation['generation_id']})
+        return jsonify(ok=True,generation=generation)
     except Exception as exc:return err(exc)
 
 

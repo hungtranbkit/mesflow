@@ -913,8 +913,35 @@ class ReportRepository:
           UNION ALL
           SELECT ws.id,NULL,'INVALID_TIME','CRITICAL','Giờ kết thúc trước giờ bắt đầu',false
             FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at
+        ), kiosk_reconcile_flags AS (
+          -- DR reconciliation conflict (audit reports/KIOSK_OFFLINE_DR_SYNC_AUDIT.md
+          -- section 7/11): a kiosk replayed an event it believed was already
+          -- ACKed by a prior server generation, and THIS server rejected it as
+          -- a payload conflict (same client_event_id, different bytes) rather
+          -- than silently accepting/dropping it -- exactly the "never silently
+          -- convert conflict into success" rule. source='RECONCILE_REPLAY' is
+          -- set only by the reconciliation replay path (see offline_sync.py
+          -- _record()), so this never fires for ordinary day-to-day duplicate
+          -- races, only genuine post-failover conflicts. Only surfaced when a
+          -- real session is resolvable (via the matching accepted START event,
+          -- or a pendingTx-handoff 'SERVER:<id>' local_session_id) -- an
+          -- unresolvable one still shows in Kiosk Management's per-device
+          -- event list, just not duplicated into this session-scoped inbox.
+          SELECT COALESCE(
+                   start_evt.server_session_id,
+                   CASE WHEN ce.local_session_id ~ '^SERVER:[0-9]+$'
+                        THEN split_part(ce.local_session_id,':',2)::bigint END
+                 ) session_id,
+                 NULL::bigint conflict_session_id,'KIOSK_SYNC_CONFLICT' exception_code,'CRITICAL' severity,
+                 'Xung đột đồng bộ kiosk sau khi chuyển server ('||ce.reason_code||', event '||ce.client_event_id||')' exception_message,
+                 false secondary_evidence
+          FROM kiosk_client_events ce
+          LEFT JOIN kiosk_client_events start_evt
+            ON start_evt.kiosk_id=ce.kiosk_id AND start_evt.local_session_id=ce.local_session_id
+           AND start_evt.event_type='START' AND start_evt.status='accepted'
+          WHERE ce.source='RECONCILE_REPLAY' AND ce.status='rejected'
         ), all_flags AS (
-          SELECT * FROM overlap_flags UNION ALL SELECT * FROM flags
+          SELECT * FROM overlap_flags UNION ALL SELECT * FROM flags UNION ALL SELECT * FROM kiosk_reconcile_flags
         ), base_detected AS (
           SELECT f.*,f.exception_code||':'||COALESCE(f.conflict_session_id,0)::text base_fingerprint,
             ws0.updated_at session_updated_at
