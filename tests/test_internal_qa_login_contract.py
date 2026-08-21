@@ -13,7 +13,7 @@ def test_internal_qa_uses_real_password_auth_not_a_silent_bypass():
     auth-bypass behavior."""
     a=(ROOT/"app"/"mesflow"/"web"/"app.py").read_text(encoding="utf-8")
     ast.parse(a)
-    assert 'host in {"mesflow-app","mesflow"} and not forwarded_proto' in a
+    assert 'host in {"mesflow-app","mesflow","mesflow-demo-app"} and not forwarded_proto' in a
     assert 'settings.internal_http_session and _is_direct_internal_qa_request()' in a
     block=a[a.index("class LocalhostAwareSessionInterface"):a.index("def create_app")]
     assert 'internal_qa_auto_login' not in block  # no auto-login bypass wired into the session/cookie path

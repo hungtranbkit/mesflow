@@ -37,7 +37,10 @@ def _is_direct_internal_qa_request():
     """Direct same-Docker-network QA access only."""
     host=(request.host or "").rsplit(":",1)[0].strip("[]").lower()
     forwarded_proto=(request.headers.get("X-Forwarded-Proto") or "").strip()
-    return host in {"mesflow-app","mesflow"} and not forwarded_proto
+    # mesflow-demo-app is the disposable DB-backed LOCAL demo runtime. It has
+    # the same internal-network trust boundary as mesflow-app; public/proxied
+    # requests remain excluded by X-Forwarded-Proto and Secure cookies.
+    return host in {"mesflow-app","mesflow","mesflow-demo-app"} and not forwarded_proto
 
 
 class LocalhostAwareSessionInterface(SecureCookieSessionInterface):
@@ -254,7 +257,10 @@ def create_app():
             abort(404)
         if not candidate.is_file():
             abort(404)
-        return send_from_directory(tutorial_root,filename,conditional=True)
+        response=send_from_directory(tutorial_root,filename,conditional=True)
+        response.headers['Cache-Control']='no-cache' if filename=='manifest.json' else 'public, max-age=86400'
+        response.headers['Accept-Ranges']='bytes'
+        return response
 
     @app.get('/api/esp-kiosk-tutorial')
     def esp_kiosk_tutorial_manifest():

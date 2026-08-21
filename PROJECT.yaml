@@ -56,7 +56,7 @@ commands:
     timeout_seconds: 60
 
   build:
-    command: ./scripts/projectflow/build.sh
+    command: ./scripts/build-release.sh
     working_directory: .
     timeout_seconds: 1800
 
@@ -74,6 +74,11 @@ commands:
     command: ./scripts/projectflow/deploy-local.sh
     working_directory: .
     timeout_seconds: 900
+
+  release_local_qa:
+    command: ./scripts/release-local-qa.sh
+    working_directory: .
+    timeout_seconds: 3600
 
   local_stop:
     command: ./scripts/projectflow/stop-local.sh

@@ -32,7 +32,10 @@ cp "$ROOT/package.json" "$WORKSPACE/"
 [[ -f "$ROOT/package-lock.json" ]] && cp "$ROOT/package-lock.json" "$WORKSPACE/" || true
 cp "$ROOT/playwright.tutorial-detailed.config.js" "$WORKSPACE/"
 cp "$ROOT/tests/e2e/tutorial-detailed.spec.js" "$WORKSPACE/tests/e2e/"
+cp "$ROOT/tests/e2e/tutorial-coverage.spec.js" "$WORKSPACE/tests/e2e/"
 cp "$ROOT/tests/e2e/tutorial-auth-state.js" "$WORKSPACE/tests/e2e/"
+mkdir -p "$WORKSPACE/tutorial"
+cp "$ROOT/tutorial/tutorial.config.json" "$ROOT/tutorial/terminology.json" "$ROOT/tutorial/coverage-matrix.json" "$ROOT/tutorial/exception-scenarios.json" "$WORKSPACE/tutorial/"
 
 cd "$WORKSPACE"
 npm install
@@ -46,6 +49,17 @@ MESFLOW_TUTORIAL_USERNAME="${MESFLOW_TUTORIAL_USERNAME:-admin}" \
 MESFLOW_TUTORIAL_PASSWORD="$MESFLOW_TUTORIAL_PASSWORD" \
 MESFLOW_TUTORIAL_AUTH_STATE="$AUTH_STATE" \
 node tests/e2e/tutorial-auth-state.js
+
+echo
+echo "===== SELECTOR PREFLIGHT + QA COVERAGE ====="
+COVERAGE_REPORT="$OUT/tutorial-coverage-report.json"
+if ! MESFLOW_BASE_URL="$BASE_URL" \
+  MESFLOW_TUTORIAL_AUTH_STATE="$AUTH_STATE" \
+  MESFLOW_TUTORIAL_COVERAGE_REPORT="$COVERAGE_REPORT" \
+  npx playwright test tests/e2e/tutorial-coverage.spec.js --config=playwright.tutorial-detailed.config.js; then
+  echo "[ERROR] Coverage gate hoặc selector preflight không đạt. Báo cáo: $COVERAGE_REPORT" >&2
+  exit 4
+fi
 
 if [[ "${MESFLOW_TUTORIAL_SEED_DATA:-0}" == "1" ]]; then
   echo
@@ -74,9 +88,13 @@ MODULES=(
 )
 
 FAILED=()
+TOTAL_MODULES="${#MODULES[@]}"
+CURRENT_MODULE=0
 for item in "${MODULES[@]}"; do
   name="${item%%:*}"
   module="${item#*:}"
+  CURRENT_MODULE=$((CURRENT_MODULE + 1))
+  echo "TUTORIAL_PROGRESS stage=recording current=$CURRENT_MODULE total=$TOTAL_MODULES item=$name"
   echo
   echo "===== VIDEO $name ($module) ====="
   rm -rf test-results/tutorial-detailed
@@ -134,6 +152,7 @@ if [[ "${MESFLOW_TUTORIAL_WITH_VOICE:-1}" == "1" ]]; then
 fi
 
 if [[ "${MESFLOW_TUTORIAL_AUTO_PUBLISH:-1}" == "1" ]]; then
+  echo "TUTORIAL_PROGRESS stage=publishing"
   echo
   echo "===== PUBLISH VÀO MESFLOW ====="
   if [[ -d "$OUT/final" ]] && find "$OUT/final" -maxdepth 1 -type f -name '*_voice.mp4' -print -quit | grep -q .; then
@@ -147,6 +166,8 @@ if [[ "${MESFLOW_TUTORIAL_AUTO_PUBLISH:-1}" == "1" ]]; then
     echo "[WARN] Chưa publish vào runtime/tutorials; video vẫn giữ nguyên tại $OUT"
   fi
 fi
+
+echo "TUTORIAL_PROGRESS stage=verifying"
 
 # Show a concise result before returning partial-success code.
 if [[ -f "$ROOT/runtime/tutorials/manifest.json" ]]; then

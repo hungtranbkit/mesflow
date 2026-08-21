@@ -1,0 +1,11 @@
+{
+  "tutorial_speed": {
+    "pause_before_step_ms": 1200,
+    "pause_after_step_ms": 1500,
+    "pause_after_click_ms": 1200,
+    "pause_after_navigation_ms": 1800,
+    "typing_delay_ms": 80,
+    "voice_words_per_minute": 122,
+    "module_timeout_ms": 1200000
+  }
+}

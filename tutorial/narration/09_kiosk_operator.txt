@@ -1,1 +1,17 @@
-Đây là video hướng dẫn đầy đủ cho trạm thao tác. Trước tiên kiểm tra tên trạm và trạng thái máy quét. Khi đào tạo, bấm nút Mô phỏng quét QR để chọn sẵn nhân viên và công đoạn. Video cố ý quét công đoạn trước nhân viên để cho thấy cách trạm báo sai thứ tự. Sau đó quét đúng thẻ nhân viên, quét công đoạn và chờ hệ thống mở phiên làm việc. Khi hoàn thành, quét lại thẻ nhân viên để nhập sản phẩm đạt, tiếp theo nhập tổng sản phẩm lỗi. Nếu có lỗi sửa được, chọn có và nhập số lượng sửa được. Trước khi xác nhận, kiểm tra lại số đạt, số lỗi, số sửa được và số phế. Khi màn hình báo Đã ghi nhận, phiên làm việc đã kết thúc và sản lượng đã được lưu. Nếu mất mạng, trạm có thể lưu tạm thao tác và đồng bộ lại sau khi có kết nối.
+Video này hướng dẫn toàn bộ thao tác tại trạm dành cho người vận hành.
+
+Trước khi quét thẻ, hãy kiểm tra tên trạm, thời gian và trạng thái máy quét. Việc này giúp chắc chắn dữ liệu sắp nhập được ghi nhận tại đúng vị trí làm việc.
+
+Trong chế độ đào tạo, nút Mô phỏng quét mã cho phép chọn sẵn nhân viên và công đoạn mà không cần máy quét thật. Mã hiển thị trong phần mô phỏng có ý nghĩa giống mã trên thẻ nhân viên và phiếu công đoạn ngoài xưởng.
+
+Trạm yêu cầu quét thẻ nhân viên trước, sau đó mới quét công đoạn. Video sẽ cố ý quét sai thứ tự một lần. Khi thấy màn hình báo lỗi, đọc hướng dẫn rồi đưa trạm về trạng thái sẵn sàng; không tiếp tục quét liên tục khi chưa xử lý thông báo.
+
+Sau khi quét đúng thẻ nhân viên, trạm hiển thị tên và mã để người vận hành tự kiểm tra. Tiếp theo, quét công đoạn cần thực hiện. Màn hình xác nhận bắt đầu cho biết MESFlow đã mở một phiên làm việc mới và bắt đầu tính thời gian cho người đó tại công đoạn đó.
+
+Khi hoàn thành công việc, quét lại thẻ nhân viên. Trạm yêu cầu nhập số sản phẩm đạt trước. Đây là số sản phẩm đáp ứng yêu cầu chất lượng trong phiên vừa làm.
+
+Tiếp theo, nhập tổng số sản phẩm lỗi. Nếu một phần sản phẩm lỗi có thể sửa lại, chọn Có và nhập số sửa lại. Trong ví dụ này có mười hai sản phẩm đạt, ba sản phẩm lỗi và hai sản phẩm sửa lại; vì vậy còn một sản phẩm phế.
+
+Tại màn hình xác nhận, đọc lại cả bốn số: đạt, lỗi, sửa lại và phế. Nếu bất kỳ số nào sai, hãy quay lại chỉnh trước khi xác nhận. Khi màn hình báo Đã ghi nhận, phiên làm việc đã kết thúc và sản lượng đã được lưu.
+
+Nếu trạm mất mạng, thao tác có thể được lưu tạm và đồng bộ khi kết nối trở lại. Không nhập lại ngay trên một trạm khác vì có thể làm trùng sản lượng; hãy báo quản lý kiểm tra trạng thái đồng bộ trước.

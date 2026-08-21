@@ -1,7 +1,21 @@
 (() => {
   const input = document.getElementById('scanner-input');
   const screens = [...document.querySelectorAll('.screen')];
-  const deviceUuid = localStorage.getItem('mesflow_web_kiosk_uuid') || `WEB-${crypto.randomUUID()}`;
+  // randomUUID is restricted to secure contexts in Chromium. LOCAL Docker
+  // commonly serves the kiosk over plain HTTP on a container hostname, where
+  // crypto exists but randomUUID does not. Device identity is not a secret;
+  // keep a collision-resistant fallback so one unavailable browser API cannot
+  // abort all kiosk initialization and event binding.
+  function newDeviceUuid() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    const bytes = new Uint8Array(16);
+    if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+    else for (let i=0;i<bytes.length;i+=1) bytes[i]=Math.floor(Math.random()*256);
+    bytes[6]=(bytes[6]&0x0f)|0x40; bytes[8]=(bytes[8]&0x3f)|0x80;
+    const hex=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
+  const deviceUuid = localStorage.getItem('mesflow_web_kiosk_uuid') || `WEB-${newDeviceUuid()}`;
   localStorage.setItem('mesflow_web_kiosk_uuid', deviceUuid);
   document.getElementById('device-label').textContent = deviceUuid.slice(0, 20);
 
@@ -370,8 +384,8 @@
       demoLoading.textContent = `Không tải được dữ liệu mô phỏng: ${error.message}`;
     }
   }
-  function openDemo() { clearTimeout(resetTimer); demoPanel.classList.add('open'); demoPanel.setAttribute('aria-hidden','false'); loadDemoData(true); }
-  function closeDemo() { demoPanel.classList.remove('open'); demoPanel.setAttribute('aria-hidden','true'); focusScanner(); }
+  function openDemo() { clearTimeout(resetTimer); demoPanel.classList.add('open'); demoPanel.setAttribute('aria-hidden','false'); demoToggle.setAttribute('aria-expanded','true'); loadDemoData(true); }
+  function closeDemo() { demoPanel.classList.remove('open'); demoPanel.setAttribute('aria-hidden','true'); demoToggle.setAttribute('aria-expanded','false'); focusScanner(); }
   async function copyText(text) {
     if (!text) return;
     try { await navigator.clipboard.writeText(text); document.getElementById('scan-status').textContent = `Đã copy: ${text}`; }

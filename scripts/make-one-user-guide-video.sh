@@ -11,6 +11,8 @@ cp "$ROOT/package.json" "$WS/"
 [[ -f "$ROOT/package-lock.json" ]] && cp "$ROOT/package-lock.json" "$WS/" || true
 cp "$ROOT/playwright.tutorial-detailed.config.js" "$WS/"
 cp "$ROOT/tests/e2e/tutorial-detailed.spec.js" "$WS/tests/e2e/"
+mkdir -p "$WS/tutorial"
+cp "$ROOT/tutorial/tutorial.config.json" "$ROOT/tutorial/terminology.json" "$WS/tutorial/"
 cd "$WS"
 npm install >/dev/null
 npx playwright install chromium >/dev/null

@@ -784,7 +784,7 @@ async function renderTutorials(){
   subtitle.textContent='Video hướng dẫn được lưu riêng và có thể cập nhật mà không cần build lại KIMEX';
   content.innerHTML=`<div class="tutorial-shell">
     ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="tutorialSearch" placeholder="Tìm PO, Kiosk, Session, phân quyền..."></label><label><span>Nhóm</span><select id="tutorialCategory"><option value="">Tất cả nhóm</option></select></label>'})}
-    <div id="tutorialEmpty" class="empty" hidden><b>Chưa có video hướng dẫn</b><span>Chạy script tạo video rồi publish vào runtime/tutorials.</span></div>
+    <div id="tutorialEmpty" class="empty" hidden><b>Video hướng dẫn chưa được publish.</b><span>Publish tutorial từ Deploy Agent để hiển thị thư viện.</span></div>
     <section id="tutorialGrid" class="tutorial-grid"></section>
     <div class="tutorial-player-backdrop" id="tutorialPlayer" hidden>
       <div class="tutorial-player-card">
@@ -795,8 +795,9 @@ async function renderTutorials(){
   </div>`;attachGuideTabs('mesflow');
   let items=[];
   try{
-    const d=await api('/api/tutorials');
-    items=d.manifest?.items||[];
+    const response=await fetch('/tutorials/manifest.json',{credentials:'same-origin',cache:'no-store'});
+    if(!response.ok)throw new Error('Video hướng dẫn chưa được publish.');
+    const manifest=await response.json();items=(manifest.videos||manifest.items||[]).sort((a,b)=>Number(a.order||0)-Number(b.order||0)).map(x=>({...x,url:'/tutorials/'+x.file}));
   }catch(e){
     document.getElementById('tutorialEmpty').hidden=false;
     document.getElementById('tutorialEmpty').querySelector('span').textContent=e.message||'Không đọc được thư viện hướng dẫn';
@@ -812,7 +813,7 @@ async function renderTutorials(){
     grid.innerHTML=rows.map((x,i)=>`<article class="tutorial-card" data-i="${items.indexOf(x)}">
       <div class="tutorial-thumb"><span>${esc(x.order||String(i+1).padStart(2,'0'))}</span><i>▶</i></div>
       <div class="tutorial-copy"><small>${esc(x.category||'Hướng dẫn')}</small><h3>${esc(x.title||x.file)}</h3><p>${esc(x.description||'')}</p>
-      <div class="tutorial-meta">${x.duration?`<span>${esc(x.duration)}</span>`:''}<span>${Math.max(1,Math.round(Number(x.size_bytes||0)/1024/1024))} MB</span></div></div>
+      <div class="tutorial-meta">${x.duration||x.duration_seconds?`<span>${esc(x.duration||Math.round(Number(x.duration_seconds)/60)+' phút')}</span>`:''}${x.size_bytes?`<span>${Math.max(1,Math.round(Number(x.size_bytes)/1024/1024))} MB</span>`:''}</div></div>
     </article>`).join('');
     grid.querySelectorAll('.tutorial-card').forEach(card=>card.onclick=()=>openTutorial(items[Number(card.dataset.i)]));
   };
@@ -820,7 +821,7 @@ async function renderTutorials(){
   const openTutorial=x=>{
     document.getElementById('tutorialPlayerTitle').textContent=x.title||x.file;
     document.getElementById('tutorialPlayerDesc').textContent=x.description||'';
-    video.src=x.url; player.hidden=false; video.play().catch(()=>{});
+    video.src=x.url;video.onerror=()=>{document.getElementById('tutorialPlayerDesc').textContent='Video này hiện không tải được. Các video khác vẫn có thể xem.'};player.hidden=false; video.play().catch(()=>{});
   };
   const close=()=>{video.pause();video.removeAttribute('src');video.load();player.hidden=true};
   document.getElementById('tutorialClose').onclick=close;

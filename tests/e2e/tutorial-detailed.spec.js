@@ -1,14 +1,50 @@
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
+
+const tutorialConfig=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../tutorial/tutorial.config.json'),'utf8'));
+const terminology=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../tutorial/terminology.json'),'utf8'));
+const SPEED=tutorialConfig.tutorial_speed;
 
 const WAIT = Number(process.env.MESFLOW_TUTORIAL_WAIT_MS || 6000);
 const LONG_WAIT = Number(process.env.MESFLOW_TUTORIAL_LONG_WAIT_MS || 10000);
 const STEP_WAIT = Number(process.env.MESFLOW_TUTORIAL_STEP_WAIT_MS || 7500);
 const MODULE = process.env.MESFLOW_TUTORIAL_MODULE || 'overview';
+let stepNumber=0;
+let recentSteps=[];
+let qaRuntime={consoleErrors:[],pageErrors:[],failedRequests:[],unexpectedResponses:[],bugs:[],steps:[],lastCursor:{console:0,page:0,request:0,response:0}};
 
 async function pause(page, ms=WAIT){ await page.waitForTimeout(ms); }
 
+async function clickStep(page,locator){
+  await locator.click();
+  await page.waitForTimeout(SPEED.pause_after_click_ms);
+}
+
+async function typeStep(page,locator,value){
+  await locator.fill('');
+  await locator.pressSequentially(String(value),{delay:SPEED.typing_delay_ms});
+  await page.waitForTimeout(SPEED.pause_after_click_ms);
+}
+
+function voiceText(text){
+  let value=String(text||'');
+  for(const [term,replacement] of Object.entries(terminology)){
+    value=value.replace(new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'gi'),replacement.voice_text);
+  }
+  return value;
+}
+
+function narrationDuration(text){
+  const words=voiceText(text).trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(2600,Math.ceil(words/Number(SPEED.voice_words_per_minute||122)*60000));
+}
+
 async function card(page,title,body='',ms=LONG_WAIT){
   await page.evaluate(({title,body})=>{
+    document.body.classList.remove('__tutorialGuided');
+    document.getElementById('__tutorialPanel')?.remove();
+    document.getElementById('__tutorialConnector')?.remove();
     document.getElementById('__tutorialOverlay')?.remove();
     const el=document.createElement('div');
     el.id='__tutorialOverlay';
@@ -24,57 +60,116 @@ async function card(page,title,body='',ms=LONG_WAIT){
   await pause(page,700);
 }
 
-async function note(page, selector, title, body){
+function cleanLogValue(value){ return String(value??'').replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim(); }
+
+async function note(page, selector, title, explanation, detail={}){
+  stepNumber+=1;
+  const stepId=`${MODULE}-${String(stepNumber).padStart(2,'0')}`;
+  const action=detail.action||`Quan sát vùng “${title}”`;
+  const expected=detail.expected||'Xác định được dữ liệu và cách dùng vùng này trong công việc.';
+  const telemetry={step_id:stepId,step_number:stepNumber,title,selector,action,expected};
+  recentSteps.push(telemetry);recentSteps=recentSteps.slice(-8);
+  console.log(`TUTORIAL_STEP step_id=${cleanLogValue(stepId)} number=${stepNumber} selector=${encodeURIComponent(selector)} action=${encodeURIComponent(action)} expected=${encodeURIComponent(expected)}`);
   // Tutorial selectors are explanatory, not assertions. Never let an optional,
   // hidden or virtualized element consume the whole Playwright test timeout.
   const prepared=await page.evaluate(({selector})=>{
     const candidates=[...document.querySelectorAll(selector)];
-    const target=candidates.find(el=>{
+    let target=candidates.find(el=>{
       const r=el.getBoundingClientRect();
       const cs=getComputedStyle(el);
       return r.width>0 && r.height>0 && cs.display!=='none' && cs.visibility!=='hidden';
     }) || candidates[0] || null;
     if(!target)return false;
+    const initial=target.getBoundingClientRect();
+    if(initial.width*initial.height>innerWidth*innerHeight*.55){
+      const child=[...target.querySelectorAll('.quantity-summary,h1,h2,.screen-copy,.status-card')].find(el=>{
+        const r=el.getBoundingClientRect(),cs=getComputedStyle(el);
+        return r.width>0&&r.height>0&&cs.display!=='none'&&cs.visibility!=='hidden';
+      });
+      if(child)target=child;
+    }
     target.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
     target.dataset.__tutorialTarget='1';
     return true;
   },{selector}).catch(()=>false);
 
   if(!prepared){
-    await card(page,title,body,STEP_WAIT);
-    return;
+    const bug={code:'TUTORIAL_SELECTOR_NOT_FOUND',step_id:stepId,selector,action,expected,actual:'Không có phần tử phù hợp trong DOM',url:page.url()};
+    qaRuntime.bugs.push(bug);qaRuntime.steps.push({...telemetry,status:'failed',ui_assertions:{exists:false},evidence:null});
+    console.log(`TUTORIAL_QA_BUG payload=${encodeURIComponent(JSON.stringify(bug))}`);
+    return false;
   }
 
-  await pause(page,350);
-  await page.evaluate(({title,body})=>{
-    document.getElementById('__tutorialNote')?.remove();
+  await pause(page,SPEED.pause_before_step_ms);
+  const spoken=detail.voice_text||voiceText(`${title}. ${explanation} ${action} ${expected}`);
+  await page.evaluate(({stepId,stepNumber,title,explanation,action,expected,selector})=>{
+    document.getElementById('__tutorialPanel')?.remove();
+    document.getElementById('__tutorialConnector')?.remove();
     document.querySelectorAll('.__tutorialFocus').forEach(x=>x.classList.remove('__tutorialFocus'));
     const target=document.querySelector('[data-__tutorial-target="1"]');
     if(!target)return;
     target.removeAttribute('data-__tutorial-target');
     target.classList.add('__tutorialFocus');
     const r=target.getBoundingClientRect();
-    const note=document.createElement('div');
-    note.id='__tutorialNote';
-    note.style.cssText='position:fixed;z-index:2147483647;width:520px;padding:22px 26px;border-radius:18px;background:#0d2035;color:#fff;font-family:Arial,sans-serif;box-shadow:0 18px 60px rgba(0,0,0,.4);pointer-events:none';
-    const left=Math.min(window.innerWidth-550,Math.max(20,r.right+24));
-    const top=Math.min(window.innerHeight-230,Math.max(20,r.top));
-    note.style.left=left+'px'; note.style.top=top+'px';
-    note.innerHTML=`<div style="font-size:26px;font-weight:800">${title}</div><div style="font-size:20px;line-height:1.5;margin-top:10px;color:#d9e6f2">${body}</div>`;
-    document.body.appendChild(note);
+    const panel=document.createElement('aside');
+    panel.id='__tutorialPanel';
+    panel.setAttribute('aria-label','Hướng dẫn bước hiện tại');
+    panel.innerHTML=`<div class="__tutorialHeading"><span>Bước ${stepNumber}</span><h2>${title}</h2></div><p class="__tutorialExplain">${explanation}</p><div class="__tutorialOutcome"><b>Áp dụng</b><span>${expected}</span></div>`;
+    document.body.appendChild(panel);
     if(!document.getElementById('__tutorialStyle')){
       const style=document.createElement('style'); style.id='__tutorialStyle';
-      style.textContent='.__tutorialFocus{position:relative!important;z-index:2147483646!important;outline:5px solid #ffbd2e!important;outline-offset:5px!important;box-shadow:0 0 0 9999px rgba(3,10,18,.48)!important}';
+      style.textContent=`#__tutorialPanel{position:fixed;z-index:2147483647;width:min(62vw,760px);padding:16px 20px;background:#102b3f;color:#fff;border:1px solid rgba(255,255,255,.24);border-radius:9px;font-family:Inter,Arial,sans-serif;box-shadow:0 14px 34px rgba(16,43,63,.22);pointer-events:none}#__tutorialPanel .__tutorialHeading{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}#__tutorialPanel .__tutorialHeading span{flex:none;font-size:12px;font-weight:700;color:#b9d1df}#__tutorialPanel h2{margin:0;font-size:20px;line-height:1.25}#__tutorialPanel p{margin:0;font-size:15px;line-height:1.45}#__tutorialPanel .__tutorialExplain{color:#edf4f8}#__tutorialPanel .__tutorialOutcome{display:flex;gap:10px;margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.18);font-size:13px;line-height:1.4}#__tutorialPanel .__tutorialOutcome b{flex:none;color:#b9d1df}.__tutorialFocus{position:relative!important;z-index:2147483645!important;outline:4px solid #e6a936!important;outline-offset:5px!important;box-shadow:0 0 0 9999px rgba(7,18,27,.32)!important;animation:__tutorialPulse .7s ease-out 1}@keyframes __tutorialPulse{0%{outline-offset:1px}100%{outline-offset:5px}}@media(max-width:900px){#__tutorialPanel{width:calc(100vw - 24px);padding:14px 16px}#__tutorialPanel h2{font-size:18px}#__tutorialPanel p{font-size:14px}}@media(prefers-reduced-motion:reduce){.__tutorialFocus{animation:none!important}*{scroll-behavior:auto!important}}`;
       document.head.appendChild(style);
     }
-  },{selector,title,body});
-  await pause(page,STEP_WAIT);
+    const gap=18,panelWidth=Math.min(innerWidth*.62,760),panelHeight=panel.offsetHeight;
+    const candidates=[
+      {name:'bottom',left:(innerWidth-panelWidth)/2,top:innerHeight-panelHeight-gap},
+      {name:'top',left:(innerWidth-panelWidth)/2,top:gap},
+      {name:'right',left:innerWidth-panelWidth-gap,top:gap},
+      {name:'left',left:gap,top:gap}
+    ];
+    const overlaps=c=>!(c.left+panelWidth<r.left-gap||c.left>r.right+gap||c.top+panelHeight<r.top-gap||c.top>r.bottom+gap);
+    const chosen=candidates.find(c=>!overlaps(c))||candidates[1];
+    panel.style.left=Math.max(12,chosen.left)+'px';panel.style.top=Math.max(12,chosen.top)+'px';
+    panel.dataset.position=chosen.name;
+    document.body.classList.add('__tutorialGuided');
+  },{stepId,stepNumber,title,explanation,action,expected,selector});
+  const screenshotDir=process.env.MESFLOW_TUTORIAL_SCREENSHOT_DIR;
+  if(screenshotDir){fs.mkdirSync(screenshotDir,{recursive:true});await page.screenshot({path:`${screenshotDir}/${stepId}.png`,fullPage:false})}
+  const ui=await page.evaluate(()=>{
+    const target=document.querySelector('.__tutorialFocus');if(!target)return {exists:false};
+    const r=target.getBoundingClientRect(),style=getComputedStyle(target),panel=document.getElementById('__tutorialPanel'),pr=panel?.getBoundingClientRect();
+    const x=Math.max(0,Math.min(innerWidth-1,r.left+r.width/2)),y=Math.max(0,Math.min(innerHeight-1,r.top+r.height/2)),center=document.elementFromPoint(x,y);
+    const clips=['hidden','clip'].includes(style.overflow)||['hidden','clip'].includes(style.overflowX)||['hidden','clip'].includes(style.overflowY);
+    return {exists:true,visible:r.width>0&&r.height>0&&style.display!=='none'&&style.visibility!=='hidden'&&style.opacity!=='0',outside_viewport:r.bottom<=0||r.right<=0||r.top>=innerHeight||r.left>=innerWidth,clipped:r.width<innerWidth&&r.height<innerHeight&&(r.left<0||r.top<0||r.right>innerWidth||r.bottom>innerHeight),covered:!!center&&!target.contains(center)&&center!==target&&!panel?.contains(center),text_overflow:clips&&(target.scrollWidth>target.clientWidth+2||target.scrollHeight>target.clientHeight+2),blocking_dialog:[...document.querySelectorAll('[role="dialog"],dialog,[aria-modal="true"]')].some(el=>el!==panel&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0),tutorial_overlay_covers_target:!!(pr&&!(pr.right<r.left||pr.left>r.right||pr.bottom<r.top||pr.top>r.bottom)),rect:{x:r.x,y:r.y,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}};
+  });
+  const c=qaRuntime.lastCursor,browser={console_errors:qaRuntime.consoleErrors.slice(c.console),page_errors:qaRuntime.pageErrors.slice(c.page),failed_requests:qaRuntime.failedRequests.slice(c.request),unexpected_responses:qaRuntime.unexpectedResponses.slice(c.response)};
+  qaRuntime.lastCursor={console:qaRuntime.consoleErrors.length,page:qaRuntime.pageErrors.length,request:qaRuntime.failedRequests.length,response:qaRuntime.unexpectedResponses.length};
+  const failures=[];if(!ui.visible)failures.push('TARGET_NOT_VISIBLE');if(ui.outside_viewport)failures.push('TARGET_OUTSIDE_VIEWPORT');if(ui.clipped)failures.push('TARGET_CLIPPED');if(ui.covered)failures.push('TARGET_COVERED');if(ui.text_overflow)failures.push('TEXT_OVERFLOW');if(ui.blocking_dialog)failures.push('BLOCKING_DIALOG');if(ui.tutorial_overlay_covers_target)failures.push('TUTORIAL_OVERLAY_COVERS_TARGET');if(browser.console_errors.length)failures.push('CONSOLE_ERROR');if(browser.page_errors.length)failures.push('PAGE_ERROR');if(browser.failed_requests.length)failures.push('FAILED_REQUEST');if(browser.unexpected_responses.length)failures.push('UNEXPECTED_HTTP_STATUS');
+  const evidence=screenshotDir?`${screenshotDir}/${stepId}.png`:null,stepResult={...telemetry,status:failures.length?'failed':'passed',url:page.url(),ui_assertions:ui,browser_assertions:browser,evidence};qaRuntime.steps.push(stepResult);
+  console.log(`TUTORIAL_QA_STEP payload=${encodeURIComponent(JSON.stringify(stepResult))}`);
+  if(failures.length){const bug={code:failures.join(','),step_id:stepId,selector,action,url:page.url(),expected,actual:{ui,browser},evidence};qaRuntime.bugs.push(bug);console.log(`TUTORIAL_QA_BUG payload=${encodeURIComponent(JSON.stringify(bug))}`)}
+  await pause(page,narrationDuration(spoken));
+  await pause(page,SPEED.pause_after_step_ms);
   await page.evaluate(()=>{
-    document.getElementById('__tutorialNote')?.remove();
+    document.getElementById('__tutorialPanel')?.remove();
+    document.getElementById('__tutorialConnector')?.remove();
     document.querySelectorAll('.__tutorialFocus').forEach(x=>x.classList.remove('__tutorialFocus'));
     document.querySelectorAll('[data-__tutorial-target]').forEach(x=>x.removeAttribute('data-__tutorial-target'));
+    document.body.classList.remove('__tutorialGuided');
   });
-  await pause(page,700);
+  return failures.length===0;
+}
+
+async function writeBugReport(page,testInfo,error){
+  const step=recentSteps.at(-1)||{};
+  const screenshotPath=testInfo.outputPath(`tutorial-bug-${step.step_id||MODULE}.png`);
+  await page.screenshot({path:screenshotPath,fullPage:true}).catch(()=>{});
+  const report={module:MODULE,step_id:step.step_id||null,action:step.action||null,selector:step.selector||null,screenshot_path:screenshotPath,exception:String(error?.stack||error),recent_log:recentSteps};
+  const reportPath=testInfo.outputPath(`tutorial-bug-${step.step_id||MODULE}.json`);
+  fs.writeFileSync(reportPath,JSON.stringify(report,null,2));
+  console.log(`TUTORIAL_BUG_REPORT path=${reportPath} step_id=${cleanLogValue(step.step_id||MODULE)} selector=${encodeURIComponent(step.selector||'')} action=${encodeURIComponent(step.action||'')}`);
+  return reportPath;
 }
 
 async function openKioskDemo(page){
@@ -100,6 +195,7 @@ async function openKioskDemo(page){
     page.locator('#demo-content'),
     'Mô phỏng QR phải tải được dữ liệu thật hoặc dữ liệu hướng dẫn dự phòng'
   ).toBeVisible({timeout:15000});
+  await expect(page.locator('#demo-loading'),'Dữ liệu mô phỏng phải tải xong trước khi chọn mã').toBeHidden({timeout:15000});
 }
 
 async function closeKioskDemo(page){
@@ -114,7 +210,30 @@ async function closeKioskDemo(page){
   await expect(page.locator('#demo-panel')).not.toHaveClass(/open/);
 }
 
+async function selectTutorialDemoData(page){
+  await page.evaluate(()=>{
+    const emp=[...document.querySelectorAll('#demo-employee option')].find(x=>x.textContent.includes('TUT-E06'));
+    const op=[...document.querySelectorAll('#demo-operation option')].find(x=>x.textContent.includes('TUT39-CUT'));
+    if(!emp||!op)throw new Error('TUTORIAL_KIOSK_FIXTURE_MISSING');
+    const employee=document.querySelector('#demo-employee'),operation=document.querySelector('#demo-operation');
+    employee.value=emp.value;operation.value=op.value;
+    employee.dispatchEvent(new Event('change',{bubbles:true}));
+    operation.dispatchEvent(new Event('change',{bubbles:true}));
+  });
+}
+
 async function login(page){
+  const localCookie=process.env.MESFLOW_TUTORIAL_LOCAL_SESSION_COOKIE||'';
+  if(localCookie){
+    const target=new URL(process.env.MESFLOW_BASE_URL||'http://127.0.0.1:8080');
+    if(!['127.0.0.1','localhost'].includes(target.hostname))throw new Error('LOCAL_TUTORIAL_COOKIE_REJECTED_FOR_REMOTE_HOST');
+    await page.context().addCookies([{name:'session',value:localCookie,domain:target.hostname,path:'/',httpOnly:true,sameSite:'Lax'}]);
+  }
+  const authState=process.env.MESFLOW_TUTORIAL_AUTH_STATE||'';
+  if(!localCookie&&authState&&fs.existsSync(authState)){
+    const target=new URL(process.env.MESFLOW_BASE_URL||'http://127.0.0.1:8080');
+    if(['127.0.0.1','localhost'].includes(target.hostname)){const auth=JSON.parse(fs.readFileSync(authState,'utf8')),cookie=(auth.cookies||[]).find(x=>x.name==='session');if(cookie)await page.context().addCookies([{...cookie,domain:target.hostname}])}
+  }
   // The batch runner authenticates once and shares storageState across all modules.
   // This avoids repeatedly hitting the production login rate limiter.
   const me=await page.request.get('/api/auth/me');
@@ -137,7 +256,7 @@ async function open(page,id){
     return window.openPage(id,btn);
   },id);
   await expect(page.locator('#content')).toBeVisible();
-  await pause(page,1600);
+  await pause(page,SPEED.pause_after_navigation_ms);
 }
 
 const tours = {
@@ -153,22 +272,24 @@ const tours = {
     await card(page,'Tổng quan sản xuất theo ngày','Màn hình điều hành trong ca. Hãy bắt đầu từ ngày/ca, sau đó đọc KPI, tiến độ và danh sách session.');
     await note(page,'#dailyDate','Chọn ngày','Đổi ngày để xem đúng dữ liệu lịch sử. Khi theo dõi realtime nên để ngày hiện tại.');
     await note(page,'#dailyShift','Chọn ca','MESFlow dùng lịch làm việc và khoảng nghỉ để tính thời gian sản xuất thực tế.');
-    await note(page,'.daily-kpis, #dailyKpis','Chỉ số trong ca','Đọc tổng số phiên làm việc, số người đang làm, sản lượng và tình trạng theo ca.');
-    await note(page,'.op-dual-progress, .op-progress-line','Hai loại tiến độ','Thanh mảnh thể hiện tiến độ thời gian; thanh đặc thể hiện tiến độ sản phẩm. So sánh hai thanh để nhận ra công đoạn đang chậm hay thiếu sản lượng.');
+    await note(page,'#dailyKpis .daily-kpi:nth-child(1)','Nhân viên có hoạt động','Số người đã có ít nhất một phiên làm việc trong ngày và ca đang chọn. Hệ thống đếm mỗi mã nhân viên một lần; dùng để biết ca này đã huy động bao nhiêu người.',{action:'Đọc số nhân viên và số phiên làm việc bên dưới chỉ số.',expected:'Phân biệt được người đã có hoạt động với người hiện đang làm.'});
+    await note(page,'#dailyKpis .daily-kpi:nth-child(2)','Đang làm việc','Số nhân viên có phiên làm việc chưa kết thúc tại thời điểm tải bảng tổng quan. Dữ liệu này cho biết lực lượng đang hoạt động ngay lúc này.',{action:'Đối chiếu số người với số phiên đang mở.',expected:'Nhận ra nhanh ca đang có bao nhiêu người thực sự làm việc và phiên nào có thể bị quên kết thúc.'});
+    await note(page,'#dailyKpis .daily-kpi:nth-child(3)','Sản lượng đạt','Tổng số sản phẩm đạt của mọi phiên làm việc trong ngày và ca được chọn. Đây là kết quả thực tế do người vận hành ghi nhận, không phải số kế hoạch.',{action:'Đọc tổng sản phẩm đạt và phạm vi dữ liệu của chỉ số.',expected:'Biết dùng số thực tế này để so với kế hoạch ca và phát hiện thiếu sản lượng.'});
+    await note(page,'#opTimeProgress .op-time-row:not(.head) .op-dual-progress','Tiến độ theo công đoạn','Mỗi công đoạn có hai thước đo: thời gian thực tế so với định mức và sản phẩm đạt so với số lượng kế hoạch. So sánh hai thanh để phát hiện nơi dùng nhiều thời gian nhưng đầu ra thấp.',{action:'So sánh phần trăm thời gian với phần trăm sản phẩm của một công đoạn.',expected:'Xác định được công đoạn đúng tiến độ hoặc có nguy cơ chậm và cần quản lý kiểm tra.'});
     await note(page,'#sessionTimeline, .session-timeline','Phiên làm việc theo nhân viên','Xem ai đang làm gì, thời điểm bắt đầu và phiên nào chưa kết thúc.');
   },
   po: async page=>{
     await open(page,'production-orders');
     await card(page,'Lệnh sản xuất','Video này giải thích trạng thái, cách lọc, tạo lệnh từ mẫu quy trình, bắt đầu lệnh và cách xem từng chi tiết, công đoạn.');
-    await note(page,'.toolbar','Lọc và tìm PO','Dùng bộ lọc trạng thái và tìm kiếm thay vì cuộn toàn bộ danh sách.');
-    await note(page,'.po-card, .panel','Thẻ PO','Đọc mã PO, kế hoạch, trạng thái và tiến độ tổng trước khi mở chi tiết.');
-    await note(page,'button','Các thao tác','Tùy trạng thái và quyền, các nút cho phép tạo, sửa, Start, đóng hoặc thao tác quản trị. Production không nên dùng Force Delete.');
+    await note(page,'.filter-bar, #poSearch','Lọc và tìm lệnh sản xuất','Dùng bộ lọc trạng thái và tìm kiếm theo mã để thu hẹp danh sách. Khi có nhiều đơn hàng, bước này giúp tránh mở hoặc thao tác nhầm lệnh.');
+    await note(page,'#poList table, #poList','Thông tin lệnh sản xuất','Đọc mã lệnh, số lượng kế hoạch, trạng thái và tiến độ tổng. Các số này cho biết mục tiêu phải làm, lệnh đang ở giai đoạn nào và lệnh nào cần theo dõi trước.');
+    await note(page,'#poList .po-actions, #addPO','Các thao tác','Tùy trạng thái và quyền, người dùng có thể tạo, sửa, bắt đầu hoặc đóng lệnh. Chỉ bắt đầu sau khi đã kiểm tra mã chi tiết và công đoạn; không xóa cưỡng bức lệnh đang chạy.');
     await card(page,'Quy trình lệnh sản xuất chuẩn','Tạo lệnh từ mẫu quy trình → kiểm tra số lượng và kế hoạch → bắt đầu lệnh → cho phép trạm bắt đầu công đoạn → theo dõi đến hoàn tất.',LONG_WAIT);
   },
   templates: async page=>{
     await open(page,'templates');
     await card(page,'Mẫu quy trình sản xuất','Mẫu quy trình là cấu trúc chuẩn để tái sử dụng: mỗi chi tiết chứa các công đoạn; mỗi công đoạn có định mức thời gian và có thể có ràng buộc.');
-    await note(page,'.toolbar','Chọn Template','Chọn đúng template trước khi chỉnh. Tránh sửa template đang được dùng làm chuẩn nếu chưa hiểu ảnh hưởng.');
+    await note(page,'#tplSearch','Chọn mẫu quy trình','Tìm theo mã, tên hoặc sản phẩm rồi chọn đúng mẫu trước khi chỉnh. Tránh sửa mẫu đang được dùng làm chuẩn nếu chưa hiểu ảnh hưởng.');
     await note(page,'.panel, .template-tree','Cây chi tiết / công đoạn','Chi tiết đại diện cho một chi tiết hoặc cụm; công đoạn là các bước như cắt, chấn, hàn, làm nguội, đóng gói...');
     await note(page,'input, select','Định mức','Cycle time/giây trên sản phẩm là cơ sở tính tiến độ thời gian và cảnh báo chậm.');
     await card(page,'Nguyên tắc','Template chuẩn giúp PO mới đồng nhất. Thay đổi Template không nên âm thầm làm sai PO đang chạy; luôn kiểm tra PO được sinh ra sau khi sửa.',LONG_WAIT);
@@ -254,30 +375,22 @@ const tours = {
     await note(page,'#demo-toggle','2. Mở mô phỏng quét QR','Khi đào tạo, bấm nút này để chọn mã nhân viên và công đoạn mà không cần máy quét thật.');
 
     await openKioskDemo(page);
-    await page.evaluate(()=>{
-      const emp=[...document.querySelectorAll('#demo-employee option')].find(x=>x.textContent.includes('TUT-E06'));
-      const op=[...document.querySelectorAll('#demo-operation option')].find(x=>x.textContent.includes('TUT39-CUT'));
-      if(!emp) throw new Error('Không tìm thấy TUT-E06. Hãy tạo dữ liệu hướng dẫn trước.');
-      if(!op) throw new Error('Không tìm thấy TUT39-CUT. Hãy tạo dữ liệu hướng dẫn trước.');
-      const e=document.querySelector('#demo-employee'),o=document.querySelector('#demo-operation');
-      e.value=emp.value;o.value=op.value;
-      e.dispatchEvent(new Event('change',{bubbles:true}));
-      o.dispatchEvent(new Event('change',{bubbles:true}));
-    });
+    await selectTutorialDemoData(page);
     await note(page,'#demo-content','3. Chọn dữ liệu mô phỏng','Video chọn nhân viên đào tạo và một công đoạn thuộc lệnh đang chạy. Mã QR hiển thị bên dưới tương đương dữ liệu từ máy quét thật.');
 
     // Quét sai thứ tự để cho thấy màn hình lỗi.
-    await page.locator('#demo-scan-operation').click();
+    await clickStep(page,page.locator('#demo-scan-operation'));
     await pause(page,700);
     await closeKioskDemo(page);
     await expect(page.locator('#screen-error')).toHaveClass(/active/);
     await note(page,'#screen-error','4. Quét sai thứ tự','Nếu quét công đoạn trước thẻ nhân viên, trạm báo rõ lỗi và hướng dẫn quét lại đúng thứ tự.');
-    await page.locator('#screen-error [data-action="reset"]').click();
+    await clickStep(page,page.locator('#screen-error [data-action="reset"]'));
     await expect(page.locator('#screen-ready')).toHaveClass(/active/);
 
     // Quét nhân viên.
     await openKioskDemo(page);
-    await page.locator('#demo-scan-employee').click();
+    await selectTutorialDemoData(page);
+    await clickStep(page,page.locator('#demo-scan-employee'));
     await pause(page,700);
     await closeKioskDemo(page);
     await expect(page.locator('#screen-operation')).toHaveClass(/active/);
@@ -285,44 +398,46 @@ const tours = {
 
     // Quét công đoạn, giữ màn hình "đang bắt đầu" lâu hơn chỉ trong tutorial=1.
     await openKioskDemo(page);
-    await page.locator('#demo-scan-operation').click();
+    await selectTutorialDemoData(page);
+    await clickStep(page,page.locator('#demo-scan-operation'));
     await pause(page,600);
     await closeKioskDemo(page);
     await expect(page.locator('#screen-starting')).toHaveClass(/active/);
-    await note(page,'#screen-starting','6. Đang bắt đầu công việc','Trạm đang gửi yêu cầu mở phiên làm việc lên MESFlow.');
+    await note(page,'#screen-starting','6. Đang bắt đầu công việc','Trạm đang gửi yêu cầu mở phiên làm việc lên MESFlow.',{voice_text:'MESFlow đang mở phiên làm việc cho nhân viên tại công đoạn đã chọn.'});
     await expect(page.locator('#screen-started')).toHaveClass(/active/);
-    await note(page,'#screen-started','7. Bắt đầu thành công','Dấu xác nhận màu xanh cho biết phiên làm việc đã được mở. Khi làm xong, quét lại thẻ nhân viên.');
+    await note(page,'#screen-started','7. Bắt đầu thành công','Dấu xác nhận màu xanh cho biết phiên làm việc đã được mở. Khi làm xong, quét lại thẻ nhân viên.',{voice_text:'Phiên làm việc đã mở. Khi làm xong, hãy quét lại thẻ nhân viên.'});
 
     // Quét lại nhân viên để kết thúc.
     await openKioskDemo(page);
-    await page.locator('#demo-scan-employee').click();
+    await selectTutorialDemoData(page);
+    await clickStep(page,page.locator('#demo-scan-employee'));
     await pause(page,900);
     await closeKioskDemo(page);
     await expect(page.locator('#screen-quantity-good')).toHaveClass(/active/);
 
-    await page.locator('#good-qty').fill('12');
+    await typeStep(page,page.locator('#good-qty'),'12');
     await note(page,'#screen-quantity-good','8. Nhập sản phẩm đạt','Ví dụ nhập 12 sản phẩm đạt trong phiên làm việc này.');
-    await page.locator('#good-next').click();
+    await clickStep(page,page.locator('#good-next'));
     await expect(page.locator('#screen-quantity-defect')).toHaveClass(/active/);
 
-    await page.locator('#defect-qty').fill('3');
+    await typeStep(page,page.locator('#defect-qty'),'3');
     await note(page,'#screen-quantity-defect','9. Nhập sản phẩm lỗi','Nhập tổng số lỗi phát sinh. Ví dụ này nhập 3 sản phẩm lỗi.');
-    await page.locator('#defect-next').click();
+    await clickStep(page,page.locator('#defect-next'));
     await expect(page.locator('#screen-ask-rework')).toHaveClass(/active/);
 
     await note(page,'#screen-ask-rework','10. Có lỗi sửa được không?','Nếu không có lỗi sửa được thì chọn “Không, xong”. Video chọn “Có lỗi sửa được” để đi tiếp qua đầy đủ màn hình.');
-    await page.locator('#rework-yes').click();
+    await clickStep(page,page.locator('#rework-yes'));
     await expect(page.locator('#screen-quantity-rework')).toHaveClass(/active/);
 
-    await page.locator('#rework-qty').fill('2');
+    await typeStep(page,page.locator('#rework-qty'),'2');
     await note(page,'#screen-quantity-rework','11. Nhập số lỗi sửa được','Ví dụ có 3 sản phẩm lỗi, 2 sản phẩm sửa được, nên phần còn lại là 1 sản phẩm phế.');
-    await page.locator('#rework-next').click();
+    await clickStep(page,page.locator('#rework-next'));
     await expect(page.locator('#screen-finish-confirm')).toHaveClass(/active/);
 
     await note(page,'#screen-finish-confirm','12. Kiểm tra trước khi xác nhận','Đọc lại: đạt 12, lỗi 3, sửa được 2, phế 1. Nếu sai thì quay lại; nếu đúng mới xác nhận.');
-    await page.locator('#finish-confirm-ok').click();
+    await clickStep(page,page.locator('#finish-confirm-ok'));
     await expect(page.locator('#screen-finished')).toHaveClass(/active/);
-    await note(page,'#screen-finished','13. Hoàn tất','Khi thấy “Đã ghi nhận”, MESFlow đã kết thúc phiên làm việc và lưu sản lượng.');
+    await note(page,'#screen-finished','13. Hoàn tất','Khi thấy “Đã ghi nhận”, MESFlow đã kết thúc phiên làm việc và lưu sản lượng.',{voice_text:'Đã ghi nhận. Phiên làm việc kết thúc và sản lượng đã được lưu.'});
 
     await card(page,'Khi mất mạng','Trạm có thể lưu tạm thao tác và đồng bộ lại khi kết nối trở lại. Nếu có xung đột, quản lý kiểm tra tại màn hình Quản lý trạm thao tác trước khi yêu cầu nhập lại.',LONG_WAIT);
   },
@@ -363,13 +478,19 @@ const tours = {
   }
 };
 
-test(`MESFlow tutorial chi tiết — ${MODULE}`, async ({page})=>{
-  const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+test(`MESFlow tutorial chi tiết — ${MODULE}`, async ({page},testInfo)=>{
+  stepNumber=0;recentSteps=[];qaRuntime={consoleErrors:[],pageErrors:[],failedRequests:[],unexpectedResponses:[],bugs:[],steps:[],lastCursor:{console:0,page:0,request:0,response:0}};
+  page.on('console',m=>{if(m.type()==='error')qaRuntime.consoleErrors.push({text:m.text(),url:m.location().url||page.url()})});
+  page.on('pageerror',e=>qaRuntime.pageErrors.push({error:String(e),url:page.url()}));
+  page.on('requestfailed',r=>qaRuntime.failedRequests.push({url:r.url(),method:r.method(),error:r.failure()?.errorText||'request failed'}));
+  page.on('response',r=>{if(r.status()>=400)qaRuntime.unexpectedResponses.push({url:r.url(),status:r.status(),method:r.request().method()})});
   await login(page);
   await card(page,`MESFlow — ${MODULE}`,'Hướng dẫn chi tiết, chạy chậm, tập trung vào cách sử dụng thực tế.',STEP_WAIT);
   const fn=tours[MODULE];
   expect(fn,`Module tutorial không tồn tại: ${MODULE}`).toBeTruthy();
-  await fn(page);
+  try{await fn(page)}catch(error){await writeBugReport(page,testInfo,error);qaRuntime.bugs.push({code:'FUNCTIONAL_EXCEPTION',module:MODULE,url:page.url(),exception:String(error?.stack||error)})}
   await card(page,'Hoàn tất video','Chuyển sang video tiếp theo để học từng nhóm chức năng theo trình tự.',STEP_WAIT);
-  expect(errors,`Page errors: ${errors.join(' | ')}`).toEqual([]);
+  const report={schema_version:1,module:MODULE,generated_at:new Date().toISOString(),status:qaRuntime.bugs.length?'failed':'passed',steps:qaRuntime.steps,bugs:qaRuntime.bugs,summary:{steps:qaRuntime.steps.length,passed:qaRuntime.steps.filter(x=>x.status==='passed').length,failed:qaRuntime.steps.filter(x=>x.status==='failed').length,bugs:qaRuntime.bugs.length}};
+  const reportPath=testInfo.outputPath(`tutorial-qa-${MODULE}.json`);fs.writeFileSync(reportPath,JSON.stringify(report,null,2));console.log(`TUTORIAL_QA_REPORT path=${reportPath} status=${report.status} steps=${report.summary.steps} bugs=${report.summary.bugs}`);
+  expect.soft(qaRuntime.bugs,`Tutorial QA phát hiện ${qaRuntime.bugs.length} lỗi; xem ${reportPath}`).toHaveLength(0);
 });

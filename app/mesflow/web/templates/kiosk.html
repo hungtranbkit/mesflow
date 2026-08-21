@@ -11,7 +11,7 @@
   <main class="kiosk-shell">
     <header class="kiosk-header">
       <div><strong>KIMEX · Trạm thao tác</strong><small id="version">v{{ version }}</small></div>
-      <div class="header-actions"><button id="demo-toggle" class="demo-toggle" type="button">Mô phỏng quét QR</button><div id="clock"></div></div>
+      <div class="header-actions"><button id="demo-toggle" data-testid="kiosk-demo-toggle" class="demo-toggle" type="button" aria-controls="demo-panel" aria-expanded="false">Mô phỏng quét QR</button><div id="clock"></div></div>
     </header>
 
     <section id="screen-ready" class="screen active">
@@ -115,13 +115,13 @@
 
 
 
-    <aside id="demo-panel" class="demo-panel" aria-hidden="true">
+    <aside id="demo-panel" data-testid="kiosk-demo-panel" class="demo-panel" aria-hidden="true">
       <div class="demo-panel-head">
         <div><strong>Mô phỏng quét QR</strong><small>Chọn nhân viên và công đoạn của lệnh đang chạy</small></div>
         <button id="demo-close" class="demo-close" type="button" aria-label="Đóng"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </div>
       <div id="demo-loading" class="demo-loading">Đang tải dữ liệu...</div>
-      <div id="demo-content" hidden>
+      <div id="demo-content" data-testid="kiosk-demo-content" hidden>
         <label>Nhân viên
           <select id="demo-employee"></select>
         </label>

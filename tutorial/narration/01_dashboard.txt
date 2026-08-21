@@ -1,1 +1,13 @@
-Tổng quan sản xuất là màn hình điều hành sản xuất trong ngày. Trước tiên chọn ngày và ca làm việc. Các chỉ số giúp quản lý nhìn nhanh số phiên đang chạy, sản lượng và tình trạng xưởng. MESFlow tách tiến độ thời gian và tiến độ sản phẩm để dễ nhận ra công đoạn đang chậm so với kế hoạch.
+Bảng tổng quan sản xuất giúp quản lý nhìn tình hình của một ngày và một ca làm việc trước khi đi vào từng lệnh sản xuất.
+
+Trước tiên, chọn đúng ngày và ca. Mọi con số phía dưới chỉ được tính trong phạm vi này. Khi theo dõi xưởng đang hoạt động, hãy chọn ngày hiện tại và ca hiện tại.
+
+Nhân viên có hoạt động là số người đã có ít nhất một phiên làm việc trong ca. Hệ thống lấy mã nhân viên từ các phiên làm việc và chỉ đếm mỗi người một lần. Con số này giúp quản lý biết ca đã huy động bao nhiêu người, kể cả người đã hoàn thành công việc và kết thúc phiên.
+
+Đang làm việc là số người còn ít nhất một phiên chưa kết thúc tại thời điểm mở bảng tổng quan. Nếu số này thấp hơn dự kiến, hãy kiểm tra người nào chưa bắt đầu công đoạn. Nếu số này cao bất thường vào cuối ca, có thể có phiên bị quên kết thúc.
+
+Sản lượng đạt là tổng số sản phẩm đạt do người vận hành nhập khi hoàn tất các phiên làm việc. Đây là kết quả thực tế, không phải số kế hoạch. Hãy so con số này với kế hoạch của ca để nhận ra sớm nguy cơ thiếu sản lượng.
+
+Khu vực tiến độ công đoạn đặt hai thước đo cạnh nhau. Tiến độ thời gian cho biết đã dùng bao nhiêu thời gian so với định mức. Tiến độ sản phẩm cho biết đã hoàn thành bao nhiêu sản phẩm đạt so với kế hoạch. Nếu thời gian đã dùng nhiều nhưng sản phẩm đạt còn thấp, công đoạn đó có thể đang chậm hoặc gặp nút thắt và cần được kiểm tra.
+
+Cuối cùng, danh sách phiên làm việc cho biết ai đang thực hiện công đoạn nào và bắt đầu từ lúc nào. Dùng danh sách này để tìm đúng người và đúng công đoạn trước khi liên hệ hoặc điều chỉnh kế hoạch.

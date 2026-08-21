@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "thresholds": {"happy_path_percent": 100, "critical_exception_percent": 100, "overall_percent": 90},
+  "dimensions": ["happy_path", "validation", "permission", "empty_state", "exception", "recovery", "tutorial_video", "automated_assertion"],
+  "features": [
+    {"id":"dashboard","title":"Bảng tổng quan","page":"dashboard","module":"dashboard","selector":"#dailyKpis","critical":true,"coverage":["happy_path","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"production_order","title":"Lệnh sản xuất","page":"production-orders","module":"po","selector":"#poList","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"templates","title":"Mẫu quy trình","page":"templates","module":"templates","selector":"#tplSearch","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"sessions","title":"Phiên làm việc","page":"session-management","module":"sessions","selector":"#content","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"exceptions","title":"Trung tâm ngoại lệ","page":"session-exceptions","module":"exceptions","selector":"#content","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"material_flow","title":"Dòng vật tư","page":"production-schedule","module":"material","selector":"#content","critical":false,"coverage":["happy_path","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"employees","title":"Nhân viên và QR","page":"employees","module":"employees","selector":"#content","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"kiosk_admin","title":"Quản lý trạm thao tác","page":"kiosk-management","module":"kioskAdmin","selector":"#content","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"kiosk_operator","title":"Trạm thao tác","path":"/kiosk","module":"kioskUser","selector":"#demo-toggle","critical":true,"coverage":["happy_path","validation","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"permissions","title":"Người dùng và quyền","page":"users","module":"users","selector":"#content","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"working_calendar","title":"Ca và lịch làm việc","page":"working-calendar","module":"calendar","selector":"#content","critical":false,"coverage":["happy_path","validation","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"system_logs","title":"Nhật ký hệ thống","page":"system-logs","module":"logs","selector":"#content","critical":true,"coverage":["happy_path","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"import_export","title":"Nhập và xuất dữ liệu","page":"qr-print","module":"commonCases","selector":"#content","critical":true,"coverage":["happy_path","validation","permission","empty_state","exception","recovery","tutorial_video","automated_assertion"]},
+    {"id":"equipment","title":"Thiết bị","page":"equipment","module":"commonCases","selector":"#content","critical":false,"coverage":["happy_path","validation","permission","empty_state","tutorial_video","automated_assertion"]}
+  ]
+}

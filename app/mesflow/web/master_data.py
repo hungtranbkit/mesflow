@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request, Response, session, g
 import os
+import re
 from mesflow.web.auth import login_required,roles_required
 from pathlib import Path
 from uuid import uuid4
@@ -463,12 +464,20 @@ def force_delete_production_order(po_id):
     payload=request.get_json(silent=True) or {}
     try:
         with transaction() as conn:
-            po=conn.execute('SELECT id,code,status FROM production_orders WHERE id=%s FOR UPDATE',(po_id,)).fetchone()
+            po=conn.execute('SELECT id,code,status,notes FROM production_orders WHERE id=%s FOR UPDATE',(po_id,)).fetchone()
             if not po:
                 raise NotFoundError('production order not found')
             confirm_code=str(payload.get('confirm_code') or '').strip().upper()
             if confirm_code != str(po['code']).strip().upper():
                 raise ValueError('Mã xác nhận không khớp. Hãy nhập đúng mã PO để Force Delete.')
+
+            qa_run_id=str(payload.get('qa_run_id') or '').strip()
+            qa_cleanup=bool(qa_run_id)
+            if qa_cleanup:
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{5,79}',qa_run_id):
+                    raise ValueError('qa_run_id không hợp lệ')
+                if str(po.get('notes') or '').strip() != f'QA_RUN_ID={qa_run_id}':
+                    raise ConflictError('PO không thuộc QA run đã xác nhận; cleanup bị từ chối')
 
             history=conn.execute('''SELECT
                 EXISTS(SELECT 1 FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id WHERE o.production_order_id=%s) has_sessions,
@@ -484,11 +493,13 @@ def force_delete_production_order(po_id):
             labels={'has_sessions':'Session','has_output':'sản lượng','has_ledger':'ledger dòng vật tư',
                     'has_events':'event thực thi','has_adjustments':'lịch sử điều chỉnh','has_qc':'QC','has_audit':'audit'}
             found=[label for key,label in labels.items() if history.get(key)]
-            if found:
+            if found and not qa_cleanup:
                 raise ConflictError('Không thể Force Delete PO vì đã có production history: '+', '.join(found)+'. Dữ liệu thực thi phải được giữ để audit.')
 
             op_rows=conn.execute('SELECT id FROM operations WHERE production_order_id=%s',(po_id,)).fetchall()
             op_ids=[int(r['id']) for r in op_rows]
+            part_rows=conn.execute('SELECT id FROM parts WHERE production_order_id=%s',(po_id,)).fetchall()
+            part_ids=[int(r['id']) for r in part_rows]
             session_rows=[]
             if op_ids:
                 session_rows=conn.execute('''SELECT id,start_request_id,finish_request_id
@@ -500,6 +511,13 @@ def force_delete_production_order(po_id):
                 if row.get('finish_request_id'): request_ids.append(row['finish_request_id'])
 
             counts={'operations':len(op_ids),'sessions':len(session_ids)}
+            if qa_cleanup:
+                counts['trace_events']=conn.execute('DELETE FROM production_trace_events WHERE production_order_id=%s OR operation_id = ANY(%s) OR session_id = ANY(%s)',(po_id,op_ids,session_ids)).rowcount
+                counts['quantity_movements']=conn.execute('DELETE FROM quantity_movements WHERE production_order_id=%s OR operation_id = ANY(%s) OR session_id = ANY(%s)',(po_id,op_ids,session_ids)).rowcount
+                counts['exceptions']=conn.execute('DELETE FROM exception_records WHERE production_order_id=%s OR operation_id = ANY(%s) OR session_id = ANY(%s)',(po_id,op_ids,session_ids)).rowcount
+                counts['client_events']=conn.execute('DELETE FROM kiosk_client_events WHERE server_session_id = ANY(%s)',(session_ids,)).rowcount
+                entity_ids=[str(po_id),*[str(x) for x in op_ids],*[str(x) for x in session_ids],*[str(x) for x in part_ids]]
+                counts['audit_logs']=conn.execute("DELETE FROM audit_logs WHERE entity_id = ANY(%s) AND entity_type = ANY(%s)",(entity_ids,['production_order','production_orders','operation','operations','work_session','session','sessions','part','parts'])).rowcount
             if request_ids:
                 result=conn.execute('DELETE FROM kiosk_idempotency WHERE request_id = ANY(%s)',(request_ids,))
                 counts['idempotency']=result.rowcount
@@ -525,7 +543,7 @@ def force_delete_production_order(po_id):
             else: counts['deleted_sessions']=0
             counts['parts']=conn.execute('SELECT COUNT(*) AS n FROM parts WHERE production_order_id=%s',(po_id,)).fetchone()['n']
             conn.execute('DELETE FROM production_orders WHERE id=%s',(po_id,))
-        return jsonify(ok=True,deleted_po={'id':po_id,'code':po['code'],'status':po['status']},counts=counts)
+        return jsonify(ok=True,qa_run_id=qa_run_id or None,deleted_po={'id':po_id,'code':po['code'],'status':po['status']},counts=counts)
     except Exception as exc:
         return response_error(exc)
 

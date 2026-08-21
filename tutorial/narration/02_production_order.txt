@@ -1,1 +1,11 @@
-Lệnh sản xuất, gọi tắt là lệnh sản xuất, đại diện cho một lệnh sản xuất. Người quản lý có thể lọc lệnh sản xuất, kiểm tra số lượng kế hoạch, thời gian dự kiến và trạng thái. Trước khi Start lệnh sản xuất, cần kiểm tra cấu trúc Part và công đoạn. Khi lệnh sản xuất được Start, các công đoạn phù hợp mới đi vào luồng vận hành.
+Lệnh sản xuất là yêu cầu thực hiện một số lượng sản phẩm cụ thể theo một mẫu quy trình đã chọn.
+
+Trước tiên, dùng ô tìm kiếm và bộ lọc trạng thái để thu hẹp danh sách. Cách này giúp tránh mở nhầm lệnh khi xưởng đang chạy nhiều đơn hàng cùng lúc.
+
+Trên mỗi thẻ lệnh sản xuất, hãy đọc mã lệnh, số lượng kế hoạch, thời gian dự kiến, trạng thái và tiến độ tổng. Số lượng kế hoạch là mục tiêu cần hoàn thành. Trạng thái cho biết lệnh còn ở bước chuẩn bị, đang chạy hay đã kết thúc. Tiến độ tổng giúp quản lý quyết định lệnh nào cần theo dõi trước.
+
+Trước khi bắt đầu lệnh, mở chi tiết và kiểm tra các mã chi tiết cùng toàn bộ công đoạn. Mỗi công đoạn cần có định mức phù hợp và đúng thứ tự thực hiện. Nếu cấu trúc sai, trạm thao tác sẽ không có đúng công việc để nhân viên bắt đầu.
+
+Nút Bắt đầu chỉ nên được dùng sau khi số lượng, kế hoạch và cấu trúc quy trình đã đúng. Sau khi bắt đầu, các công đoạn phù hợp mới xuất hiện trong luồng vận hành và tại trạm thao tác.
+
+Trong quá trình sản xuất, hãy theo dõi tiến độ và các công đoạn còn lại thay vì chỉ nhìn trạng thái chung. Không dùng thao tác xóa cưỡng bức cho lệnh đang chạy; nếu có sai sót, cần giữ bằng chứng và xử lý đúng đối tượng dữ liệu.

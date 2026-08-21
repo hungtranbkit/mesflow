@@ -1,0 +1,12 @@
+{
+  "Session": {"display_text": "Phiên làm việc (Session)", "voice_text": "phiên làm việc"},
+  "Operation": {"display_text": "Công đoạn (Operation)", "voice_text": "công đoạn"},
+  "Production Order": {"display_text": "Lệnh sản xuất (Production Order)", "voice_text": "lệnh sản xuất"},
+  "Part": {"display_text": "Mã chi tiết (Part)", "voice_text": "mã chi tiết"},
+  "Dashboard": {"display_text": "Bảng tổng quan (Dashboard)", "voice_text": "bảng tổng quan"},
+  "Template": {"display_text": "Mẫu quy trình (Template)", "voice_text": "mẫu quy trình"},
+  "Rework": {"display_text": "Sửa lại (Rework)", "voice_text": "sửa lại"},
+  "Defect": {"display_text": "Sản phẩm lỗi (Defect)", "voice_text": "sản phẩm lỗi"},
+  "Kiosk": {"display_text": "Trạm thao tác (Kiosk)", "voice_text": "trạm thao tác"},
+  "Shift": {"display_text": "Ca làm việc (Shift)", "voice_text": "ca làm việc"}
+}

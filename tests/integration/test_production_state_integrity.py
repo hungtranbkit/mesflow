@@ -162,6 +162,29 @@ def test_force_delete_with_production_history_is_rejected(api, db, seeded_factor
     assert row(db, 'SELECT COUNT(*) n FROM production_orders WHERE id=%s', (graph['po_id'],))['n'] == 1
 
 
+def test_qa_owned_run_can_delete_its_exact_production_history(api, db, seeded_factory):
+    graph=seeded_factory
+    run_id=f'20260821-qa-{uuid.uuid4().hex[:8]}'
+    po_code=row(db,'SELECT code FROM production_orders WHERE id=%s',(graph['po_id'],))['code']
+    with db.cursor() as cur:
+        cur.execute('UPDATE production_orders SET notes=%s WHERE id=%s',(f'QA_RUN_ID={run_id}',graph['po_id']))
+    db.commit()
+    started=start(api,graph)
+    assert started.status_code==201,started.text
+    session_id=started.json()['session']['id']
+    closed=finish(api,session_id,8,1,1)
+    assert closed.status_code==200,closed.text
+    wrong=api.delete(f'{BASE_URL}/api/production-orders/{graph["po_id"]}/force',json={'confirm_code':po_code,'qa_run_id':run_id+'-wrong'},timeout=10)
+    assert wrong.status_code==409,wrong.text
+    assert row(db,'SELECT COUNT(*) n FROM production_orders WHERE id=%s',(graph['po_id'],))['n']==1
+    assert row(db,'SELECT notes FROM production_orders WHERE id=%s',(graph['po_id'],))['notes']==f'QA_RUN_ID={run_id}'
+    cleaned=api.delete(f'{BASE_URL}/api/production-orders/{graph["po_id"]}/force',json={'confirm_code':po_code,'qa_run_id':run_id},timeout=10)
+    assert cleaned.status_code==200,cleaned.text
+    assert cleaned.json()['qa_run_id']==run_id
+    assert cleaned.json()['counts']['deleted_sessions']==1
+    assert row(db,'SELECT COUNT(*) n FROM production_orders WHERE id=%s',(graph['po_id'],))['n']==0
+
+
 def test_normal_delete_po_part_operation_rejects_output_history(api, db, seeded_factory):
     graph = seeded_factory
     with db.cursor() as cur:
