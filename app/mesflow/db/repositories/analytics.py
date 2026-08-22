@@ -5,7 +5,7 @@ from typing import Any
 from mesflow.db.connection import transaction, fetch_all, fetch_one
 from .base import NotFoundError, ConflictError
 from mesflow.core.working_calendar import get_working_calendar, get_work_shift, shift_bounds, resolve_shift_context, working_seconds_between,all_shift_working_seconds_between
-from mesflow.core.time_policy import coerce_utc,utc_now,business_date
+from mesflow.core.time_policy import coerce_utc,utc_now,business_date,business_date_start_utc
 from mesflow.db.repositories.scheduling import priority_for_operation,priority_sort_key
 from mesflow.core.config import settings
 from mesflow.domain.audit_presentation import ACTION_CATALOG,CATEGORY_LABELS,present as present_audit_row
@@ -1273,6 +1273,139 @@ class ReportRepository:
           'enough_data':enough_data,'data_note':'' if enough_data else 'Chưa đủ dữ liệu để xếp loại; cần ít nhất 5 session hoàn tất, 3 session có sản lượng và 20 sản phẩm.'}
         return {'employees':employees,'sessions':sessions,'operations':op_rows,'summary':summary}
 
+    # "Session completion %" source-of-truth: reused verbatim from
+    # employee_performance() above (and from KPIRepository.operations()'s
+    # completion_percent concept), just applied per-session instead of
+    # summed first -- expected_seconds = standard_seconds_per_unit *
+    # (good_qty+defect_qty) is exactly how this codebase already expresses
+    # "how long this output should have taken at the Operation's standard
+    # rate"; actual_seconds is the session's own real duration (same
+    # GREATEST(EXTRACT(EPOCH FROM ...)),0) pattern used everywhere else in
+    # this file, e.g. daily_progress()/daily_sessions()). No new percentage
+    # definition invented. NULL (not 0) whenever standard_seconds_per_unit
+    # is unconfigured (expected_seconds=0) or actual_seconds<=0 -- shows as
+    # "Không đủ dữ liệu" rather than silently scoring 0%. Only CLOSED
+    # sessions get a value at all; OPEN sessions are intentionally NULL
+    # here (their duration/output is still moving) and reported separately
+    # as running_sessions.
+    # References the plain column names as produced by the "scored" CTE both
+    # call sites build (status/actual_seconds/expected_seconds), not a table
+    # alias -- this expression is always applied one SELECT layer above the
+    # raw work_sessions/operations join.
+    _SESSION_COMPLETION_PERCENT_SQL = (
+        "CASE WHEN status='CLOSED' AND actual_seconds>0 AND expected_seconds>0 "
+        "THEN expected_seconds/actual_seconds*100 END"
+    )
+
+    def _productivity_date_bounds(self,date_from:str|None,date_to:str|None):
+        # Business-day boundaries in Asia/Ho_Chi_Minh (settings.timezone_name),
+        # converted to UTC instants -- reuses time_policy's existing helper
+        # rather than a naive ::date cast, so a session that closes near
+        # midnight local time is never pushed into the wrong calendar day
+        # (the exact class of bug flagged for this report; see also
+        # employee_performance() above, which still uses the naive cast and
+        # was deliberately left alone -- out of scope for this feature).
+        today=business_date()
+        start_date=date.fromisoformat(date_from) if date_from else today.replace(day=1)
+        end_date=date.fromisoformat(date_to) if date_to else today
+        from_utc=business_date_start_utc(start_date)
+        to_utc=business_date_start_utc(end_date+timedelta(days=1))
+        return from_utc,to_utc,start_date,end_date
+
+    def employee_productivity(self,date_from:str|None=None,date_to:str|None=None,
+                               employee_id:int|None=None,department:str|None=None,
+                               team:str|None=None,limit:int=1000):
+        from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
+        conditions=['ws.started_at>=%s','ws.started_at<%s']; params=[from_utc,to_utc]
+        if employee_id: conditions.append('e.id=%s'); params.append(employee_id)
+        if department: conditions.append('e.department=%s'); params.append(department)
+        if team: conditions.append('e.team=%s'); params.append(team)
+        where=' AND '.join(conditions)
+        rows=fetch_all(f"""WITH scored AS (
+          SELECT ws.id session_id,e.id employee_id,e.employee_no employee_code,e.name employee_name,
+            e.department,e.team,ws.status,
+            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
+            COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
+            COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty
+          FROM work_sessions ws
+          JOIN employees e ON e.id=ws.employee_id
+          JOIN operations o ON o.id=ws.operation_id
+          WHERE {where}
+        ), pct AS (
+          SELECT *,{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent FROM scored
+        )
+        SELECT employee_id,employee_code,employee_name,department,team,
+          COUNT(*) FILTER (WHERE status='CLOSED' AND completion_percent IS NOT NULL) completed_valid_sessions,
+          COUNT(*) FILTER (WHERE status='CLOSED' AND completion_percent IS NULL) completed_invalid_sessions,
+          COUNT(*) FILTER (WHERE status='OPEN') running_sessions,
+          AVG(completion_percent) productivity_percent,
+          COALESCE(SUM(good_qty),0) good_qty,COALESCE(SUM(defect_qty),0) defect_qty,
+          COALESCE(SUM(actual_seconds),0)::bigint worked_seconds
+        FROM pct GROUP BY employee_id,employee_code,employee_name,department,team
+        ORDER BY productivity_percent DESC NULLS LAST,employee_code
+        LIMIT %s""",[*params,min(max(limit,1),5000)])
+        employees=[]
+        for row in rows:
+            item=dict(row)
+            item['productivity_percent']=round(float(item['productivity_percent']),2) if item['productivity_percent'] is not None else None
+            employees.append(item)
+        with_score=[x['productivity_percent'] for x in employees if x['productivity_percent'] is not None]
+        top=max((x for x in employees if x['productivity_percent'] is not None),key=lambda x:x['productivity_percent'],default=None)
+        summary={
+            'from':str(start_date),'to':str(end_date),
+            'employee_count':len(employees),
+            'completed_sessions':sum(x['completed_valid_sessions']+x['completed_invalid_sessions'] for x in employees),
+            'completed_valid_sessions':sum(x['completed_valid_sessions'] for x in employees),
+            'completed_invalid_sessions':sum(x['completed_invalid_sessions'] for x in employees),
+            'running_sessions':sum(x['running_sessions'] for x in employees),
+            # AVG of employee productivity_percent values (one number per
+            # employee who has at least one valid closed session) -- NOT
+            # AVG over every session factory-wide. An employee with more
+            # sessions is not weighted any heavier than one with few, same
+            # as each employee's own score already averages their sessions
+            # equally (section 2's "mỗi Session có trọng số bằng nhau" is
+            # about sessions within one employee; across employees this
+            # summary card is explicitly an average of employees).
+            'avg_employee_productivity_percent':round(sum(with_score)/len(with_score),2) if with_score else None,
+            'top_employee':{'employee_id':top['employee_id'],'employee_code':top['employee_code'],
+                'employee_name':top['employee_name'],'productivity_percent':top['productivity_percent'],
+                'completed_valid_sessions':top['completed_valid_sessions']} if top else None,
+        }
+        return {'summary':summary,'employees':employees}
+
+    def employee_productivity_detail(self,employee_id:int,date_from:str|None=None,date_to:str|None=None):
+        employee=fetch_one("SELECT id employee_id,employee_no employee_code,name employee_name,department,team,position FROM employees WHERE id=%s",(employee_id,))
+        if not employee: raise NotFoundError('employee not found')
+        from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
+        rows=fetch_all(f"""WITH scored AS (
+          SELECT ws.id session_id,ws.status,ws.started_at,ws.ended_at,
+            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
+            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
+            COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
+            COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
+            o.code operation_code,o.name operation_name,po.code po_code,p.code part_code
+          FROM work_sessions ws
+          JOIN operations o ON o.id=ws.operation_id
+          JOIN production_orders po ON po.id=o.production_order_id
+          JOIN parts p ON p.id=o.part_id
+          WHERE ws.employee_id=%s AND ws.started_at>=%s AND ws.started_at<%s
+        )
+        SELECT *,{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent FROM scored
+        ORDER BY started_at DESC""",(employee_id,from_utc,to_utc))
+        sessions=[]
+        valid_scores=[]
+        for row in rows:
+            item=dict(row)
+            pct=item.get('completion_percent')
+            item['completion_percent']=round(float(pct),2) if pct is not None else None
+            if item['status']=='CLOSED' and item['completion_percent'] is not None: valid_scores.append(item['completion_percent'])
+            sessions.append(item)
+        productivity=round(sum(valid_scores)/len(valid_scores),2) if valid_scores else None
+        return {
+            'employee':dict(employee),'from':str(start_date),'to':str(end_date),
+            'productivity_percent':productivity,'valid_session_count':len(valid_scores),
+            'sessions':sessions,
+        }
 
     def session_management(self,po_id=None,part_id=None,operation_id=None,employee_id=None,status=None,date_from=None,date_to=None,limit=3000):
         conditions=['1=1']; params=[]

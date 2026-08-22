@@ -32,6 +32,7 @@ EXPECTED_TOC = [
     ('excel-import-export', 'Import / Export Excel'),
     ('troubleshooting', 'Xử lý lỗi thường gặp'),
     ('recommended-workflow', 'Quy trình sử dụng MESFlow đề xuất'),
+    ('employee-productivity', 'Báo cáo năng suất nhân viên'),
 ]
 KNOWN_BLOCK_TYPES = {'h3', 'p', 'note', 'example', 'diagram', 'list', 'steps', 'table'}
 

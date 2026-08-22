@@ -538,6 +538,32 @@
         {"type": "h3", "text": "Sơ đồ dòng dữ liệu"},
         {"type": "diagram", "text": "Template\n   ↓\nProduction Order\n   ↓\nPart\n   ↓\nOperation\n   ↓\nWork Session\n   ↓\nGOOD / DEFECT / REWORK\n   ↓\nDashboard / Tiến độ / Báo cáo"}
       ]
+    },
+    {
+      "id": "employee-productivity",
+      "title": "21. Báo cáo năng suất nhân viên",
+      "keywords": ["năng suất", "productivity", "trung bình", "session completion", "hiệu suất nhân viên"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Đánh giá năng suất làm việc của từng nhân viên trong một khoảng ngày, dựa trên các Work Session đã kết thúc — nằm trong menu Điều hành, tách riêng khỏi màn Nhân viên (Danh mục) vì đây là báo cáo, không phải hồ sơ nhân sự."},
+        {"type": "h3", "text": "Công thức — đọc kỹ trước khi dùng"},
+        {"type": "example", "text": "Năng suất nhân viên = trung bình cộng % hoàn thành của các Session đã kết thúc trong khoảng ngày đang chọn.\n\nVí dụ: Session 1 đạt 50%, Session 2 đạt 70% → năng suất = (50% + 70%) / 2 = 60%."},
+        {"type": "p", "text": "% hoàn thành của MỖI Session = thời gian chuẩn cho sản lượng đã làm (định mức giây/SP × số sản phẩm) chia cho thời gian thực tế của Session đó. Làm nhanh hơn định mức cho ra % trên 100 — hệ thống KHÔNG giới hạn ở 100%, để thấy rõ ai đang vượt định mức."},
+        {"type": "list", "items": [
+          "Chỉ tính Session đã kết thúc (không tính Session đang chạy, vì % của nó còn thay đổi) — số Session đang chạy vẫn hiển thị riêng để biết nhân viên đang làm gì.",
+          "Session không đủ dữ liệu để tính % (ví dụ Operation chưa khai báo thời gian định mức) không bị tính là 0% — hiển thị \"Không đủ dữ liệu\" và được đếm riêng, không lẫn vào điểm trung bình.",
+          "Mỗi Session có trọng số bằng nhau khi tính trung bình cho một nhân viên — không cộng dồn sản lượng rồi chia tổng định mức."
+        ]},
+        {"type": "note", "text": "Nhân viên càng ít Session trong khoảng ngày đang xem thì con số năng suất càng ít đại diện — bảng luôn hiển thị kèm số Session để biết mức độ tin cậy. Đây là báo cáo tham khảo, không phải bảng xếp hạng tốt/xấu."},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Chọn Từ ngày / Đến ngày (mặc định: ngày 01 tháng hiện tại tới hôm nay).",
+          "Lọc theo tên/mã nhân viên hoặc Bộ phận nếu cần.",
+          "Xem 4 chỉ số tổng quan: nhân viên có dữ liệu, session hoàn thành, năng suất trung bình toàn bộ nhân viên, người năng suất cao nhất.",
+          "Bấm tiêu đề cột để đổi cách sắp xếp — mặc định sắp theo năng suất giảm dần.",
+          "Bấm vào một nhân viên để xem chi tiết từng Session (PO, Part, Operation, giờ bắt đầu/kết thúc, GOOD/DEFECT, % từng Session)."
+        ]}
+      ]
     }
   ]
 }
