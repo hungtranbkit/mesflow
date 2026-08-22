@@ -10,6 +10,11 @@ below comes from the exact same ReportRepository.employee_productivity()
 formula already covered by test_employee_productivity.py -- this file only
 asserts that the wallboard's config layer (publish/get/persist) and its
 public read-only projection reuse that source of truth correctly.
+
+Completed-session-only, same rule as the Report (2026-08-22 revision):
+the wallboard shows nothing but finished Work Sessions -- no running
+session, current Operation, running_sessions, active_workers, or
+realtime state of any kind.
 """
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
@@ -227,6 +232,37 @@ def test_case9_wallboard_returns_full_list_for_client_side_paging(db, api, seede
     finally:
         db.execute("DELETE FROM work_sessions WHERE employee_id=ANY(%s)", (ids[1:],))
         db.execute("DELETE FROM employees WHERE id=ANY(%s)", (ids[1:],))
+
+
+# Completed-session-only (2026-08-22 revision): the wallboard must never
+# show running/active-worker state -- it reuses employee_productivity(),
+# which no longer computes one at all, so there's nothing left to leak.
+def test_wallboard_never_exposes_running_or_active_worker_state(db, api, seeded_factory):
+    g = seeded_factory
+    db.execute("UPDATE operations SET standard_seconds_per_unit=60 WHERE id=%s", (g['operation_id'],))
+    _insert_session(db, g['employee_id'], g['operation_id'], g['station_id'], g['suffix'], 'done',
+                     'CLOSED', datetime(2026, 8, 6, 9, 0, tzinfo=HCM), datetime(2026, 8, 6, 9, 20, tzinfo=HCM), good_qty=10)
+    _insert_session(db, g['employee_id'], g['operation_id'], g['station_id'], g['suffix'], 'running',
+                     'OPEN', datetime(2026, 8, 6, 11, 0, tzinfo=HCM), good_qty=1)
+
+    _publish(api, date_mode='fixed', **{'from': '2026-08-06', 'to': '2026-08-06'})
+    payload = _get_wallboard()
+    row = _one(payload['employees'], g['employee_id'])
+    forbidden = {'running_sessions', 'active_workers', 'active_employee_count', 'current_operation'}
+    assert not (forbidden & row.keys()), f'forbidden realtime fields leaked into wallboard row: {forbidden & row.keys()}'
+    assert not (forbidden & payload['summary'].keys()), f'forbidden realtime fields leaked into wallboard summary: {forbidden & payload["summary"].keys()}'
+    assert row['completed_sessions'] == 1  # the running session is not counted
+
+
+def test_wallboard_employee_with_only_running_session_never_appears(db, api, seeded_factory):
+    g = seeded_factory
+    db.execute("UPDATE operations SET standard_seconds_per_unit=60 WHERE id=%s", (g['operation_id'],))
+    _insert_session(db, g['employee_id'], g['operation_id'], g['station_id'], g['suffix'], 'running',
+                     'OPEN', datetime(2026, 8, 6, 9, 0, tzinfo=HCM), good_qty=10)
+
+    _publish(api, date_mode='fixed', **{'from': '2026-08-06', 'to': '2026-08-06'})
+    payload = _get_wallboard()
+    assert not any(x['employee_id'] == g['employee_id'] for x in payload['employees'])
 
 
 # CASE 10 -- published config is a real DB row (app_settings), not

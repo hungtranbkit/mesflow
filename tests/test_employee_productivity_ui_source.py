@@ -35,16 +35,6 @@ def test_openpage_routing_is_additive_not_editing_app_js():
     assert 'return openPageWithoutProductivity(id, btn);' in js
 
 
-def test_thresholds_are_one_constant_not_scattered_magic_numbers():
-    js = _js()
-    assert 'const EMPLOYEE_PRODUCTIVITY_THRESHOLDS' in js
-    # The exact bands from the task spec.
-    for min_value in ('{ min: 100,', '{ min: 80,', '{ min: 60,', '{ min: -Infinity,'):
-        assert min_value in js
-    # Every render site reads through the one function, not inline comparisons.
-    assert js.count('productivityBand(') >= 2
-
-
 def test_average_definition_matches_spec_default_sort_and_no_clamp():
     js = _js()
     # Default sort: productivity descending.
@@ -56,7 +46,33 @@ def test_average_definition_matches_spec_default_sort_and_no_clamp():
     assert 'Math.max(' not in fn_body
 
 
-def test_detail_view_shows_running_and_insufficient_data_distinctly():
+def test_detail_view_shows_insufficient_data_not_running_state():
+    """2026-08-22 revision: this report is completed-session-only -- the
+    detail view must never render a running/live session state at all
+    (there is nothing left in the API response to render it from), while
+    still distinguishing "closed but missing a standard rate" sessions."""
     js = _js()
-    assert 'Đang chạy' in js
     assert 'Không đủ dữ liệu' in js
+    assert 'Đang chạy' not in js
+    assert "status === 'OPEN'" not in js
+
+
+def test_report_never_renders_realtime_worker_state():
+    """Section 3/4/7: no running_sessions/active worker/current-Operation
+    field or label anywhere in this page's source -- the whole screen is
+    completed-session-only."""
+    js = _js()
+    for forbidden in ('running_sessions', 'active_employee_count', 'Đang làm việc', 'top_employee'):
+        assert forbidden not in js, f'{forbidden!r} must not appear -- this report is completed-session-only'
+
+
+def test_kpis_match_the_four_required_completed_session_cards():
+    js = _js()
+    for label in ('Nhân viên có dữ liệu', 'Tổng Session đã kết thúc', 'Năng suất trung bình', 'Tổng sản lượng đạt'):
+        assert label in js
+
+
+def test_main_table_uses_completed_sessions_field():
+    js = _js()
+    assert 'x.completed_sessions' in js
+    assert 'x.running_sessions' not in js

@@ -14,6 +14,12 @@
 //     public config (it never calls the publish endpoint at all).
 // Either way, the percentage/aggregation itself always comes from
 // ReportRepository.employee_productivity() -- this file only renders.
+//
+// Completed-session-only, same rule as the Report (2026-08-22 revision):
+// there is no running-session/active-worker/online concept anywhere on
+// this screen -- employee_productivity() itself never returns one any
+// more, so there is nothing here to filter out. It only ever shows
+// results of Work Sessions that have already ended.
 
 (() => {
   const params = new URLSearchParams(location.search);
@@ -25,7 +31,7 @@
     productivity_desc: (a, b) => (a.productivity_percent === null) - (b.productivity_percent === null) || (b.productivity_percent || 0) - (a.productivity_percent || 0),
     productivity_asc: (a, b) => (a.productivity_percent === null) - (b.productivity_percent === null) || (a.productivity_percent || 0) - (b.productivity_percent || 0),
     name_asc: (a, b) => String(a.employee_name || '').localeCompare(String(b.employee_name || ''), 'vi'),
-    sessions_desc: (a, b) => (b.completed_valid_sessions + b.completed_invalid_sessions) - (a.completed_valid_sessions + a.completed_invalid_sessions),
+    sessions_desc: (a, b) => b.completed_sessions - a.completed_sessions,
   };
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -70,24 +76,26 @@
   }
 
   function drawKpis(summary) {
+    // Completed-session-only wallboard (2026-08-22 revision): same 4 KPIs
+    // as the Report screen, all from completed sessions -- no realtime
+    // "who's working right now" card, no online/live indicator anywhere
+    // on this screen (Section 7). It only ever shows finished results.
     const host = document.getElementById('wbKpis');
     if (!summary) { host.innerHTML = ''; return; }
     host.innerHTML = [
       ['Năng suất trung bình', pctText(summary.avg_employee_productivity_percent)],
       ['Nhân viên có dữ liệu', Number(summary.employee_count || 0).toLocaleString('vi-VN')],
-      ['Session hoàn thành', Number(summary.completed_sessions || 0).toLocaleString('vi-VN')],
-      ['Đang làm việc', Number(summary.active_employee_count || 0).toLocaleString('vi-VN')],
+      ['Session đã kết thúc', Number(summary.completed_sessions || 0).toLocaleString('vi-VN')],
+      ['Tổng sản lượng đạt', Number(summary.total_good_qty || 0).toLocaleString('vi-VN')],
     ].map(([label, value]) => `<article class="wb-kpi"><small>${esc(label)}</small><strong>${value}</strong></article>`).join('');
   }
 
   function rowHtml(x) {
     const pct = x.productivity_percent;
     const barWidth = pct === null ? 0 : Math.min(Math.max(pct, 0), 100);
-    const running = x.running_sessions > 0;
-    const totalSessions = x.completed_valid_sessions + x.completed_invalid_sessions;
-    const sampleNote = pct === null ? 'Không đủ dữ liệu' : `${totalSessions} session`;
+    const sampleNote = pct === null ? 'Không đủ dữ liệu' : `${x.completed_sessions} session`;
     return `<div class="wb-row">
-      <span class="wb-row-name">${running ? '<i class="wb-running-dot" title="Đang làm"></i>' : ''}${esc(x.employee_name)}<small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></span>
+      <span class="wb-row-name">${esc(x.employee_name)}<small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></span>
       <span class="wb-row-pct">${pctText(pct)}</span>
       <span class="wb-row-bar"><i style="width:${barWidth}%"></i></span>
       <span class="wb-row-count">${esc(sampleNote)}</span>

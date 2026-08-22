@@ -1285,10 +1285,19 @@ class ReportRepository:
     # this file, e.g. daily_progress()/daily_sessions()). No new percentage
     # definition invented. NULL (not 0) whenever standard_seconds_per_unit
     # is unconfigured (expected_seconds=0) or actual_seconds<=0 -- shows as
-    # "Không đủ dữ liệu" rather than silently scoring 0%. Only CLOSED
-    # sessions get a value at all; OPEN sessions are intentionally NULL
-    # here (their duration/output is still moving) and reported separately
-    # as running_sessions.
+    # "Không đủ dữ liệu" rather than silently scoring 0%.
+    #
+    # This report/wallboard is completed-session-only by design (2026-08-22
+    # revision): both call sites below now filter their SOURCE ROWS to
+    # status='CLOSED' AND ended_at IS NOT NULL before this expression ever
+    # runs, so it only ever needs to handle the "closed but missing a
+    # standard rate" NULL case -- an OPEN session's row simply never reaches
+    # this SELECT layer any more (no running_sessions concept survives
+    # anywhere in this report; see employee_productivity()'s WHERE clause).
+    # work_sessions.status is application-enforced to only ever be 'OPEN' or
+    # 'CLOSED' (see WorkSessionRepository -- no CANCELLED/VOID/INVALID
+    # status exists for sessions in this schema), so CLOSED is the complete
+    # "hoàn thành hợp lệ" set; no further status exclusion is needed.
     # References the plain column names as produced by the "scored" CTE both
     # call sites build (status/actual_seconds/expected_seconds), not a table
     # alias -- this expression is always applied one SELECT layer above the
@@ -1306,6 +1315,14 @@ class ReportRepository:
         # (the exact class of bug flagged for this report; see also
         # employee_performance() above, which still uses the naive cast and
         # was deliberately left alone -- out of scope for this feature).
+        #
+        # These bounds are applied to ws.ended_at (not started_at) by both
+        # call sites below (2026-08-22 revision) -- a session that starts
+        # 23:50 one day and ends 00:05 the next now files under the day it
+        # ENDED, matching "kỳ báo cáo" being about completed work, and
+        # avoiding the case flagged explicitly: a session starting yesterday
+        # but finishing today used to vanish from (or misfile into) the
+        # wrong day's report under the old started_at filter.
         today=business_date()
         start_date=date.fromisoformat(date_from) if date_from else today.replace(day=1)
         end_date=date.fromisoformat(date_to) if date_to else today
@@ -1317,7 +1334,15 @@ class ReportRepository:
                                employee_id:int|None=None,department:str|None=None,
                                team:str|None=None,limit:int=1000):
         from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
-        conditions=['ws.started_at>=%s','ws.started_at<%s']; params=[from_utc,to_utc]
+        # Completed-session-only, by rule (2026-08-22 revision): status must
+        # be CLOSED and ended_at must be set -- an OPEN/running session's row
+        # never even reaches this query, let alone the average. Both checks
+        # are kept even though ended_at IS NOT NULL already implies CLOSED in
+        # this codebase's own write path (WorkSessionRepository.finish() sets
+        # them together) -- explicit and redundant beats implicit here, since
+        # this is exactly the boundary the whole feature exists to enforce.
+        conditions=["ws.status='CLOSED'",'ws.ended_at IS NOT NULL','ws.ended_at>=%s','ws.ended_at<%s']
+        params=[from_utc,to_utc]
         if employee_id: conditions.append('e.id=%s'); params.append(employee_id)
         if department: conditions.append('e.department=%s'); params.append(department)
         if team: conditions.append('e.team=%s'); params.append(team)
@@ -1325,7 +1350,7 @@ class ReportRepository:
         rows=fetch_all(f"""WITH scored AS (
           SELECT ws.id session_id,e.id employee_id,e.employee_no employee_code,e.name employee_name,
             e.department,e.team,ws.status,
-            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
+            GREATEST(EXTRACT(EPOCH FROM (ws.ended_at-ws.started_at)),0) actual_seconds,
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty
           FROM work_sessions ws
@@ -1336,9 +1361,9 @@ class ReportRepository:
           SELECT *,{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent FROM scored
         )
         SELECT employee_id,employee_code,employee_name,department,team,
-          COUNT(*) FILTER (WHERE status='CLOSED' AND completion_percent IS NOT NULL) completed_valid_sessions,
-          COUNT(*) FILTER (WHERE status='CLOSED' AND completion_percent IS NULL) completed_invalid_sessions,
-          COUNT(*) FILTER (WHERE status='OPEN') running_sessions,
+          COUNT(*) completed_sessions,
+          COUNT(*) FILTER (WHERE completion_percent IS NOT NULL) completed_valid_sessions,
+          COUNT(*) FILTER (WHERE completion_percent IS NULL) completed_invalid_sessions,
           AVG(completion_percent) productivity_percent,
           COALESCE(SUM(good_qty),0) good_qty,COALESCE(SUM(defect_qty),0) defect_qty,
           COALESCE(SUM(actual_seconds),0)::bigint worked_seconds
@@ -1351,19 +1376,14 @@ class ReportRepository:
             item['productivity_percent']=round(float(item['productivity_percent']),2) if item['productivity_percent'] is not None else None
             employees.append(item)
         with_score=[x['productivity_percent'] for x in employees if x['productivity_percent'] is not None]
-        top=max((x for x in employees if x['productivity_percent'] is not None),key=lambda x:x['productivity_percent'],default=None)
         summary={
             'from':str(start_date),'to':str(end_date),
             'employee_count':len(employees),
-            'completed_sessions':sum(x['completed_valid_sessions']+x['completed_invalid_sessions'] for x in employees),
+            'completed_sessions':sum(x['completed_sessions'] for x in employees),
             'completed_valid_sessions':sum(x['completed_valid_sessions'] for x in employees),
             'completed_invalid_sessions':sum(x['completed_invalid_sessions'] for x in employees),
-            'running_sessions':sum(x['running_sessions'] for x in employees),
-            # Distinct employees currently mid-session -- different from
-            # running_sessions above (a total session COUNT). Added for the
-            # wallboard's "Đang làm việc" KPI card; derived from the same
-            # already-fetched rows, no extra query.
-            'active_employee_count':sum(1 for x in employees if x['running_sessions']>0),
+            'total_good_qty':sum(x['good_qty'] for x in employees),
+            'total_defect_qty':sum(x['defect_qty'] for x in employees),
             # AVG of employee productivity_percent values (one number per
             # employee who has at least one valid closed session) -- NOT
             # AVG over every session factory-wide. An employee with more
@@ -1373,9 +1393,6 @@ class ReportRepository:
             # about sessions within one employee; across employees this
             # summary card is explicitly an average of employees).
             'avg_employee_productivity_percent':round(sum(with_score)/len(with_score),2) if with_score else None,
-            'top_employee':{'employee_id':top['employee_id'],'employee_code':top['employee_code'],
-                'employee_name':top['employee_name'],'productivity_percent':top['productivity_percent'],
-                'completed_valid_sessions':top['completed_valid_sessions']} if top else None,
         }
         return {'summary':summary,'employees':employees}
 
@@ -1383,10 +1400,16 @@ class ReportRepository:
         employee=fetch_one("SELECT id employee_id,employee_no employee_code,name employee_name,department,team,position FROM employees WHERE id=%s",(employee_id,))
         if not employee: raise NotFoundError('employee not found')
         from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
+        # Same completed-session-only filter as employee_productivity() --
+        # an OPEN session for this employee simply never appears in the
+        # detail's session list (section 5: "Không hiển thị running
+        # session"), and the date bounds are applied to ended_at, matching
+        # the summary report so a session opened one day and closed the
+        # next lands in the same reporting date on both screens.
         rows=fetch_all(f"""WITH scored AS (
           SELECT ws.id session_id,ws.status,ws.started_at,ws.ended_at,
-            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
-            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
+            GREATEST(EXTRACT(EPOCH FROM (ws.ended_at-ws.started_at)),0)::bigint duration_seconds,
+            GREATEST(EXTRACT(EPOCH FROM (ws.ended_at-ws.started_at)),0) actual_seconds,
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
             o.code operation_code,o.name operation_name,po.code po_code,p.code part_code
@@ -1394,7 +1417,8 @@ class ReportRepository:
           JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
           JOIN parts p ON p.id=o.part_id
-          WHERE ws.employee_id=%s AND ws.started_at>=%s AND ws.started_at<%s
+          WHERE ws.employee_id=%s AND ws.status='CLOSED' AND ws.ended_at IS NOT NULL
+            AND ws.ended_at>=%s AND ws.ended_at<%s
         )
         SELECT *,{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent FROM scored
         ORDER BY started_at DESC""",(employee_id,from_utc,to_utc))
@@ -1404,7 +1428,7 @@ class ReportRepository:
             item=dict(row)
             pct=item.get('completion_percent')
             item['completion_percent']=round(float(pct),2) if pct is not None else None
-            if item['status']=='CLOSED' and item['completion_percent'] is not None: valid_scores.append(item['completion_percent'])
+            if item['completion_percent'] is not None: valid_scores.append(item['completion_percent'])
             sessions.append(item)
         productivity=round(sum(valid_scores)/len(valid_scores),2) if valid_scores else None
         return {
@@ -1423,15 +1447,18 @@ class ReportRepository:
         'productivity_desc':lambda x:(x['productivity_percent'] is None,-(x['productivity_percent'] or 0)),
         'productivity_asc':lambda x:(x['productivity_percent'] is None,x['productivity_percent'] or 0),
         'name_asc':lambda x:str(x['employee_name'] or ''),
-        'sessions_desc':lambda x:-(x['completed_valid_sessions']+x['completed_invalid_sessions']),
+        'sessions_desc':lambda x:-x['completed_sessions'],
     }
     # Fields the public, unauthenticated wallboard is allowed to show.
     # Deliberately explicit (not "whatever employee_productivity() happens
     # to return") so a later field added to the admin report never leaks to
     # the TV by accident -- section 16's "không expose... admin actions,
-    # raw audit data" boundary lives here, in exactly one place.
+    # raw audit data" boundary lives here, in exactly one place. No
+    # running/active-worker field exists any more to even need excluding --
+    # employee_productivity() itself no longer computes one (completed
+    # sessions only, throughout).
     WALLBOARD_EMPLOYEE_FIELDS=('employee_id','employee_code','employee_name','department','team',
-        'completed_valid_sessions','completed_invalid_sessions','running_sessions',
+        'completed_sessions','completed_valid_sessions','completed_invalid_sessions',
         'productivity_percent','good_qty','defect_qty','worked_seconds')
 
     def wallboard_employee_productivity_payload(self):

@@ -14,22 +14,6 @@ openPage = async function (id, btn) {
   return openPageWithoutProductivity(id, btn);
 };
 
-// Section 7: thresholds live in one place, not scattered through the UI.
-// Matches the task's own example bands; kept separate from
-// renderEmployeePerformance()'s unrelated "Hiệu suất định mức" bands
-// (110/90/75) elsewhere in app.js, which score a different, SUM-based
-// metric on a different (currently unreachable) screen -- not the same
-// metric, not safe to reuse verbatim.
-const EMPLOYEE_PRODUCTIVITY_THRESHOLDS = [
-  { min: 100, label: 'Vượt mục tiêu', cls: 'success' },
-  { min: 80, label: 'Đạt tốt', cls: 'success' },
-  { min: 60, label: 'Cần theo dõi', cls: 'warning' },
-  { min: -Infinity, label: 'Thấp', cls: 'danger' },
-];
-function productivityBand(pct) {
-  if (pct === null || pct === undefined) return { label: 'Không đủ dữ liệu', cls: 'neutral' };
-  return EMPLOYEE_PRODUCTIVITY_THRESHOLDS.find(t => pct >= t.min);
-}
 function productivityText(pct) {
   return pct === null || pct === undefined ? '—' : `${Number(pct).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`;
 }
@@ -94,7 +78,7 @@ async function renderEmployeeProductivity() {
 
   const SORTERS = {
     employee: x => String(x.employee_name || ''),
-    session: x => x.completed_valid_sessions + x.completed_invalid_sessions,
+    session: x => x.completed_sessions,
     productivity: x => x.productivity_percent === null ? -Infinity : x.productivity_percent,
     output: x => x.good_qty,
     time: x => x.worked_seconds,
@@ -106,12 +90,15 @@ async function renderEmployeeProductivity() {
   };
 
   const drawKpis = summary => {
-    const top = summary.top_employee;
+    // Completed-session-only report (2026-08-22 revision): exactly the 4
+    // KPIs the task specifies, all derived from completed sessions --
+    // no realtime "who's working right now" card of any kind, and the
+    // backend summary for this endpoint no longer computes any such field.
     document.getElementById('epKpis').innerHTML = [
-      ['Nhân viên có dữ liệu', summary.employee_count || 0, (summary.completed_sessions || 0) + ' session hoàn thành'],
-      ['Session hoàn thành', summary.completed_sessions || 0, (summary.running_sessions || 0) + ' đang chạy · ' + (summary.completed_invalid_sessions || 0) + ' không đủ dữ liệu'],
-      ['Năng suất trung bình toàn bộ nhân viên', productivityText(summary.avg_employee_productivity_percent), 'Trung bình của từng nhân viên, không phải trung bình mọi session'],
-      ['Người có năng suất cao nhất', top ? productivityText(top.productivity_percent) : '—', top ? `${esc(top.employee_name)} · ${top.completed_valid_sessions} session` : 'Chưa có dữ liệu'],
+      ['Nhân viên có dữ liệu', summary.employee_count || 0, (summary.completed_sessions || 0) + ' session đã kết thúc'],
+      ['Tổng Session đã kết thúc', summary.completed_sessions || 0, (summary.completed_invalid_sessions || 0) + ' không đủ dữ liệu định mức'],
+      ['Năng suất trung bình', productivityText(summary.avg_employee_productivity_percent), 'Trung bình của từng nhân viên, không phải trung bình mọi session'],
+      ['Tổng sản lượng đạt', summary.total_good_qty || 0, 'Lỗi ' + Number(summary.total_defect_qty || 0).toLocaleString('vi-VN')],
     ].map((x, i) => `<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${typeof x[1] === 'number' ? Number(x[1]).toLocaleString('vi-VN') : x[1]}</strong><span>${x[2]}</span></article>`).join('');
   };
 
@@ -121,21 +108,17 @@ async function renderEmployeeProductivity() {
     const arrow = key => sortKey === key ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
     host.innerHTML = `<div class="table-wrap"><table class="ep-table"><thead><tr>
       <th data-sort="employee_name" class="sortable">Nhân viên${arrow('employee_name')}</th>
-      <th data-sort="session" class="sortable">Session${arrow('session')}</th>
+      <th data-sort="session" class="sortable">Session đã kết thúc${arrow('session')}</th>
       <th data-sort="productivity_percent" class="sortable">Năng suất trung bình${arrow('productivity_percent')}</th>
-      <th data-sort="good_qty" class="sortable">Sản lượng${arrow('good_qty')}</th>
-      <th data-sort="worked_seconds" class="sortable">Thời gian làm việc${arrow('worked_seconds')}</th>
-      <th>Trạng thái</th>
+      <th data-sort="good_qty" class="sortable">Sản lượng đạt / lỗi${arrow('good_qty')}</th>
+      <th data-sort="worked_seconds" class="sortable">Tổng thời gian làm việc${arrow('worked_seconds')}</th>
     </tr></thead><tbody>${rows.map(x => {
-      const band = productivityBand(x.productivity_percent);
-      const totalCompleted = x.completed_valid_sessions + x.completed_invalid_sessions;
       return `<tr class="ep-row" data-employee="${x.employee_id}" tabindex="0" role="button">
         <td><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
-        <td><b>${totalCompleted} session</b><small>${x.running_sessions} đang chạy${x.completed_invalid_sessions ? ` · ${x.completed_invalid_sessions} không đủ dữ liệu` : ''}</small></td>
+        <td><b>${x.completed_sessions} session</b>${x.completed_invalid_sessions ? `<small>${x.completed_invalid_sessions} không đủ dữ liệu</small>` : ''}</td>
         <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} session hợp lệ</small></td>
         <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>Lỗi ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
         <td>${epDur(x.worked_seconds)}</td>
-        <td><span class="badge ep-band ${band.cls}">${band.label}</span></td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
     host.querySelectorAll('.sortable').forEach(th => th.onclick = () => {
@@ -268,15 +251,20 @@ async function openEmployeeProductivityDetail(employeeId, from, to) {
     const emp = d.employee;
     box.querySelector('#epdTitle').textContent = `${emp.employee_name} · ${emp.employee_code}`;
     box.querySelector('#epdRange').textContent = `${epDateShort(d.from)} → ${epDateShort(d.to)} · Năng suất trung bình: ${productivityText(d.productivity_percent)} (${d.valid_session_count} session hợp lệ)`;
+    // Only completed sessions are ever returned here (backend filters to
+    // status='CLOSED' AND ended_at IS NOT NULL) -- there is no running
+    // session to special-case any more, so "Trạng thái" now reports
+    // whether the session had enough data to count toward the average
+    // (Section 5: "Không hiển thị running session").
     const rows = d.sessions || [];
-    box.querySelector('#epdBody').innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Ngày</th><th>PO</th><th>Part</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th><th>GOOD</th><th>DEFECT</th><th>Session %</th><th>Trạng thái</th></tr></thead><tbody>${rows.map(x => `<tr>
-        <td>${epDateShort(x.started_at)}</td><td>${esc(x.po_code)}</td><td>${esc(x.part_code)}</td><td>${esc(x.operation_code)}</td>
-        <td>${epTimeShort(x.started_at)}</td><td>${x.status === 'OPEN' ? '—' : epTimeShort(x.ended_at)}</td><td>${epDur(x.duration_seconds)}</td>
+    box.querySelector('#epdBody').innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Ngày</th><th>PO</th><th>Part</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th><th>GOOD</th><th>DEFECT</th><th>Completion %</th><th>Trạng thái</th></tr></thead><tbody>${rows.map(x => `<tr>
+        <td>${epDateShort(x.ended_at)}</td><td>${esc(x.po_code)}</td><td>${esc(x.part_code)}</td><td>${esc(x.operation_code)}</td>
+        <td>${epTimeShort(x.started_at)}</td><td>${epTimeShort(x.ended_at)}</td><td>${epDur(x.duration_seconds)}</td>
         <td>${Number(x.good_qty).toLocaleString('vi-VN')}</td><td>${Number(x.defect_qty).toLocaleString('vi-VN')}</td>
-        <td>${x.status === 'OPEN' ? '<span class="badge neutral">Đang chạy</span>' : x.completion_percent === null ? '<span class="badge neutral">Không đủ dữ liệu</span>' : productivityText(x.completion_percent)}</td>
-        <td>${x.status === 'OPEN' ? 'Đang chạy' : 'Đã kết thúc'}</td>
-      </tr>`).join('')}</tbody></table></div><p class="ep-detail-footnote">Trung bình: ${productivityText(d.productivity_percent)} trên ${d.valid_session_count} session hợp lệ (không tính session đang chạy hoặc thiếu dữ liệu định mức).</p>`
-      : '<div class="empty">Không có Session trong khoảng ngày đã chọn.</div>';
+        <td>${x.completion_percent === null ? '<span class="badge neutral">Không đủ dữ liệu</span>' : productivityText(x.completion_percent)}</td>
+        <td>${x.completion_percent === null ? 'Đã kết thúc · thiếu dữ liệu định mức' : 'Đã kết thúc · hợp lệ'}</td>
+      </tr>`).join('')}</tbody></table></div><p class="ep-detail-footnote">Trung bình: ${productivityText(d.productivity_percent)} trên ${d.valid_session_count} session hợp lệ (session đang chạy đã bị loại từ query, không chỉ từ công thức; session thiếu dữ liệu định mức cũng không tính vào trung bình).</p>`
+      : '<div class="empty">Không có Session đã kết thúc trong khoảng ngày đã chọn.</div>';
   } catch (e) {
     box.querySelector('#epdBody').innerHTML = `<div class="empty danger">${esc(e.message)}</div>`;
   }

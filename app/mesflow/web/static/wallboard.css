@@ -101,13 +101,6 @@ body{
 .wb-row:last-child{border-bottom:none}
 .wb-row-name{display:flex;flex-direction:column;font-size:24px;font-weight:700}
 .wb-row-name small{font-size:15px;font-weight:500;color:var(--wb-text-dim);margin-top:2px}
-.wb-running-dot{
-  display:inline-block;width:10px;height:10px;border-radius:50%;
-  background:var(--wb-good);margin-right:10px;vertical-align:middle;
-  box-shadow:0 0 0 4px rgba(62,207,142,.18);
-  animation:wb-pulse 1.6s ease-in-out infinite;
-}
-@keyframes wb-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .wb-row-pct{font-size:30px;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
 .wb-row-bar{height:16px;border-radius:999px;background:var(--wb-bar-track);overflow:hidden}
 .wb-row-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--wb-accent),var(--wb-good));border-radius:999px}
