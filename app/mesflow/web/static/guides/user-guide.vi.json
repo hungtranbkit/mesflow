@@ -1,0 +1,543 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "id": "getting-started",
+      "title": "1. Bắt đầu sử dụng",
+      "keywords": ["bắt đầu", "đăng nhập", "vai trò", "thuật ngữ", "menu", "sidebar"],
+      "content": [
+        {"type": "p", "text": "MESFlow là hệ thống quản lý sản xuất (MES) của KIMEX: theo dõi Production Order, Operation, nhân viên thao tác qua Kiosk, và tổng hợp sản lượng/tiến độ theo thời gian thực."},
+        {"type": "h3", "text": "Ai dùng màn hình nào?"},
+        {"type": "list", "items": [
+          "Công nhân: chỉ thao tác trên Kiosk (quét thẻ, quét Operation, nhập sản lượng) — không cần đăng nhập vào web quản lý.",
+          "Quản đốc / Quản lý sản xuất: đăng nhập web, theo dõi Dashboard, Tổng quan sản xuất, xử lý Ngoại lệ, mở PO khi cần điều phối.",
+          "Admin: toàn quyền — thêm Template/PO, quản lý Nhân viên, Người dùng, Thiết bị, Lịch làm việc, xử lý sự cố hệ thống."
+        ]},
+        {"type": "h3", "text": "5 thuật ngữ cốt lõi (xem thêm mục 20 – Thuật ngữ)"},
+        {"type": "list", "items": [
+          "Mẫu quy trình (Template): quy trình sản xuất chuẩn, dùng lại nhiều lần.",
+          "Lệnh sản xuất (Production Order – PO): lệnh sản xuất thực tế, tạo ra từ Template.",
+          "Chi tiết (Part): một chi tiết/cụm chi tiết trong PO.",
+          "Công đoạn (Operation): một bước gia công cụ thể trên một Part.",
+          "Phiên làm việc (Work Session, gọi tắt Session): một lần một nhân viên làm việc trên một Operation, từ lúc bắt đầu tới lúc kết thúc."
+        ]},
+        {"type": "note", "text": "Toàn bộ dữ liệu sản lượng, thời gian thực tế trong Dashboard/Tiến độ theo Operation đều được cộng dồn từ các Work Session thật — không phải số nhập tay ở cấp Operation."}
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "2. Tổng quan sản xuất",
+      "keywords": ["tổng quan", "overview", "control state", "chậm", "hàng chờ sửa", "ưu tiên"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Xem toàn bộ Production Order đang chạy trên một màn hình, phát hiện ngay Operation nào đang có vấn đề (chậm tiến độ, thiếu đầu vào, tồn hàng lỗi chờ sửa) mà không cần mở từng PO."},
+        {"type": "h3", "text": "Dữ liệu hiển thị có ý nghĩa gì"},
+        {"type": "table", "headers": ["Nhãn", "Ý nghĩa"], "rows": [
+          ["Chậm (CRITICAL)", "Operation đang trễ nhiều so với kế hoạch thời gian của PO."],
+          ["Cần chú ý (WARNING)", "Có dấu hiệu chậm hoặc rủi ro, chưa tới mức nghiêm trọng."],
+          ["Đúng tiến độ (ON_TRACK)", "Đang chạy theo đúng kế hoạch."],
+          ["Chờ đầu vào (WAITING)", "Chưa có đủ sản phẩm từ Operation trước để bắt đầu."],
+          ["Hoàn thành (DONE)", "Operation đã đạt đủ sản lượng kế hoạch."],
+          ["Hàng chờ sửa", "Số sản phẩm lỗi (DEFECT) đang chờ được sửa (REWORK) chưa xử lý xong."]
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Dùng ô Tìm nhanh để lọc theo mã PO, Part hoặc Operation.",
+          "Lọc theo Production Order, Tình trạng (Chậm/Cần chú ý/...), hoặc Hàng sửa nếu cần khoanh vùng.",
+          "Chọn cách Sắp xếp: mặc định ưu tiên hiển thị PO/Operation có vấn đề trước.",
+          "Bấm vào một PO để mở chi tiết Part/Operation, hoặc xử lý hàng chờ sửa ngay trong Kế hoạch xử lý hàng sửa."
+        ]},
+        {"type": "example", "text": "Một Operation hiện trạng thái \"Chờ đầu vào\" nghĩa là Operation trước đó chưa đủ sản phẩm đạt để chuyển sang — không phải lỗi hệ thống, mà là đang chờ theo đúng luồng vật tư đã cấu hình trong Template/PO."},
+        {"type": "note", "text": "Đây là màn hình theo dõi toàn xưởng (nhiều PO cùng lúc). Muốn xem chi tiết một PO cụ thể, dùng Production Order (mục 5); muốn xem theo ca/ngày, dùng Dashboard theo ngày (mục 3)."}
+      ]
+    },
+    {
+      "id": "dashboard",
+      "title": "3. Dashboard theo ngày",
+      "keywords": ["dashboard", "sản lượng", "ca", "shift", "nhân viên có hoạt động", "đang làm việc"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Theo dõi tình hình sản xuất của một ngày hoặc một ca cụ thể: ai đang làm, sản lượng đạt/lỗi trong ca, và Operation nào đang chạy."},
+        {"type": "h3", "text": "Dữ liệu hiển thị có ý nghĩa gì"},
+        {"type": "table", "headers": ["Chỉ số", "Ý nghĩa"], "rows": [
+          ["Nhân viên có hoạt động", "Số nhân viên đã phát sinh ít nhất một Work Session trong ngày/ca đang chọn (kể cả session đã kết thúc)."],
+          ["Đang làm việc", "Số nhân viên hiện còn Work Session chưa kết thúc (status = OPEN) tại thời điểm xem."],
+          ["Sản lượng đạt", "Tổng số lượng GOOD được ghi nhận từ các Work Session trong ngày/ca."],
+          ["Sản lượng lỗi", "Tổng số lượng DEFECT được ghi nhận trong ngày/ca."],
+          ["Dòng thời gian Session", "Từng Work Session hiển thị theo khung giờ ca, giúp thấy khoảng trống hoặc chồng giờ."]
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Chọn ngày làm việc.",
+          "Chọn ca theo dõi (hệ thống tự gợi ý ca hiện tại).",
+          "Xem số nhân viên đang làm và sản lượng đạt/lỗi trong khối chỉ số đầu trang.",
+          "Cuộn xuống bảng Tiến độ theo Operation (xem mục 9) để kiểm tra từng Operation có tiến độ bất thường.",
+          "Bấm Danh sách Operation để xem đầy đủ tất cả Operation phát sinh trong ngày, không giới hạn số dòng hiển thị."
+        ]},
+        {"type": "note", "text": "Dashboard theo ngày lọc theo NGÀY DƯƠNG LỊCH của Work Session (00:00–23:59), còn \"Ca\" chỉ dùng để tính thời gian làm việc thực tế theo khung giờ ca — một Session bắt đầu trước giờ vào ca vẫn được liệt kê đủ trong ngày đó."}
+      ]
+    },
+    {
+      "id": "template",
+      "title": "4. Template",
+      "keywords": ["template", "quy trình mẫu", "part", "operation", "định mức", "nhân bản", "import excel template"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Template = Quy trình sản xuất mẫu, dùng để chuẩn hóa và tái sử dụng cấu trúc sản xuất nhiều lần — Template KHÔNG PHẢI Production Order và không tạo ra dữ liệu sản xuất thật."},
+        {"type": "diagram", "text": "Template\n ├─ Part\n │   ├─ Operation\n │   ├─ Operation\n │   └─ ...\n └─ Part\n     └─ Operation"},
+        {"type": "list", "items": [
+          "Template là cấu trúc chuẩn (Part + Operation + thời gian định mức + thiết bị) dùng lại nhiều lần.",
+          "Chỉ khi Tạo Production Order từ Template, hệ thống mới sinh ra dữ liệu sản xuất thực tế (PO/Part/Operation thật, có thể chạy Session)."
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Tạo Template mới (nhập mã, tên, sản phẩm, phiên bản).",
+          "Thêm Part vào Template.",
+          "Thêm Operation vào từng Part.",
+          "Thiết lập thời gian định mức (giây/SP hoặc phút/SP) cho mỗi Operation.",
+          "Gắn Thiết bị cho Operation nếu cần theo dõi máy.",
+          "Thiết lập luồng đầu vào nếu Operation này phụ thuộc sản lượng của Operation khác (ví dụ: chỉ được làm khi OP trước đã có hàng).",
+          "Upload bản vẽ cho Part nếu có.",
+          "Lưu Template.",
+          "Có thể Nhân bản Template để tạo phiên bản mới từ Template có sẵn.",
+          "Import Template từ Excel hoặc Export Template ra Excel để chỉnh sửa ngoại tuyến.",
+          "Khi cần sản xuất thật: bấm Tạo Production Order từ Template."
+        ]},
+        {"type": "h3", "text": "Excel quy trình — làm đúng thứ tự"},
+        {"type": "example", "text": "Excel quy trình → Import vào Template → kiểm tra lại Template → Tạo Production Order từ Template.\n\nExcel quy trình KHÔNG import trực tiếp vào Production Order. Muốn có PO, luôn phải qua bước Tạo PO từ Template sau khi đã kiểm tra Template import đúng."},
+        {"type": "note", "text": "Import Template hỗ trợ 2 dạng file: workbook chuẩn (3 sheet Template/Parts/Operations), hoặc workbook quy trình nhiều sheet kiểu cũ (mỗi sheet là một Part, các dòng \"OPERATION #01 - ...\" được tự nhận diện thành Operation). Nếu trùng mã Template, hệ thống tự thêm hậu tố, không ghi đè Template cũ."}
+      ]
+    },
+    {
+      "id": "production-order",
+      "title": "5. Production Order",
+      "keywords": ["production order", "po", "lệnh sản xuất", "trạng thái po", "ưu tiên", "hạn giao"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Production Order (PO) = Lệnh sản xuất thực tế. PO được tạo từ Template — khi tạo, hệ thống SAO CHÉP toàn bộ cấu trúc Template sang PO mới."},
+        {"type": "diagram", "text": "Template → Part → Operation → thời gian định mức → các cấu hình sản xuất liên quan\n   (sao chép toàn bộ khi Tạo Production Order)"},
+        {"type": "h3", "text": "Dữ liệu hiển thị có ý nghĩa gì"},
+        {"type": "table", "headers": ["Trường", "Ý nghĩa"], "rows": [
+          ["Mã PO", "Định danh duy nhất của lệnh sản xuất."],
+          ["Sản phẩm", "Tên sản phẩm sẽ sản xuất theo PO này."],
+          ["Số lượng kế hoạch", "Tổng số lượng cần đạt (GOOD) khi PO hoàn thành."],
+          ["Trạng thái", "Bản nháp (DRAFT) · Đang lập kế hoạch (PLANNED) · Sẵn sàng sản xuất (RELEASED) · Đang sản xuất (IN_PROGRESS) · Tạm dừng (PAUSED) · Đã hoàn thành (COMPLETED) · Đã hủy (CANCELLED)."],
+          ["Ưu tiên", "Thấp / Bình thường / Cao / Khẩn cấp — chỉ mang tính hiển thị/sắp xếp."],
+          ["Hạn giao", "Ngày khách hàng/kế hoạch yêu cầu giao hàng."],
+          ["Thời gian bắt đầu dự kiến / kết thúc dự kiến", "Khung thời gian kế hoạch, dùng để so sánh với thời gian thực tế trong Tiến độ theo Operation."]
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Bấm + Tạo PO từ Template, chọn Template phù hợp.",
+          "Điền mã PO, số lượng kế hoạch, thời gian dự kiến.",
+          "Bấm Bắt đầu sản xuất khi PO sẵn sàng — chỉ khi PO ở trạng thái Đang sản xuất (IN_PROGRESS) thì Kiosk mới cho phép quét Operation của PO đó.",
+          "Mở PO để xem/sửa từng Part, Operation, hoặc thêm Part/Operation phát sinh.",
+          "Theo dõi tiến độ trong chính PO, hoặc qua Tổng quan sản xuất / Tiến độ theo Operation."
+        ]},
+        {"type": "note", "text": "Nếu Operation thuộc một PO chưa Start (DRAFT/PLANNED) hoặc đã kết thúc (COMPLETED/CANCELLED), Kiosk sẽ từ chối ngay khi quét mã Operation — xem mục 19."}
+      ]
+    },
+    {
+      "id": "part-operation",
+      "title": "6. Part và Operation",
+      "keywords": ["part", "operation", "chi tiết", "công đoạn", "wip", "sort order"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Part (Chi tiết) là một cụm/chi tiết nằm trong PO. Operation (Công đoạn) là một bước gia công cụ thể trên một Part — nơi nhân viên thực sự thao tác qua Kiosk."},
+        {"type": "h3", "text": "Dữ liệu hiển thị có ý nghĩa gì"},
+        {"type": "table", "headers": ["Trường", "Ý nghĩa"], "rows": [
+          ["Mã OP / Tên Operation", "Định danh và tên bước gia công."],
+          ["Đạt / Lỗi / Sửa được", "Sản lượng GOOD / DEFECT / REWORK cộng dồn từ các Work Session của Operation này."],
+          ["Trạng thái Operation", "Kế hoạch (PLANNED) · Sẵn sàng (READY) · Đang chạy (IN_PROGRESS) · Hoàn thành (COMPLETED) · Đã hủy (CANCELLED)."],
+          ["WIP đầu vào", "Số sản phẩm đã sẵn sàng để Operation này xử lý tiếp, lấy từ Operation nguồn nếu có cấu hình luồng đầu vào."],
+          ["QR", "Mã QR để Kiosk quét nhận diện Operation."]
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Trong PO, bấm + Thêm Operation để thêm Operation phát sinh ngoài Template.",
+          "Sửa cấu hình Operation: thời gian định mức, thiết bị, OP trước theo thời gian, luồng đầu vào (nếu sản lượng phụ thuộc Operation khác).",
+          "Xem Dòng vật tư của Operation để biết sản lượng đang lấy từ Operation nào.",
+          "In QR của Operation (mục 14) để dán tại trạm, phục vụ Kiosk quét."
+        ]},
+        {"type": "note", "text": "Nếu bật \"Giới hạn đầu vào theo OP nguồn\", Operation chỉ được Start/nhận sản lượng trong phạm vi WIP còn lại từ Operation nguồn — đây là nguyên nhân phổ biến của trạng thái \"Chờ đầu vào\" ở mục Tổng quan sản xuất."}
+      ]
+    },
+    {
+      "id": "kiosk",
+      "title": "7. Kiosk",
+      "keywords": ["kiosk", "quét qr", "work session", "esp32", "bắt đầu", "kết thúc", "kiosk web"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Kiosk là nơi nhân viên trực tiếp thao tác tại xưởng — quét thẻ, quét Operation, nhập sản lượng — để tạo Work Session thật. Có 2 dạng: Kiosk phần cứng (thiết bị ESP32 gắn tại trạm) và Kiosk web (trình duyệt, dùng để demo/dự phòng), cùng chung một luồng nghiệp vụ. Khác với \"Trạm kiosk\" trong menu Điều hành — đó là màn hình ADMIN theo dõi tình trạng các thiết bị Kiosk, không phải nơi nhân viên thao tác."},
+        {"type": "h3", "text": "Luồng thao tác thực tế"},
+        {"type": "h3", "text": "Bắt đầu công việc"},
+        {"type": "steps", "items": [
+          "Nhân viên quét QR nhân viên (thẻ có mã dạng WF|EMP|...).",
+          "Quét QR Operation (dạng WF|OP|...) — hệ thống kiểm tra Operation hợp lệ và PO đang ở trạng thái Đang sản xuất.",
+          "Kiosk tự động Bắt đầu Session cho nhân viên đó trên Operation vừa quét."
+        ]},
+        {"type": "h3", "text": "Kết thúc công việc"},
+        {"type": "steps", "items": [
+          "Quét lại QR nhân viên (thẻ) — nếu nhân viên đang có Session mở, Kiosk chuyển ngay sang màn hình nhập sản lượng.",
+          "Nhập số lượng đạt (GOOD).",
+          "Nhập số lượng lỗi (DEFECT) nếu có; nếu có lỗi, chọn có lỗi sửa được hay không và nhập số lượng sửa được (REWORK).",
+          "Xác nhận để Kết thúc Session."
+        ]},
+        {"type": "p", "text": "Work Session = phiên làm việc của một người trên một Operation, tính từ lúc Bắt đầu tới lúc Kết thúc."},
+        {"type": "h3", "text": "Các lỗi cần biết"},
+        {"type": "table", "headers": ["Tình huống", "Kiosk phản ứng thế nào"], "rows": [
+          ["Quét sai thứ tự (quét Operation trước khi quét thẻ)", "Báo lỗi \"Quét thẻ trước\", không cho tiếp tục cho tới khi quét đúng thứ tự Nhân viên → Operation."],
+          ["QR nhân viên không hợp lệ", "Không tìm thấy nhân viên đang hoạt động — kiểm tra lại thẻ hoặc trạng thái nhân viên trong Danh mục."],
+          ["QR Operation không hợp lệ", "Không tìm thấy Operation — kiểm tra QR hoặc tạo lại QR từ PO."],
+          ["Operation thuộc PO chưa Start / đã kết thúc", "Kiosk từ chối ngay khi quét, báo PO chưa Start hoặc đang tạm dừng."],
+          ["Đã có Session đang mở", "Không cho Start Session thứ hai cho cùng nhân viên; phải kết thúc Session đang mở trước."],
+          ["Nhập số lượng sai", "Kiểm tra lại số đạt/lỗi trước khi xác nhận; số lỗi sửa được không được lớn hơn số lỗi."],
+          ["Mất mạng / Kiosk không kết nối server", "Kiosk phần cứng vẫn ghi nhận cục bộ (\"ĐÃ LƯU TẠM\") và tự đồng bộ khi có mạng trở lại; nếu server từ chối hợp lệ (ví dụ PO đã đóng), Kiosk sẽ báo lỗi kèm lý do khi đồng bộ xong."]
+        ]},
+        {"type": "note", "text": "Xem mục 19 (Xử lý lỗi thường gặp) để biết cách kiểm tra và xử lý khi nhân viên báo Kiosk không hoạt động đúng."}
+      ]
+    },
+    {
+      "id": "work-session",
+      "title": "8. Work Session",
+      "keywords": ["session", "phiên làm việc", "good", "defect", "rework", "open", "closed"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Work Session là đơn vị dữ liệu gốc của toàn bộ sản lượng và thời gian trong MESFlow. Mọi số liệu ở Dashboard, Tổng quan sản xuất, Tiến độ theo Operation đều được TÍNH TỪ các Work Session thật, không phải nhập tay ở cấp cao hơn."},
+        {"type": "h3", "text": "Vòng đời của một Session"},
+        {"type": "list", "items": [
+          "Bắt đầu: khi nhân viên quét thẻ + quét Operation thành công tại Kiosk — trạng thái OPEN, có thời điểm bắt đầu (started_at).",
+          "Kết thúc: khi nhân viên nhập sản lượng và xác nhận — trạng thái chuyển sang CLOSED, có thời điểm kết thúc (ended_at)."
+        ]},
+        {"type": "table", "headers": ["Trạng thái", "Ý nghĩa"], "rows": [
+          ["Session đang mở (OPEN)", "Nhân viên đã Bắt đầu nhưng chưa nhập sản lượng/kết thúc. Một nhân viên chỉ có thể có TỐI ĐA 1 Session đang mở tại một thời điểm."],
+          ["Session đã hoàn thành (CLOSED)", "Đã nhập sản lượng và kết thúc — có đủ GOOD/DEFECT/REWORK và thời gian thực tế."]
+        ]},
+        {"type": "table", "headers": ["Chỉ số", "Ý nghĩa"], "rows": [
+          ["GOOD", "Số lượng sản phẩm đạt trong Session."],
+          ["DEFECT", "Số lượng sản phẩm lỗi trong Session."],
+          ["REWORK", "Trong số lỗi, số lượng có thể sửa được (REWORK ≤ DEFECT). Phần còn lại (DEFECT − REWORK) là phế."],
+          ["Thời gian thực tế", "Khoảng thời gian từ started_at tới ended_at (hoặc tới hiện tại nếu còn mở), dùng để so sánh với thời gian định mức."]
+        ]},
+        {"type": "note", "text": "KHÔNG nên sửa trực tiếp số liệu tổng hợp (Đạt/Lỗi) hiển thị ở Operation hoặc PO — các số này được TÍNH LẠI từ Work Session mỗi khi có thay đổi. Nếu số liệu Operation sai, phải kiểm tra và sửa đúng Work Session (qua Quản lý Session, cần quyền phù hợp), nếu không lần tính toán lại tiếp theo sẽ ghi đè giá trị đã sửa tay."}
+      ]
+    },
+    {
+      "id": "operation-progress",
+      "title": "9. Tiến độ theo Operation",
+      "keywords": ["tiến độ", "operation progress", "người đang làm", "session đang chạy", "active workers"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Bảng này (trong Dashboard theo ngày) cho biết từng Operation trong ca/ngày đang có bao nhiêu người làm, tiến độ thời gian và sản lượng so với kế hoạch."},
+        {"type": "h3", "text": "Đọc đúng từng con số"},
+        {"type": "example", "text": "\"2 session · 1 đang chạy\" nghĩa là:\n- Operation này đã có 2 phiên làm việc (Work Session) trong ca/ngày đang xem.\n- Trong đó chỉ còn 1 phiên chưa kết thúc (đang chạy)."},
+        {"type": "p", "text": "\"Người đang làm\": CHỈ liệt kê những nhân viên có Work Session đang mở (chưa kết thúc) trên Operation này ngay tại thời điểm xem. Nhân viên đã kết thúc Session KHÔNG được coi là người đang làm, kể cả khi họ vừa làm xong Operation đó trong ca."},
+        {"type": "note", "text": "Nếu không còn ai đang mở Session, ô \"Người đang làm\" hiển thị \"Không có người đang làm\" — không hiện lại danh sách nhân viên đã làm trước đó. Muốn xem ai đã từng tham gia Operation trong ca, di chuột vào ô này để xem gợi ý \"Đã tham gia trước đó\"."},
+        {"type": "h3", "text": "Tiến độ thời gian"},
+        {"type": "p", "text": "So sánh thời gian thực tế đã làm (cộng dồn từ các Session) với thời gian định mức = số lượng kế hoạch × thời gian định mức/sản phẩm khai báo ở Template/Operation."},
+        {"type": "h3", "text": "Tiến độ sản phẩm"},
+        {"type": "p", "text": "Số lượng GOOD đã đạt / số lượng kế hoạch của PO."},
+        {"type": "example", "text": "\"33 / 1.111 sản phẩm đạt\" nghĩa là: đã hoàn thành 33 sản phẩm đạt trên tổng kế hoạch 1.111 sản phẩm."},
+        {"type": "note", "text": "Nếu Operation chưa cấu hình thời gian định mức, Tiến độ thời gian hiển thị \"—\" (chưa cấu hình định mức) thay vì 0% — không phải lỗi hệ thống."}
+      ]
+    },
+    {
+      "id": "exceptions",
+      "title": "10. Ngoại lệ sản xuất",
+      "keywords": ["ngoại lệ", "exception", "session chồng giờ", "session mở quá lâu", "workflow"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Trung tâm ngoại lệ tự động phát hiện các Work Session có dấu hiệu bất thường về dữ liệu, để quản đốc/admin xác nhận và xử lý thay vì phải dò thủ công."},
+        {"type": "h3", "text": "Các loại ngoại lệ hệ thống tự phát hiện"},
+        {"type": "table", "headers": ["Loại", "Ý nghĩa"], "rows": [
+          ["Chồng thời gian (OVERLAP)", "Cùng một nhân viên có 2 Session trùng khoảng thời gian — thường do quét nhầm hoặc quên kết thúc Session trước."],
+          ["Session mở quá lâu (OPEN_TOO_LONG)", "Một Session vẫn ở trạng thái OPEN quá 12 giờ — có thể nhân viên quên quét kết thúc."],
+          ["Đóng lâu nhưng sản lượng 0 (ZERO_QTY_LONG)", "Session đã đóng trên 4 giờ nhưng GOOD và DEFECT đều bằng 0."],
+          ["Thiếu trạm/kiosk (MISSING_STATION)", "Session không gắn với trạm hoặc thiết bị Kiosk cụ thể."],
+          ["Giờ bất thường (INVALID_TIME)", "Giờ kết thúc ghi nhận trước giờ bắt đầu."],
+          ["Xung đột đồng bộ Kiosk (KIOSK_SYNC_CONFLICT)", "Kiosk gửi lại một sự kiện tưởng đã được server cũ xác nhận, nhưng server hiện tại từ chối vì dữ liệu không khớp — thường xảy ra sau khi đổi/khôi phục server."]
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Mở Trung tâm ngoại lệ, xem danh sách theo trạng thái xử lý.",
+          "Chọn một ngoại lệ để xem chi tiết Session liên quan.",
+          "Cập nhật trạng thái xử lý: Mới (NEW) → Đang xử lý (IN_PROGRESS) → Đã xử lý (RESOLVED) hoặc Bỏ qua (IGNORED), kèm ghi chú lý do."
+        ]},
+        {"type": "note", "text": "Ghi chú xử lý được lưu lại đầy đủ trong Nhật ký nghiệp vụ — luôn ghi rõ lý do khi Bỏ qua một ngoại lệ để tra cứu sau này."}
+      ]
+    },
+    {
+      "id": "production-trace",
+      "title": "11. Production Trace",
+      "keywords": ["production trace", "dòng thời gian", "lịch sử po", "audit"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Xem lại toàn bộ dòng thời gian sự kiện của một Production Order: khi nào Start, khi nào từng Session bắt đầu/kết thúc, sản lượng ghi nhận từng lúc, và các thay đổi cấu hình xảy ra trong quá trình sản xuất."},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Mở Production Trace từ menu Điều hành, hoặc từ chi tiết một PO.",
+          "Xem dòng sự kiện theo thứ tự thời gian.",
+          "Bấm Tải thêm sự kiện nếu PO có lịch sử dài."
+        ]},
+        {"type": "note", "text": "Production Trace phục vụ TRA CỨU LỊCH SỬ — nếu cần xử lý ngoại lệ dữ liệu (Session lỗi, chồng giờ...), dùng mục 10 (Ngoại lệ sản xuất)."}
+      ]
+    },
+    {
+      "id": "gantt-material-flow",
+      "title": "12. Gantt & Material Flow",
+      "keywords": ["gantt", "material flow", "dòng vật tư", "kế hoạch", "wip"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Xem kế hoạch, thực tế và tiến độ của các Operation theo dạng biểu đồ Gantt theo từng Production Order, cùng dòng chảy vật tư (Material Flow) giữa các Operation phụ thuộc nhau."},
+        {"type": "h3", "text": "Đọc chú giải Gantt"},
+        {"type": "table", "headers": ["Màu", "Ý nghĩa"], "rows": [
+          ["Kế hoạch", "Khung thời gian dự kiến của Operation theo PO."],
+          ["Đang chạy", "Operation đang có Session hoạt động."],
+          ["Hoàn thành", "Operation đã đạt đủ sản lượng kế hoạch."],
+          ["Đang chờ", "Operation chưa thể bắt đầu, thường do chờ đầu vào từ Operation trước."]
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Lọc theo Production Order cần xem.",
+          "Xem Gantt tổng thể để phát hiện Operation đang chờ hoặc trễ.",
+          "Bấm Dòng vật tư trên một Operation (trong PO) để xem sản lượng đang được truyền từ Operation nào, còn lại bao nhiêu WIP có thể dùng tiếp."
+        ]}
+      ]
+    },
+    {
+      "id": "employees",
+      "title": "13. Nhân viên",
+      "keywords": ["nhân viên", "employee", "hồ sơ", "cccd", "phòng ban"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Quản lý hồ sơ nhân viên (thông tin cá nhân, phòng ban, chức vụ, trạng thái làm việc) và mã QR nhân viên dùng để quét tại Kiosk."},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Bấm + Thêm nhân viên, điền thông tin bắt buộc (mã nhân viên, họ tên, phòng ban).",
+          "Dùng Tìm nhanh hoặc lọc theo Bộ phận/Trạng thái để tra cứu.",
+          "Mở Báo cáo trên một nhân viên để xem lịch sử Session và sản lượng cá nhân.",
+          "In QR nhân viên qua mục 14 (QR Code) khi cấp thẻ mới."
+        ]},
+        {"type": "note", "text": "Chỉ nhân viên đang hoạt động (Đang làm) mới quét được ở Kiosk. Nhân viên đã nghỉ vẫn giữ nguyên lịch sử Session để tra cứu, nhưng không Start Session mới được."}
+      ]
+    },
+    {
+      "id": "qr-code",
+      "title": "14. QR Code",
+      "keywords": ["qr", "in tem", "mã vạch", "print"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Lọc, chọn và in hàng loạt tem QR cho Nhân viên, Production Order, Part và Operation — phục vụ dán thẻ nhân viên và dán tem tại trạm/lô hàng."},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Chọn Loại mã QR cần in (Nhân viên / Operation / Part / Production Order).",
+          "Lọc theo Production Order hoặc tìm nhanh theo mã/tên/bộ phận.",
+          "Chọn kích thước in phù hợp với máy in tem đang dùng.",
+          "Tick chọn từng dòng, hoặc Chọn tất cả đang hiển thị.",
+          "Bấm In tem đã chọn."
+        ]}
+      ]
+    },
+    {
+      "id": "equipment",
+      "title": "15. Thiết bị",
+      "keywords": ["thiết bị", "equipment", "máy", "trạng thái thiết bị"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Quản lý danh mục máy/thiết bị sản xuất, dùng để gắn cho Operation trong Template/PO (theo dõi Operation nào chạy trên máy nào)."},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Thêm thiết bị mới với mã, tên, loại thiết bị.",
+          "Cập nhật trạng thái thiết bị (đang dùng/ngừng sử dụng) khi cần.",
+          "Gắn thiết bị cho Operation ở Template hoặc PO — xem mục 4/6."
+        ]}
+      ]
+    },
+    {
+      "id": "users-permissions",
+      "title": "16. Người dùng & phân quyền",
+      "keywords": ["người dùng", "phân quyền", "vai trò", "role", "rbac", "admin", "quản lý", "quản đốc", "vận hành"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Quản lý tài khoản đăng nhập web (không phải thẻ Kiosk), vai trò và quyền truy cập từng màn hình."},
+        {"type": "h3", "text": "5 vai trò trong MESFlow"},
+        {"type": "table", "headers": ["Vai trò", "Phạm vi"], "rows": [
+          ["Quản trị viên (admin)", "Toàn quyền hệ thống."],
+          ["Quản lý (manager)", "Quản lý kế hoạch và vận hành."],
+          ["Quản đốc (supervisor)", "Điều hành và xử lý tại xưởng."],
+          ["Vận hành (operator)", "Thao tác sản xuất và Kiosk."],
+          ["Chỉ xem (viewer)", "Chỉ theo dõi dữ liệu, không chỉnh sửa."]
+        ]},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Bấm + Tạo người dùng, đặt tên đăng nhập, tên hiển thị, chọn vai trò, đặt mật khẩu ban đầu.",
+          "Nên bật \"Yêu cầu đổi mật khẩu ở lần đăng nhập sau\" khi cấp tài khoản mới.",
+          "Vào Vai trò & phân quyền để tinh chỉnh quyền chi tiết từng vai trò (ngoài admin — admin luôn có toàn quyền, không chỉnh được).",
+          "Dùng Đặt lại mật khẩu khi nhân viên quên mật khẩu."
+        ]},
+        {"type": "note", "text": "Sau khi đổi phân quyền một vai trò, người dùng đang đăng nhập với vai trò đó cần đăng xuất/đăng nhập lại để menu cập nhật theo quyền mới."}
+      ]
+    },
+    {
+      "id": "working-calendar",
+      "title": "17. Lịch làm việc",
+      "keywords": ["lịch làm việc", "ca", "shift", "nghỉ giữa ca", "qua nửa đêm"],
+      "content": [
+        {"type": "h3", "text": "Dùng để làm gì"},
+        {"type": "p", "text": "Khai báo các ca làm việc dùng chung cho toàn hệ thống — Dashboard theo ngày, tính thời gian thực tế của Session, và cảnh báo cuối ca đều dựa trên cấu hình ca ở đây."},
+        {"type": "h3", "text": "Cách thao tác"},
+        {"type": "steps", "items": [
+          "Bấm + Thêm ca, đặt mã ca, tên ca, giờ bắt đầu/kết thúc.",
+          "Thêm các khoảng thời gian trong ca: Làm việc hoặc Nghỉ (ví dụ nghỉ trưa) — hệ thống tự kiểm tra khoảng thời gian không chồng nhau và không có khoảng trống bất thường.",
+          "Chọn ngày trong tuần áp dụng ca.",
+          "Đặt giờ công mục tiêu cho ca.",
+          "Lưu ca làm việc."
+        ]},
+        {"type": "note", "text": "Ca qua nửa đêm (ví dụ ca đêm 18:00 → 00:00 hôm sau) được hệ thống tự nhận diện — Session bắt đầu trước nửa đêm vẫn được tính trọn vẹn vào đúng ca đêm đó, không bị cắt đôi."}
+      ]
+    },
+    {
+      "id": "excel-import-export",
+      "title": "18. Import / Export Excel",
+      "keywords": ["excel", "import", "export", "nhập excel", "xuất excel"],
+      "content": [
+        {"type": "h3", "text": "Nguyên tắc quan trọng nhất"},
+        {"type": "example", "text": "Excel quy trình sản xuất → LUÔN import vào Template → kiểm tra lại Template → sau đó mới Tạo Production Order từ Template.\n\nKhông có chuyện import Excel quy trình thẳng vào Production Order."},
+        {"type": "h3", "text": "Import Template từ Excel (mục 4)"},
+        {"type": "list", "items": [
+          "Vào Template → Công cụ → Nhập từ Excel.",
+          "Hỗ trợ workbook chuẩn 3 sheet (Template/Parts/Operations) hoặc workbook quy trình nhiều sheet kiểu cũ.",
+          "Sau khi import thành công, hệ thống ở lại màn Template và tự chọn sẵn Template vừa tạo để kiểm tra ngay."
+        ]},
+        {"type": "h3", "text": "Export Template ra Excel"},
+        {"type": "p", "text": "Dùng khi cần chỉnh sửa hàng loạt ngoại tuyến rồi import lại, hoặc lưu trữ/đối chiếu quy trình."},
+        {"type": "h3", "text": "Xuất Excel danh sách Operation"},
+        {"type": "p", "text": "Ở màn Production Order có nút Xuất Excel để tải danh sách Operation hiện có — phục vụ đối chiếu, báo cáo. Đây KHÔNG phải công cụ import quy trình mới."},
+        {"type": "note", "text": "Nếu import báo lỗi thiếu mã/tên Part hoặc Operation, kiểm tra đúng tên cột trong sheet Parts/Operations theo mẫu Export Template ra Excel trước đó."}
+      ]
+    },
+    {
+      "id": "troubleshooting",
+      "title": "19. Xử lý lỗi thường gặp",
+      "keywords": ["lỗi", "sự cố", "không tạo được po", "kiosk không nhận qr", "mất kết nối", "quyền truy cập", "import lỗi"],
+      "content": [
+        {"type": "h3", "text": "Không tạo được Production Order"},
+        {"type": "list", "items": [
+          "Hiện tượng: bấm Tạo PO từ Template báo lỗi hoặc không phản hồi.",
+          "Nguyên nhân có thể: chưa chọn Template, mã PO bị trùng, số lượng kế hoạch không hợp lệ (≤0).",
+          "Cách kiểm tra: xem thông báo lỗi cụ thể ngay trên form tạo PO.",
+          "Cách xử lý: sửa đúng theo thông báo (đổi mã PO khác, nhập số lượng > 0).",
+          "Khi nào báo Admin: nếu lỗi không rõ nguyên nhân hoặc báo lỗi hệ thống (mã SYS-500)."
+        ]},
+        {"type": "h3", "text": "Không có Template để chọn"},
+        {"type": "list", "items": [
+          "Hiện tượng: danh sách Template trống khi tạo PO.",
+          "Nguyên nhân có thể: chưa tạo Template nào, hoặc Template cần đã bị tắt hoạt động (active=false).",
+          "Cách kiểm tra: vào màn Template, kiểm tra danh sách và trạng thái từng Template.",
+          "Cách xử lý: tạo Template mới hoặc bật lại Template cần dùng.",
+          "Khi nào báo Admin: nếu Template chắc chắn tồn tại nhưng vẫn không hiện."
+        ]},
+        {"type": "h3", "text": "Kiosk không nhận QR"},
+        {"type": "list", "items": [
+          "Hiện tượng: quét mã nhưng Kiosk không phản ứng hoặc báo lỗi định dạng.",
+          "Nguyên nhân có thể: máy quét mất nguồn/rớt dây, hoặc mã QR không đúng định dạng WF|EMP|... / WF|OP|....",
+          "Cách kiểm tra: thử quét một mã QR khác đã biết là đúng.",
+          "Cách xử lý: kiểm tra nguồn và dây USB/UART của máy quét, in lại QR nếu mã bị hỏng.",
+          "Khi nào báo Admin: máy quét vẫn không nhận sau khi kiểm tra dây/nguồn."
+        ]},
+        {"type": "h3", "text": "Nhân viên không Start được Operation"},
+        {"type": "list", "items": [
+          "Hiện tượng: quét đủ thẻ + Operation nhưng Kiosk báo lỗi, không vào màn nhập sản lượng.",
+          "Nguyên nhân có thể: PO của Operation chưa Start/đang tạm dừng/đã kết thúc; nhân viên đang có Session mở khác; Operation phụ thuộc OP nguồn chưa được Start.",
+          "Cách kiểm tra: xem đúng mã lỗi và thông điệp trên màn hình Kiosk (ví dụ PO-001, SES-409).",
+          "Cách xử lý: nhờ quản đốc Start/tiếp tục PO, hoặc kết thúc Session đang mở trước, hoặc Start Operation nguồn trước.",
+          "Khi nào báo Admin: mã lỗi SYS-500 hoặc lỗi lặp lại nhiều lần không rõ lý do."
+        ]},
+        {"type": "h3", "text": "Session không kết thúc được"},
+        {"type": "list", "items": [
+          "Hiện tượng: nhập sản lượng xong nhưng không xác nhận được / báo lỗi khi gửi.",
+          "Nguyên nhân có thể: số lượng sửa được (REWORK) lớn hơn số lỗi (DEFECT); mất kết nối mạng khi gửi.",
+          "Cách kiểm tra: kiểm tra lại các số đã nhập, xem thông báo lỗi validation trên màn hình.",
+          "Cách xử lý: sửa số liệu cho đúng ràng buộc rồi xác nhận lại; nếu mất mạng, đợi Kiosk tự đồng bộ khi có mạng lại.",
+          "Khi nào báo Admin: Session vẫn ở trạng thái mở lâu bất thường dù đã xác nhận nhiều lần."
+        ]},
+        {"type": "h3", "text": "Số lượng không đúng"},
+        {"type": "list", "items": [
+          "Hiện tượng: sản lượng Đạt/Lỗi hiển thị ở Operation/PO không khớp thực tế.",
+          "Nguyên nhân có thể: nhập nhầm số lượng ở Kiosk; Session bị trùng/chồng giờ (xem Ngoại lệ).",
+          "Cách kiểm tra: đối chiếu từng Work Session trong Quản lý Session hoặc Trung tâm ngoại lệ.",
+          "Cách xử lý: sửa đúng Work Session gốc (không sửa số tổng hợp) qua Quản lý Session (cần quyền phù hợp).",
+          "Khi nào báo Admin: chênh lệch lớn không tìm được Session nguyên nhân."
+        ]},
+        {"type": "h3", "text": "Dashboard không có dữ liệu"},
+        {"type": "list", "items": [
+          "Hiện tượng: Dashboard theo ngày trống dù nhân viên đã làm việc.",
+          "Nguyên nhân có thể: chọn sai ngày/ca; chưa có Work Session nào trong ngày đó; Session bị Kiosk từ chối do PO chưa Start (không tạo được Session thật).",
+          "Cách kiểm tra: đổi lại đúng ngày, kiểm tra Kiosk Events (Trạm kiosk) xem có sự kiện bị từ chối không.",
+          "Cách xử lý: cho nhân viên quét lại đúng flow sau khi PO đã Start.",
+          "Khi nào báo Admin: Session được xác nhận \"đã lưu\" ở Kiosk nhưng không thấy trên Dashboard sau vài phút."
+        ]},
+        {"type": "h3", "text": "Operation không có người đang làm"},
+        {"type": "list", "items": [
+          "Hiện tượng: cột \"Người đang làm\" trống dù ca vẫn còn giờ làm việc.",
+          "Nguyên nhân có thể: đây là hành vi ĐÚNG nếu không ai đang mở Session trên Operation này — không phải lỗi (xem mục 9).",
+          "Cách kiểm tra: xem cột \"session · đang chạy\" bên cạnh, nếu đang chạy = 0 thì đúng là chưa ai làm.",
+          "Cách xử lý: không cần xử lý nếu đúng thực tế; nếu thực tế có người đang làm mà không hiện, kiểm tra họ đã quét Bắt đầu đúng cách chưa.",
+          "Khi nào báo Admin: chắc chắn có người đang làm việc thật nhưng hệ thống không ghi nhận Session OPEN nào."
+        ]},
+        {"type": "h3", "text": "Dữ liệu thời gian bất thường"},
+        {"type": "list", "items": [
+          "Hiện tượng: thời gian thực tế của Session âm hoặc vô lý.",
+          "Nguyên nhân có thể: giờ kết thúc bị ghi trước giờ bắt đầu (đồng hồ thiết bị sai), hoặc Session chồng giờ với Session khác.",
+          "Cách kiểm tra: vào Trung tâm ngoại lệ, tìm loại INVALID_TIME hoặc OVERLAP.",
+          "Cách xử lý: xác nhận và sửa đúng Session qua Quản lý Session.",
+          "Khi nào báo Admin: lặp lại nhiều lần trên cùng một thiết bị Kiosk (có thể đồng hồ thiết bị bị lệch)."
+        ]},
+        {"type": "h3", "text": "Mất kết nối server"},
+        {"type": "list", "items": [
+          "Hiện tượng: Kiosk hoặc web hiển thị lỗi kết nối.",
+          "Nguyên nhân có thể: mất mạng LAN/Wi-Fi, hoặc server MESFlow đang bảo trì.",
+          "Cách kiểm tra: kiểm tra kết nối mạng của thiết bị; thử truy cập một trang khác trên cùng mạng.",
+          "Cách xử lý: đợi kết nối phục hồi — Kiosk phần cứng tự lưu tạm và đồng bộ lại; web cần tải lại trang.",
+          "Khi nào báo Admin: mất kết nối kéo dài hoặc xảy ra đồng loạt nhiều thiết bị."
+        ]},
+        {"type": "h3", "text": "Quyền truy cập bị từ chối"},
+        {"type": "list", "items": [
+          "Hiện tượng: mở một màn hình nhưng báo \"Không có quyền truy cập\".",
+          "Nguyên nhân có thể: vai trò tài khoản không được cấp quyền cho màn hình đó.",
+          "Cách kiểm tra: xem vai trò hiện tại của mình (mục 16).",
+          "Cách xử lý: liên hệ Admin để được cấp quyền, hoặc dùng đúng tài khoản có quyền phù hợp.",
+          "Khi nào báo Admin: luôn cần Admin xử lý — người dùng thường không tự cấp quyền được."
+        ]},
+        {"type": "h3", "text": "Import Excel lỗi"},
+        {"type": "list", "items": [
+          "Hiện tượng: import Template từ Excel báo lỗi, không tạo được Template.",
+          "Nguyên nhân có thể: file không đúng định dạng .xlsx, thiếu sheet Parts/Operations, thiếu mã/tên Part hoặc Operation trong một dòng.",
+          "Cách kiểm tra: đọc đúng thông báo lỗi (thường ghi rõ dòng nào thiếu dữ liệu gì).",
+          "Cách xử lý: sửa đúng dòng bị báo lỗi trong file Excel rồi import lại; có thể Export Template mẫu ra Excel để đối chiếu đúng cấu trúc cột.",
+          "Khi nào báo Admin: file đúng định dạng nhưng vẫn báo lỗi hệ thống."
+        ]}
+      ]
+    },
+    {
+      "id": "recommended-workflow",
+      "title": "20. Quy trình sử dụng MESFlow đề xuất",
+      "keywords": ["quy trình", "workflow", "sơ đồ", "các bước"],
+      "content": [
+        {"type": "h3", "text": "8 bước sử dụng MESFlow"},
+        {"type": "steps", "items": [
+          "Chuẩn bị Template — xây dựng quy trình mẫu (Part, Operation, định mức) hoặc import từ Excel.",
+          "Tạo Production Order từ Template — sinh dữ liệu sản xuất thực tế, đặt số lượng kế hoạch và thời gian.",
+          "Nhân viên dùng Kiosk bắt đầu Operation — quét thẻ, quét Operation.",
+          "MESFlow ghi nhận Work Session — hệ thống tự lưu thời điểm bắt đầu.",
+          "Nhân viên nhập sản lượng khi kết thúc — GOOD/DEFECT/REWORK, Work Session chuyển sang đã hoàn thành.",
+          "Quản đốc theo dõi Dashboard / Operation — theo dõi tiến độ theo ngày/ca và theo từng Operation.",
+          "Xử lý ngoại lệ — xác nhận và xử lý các Session bất thường hệ thống phát hiện được.",
+          "Theo dõi tiến độ PO đến hoàn thành — qua Tổng quan sản xuất, Gantt & Material Flow, tới khi PO đạt trạng thái Hoàn thành."
+        ]},
+        {"type": "h3", "text": "Sơ đồ dòng dữ liệu"},
+        {"type": "diagram", "text": "Template\n   ↓\nProduction Order\n   ↓\nPart\n   ↓\nOperation\n   ↓\nWork Session\n   ↓\nGOOD / DEFECT / REWORK\n   ↓\nDashboard / Tiến độ / Báo cáo"}
+      ]
+    }
+  ]
+}
