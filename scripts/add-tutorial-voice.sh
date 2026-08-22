@@ -4,7 +4,7 @@ VIDEO_DIR="${1:-$HOME/mesflow-user-guide}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NARR="$ROOT/tutorial/narration"
 VOICE="${MESFLOW_TTS_VOICE:-vi-VN-HoaiMyNeural}"
-RATE="${MESFLOW_TTS_RATE:--8%}"
+RATE="${MESFLOW_TTS_RATE:--18%}"
 INTRO_SEC="${MESFLOW_TUTORIAL_INTRO_SECONDS:-4}"
 
 command -v ffmpeg >/dev/null || { echo "[ERROR] Cần ffmpeg: sudo apt install -y ffmpeg"; exit 2; }
