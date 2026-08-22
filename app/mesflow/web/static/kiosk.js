@@ -86,15 +86,30 @@
     document.getElementById('finish-submit-error').textContent = '';
     show('ready');
   }
+  // The version this tab actually loaded with (kiosk.html sets
+  // data-version="{{ version }}" on <html>). Compared against every
+  // heartbeat response below to detect a server redeploy.
+  const loadedVersion = document.documentElement.dataset.version || '';
+  let reloadPending = false;
+  function reloadIfNewVersionAvailable(serverVersion) {
+    if (reloadPending || !serverVersion || !loadedVersion || serverVersion === loadedVersion) return;
+    // Never yank the screen mid-task -- a locked-keyboard kiosk an operator
+    // can't reach must still finish whatever they're doing; only reload
+    // between tasks (state==='ready'), and check again on the next
+    // heartbeat if it's currently busy.
+    if (state !== 'ready' || demoIsOpen()) return;
+    reloadPending = true;
+    window.location.reload();
+  }
   async function sendHeartbeat() {
     try {
-      await fetch('/api/kiosk-web/heartbeat', {
+      const response = await fetch('/api/kiosk-web/heartbeat', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           device_uuid:deviceUuid,
           device_name:'Web Kiosk Demo',
-          firmware_version:document.documentElement.dataset.version || 'WEB-DEMO',
+          firmware_version:loadedVersion || 'WEB-DEMO',
           ui_state:String(state || 'ready').toUpperCase(),
           health_state:lastHeartbeatError ? 'WARNING' : 'OK',
           queue_size:0,
@@ -103,6 +118,8 @@
         keepalive:true
       });
       lastHeartbeatError='';
+      const data = await response.json().catch(() => null);
+      if (data?.ok) reloadIfNewVersionAvailable(data.version);
     } catch (error) {
       lastHeartbeatError=String(error?.message || 'Heartbeat failed');
     }

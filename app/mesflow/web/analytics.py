@@ -276,6 +276,27 @@ def employee_performance_report():
         return jsonify(ok=True,report=report)
     except Exception as exc: return error(exc)
 
+@bp.get('/reports/employee-productivity')
+@login_required
+def employee_productivity_report():
+    try:
+        employee=request.args.get('employee_id','').strip()
+        report=ReportRepository().employee_productivity(
+            request.args.get('from'),request.args.get('to'),
+            int(employee) if employee else None,
+            request.args.get('department') or None,request.args.get('team') or None,
+            int(request.args.get('limit',1000)))
+        return jsonify(ok=True,**report)
+    except Exception as exc: return error(exc)
+
+@bp.get('/reports/employee-productivity/<int:employee_id>')
+@login_required
+def employee_productivity_detail_report(employee_id):
+    try:
+        detail=ReportRepository().employee_productivity_detail(employee_id,request.args.get('from'),request.args.get('to'))
+        return jsonify(ok=True,**detail)
+    except Exception as exc: return error(exc)
+
 @bp.get('/kpi/employees')
 @login_required
 def employee_kpi():

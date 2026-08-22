@@ -55,7 +55,13 @@ def kiosk_web_heartbeat():
         if not device_uuid:
             raise ValueError('device_uuid required')
         status = KioskRepository().heartbeat_web_demo(device_uuid, body)
-        return jsonify(ok=True, status=dict(status))
+        # Lets an already-open kiosk tab notice a new deploy on its own --
+        # kiosk.js compares this to the version it loaded with and reloads
+        # itself when idle. Without this, a kiosk machine an operator can't
+        # reach (locked keyboard, no remote access) keeps running whatever
+        # JS/CSS was in the browser at last page load forever, regardless
+        # of how many times the server gets redeployed.
+        return jsonify(ok=True, status=dict(status), version=__version__)
     except Exception as exc:
         return _error(exc)
 

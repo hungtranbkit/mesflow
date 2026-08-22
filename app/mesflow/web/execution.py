@@ -21,7 +21,7 @@ class KioskRepositoryLookup:
     @staticmethod
     def operation(qr,key):
         from mesflow.db.connection import fetch_one
-        return fetch_one("SELECT o.id,o.code,o.name,o.qr,p.code part_code,po.code po_code FROM operations o LEFT JOIN parts p ON p.id=o.part_id LEFT JOIN production_orders po ON po.id=o.production_order_id WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s) LIMIT 1",(qr,key))
+        return fetch_one("SELECT o.id,o.code,o.name,o.qr,p.code part_code,po.code po_code,po.status po_status FROM operations o LEFT JOIN parts p ON p.id=o.part_id LEFT JOIN production_orders po ON po.id=o.production_order_id WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s) LIMIT 1",(qr,key))
     @staticmethod
     def station(code):
         from mesflow.db.connection import fetch_one
@@ -348,6 +348,16 @@ def legacy_lookup():
             row=KioskRepositoryLookup.operation(qr,key)
             if not row: raise NotFoundError('operation not found')
             if device: KioskEventRepository().ingest({'event_uuid':f'{device}-SCAN-OP-{uuid.uuid4()}','device_uuid':device,'event_type':'SCAN_OPERATION','severity':'INFO','message':f"Quét OP {row['code']}",'operation_id':row['id'],'payload':{'qr':qr}})
+            # BUG (found 2026-08-22): this is the endpoint the ESP32 kiosk actually
+            # calls to validate an OP QR (/api/kiosk-web/scan's po_status check
+            # never runs here). Without this, scanning an Operation whose PO has
+            # already COMPLETED/CANCELLED or was never Started returned ok=True --
+            # the kiosk let the worker proceed to enter quantity, and the real
+            # rejection only surfaced (or didn't -- see esp.ino's offline-sync
+            # "rejected" handling) once WorkSessionRepository.start() ran, deep in
+            # the async offline-sync path, long after the worker had moved on.
+            if str(row.get('po_status') or '').upper()!='IN_PROGRESS':
+                raise ConflictError(f"PO {row.get('po_code') or ''} chưa Start hoặc đang tạm dừng")
             return jsonify(ok=True,type='operation',operation={'id':row['id'],'code':row['code'],'name':row['name'],'qr':row['qr'],'po':row['po_code'],'part':row['part_code']})
         raise ValueError('unsupported qr')
     except Exception as exc:return err(exc)

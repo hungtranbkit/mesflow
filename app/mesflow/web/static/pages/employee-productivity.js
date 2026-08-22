@@ -1,0 +1,191 @@
+// Báo cáo năng suất nhân viên -- new page, additive only:
+// - Adds one entry to the "Điều hành" sidebar group + PAGE_PERMISSION in
+//   app.js (menu/PAGE_PERMISSION are built into the sidebar DOM eagerly at
+//   parse time, unlike renderTutorials()/attachGuideTabs(), so unlike
+//   text-guide.js this one genuinely needs a small app.js edit -- nothing
+//   else in app.js changes).
+// - Everything else (openPage routing, rendering, the detail modal) lives
+//   here, wired the same way pages/production-trace.js already wires a new
+//   page id: capture the previous openPage, add one more `if`, delegate.
+
+const openPageWithoutProductivity = openPage;
+openPage = async function (id, btn) {
+  if (id === 'employee-productivity') { setActive(btn || document.querySelector('[data-page="employee-productivity"]')); return renderEmployeeProductivity(); }
+  return openPageWithoutProductivity(id, btn);
+};
+
+// Section 7: thresholds live in one place, not scattered through the UI.
+// Matches the task's own example bands; kept separate from
+// renderEmployeePerformance()'s unrelated "Hiệu suất định mức" bands
+// (110/90/75) elsewhere in app.js, which score a different, SUM-based
+// metric on a different (currently unreachable) screen -- not the same
+// metric, not safe to reuse verbatim.
+const EMPLOYEE_PRODUCTIVITY_THRESHOLDS = [
+  { min: 100, label: 'Vượt mục tiêu', cls: 'success' },
+  { min: 80, label: 'Đạt tốt', cls: 'success' },
+  { min: 60, label: 'Cần theo dõi', cls: 'warning' },
+  { min: -Infinity, label: 'Thấp', cls: 'danger' },
+];
+function productivityBand(pct) {
+  if (pct === null || pct === undefined) return { label: 'Không đủ dữ liệu', cls: 'neutral' };
+  return EMPLOYEE_PRODUCTIVITY_THRESHOLDS.find(t => pct >= t.min);
+}
+function productivityText(pct) {
+  return pct === null || pct === undefined ? '—' : `${Number(pct).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`;
+}
+function epDur(seconds) {
+  seconds = Math.max(0, Number(seconds || 0));
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
+  if (h) return `${h}g ${String(m).padStart(2, '0')}p`;
+  return `${m}p`;
+}
+function epTodayHcm() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+function epMonthStartHcm() {
+  const today = epTodayHcm();
+  return `${today.slice(0, 7)}-01`;
+}
+function epDateShort(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit' }).format(d);
+}
+function epTimeShort(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+}
+
+async function renderEmployeeProductivity() {
+  title.textContent = 'Báo cáo năng suất nhân viên';
+  subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các Session đã kết thúc của từng nhân viên trong khoảng ngày.';
+  content.innerHTML = `<div class="page-shell">
+    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn primary" id="epReload">Làm mới</button>' })}
+    <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
+    <section class="content-panel"><div class="content-panel-head"><div><h3>Năng suất theo nhân viên</h3><p id="epRangeLabel"></p></div></div><div class="content-panel-body" id="epTableHost">Đang tải...</div></section>
+  </div>`;
+
+  let rows = [];
+  let sortKey = 'productivity_percent';
+  let sortDir = -1; // section 6: mặc định giảm dần theo năng suất
+
+  const SORTERS = {
+    employee: x => String(x.employee_name || ''),
+    session: x => x.completed_valid_sessions + x.completed_invalid_sessions,
+    productivity: x => x.productivity_percent === null ? -Infinity : x.productivity_percent,
+    output: x => x.good_qty,
+    time: x => x.worked_seconds,
+  };
+  const sortRows = () => {
+    const key = { productivity_percent: 'productivity', employee_name: 'employee', session: 'session', good_qty: 'output', worked_seconds: 'time' }[sortKey] || sortKey;
+    const fn = SORTERS[key] || SORTERS.productivity;
+    rows.sort((a, b) => (fn(a) < fn(b) ? -1 : fn(a) > fn(b) ? 1 : 0) * sortDir);
+  };
+
+  const drawKpis = summary => {
+    const top = summary.top_employee;
+    document.getElementById('epKpis').innerHTML = [
+      ['Nhân viên có dữ liệu', summary.employee_count || 0, (summary.completed_sessions || 0) + ' session hoàn thành'],
+      ['Session hoàn thành', summary.completed_sessions || 0, (summary.running_sessions || 0) + ' đang chạy · ' + (summary.completed_invalid_sessions || 0) + ' không đủ dữ liệu'],
+      ['Năng suất trung bình toàn bộ nhân viên', productivityText(summary.avg_employee_productivity_percent), 'Trung bình của từng nhân viên, không phải trung bình mọi session'],
+      ['Người có năng suất cao nhất', top ? productivityText(top.productivity_percent) : '—', top ? `${esc(top.employee_name)} · ${top.completed_valid_sessions} session` : 'Chưa có dữ liệu'],
+    ].map((x, i) => `<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${typeof x[1] === 'number' ? Number(x[1]).toLocaleString('vi-VN') : x[1]}</strong><span>${x[2]}</span></article>`).join('');
+  };
+
+  const drawTable = () => {
+    const host = document.getElementById('epTableHost');
+    if (!rows.length) { host.innerHTML = '<div class="empty">Không có Session hoàn thành trong khoảng ngày đã chọn.</div>'; return; }
+    const arrow = key => sortKey === key ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+    host.innerHTML = `<div class="table-wrap"><table class="ep-table"><thead><tr>
+      <th data-sort="employee_name" class="sortable">Nhân viên${arrow('employee_name')}</th>
+      <th data-sort="session" class="sortable">Session${arrow('session')}</th>
+      <th data-sort="productivity_percent" class="sortable">Năng suất trung bình${arrow('productivity_percent')}</th>
+      <th data-sort="good_qty" class="sortable">Sản lượng${arrow('good_qty')}</th>
+      <th data-sort="worked_seconds" class="sortable">Thời gian làm việc${arrow('worked_seconds')}</th>
+      <th>Trạng thái</th>
+    </tr></thead><tbody>${rows.map(x => {
+      const band = productivityBand(x.productivity_percent);
+      const totalCompleted = x.completed_valid_sessions + x.completed_invalid_sessions;
+      return `<tr class="ep-row" data-employee="${x.employee_id}" tabindex="0" role="button">
+        <td><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
+        <td><b>${totalCompleted} session</b><small>${x.running_sessions} đang chạy${x.completed_invalid_sessions ? ` · ${x.completed_invalid_sessions} không đủ dữ liệu` : ''}</small></td>
+        <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} session hợp lệ</small></td>
+        <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>Lỗi ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
+        <td>${epDur(x.worked_seconds)}</td>
+        <td><span class="badge ep-band ${band.cls}">${band.label}</span></td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+    host.querySelectorAll('.sortable').forEach(th => th.onclick = () => {
+      const key = th.dataset.sort;
+      if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = key === 'employee_name' ? 1 : -1; }
+      sortRows(); drawTable();
+    });
+    host.querySelectorAll('.ep-row').forEach(tr => {
+      const open = () => openEmployeeProductivityDetail(Number(tr.dataset.employee), document.getElementById('epFrom').value, document.getElementById('epTo').value);
+      tr.onclick = open;
+      tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+    });
+  };
+
+  let lastEmployees = [];
+  const applyFilters = raw => {
+    if (raw) lastEmployees = raw;
+    const q = (document.getElementById('epSearch').value || '').trim().toLowerCase();
+    const dept = document.getElementById('epDept').value;
+    rows = lastEmployees.filter(x => (!dept || x.department === dept) && (!q || `${x.employee_name} ${x.employee_code}`.toLowerCase().includes(q)));
+    sortRows(); drawTable();
+  };
+
+  const load = async () => {
+    const host = document.getElementById('epTableHost');
+    host.innerHTML = 'Đang tải...';
+    try {
+      const from = document.getElementById('epFrom').value, to = document.getElementById('epTo').value;
+      const d = await api(`/api/reports/employee-productivity?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      document.getElementById('epRangeLabel').textContent = `${epDateShort(from)} → ${epDateShort(to)} · sắp xếp theo năng suất giảm dần, có thể đổi cột`;
+      drawKpis(d.summary || {});
+      const deptSel = document.getElementById('epDept'), currentDept = deptSel.value;
+      const depts = [...new Set((d.employees || []).map(x => x.department).filter(Boolean))].sort();
+      deptSel.innerHTML = '<option value="">Tất cả bộ phận</option>' + depts.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+      if (depts.includes(currentDept)) deptSel.value = currentDept;
+      applyFilters(d.employees || []);
+    } catch (e) {
+      host.innerHTML = `<div class="empty danger">${esc(e.message)}</div>`;
+    }
+  };
+
+  document.getElementById('epReload').onclick = load;
+  document.getElementById('epFrom').onchange = load;
+  document.getElementById('epTo').onchange = load;
+  // Search/department re-filter the already-fetched list -- no re-fetch.
+  document.getElementById('epSearch').oninput = () => applyFilters();
+  document.getElementById('epDept').onchange = () => applyFilters();
+  await load();
+}
+
+async function openEmployeeProductivityDetail(employeeId, from, to) {
+  const box = document.createElement('div'); box.className = 'modal-backdrop';
+  box.innerHTML = `<div class="modal ep-detail-modal"><div class="catalog-modal-head"><div><h2 id="epdTitle">Đang tải...</h2><p id="epdRange"></p></div><button type="button" class="btn" id="epdClose">Đóng</button></div><div id="epdBody">Đang tải...</div></div>`;
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('#epdClose').onclick = close;
+  box.onclick = e => { if (e.target === box) close(); };
+  try {
+    const d = await api(`/api/reports/employee-productivity/${employeeId}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    const emp = d.employee;
+    box.querySelector('#epdTitle').textContent = `${emp.employee_name} · ${emp.employee_code}`;
+    box.querySelector('#epdRange').textContent = `${epDateShort(d.from)} → ${epDateShort(d.to)} · Năng suất trung bình: ${productivityText(d.productivity_percent)} (${d.valid_session_count} session hợp lệ)`;
+    const rows = d.sessions || [];
+    box.querySelector('#epdBody').innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Ngày</th><th>PO</th><th>Part</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th><th>GOOD</th><th>DEFECT</th><th>Session %</th><th>Trạng thái</th></tr></thead><tbody>${rows.map(x => `<tr>
+        <td>${epDateShort(x.started_at)}</td><td>${esc(x.po_code)}</td><td>${esc(x.part_code)}</td><td>${esc(x.operation_code)}</td>
+        <td>${epTimeShort(x.started_at)}</td><td>${x.status === 'OPEN' ? '—' : epTimeShort(x.ended_at)}</td><td>${epDur(x.duration_seconds)}</td>
+        <td>${Number(x.good_qty).toLocaleString('vi-VN')}</td><td>${Number(x.defect_qty).toLocaleString('vi-VN')}</td>
+        <td>${x.status === 'OPEN' ? '<span class="badge neutral">Đang chạy</span>' : x.completion_percent === null ? '<span class="badge neutral">Không đủ dữ liệu</span>' : productivityText(x.completion_percent)}</td>
+        <td>${x.status === 'OPEN' ? 'Đang chạy' : 'Đã kết thúc'}</td>
+      </tr>`).join('')}</tbody></table></div><p class="ep-detail-footnote">Trung bình: ${productivityText(d.productivity_percent)} trên ${d.valid_session_count} session hợp lệ (không tính session đang chạy hoặc thiếu dữ liệu định mức).</p>`
+      : '<div class="empty">Không có Session trong khoảng ngày đã chọn.</div>';
+  } catch (e) {
+    box.querySelector('#epdBody').innerHTML = `<div class="empty danger">${esc(e.message)}</div>`;
+  }
+}
