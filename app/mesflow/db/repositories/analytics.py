@@ -99,6 +99,20 @@ def _safe_json(value):
         return parsed if isinstance(parsed,dict) else {}
     except (TypeError,ValueError): return {}
 
+def _worker_list(value):
+    """Normalize a jsonb_agg(DISTINCT jsonb_build_object('employee_id',...,
+    'name',...)) FILTER (...) aggregate into a sorted list of
+    {employee_id,name}. Handles psycopg returning the column already
+    decoded (native jsonb adapter), a raw JSON string, or NULL (no row
+    matched the FILTER -- e.g. no one currently running the Operation)."""
+    if not value: return []
+    if isinstance(value,str):
+        try: value=json.loads(value)
+        except (TypeError,ValueError): return []
+    if not isinstance(value,list): return []
+    items=[x for x in value if isinstance(x,dict) and x.get('employee_id') is not None]
+    return sorted(items,key=lambda x:str(x.get('name') or ''))
+
 class DashboardRepository:
     def summary(self):
         return fetch_one("""SELECT
@@ -661,7 +675,7 @@ class DashboardRepository:
             duration_params.extend([right,left])
         duration_sql=' + '.join(duration_parts) if duration_parts else '0'
         params=[shift_end,shift_start,shift_start,shift_end,shift_start,shift_end,shift_start,shift_end,*duration_params,min(max(limit,1),2000)]
-        return fetch_all(f"""WITH shift_sessions AS (
+        rows=fetch_all(f"""WITH shift_sessions AS (
           SELECT ws.*,COALESCE(ws.ended_at,ws.updated_at) report_at
           FROM work_sessions ws
           WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
@@ -673,7 +687,19 @@ class DashboardRepository:
             COALESCE(SUM(ds.defect_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_defect_qty,
             COALESCE(SUM(ds.rework_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_rework_qty,
             COALESCE(SUM({duration_sql}),0)::bigint day_work_seconds,
-            STRING_AGG(DISTINCT e.name,', ' ORDER BY e.name) workers
+            -- "Người làm" must reflect who is CURRENTLY running the Operation,
+            -- not everyone who ever touched it in the window. status='OPEN' is
+            -- the same source-of-truth predicate as open_session_count above
+            -- (and is backed by uq_open_session_per_employee, so an employee
+            -- can hold at most one OPEN session at all -- DISTINCT on the
+            -- whole object is therefore already DISTINCT by employee_id).
+            jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
+              FILTER (WHERE ds.status='OPEN') active_workers,
+            -- History only (who touched this Operation in the window, active
+            -- or not) -- for an optional "Đã tham gia trước đó" detail; must
+            -- never be the default rendered value.
+            jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
+              FILTER (WHERE ds.employee_id IS NOT NULL) all_participants
           FROM operations o LEFT JOIN shift_sessions ds ON ds.operation_id=o.id
           LEFT JOIN employees e ON e.id=ds.employee_id GROUP BY o.id
         ) SELECT po.id po_id,po.code po_code,po.product,po.status po_status,
@@ -683,7 +709,7 @@ class DashboardRepository:
           (COALESCE(po.planned_quantity,0)*COALESCE(o.standard_seconds_per_unit,0))::bigint planned_work_seconds,
           COALESCE(r.session_count,0) session_count,COALESCE(r.open_session_count,0) open_session_count,
           COALESCE(r.day_good_qty,0) day_good_qty,COALESCE(r.day_defect_qty,0) day_defect_qty,COALESCE(r.day_rework_qty,0) day_rework_qty,
-          COALESCE(r.day_work_seconds,0) day_work_seconds,r.workers,r.first_started_at,r.last_started_at,r.last_report_at,
+          COALESCE(r.day_work_seconds,0) day_work_seconds,r.active_workers,r.all_participants,r.first_started_at,r.last_started_at,r.last_report_at,
           CASE WHEN COALESCE(r.open_session_count,0)>0 THEN 'RUNNING'
             WHEN COALESCE(r.day_defect_qty,0)>0 THEN 'HAS_DEFECT'
             WHEN COALESCE(r.session_count,0)>0 THEN 'UPDATED' ELSE 'IDLE' END day_state
@@ -692,6 +718,10 @@ class DashboardRepository:
         WHERE COALESCE(r.session_count,0)>0
         ORDER BY CASE WHEN COALESCE(r.open_session_count,0)>0 THEN 0 WHEN COALESCE(r.day_defect_qty,0)>0 THEN 1 ELSE 2 END,
           r.last_report_at DESC NULLS LAST LIMIT %s""",params)
+        for row in rows:
+            row['active_workers']=_worker_list(row.get('active_workers'))
+            row['all_participants']=_worker_list(row.get('all_participants'))
+        return rows
 
     def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None):
         ctx=resolve_shift_context(shift_date,shift_id,shift_code)
