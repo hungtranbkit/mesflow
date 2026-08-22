@@ -49,6 +49,7 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
     'KIOSK_STATUS_CHANGE': {'label': 'Đổi trạng thái kiosk', 'category': 'admin'},
     'KIOSK_EVENT_RESOLVE': {'label': 'Xử lý sự kiện kiosk', 'category': 'admin'},
     'KPI_SNAPSHOT': {'label': 'Chốt KPI', 'category': 'admin'},
+    'EMPLOYEE_PRODUCTIVITY_WALLBOARD_PUBLISH': {'label': 'Trình chiếu năng suất lên Kiosk', 'category': 'admin'},
     'LOGIN_SUCCESS': {'label': 'Đăng nhập thành công', 'category': 'admin'},
     'LOGIN_FAILED': {'label': 'Đăng nhập thất bại', 'category': 'admin'},
 }

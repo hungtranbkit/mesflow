@@ -63,6 +63,28 @@ async function renderEmployeeProductivity() {
   content.innerHTML = `<div class="page-shell">
     ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn primary" id="epReload">Làm mới</button>' })}
     <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
+    <!-- Section 21: giữ tách biệt khỏi filter bar phía trên -- panel riêng,
+    không dùng chung state với bộ lọc bảng (epFrom/epTo/epDept chỉ ảnh hưởng
+    bảng bên dưới cho tới khi bấm "Trình chiếu trên Kiosk"). -->
+    <section class="content-panel wallboard-panel" id="epWbPanel">
+      <div class="content-panel-head">
+        <div><h3>Trình chiếu Kiosk</h3><p id="epWbState">Đang tải trạng thái...</p></div>
+        <div class="content-panel-actions">
+          <label class="wallboard-dynamic-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động: đầu tháng → hôm nay</span></label>
+          <label><span>Sắp xếp trên Kiosk</span><select id="epWbSort">
+            <option value="productivity_desc">Năng suất giảm dần</option>
+            <option value="productivity_asc">Năng suất tăng dần</option>
+            <option value="name_asc">Tên A→Z</option>
+            <option value="sessions_desc">Số session giảm dần</option>
+          </select></label>
+          <label><span>Số người/trang</span><input type="number" id="epWbPageSize" min="1" max="50" value="10" style="width:64px"></label>
+          <label><span>Làm mới mỗi (giây)</span><input type="number" id="epWbRefresh" min="5" max="300" value="20" style="width:72px"></label>
+          <button class="btn" id="epWbPreview" type="button">Preview màn trình chiếu</button>
+          <button class="btn primary" id="epWbPublish" type="button">Trình chiếu trên Kiosk</button>
+        </div>
+      </div>
+      <div class="content-panel-body" id="epWbBody"></div>
+    </section>
     <section class="content-panel"><div class="content-panel-head"><div><h3>Năng suất theo nhân viên</h3><p id="epRangeLabel"></p></div></div><div class="content-panel-body" id="epTableHost">Đang tải...</div></section>
   </div>`;
 
@@ -161,7 +183,77 @@ async function renderEmployeeProductivity() {
   // Search/department re-filter the already-fetched list -- no re-fetch.
   document.getElementById('epSearch').oninput = () => applyFilters();
   document.getElementById('epDept').onchange = () => applyFilters();
+
+  // --- TRÌNH CHIẾU KIOSK -----------------------------------------------
+  // Deliberately isolated from the table's own filter/sort/search state
+  // above: this panel only ever reads epFrom/epTo/epDept (Section 21 --
+  // "current Report filters") at the moment Preview/Publish is clicked,
+  // and Publish is the ONLY thing in this file that calls the
+  // wallboard-config endpoint. Nothing here duplicates the productivity
+  // formula -- Preview calls the same authenticated report API this page
+  // already uses; Publish only ever writes filter/display config.
+  const wbStateText = cfg => {
+    if (!cfg.configured) return 'Chưa public — Kiosk sẽ hiện màn "Chưa cấu hình trình chiếu".';
+    const range = cfg.date_mode === 'dynamic_mtd' ? 'Đầu tháng → hôm nay (tự động)' : `${epDateShort(cfg.from)} → ${epDateShort(cfg.to)}`;
+    const sortLabel = { productivity_desc: 'Năng suất giảm dần', productivity_asc: 'Năng suất tăng dần', name_asc: 'Tên A→Z', sessions_desc: 'Số session giảm dần' }[cfg.sort] || cfg.sort;
+    return `Đang public: ${range} · Sort: ${sortLabel} · ${cfg.page_size} người/trang · Refresh: ${cfg.refresh_interval_seconds}s · Cập nhật lần cuối: ${cfg.updated_at ? epTimeShort(cfg.updated_at) + ' ' + epDateShort(cfg.updated_at) : '—'} · Người cập nhật: ${cfg.updated_by || '—'}`;
+  };
+  const loadWallboardState = async () => {
+    try {
+      const d = await api('/api/reports/employee-productivity/wallboard-config');
+      document.getElementById('epWbState').textContent = wbStateText(d.config);
+      if (d.config.configured) {
+        document.getElementById('epWbSort').value = d.config.sort;
+        document.getElementById('epWbPageSize').value = d.config.page_size;
+        document.getElementById('epWbRefresh').value = d.config.refresh_interval_seconds;
+        document.getElementById('epWbDynamicMtd').checked = d.config.date_mode === 'dynamic_mtd';
+      }
+    } catch (e) {
+      document.getElementById('epWbState').textContent = `Không tải được trạng thái trình chiếu: ${esc(e.message)}`;
+    }
+  };
+  const wbQueryFromCurrentFilters = () => {
+    const q = new URLSearchParams();
+    q.set('from', document.getElementById('epFrom').value);
+    q.set('to', document.getElementById('epTo').value);
+    const dept = document.getElementById('epDept').value; if (dept) q.set('department', dept);
+    q.set('sort', document.getElementById('epWbSort').value);
+    q.set('page_size', document.getElementById('epWbPageSize').value || '10');
+    q.set('refresh', document.getElementById('epWbRefresh').value || '20');
+    return q;
+  };
+  document.getElementById('epWbPreview').onclick = () => {
+    // Preview mode: opens the Kiosk layout with ?preview=1 + these params --
+    // it calls the authenticated report API directly and NEVER touches the
+    // published config, so a manager can check before publishing.
+    window.open(`/kiosk/employee-productivity?preview=1&${wbQueryFromCurrentFilters().toString()}`, '_blank');
+  };
+  document.getElementById('epWbPublish').onclick = async () => {
+    const btn = document.getElementById('epWbPublish');
+    btn.disabled = true;
+    try {
+      const dynamic = document.getElementById('epWbDynamicMtd').checked;
+      const body = {
+        date_mode: dynamic ? 'dynamic_mtd' : 'fixed',
+        from: dynamic ? null : document.getElementById('epFrom').value,
+        to: dynamic ? null : document.getElementById('epTo').value,
+        department: document.getElementById('epDept').value || null,
+        sort: document.getElementById('epWbSort').value,
+        page_size: Number(document.getElementById('epWbPageSize').value || 10),
+        refresh_interval_seconds: Number(document.getElementById('epWbRefresh').value || 20),
+      };
+      const d = await api('/api/reports/employee-productivity/wallboard-config', { method: 'POST', body: JSON.stringify(body) });
+      document.getElementById('epWbState').textContent = wbStateText(d.config);
+      toast('Đã trình chiếu lên Kiosk.');
+    } catch (e) {
+      toast(e.message || 'Không public được lên Kiosk.', 'danger');
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
   await load();
+  await loadWallboardState();
 }
 
 async function openEmployeeProductivityDetail(employeeId, from, to) {

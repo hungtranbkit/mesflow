@@ -7,6 +7,7 @@ from mesflow import __version__
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
+from mesflow.db.repositories.analytics import ReportRepository
 
 bp = Blueprint('web_kiosk', __name__)
 
@@ -45,6 +46,28 @@ def kiosk_page():
 @bp.get('/api/kiosk-web/health')
 def kiosk_health():
     return jsonify(ok=True, version=__version__, module='web-kiosk')
+
+
+# --- Employee Productivity wallboard (TV/màn lớn) -------------------------
+# Deliberately public/unauthenticated, same precedent as /kiosk above --
+# a TV on the wall has no one logged in. Read-only: this route (and its
+# data API below) can only ever READ the config an already-authenticated
+# manager published from the Report screen (see analytics.py's
+# /api/reports/employee-productivity/wallboard-config POST, which stays
+# behind @roles_required). Nothing here accepts client-supplied filters --
+# see ReportRepository.wallboard_employee_productivity_payload()'s field
+# allowlist for what this is allowed to expose.
+@bp.get('/kiosk/employee-productivity')
+def employee_productivity_wallboard_page():
+    return render_template('wallboard_employee_productivity.html', version=__version__)
+
+
+@bp.get('/api/wallboard/employee-productivity')
+def employee_productivity_wallboard_data():
+    try:
+        return jsonify(ok=True, **ReportRepository().wallboard_employee_productivity_payload())
+    except Exception as exc:
+        return _error(exc)
 
 
 @bp.post('/api/kiosk-web/heartbeat')

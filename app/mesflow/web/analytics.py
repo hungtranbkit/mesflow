@@ -2,7 +2,7 @@ from flask import Blueprint,jsonify,request,session
 from mesflow.web.auth import login_required,roles_required,permission_required
 from mesflow.core.config import settings
 from mesflow.db.repositories.base import NotFoundError,ConflictError,RepositoryError
-from mesflow.db.repositories.analytics import AuditRepository,DashboardRepository,ReportRepository,KPIRepository,KioskEventRepository,NotificationRepository
+from mesflow.db.repositories.analytics import AuditRepository,DashboardRepository,ReportRepository,KPIRepository,KioskEventRepository,NotificationRepository,WallboardConfigRepository
 from mesflow.core.working_calendar import get_working_calendar, get_work_shifts
 from mesflow.db.connection import transaction
 from psycopg.types.json import Jsonb
@@ -295,6 +295,29 @@ def employee_productivity_detail_report(employee_id):
     try:
         detail=ReportRepository().employee_productivity_detail(employee_id,request.args.get('from'),request.args.get('to'))
         return jsonify(ok=True,**detail)
+    except Exception as exc: return error(exc)
+
+@bp.get('/reports/employee-productivity/wallboard-config')
+@login_required
+def employee_productivity_wallboard_config_get():
+    try: return jsonify(ok=True,config=WallboardConfigRepository().get())
+    except Exception as exc: return error(exc)
+
+@bp.post('/reports/employee-productivity/wallboard-config')
+@roles_required('admin','manager')
+def employee_productivity_wallboard_config_publish():
+    # Publishing puts data on a TV in the building -- a meaningful, visible
+    # admin action, so it stays behind roles_required like other publish-
+    # style endpoints in this file (e.g. /kpi/snapshots below), not just
+    # @login_required like the read-only report/detail routes above.
+    try:
+        body=request.get_json(silent=True) or {}
+        config=WallboardConfigRepository().publish(body,actor())
+        # Log the request body, not `config` -- config carries updated_at as
+        # a live datetime object, which plain json.dumps() inside .log()
+        # can't serialize.
+        AuditRepository().log(actor(),'EMPLOYEE_PRODUCTIVITY_WALLBOARD_PUBLISH','app_setting',WallboardConfigRepository.KEY,body)
+        return jsonify(ok=True,config=config)
     except Exception as exc: return error(exc)
 
 @bp.get('/kpi/employees')

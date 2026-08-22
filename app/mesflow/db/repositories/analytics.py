@@ -6,6 +6,7 @@ from mesflow.db.connection import transaction, fetch_all, fetch_one
 from .base import NotFoundError, ConflictError
 from mesflow.core.working_calendar import get_working_calendar, get_work_shift, shift_bounds, resolve_shift_context, working_seconds_between,all_shift_working_seconds_between
 from mesflow.core.time_policy import coerce_utc,utc_now,business_date,business_date_start_utc
+from psycopg.types.json import Jsonb
 from mesflow.db.repositories.scheduling import priority_for_operation,priority_sort_key
 from mesflow.core.config import settings
 from mesflow.domain.audit_presentation import ACTION_CATALOG,CATEGORY_LABELS,present as present_audit_row
@@ -1358,6 +1359,11 @@ class ReportRepository:
             'completed_valid_sessions':sum(x['completed_valid_sessions'] for x in employees),
             'completed_invalid_sessions':sum(x['completed_invalid_sessions'] for x in employees),
             'running_sessions':sum(x['running_sessions'] for x in employees),
+            # Distinct employees currently mid-session -- different from
+            # running_sessions above (a total session COUNT). Added for the
+            # wallboard's "Đang làm việc" KPI card; derived from the same
+            # already-fetched rows, no extra query.
+            'active_employee_count':sum(1 for x in employees if x['running_sessions']>0),
             # AVG of employee productivity_percent values (one number per
             # employee who has at least one valid closed session) -- NOT
             # AVG over every session factory-wide. An employee with more
@@ -1406,6 +1412,44 @@ class ReportRepository:
             'productivity_percent':productivity,'valid_session_count':len(valid_scores),
             'sessions':sessions,
         }
+
+    # Sort options the public wallboard can be published with (section 12:
+    # "Sort phải lấy từ Report config... Không hardcode sort"). The default
+    # already matches employee_productivity()'s own SQL ORDER BY, so the
+    # common case needs no re-sort at all; the others re-sort the same
+    # already-computed rows in Python -- still zero duplicate business logic,
+    # since the percentage/aggregation itself is untouched.
+    WALLBOARD_SORTS={
+        'productivity_desc':lambda x:(x['productivity_percent'] is None,-(x['productivity_percent'] or 0)),
+        'productivity_asc':lambda x:(x['productivity_percent'] is None,x['productivity_percent'] or 0),
+        'name_asc':lambda x:str(x['employee_name'] or ''),
+        'sessions_desc':lambda x:-(x['completed_valid_sessions']+x['completed_invalid_sessions']),
+    }
+    # Fields the public, unauthenticated wallboard is allowed to show.
+    # Deliberately explicit (not "whatever employee_productivity() happens
+    # to return") so a later field added to the admin report never leaks to
+    # the TV by accident -- section 16's "không expose... admin actions,
+    # raw audit data" boundary lives here, in exactly one place.
+    WALLBOARD_EMPLOYEE_FIELDS=('employee_id','employee_code','employee_name','department','team',
+        'completed_valid_sessions','completed_invalid_sessions','running_sessions',
+        'productivity_percent','good_qty','defect_qty','worked_seconds')
+
+    def wallboard_employee_productivity_payload(self):
+        """The ONE place Report-configured filters become what the public
+        Kiosk/wallboard shows -- calls self.employee_productivity(), the
+        exact same method/formula the admin Report screen uses (section 15:
+        "Không duplicate business logic... Kiosk chỉ là presentation
+        layer"). Only re-sorts and field-trims its already-computed output."""
+        config=WallboardConfigRepository().get()
+        if not config['configured']:
+            return {'configured':False,'config':config,'summary':None,'employees':[]}
+        date_from,date_to=(config['from'],config['to']) if config['date_mode']=='fixed' else (None,None)
+        report=self.employee_productivity(date_from,date_to,config.get('employee_id'),
+            config.get('department'),config.get('team'),limit=500)
+        sort_key=self.WALLBOARD_SORTS.get(config.get('sort'),self.WALLBOARD_SORTS['productivity_desc'])
+        employees=sorted(report['employees'],key=sort_key)
+        trimmed=[{field:row.get(field) for field in self.WALLBOARD_EMPLOYEE_FIELDS} for row in employees]
+        return {'configured':True,'config':config,'summary':report['summary'],'employees':trimmed}
 
     def session_management(self,po_id=None,part_id=None,operation_id=None,employee_id=None,status=None,date_from=None,date_to=None,limit=3000):
         conditions=['1=1']; params=[]
@@ -1540,6 +1584,71 @@ class KPIRepository:
                 VALUES(%s,'SYSTEM','ALL',%s) ON CONFLICT(snapshot_date,scope_type,scope_id)
                 DO UPDATE SET metrics_json=EXCLUDED.metrics_json,created_at=CURRENT_TIMESTAMP RETURNING *""",(snapshot_date,metrics))
                 return cur.fetchone()
+
+class WallboardConfigRepository:
+    """Persists what the Employee Productivity wallboard/Kiosk screen shows
+    -- FILTER/CONFIG only, never a data snapshot (section 3: the Kiosk
+    screen always re-fetches from ReportRepository.employee_productivity()
+    live; publishing just changes which filters that live call uses).
+
+    Reuses app_settings (key/value_json/updated_at), the generic settings
+    table this schema already has (migration 0009_working_calendar.py) --
+    no new table/migration needed. Survives a restart by construction
+    (ordinary Postgres row), satisfying the "restart MESFlow -> config vẫn
+    còn" requirement without any extra code.
+    """
+    KEY='employee_productivity_wallboard'
+    DEFAULTS={
+        'date_mode':'dynamic_mtd',   # 'dynamic_mtd' (ngày 1 tháng hiện tại -> hôm nay, tự trôi theo ngày) | 'fixed'
+        'from':None,'to':None,       # only read when date_mode='fixed'
+        'department':None,'team':None,'employee_id':None,
+        'sort':'productivity_desc',
+        'page_size':10,
+        'refresh_interval_seconds':20,
+        'display_mode':'grid',
+    }
+    SORT_CHOICES=('productivity_desc','productivity_asc','name_asc','sessions_desc')
+
+    def get(self):
+        row=fetch_one("SELECT value_json,updated_at FROM app_settings WHERE key=%s",(self.KEY,))
+        if not row:
+            return {**self.DEFAULTS,'configured':False,'updated_at':None,'updated_by':None}
+        cfg={**self.DEFAULTS,**(row.get('value_json') or {})}
+        cfg['configured']=True
+        cfg['updated_at']=row['updated_at']
+        return cfg
+
+    def publish(self,config:dict[str,Any],actor:str):
+        date_mode=str(config.get('date_mode') or 'dynamic_mtd')
+        if date_mode not in ('dynamic_mtd','fixed'): raise ValueError('date_mode must be dynamic_mtd or fixed')
+        sort=str(config.get('sort') or 'productivity_desc')
+        if sort not in self.SORT_CHOICES: raise ValueError(f'sort must be one of {", ".join(self.SORT_CHOICES)}')
+        page_size=int(config.get('page_size') or self.DEFAULTS['page_size'])
+        if not 1<=page_size<=50: raise ValueError('page_size must be between 1 and 50')
+        refresh=int(config.get('refresh_interval_seconds') or self.DEFAULTS['refresh_interval_seconds'])
+        if not 5<=refresh<=300: raise ValueError('refresh_interval_seconds must be between 5 and 300')
+        from_date=str(config.get('from') or '').strip() or None
+        to_date=str(config.get('to') or '').strip() or None
+        if date_mode=='fixed':
+            if not from_date or not to_date: raise ValueError('fixed date_mode requires both from and to')
+            if date.fromisoformat(from_date)>date.fromisoformat(to_date): raise ValueError('from must not be after to')
+        payload={
+            'date_mode':date_mode,'from':from_date,'to':to_date,
+            'department':str(config.get('department') or '').strip() or None,
+            'team':str(config.get('team') or '').strip() or None,
+            'employee_id':int(config['employee_id']) if config.get('employee_id') else None,
+            'sort':sort,'page_size':page_size,'refresh_interval_seconds':refresh,
+            'display_mode':str(config.get('display_mode') or self.DEFAULTS['display_mode']),
+            'updated_by':str(actor or ''),
+        }
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""INSERT INTO app_settings(key,value_json,updated_at) VALUES(%s,%s,CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET value_json=EXCLUDED.value_json,updated_at=CURRENT_TIMESTAMP
+                RETURNING value_json,updated_at""",(self.KEY,Jsonb(payload)))
+                row=cur.fetchone()
+        cfg={**self.DEFAULTS,**row['value_json'],'configured':True,'updated_at':row['updated_at']}
+        return cfg
 
 class KioskEventRepository:
     def ingest(self,data:dict[str,Any]):
