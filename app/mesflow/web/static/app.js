@@ -498,7 +498,7 @@ async function renderProductionOrders(){
   title.textContent='Production Order';
   subtitle.textContent='Tạo lệnh từ Template, lên lịch và theo dõi trạng thái sản xuất';
   content.innerHTML=`<div class="page-shell">
-    <div class="page-header"><div class="stats-row" id="poSummary" aria-live="polite"></div><div class="page-header-actions"><button class="btn primary" id="addPO">+ Tạo PO từ Template</button><button class="btn" id="importExcel">Nhập Excel</button><button class="btn" id="exportExcel">Xuất Excel</button></div></div>
+    <div class="page-header"><div class="stats-row" id="poSummary" aria-live="polite"></div><div class="page-header-actions"><button class="btn primary" id="addPO">+ Tạo PO từ Template</button><button class="btn" id="exportExcel">Xuất Excel</button></div></div>
     ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="poSearch" placeholder="Mã PO hoặc tên sản phẩm"></label><label><span>Trạng thái</span><select id="poStatus"><option value="">Tất cả trạng thái</option><option value="DRAFT">Bản nháp</option><option value="PLANNED">Đang lập kế hoạch</option><option value="RELEASED">Sẵn sàng sản xuất</option><option value="IN_PROGRESS">Đang sản xuất</option><option value="PAUSED">Tạm dừng</option><option value="COMPLETED">Đã hoàn thành</option><option value="CANCELLED">Đã hủy</option></select></label>',clearId:'poReset',clearLabel:'Đặt lại',actions:'<button class="btn po-reload" id="reloadPO"><i aria-hidden="true"></i>Làm mới</button>'})}
     <section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách Production Order</h3></div></div><div class="content-panel-body" id="poList">Đang tải...</div></section>
   </div>`;
@@ -524,7 +524,6 @@ async function renderProductionOrders(){
   document.getElementById('reloadPO').onclick=load;
   document.getElementById('poReset').onclick=()=>{document.getElementById('poSearch').value='';document.getElementById('poStatus').value='';draw(window.poItems||[])};
   document.getElementById('exportExcel').onclick=()=>{window.location.href='/api/operations/export.xlsx'};
-  document.getElementById('importExcel').onclick=()=>operationExcelImportModal(load);
   const applyFilters=()=>{const q=document.getElementById('poSearch').value.trim().toLowerCase(),status=document.getElementById('poStatus').value;draw((window.poItems||[]).filter(x=>(!status||String(x.status||'').toUpperCase()===status)&&(!q||`${x.code||''} ${x.product||''}`.toLowerCase().includes(q))))};
   document.getElementById('poSearch').oninput=applyFilters;document.getElementById('poStatus').onchange=applyFilters;
   await load();
@@ -724,7 +723,7 @@ async function renderTemplates(selectId=null){
   try{const [td,ed]=await Promise.all([api('/api/templates?limit=500'),api('/api/equipment?limit=1000')]);templateUi.items=td.items||[];templateUi.equipment=ed.items||[];const chosen=templateUi.items.find(x=>Number(x.id)===Number(selectId))||templateUi.items[0];drawTemplateOldList('');if(chosen)await selectTemplateOld(chosen.id);else newTemplateOld()}catch(e){document.getElementById('tplEditor').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}
 }
 
-async function importTemplateExcel(){const input=document.getElementById('tplImportFile'),file=input.files[0];if(!file)return;const fd=new FormData();fd.append('file',file);const b=document.getElementById('tplImport');b.disabled=true;b.textContent='Đang import...';try{const r=await fetch('/api/templates/import-workbook',{method:'POST',body:fd});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.detail||d.message||`HTTP ${r.status}`);toast(d.message);await renderTemplates(d.template_id)}catch(e){alert(e.message)}finally{b.disabled=false;b.textContent='Tạo từ Excel';input.value=''}}
+async function importTemplateExcel(){const input=document.getElementById('tplImportFile'),file=input.files[0];if(!file)return;const fd=new FormData();fd.append('file',file);const b=document.getElementById('tplImport');b.disabled=true;b.textContent='Đang nhập...';try{const r=await fetch('/api/templates/import-workbook',{method:'POST',body:fd});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.detail||d.message||`HTTP ${r.status}`);toast(d.message);await renderTemplates(d.template_id)}catch(e){alert(e.message)}finally{b.disabled=false;b.textContent='Nhập từ Excel';input.value=''}}
 async function exportTemplateExcel(){if(!templateUi.current?.id)return alert('Hãy chọn và lưu Template trước khi xuất Excel.');window.location.href=`/api/templates/${templateUi.current.id}/export-workbook`}
 
 function drawTemplateOldList(q=''){
