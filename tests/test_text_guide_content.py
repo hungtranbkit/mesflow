@@ -1,11 +1,11 @@
-"""Hướng dẫn bằng chữ -- content data contract.
+"""Hướng dẫn bằng chữ -- content + requirement coverage contract.
 
-Backs the new "Hướng dẫn" text guide (app/mesflow/web/static/pages/text-guide.js)
-that renders app/mesflow/web/static/guides/user-guide.vi.json. Kept separate
-from source-string checks on the .js/.css so a content edit alone (the most
-common future change) doesn't also require touching a JS-source test.
+The text guide is not only reference documentation.  It is the human-readable
+contract for user-facing MESFlow behaviour: a page added to the supported
+sidebar must have guide coverage before the change is considered complete.
 """
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,17 +13,21 @@ GUIDE_PATH = ROOT / 'app/mesflow/web/static/guides/user-guide.vi.json'
 
 EXPECTED_TOC = [
     ('getting-started', 'Bắt đầu sử dụng'),
+    ('requirement-coverage', 'Phạm vi & xác nhận requirement'),
     ('overview', 'Tổng quan sản xuất'),
     ('dashboard', 'Dashboard theo ngày'),
     ('template', 'Template'),
     ('production-order', 'Production Order'),
     ('part-operation', 'Part và Operation'),
-    ('kiosk', 'Kiosk'),
-    ('work-session', 'Work Session'),
+    ('kiosk', 'Kiosk cho công nhân'),
+    ('work-session', 'Work Session & Quản lý Session'),
     ('operation-progress', 'Tiến độ theo Operation'),
-    ('exceptions', 'Ngoại lệ sản xuất'),
+    ('exceptions', 'Trung tâm ngoại lệ'),
     ('production-trace', 'Production Trace'),
+    ('business-audit', 'Nhật ký nghiệp vụ'),
     ('gantt-material-flow', 'Gantt & Material Flow'),
+    ('kiosk-management', 'Quản lý trạm Kiosk'),
+    ('system-logs', 'Nhật ký ứng dụng'),
     ('employees', 'Nhân viên'),
     ('qr-code', 'QR Code'),
     ('equipment', 'Thiết bị'),
@@ -35,6 +39,28 @@ EXPECTED_TOC = [
     ('employee-productivity', 'Báo cáo năng suất nhân viên'),
 ]
 KNOWN_BLOCK_TYPES = {'h3', 'p', 'note', 'example', 'diagram', 'list', 'steps', 'table'}
+
+# Supported sidebar pages must resolve to one explicit text-guide requirement
+# section.  `tutorials` is intentionally excluded: it is the guide itself.
+MENU_PAGE_TO_GUIDE = {
+    'overview': 'overview',
+    'dashboard': 'dashboard',
+    'production-orders': 'production-order',
+    'templates': 'template',
+    'session-management': 'work-session',
+    'session-exceptions': 'exceptions',
+    'production-trace': 'production-trace',
+    'business-audit': 'business-audit',
+    'production-schedule': 'gantt-material-flow',
+    'kiosk-management': 'kiosk-management',
+    'employee-productivity': 'employee-productivity',
+    'system-logs': 'system-logs',
+    'employees': 'employees',
+    'qr-print': 'qr-code',
+    'equipment': 'equipment',
+    'users': 'users-permissions',
+    'working-calendar': 'working-calendar',
+}
 
 
 def _load():
@@ -64,10 +90,45 @@ def test_every_section_has_real_content_and_keywords():
                 assert block.get('text'), (s['id'], block)
 
 
+def test_every_user_facing_sidebar_page_has_requirement_guide_coverage():
+    """Adding/removing a supported sidebar page must trigger a guide review.
+
+    We deliberately inspect only `const menu` rather than every `openPage`
+    branch.  Internal/debug/backend-supported pages are not automatically a
+    user requirement just because a renderer/API happens to exist.
+    """
+    app_js = (ROOT / 'app/mesflow/web/static/app.js').read_text(encoding='utf-8')
+    menu_chunk = app_js.split('const menu=[', 1)[1].split('const nav=', 1)[0]
+    menu_pages = set(re.findall(r"page:'([^']+)'", menu_chunk))
+    menu_pages.discard('tutorials')
+
+    assert menu_pages == set(MENU_PAGE_TO_GUIDE), (
+        'Sidebar changed: review the requirement guide and update '
+        f'MENU_PAGE_TO_GUIDE. menu={sorted(menu_pages)} '
+        f'mapped={sorted(MENU_PAGE_TO_GUIDE)}'
+    )
+
+    guide_ids = {s['id'] for s in _load()['sections']}
+    missing = {
+        page: section_id
+        for page, section_id in MENU_PAGE_TO_GUIDE.items()
+        if section_id not in guide_ids
+    }
+    assert not missing, f'User-facing pages without guide requirement coverage: {missing}'
+
+
+def test_requirement_coverage_section_states_the_contract():
+    data = _load()
+    section = next(s for s in data['sections'] if s['id'] == 'requirement-coverage')
+    text = json.dumps(section['content'], ensure_ascii=False).lower()
+    assert 'user-facing' in text
+    assert 'requirement' in text
+    assert 'qa' in text
+    assert 'ui' in text
+
+
 def test_excel_workbook_never_described_as_direct_po_import():
-    """Regression guard: Excel quy trình must always route through Template,
-    matching the fix already shipped on fix/template-excel-import-location --
-    the guide must not re-teach the bug this session already fixed."""
+    """Excel quy trình must always route through Template, never direct PO."""
     data = _load()
     for s in data['sections']:
         for block in s.get('content') or []:
@@ -82,12 +143,11 @@ def test_excel_workbook_never_described_as_direct_po_import():
 
 
 def test_kiosk_section_reflects_real_error_catalog():
-    """The error codes/messages quoted here must stay in sync with
-    kiosk.js's ERROR_HELP -- spot-check a couple of the real ones."""
+    """Quoted kiosk behaviour must stay anchored to the real error catalog."""
     data = _load()
     kiosk = next(s for s in data['sections'] if s['id'] == 'kiosk')
     kiosk_js = (ROOT / 'app/mesflow/web/static/kiosk.js').read_text(encoding='utf-8')
-    assert "'SES-409'" in kiosk_js  # sanity: the code this section describes still exists
+    assert "'SES-409'" in kiosk_js
     text = json.dumps(kiosk['content'], ensure_ascii=False)
     assert 'Work Session' in text
     assert 'Đã có Session đang mở' in text
