@@ -1383,6 +1383,7 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
 .wallboard-panel .content-panel-actions label.wallboard-dynamic-toggle{display:flex;flex-direction:row;align-items:center;gap:6px;font-size:12px}
 .wallboard-panel .content-panel-body{padding:12px 16px;font-size:13px;color:var(--text-secondary)}
 .wallboard-panel #epWbState{margin:0;line-height:1.5}
+.wallboard-panel .wallboard-hint{margin:2px 0 0;font-style:italic;color:var(--text-tertiary,var(--text-secondary))}
 .content-panel-body:has(>.table-wrap){padding:0}
 .content-panel-body>.table-wrap{border:0;border-radius:0}
 .content-panel-body>.table-wrap table th:first-child,.content-panel-body>.table-wrap table td:first-child{padding-left:16px}

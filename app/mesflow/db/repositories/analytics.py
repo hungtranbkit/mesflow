@@ -92,6 +92,20 @@ class AuditRepository:
             out.append(enriched)
         return out
 
+def _fk_id(value:Any)->int|None:
+    """Coerce a device-supplied foreign-key id to a valid positive int, or
+    None. Kiosk firmware sends non-positive sentinels (e.g. session_id=-1
+    meaning "local session pending sync") which are truthy in Python -- if
+    forwarded as-is into an INSERT they trip the target table's FK
+    constraint (e.g. kiosk_events_session_id_fkey) and permanently jam that
+    device's local event queue, since the firmware only retries the head of
+    the queue and a bad id never stops being rejected."""
+    try:
+        ivalue=int(value)
+    except (TypeError,ValueError):
+        return None
+    return ivalue if ivalue>0 else None
+
 def _safe_json(value):
     if isinstance(value,dict): return value
     if not value: return {}
@@ -726,6 +740,16 @@ class DashboardRepository:
 
     def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None):
         ctx=resolve_shift_context(shift_date,shift_id,shift_code)
+        # "Session theo ngày" lists by calendar date (00:00:00-23:59:59 local),
+        # not by the working-shift window -- a session starting before the
+        # shift anchor (e.g. 06:30, before an 07:00/08:00 shift start) was
+        # falling outside ctx['range_start']/range_end and disappearing from
+        # this listing entirely. shift_id/shift_code still pick which shift's
+        # WORK windows are used for work_duration_seconds below (unchanged
+        # working-time/shift logic); they no longer gate which sessions are
+        # listed for the date.
+        day_start=datetime.combine(ctx['shift_date'],datetime.min.time(),tzinfo=ctx['range_start'].tzinfo)
+        day_end=day_start+timedelta(days=1)
         work_parts=[];work_params=[]
         for interval in ctx['intervals']:
             if interval.get('interval_type')!='WORK':continue
@@ -744,8 +768,8 @@ class DashboardRepository:
         FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id
         JOIN operations o ON o.id=ws.operation_id JOIN production_orders po ON po.id=o.production_order_id
         JOIN parts p ON p.id=o.part_id
-        WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
-        ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['range_end'],ctx['range_start'],min(max(limit,1),3000)))
+        WHERE ws.started_at < %s AND (ws.ended_at IS NULL OR ws.ended_at >= %s)
+        ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,day_end,day_start,min(max(limit,1),3000)))
 
     def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None):
         ctx=resolve_shift_context(shift_date,shift_id,shift_code)
@@ -1633,8 +1657,20 @@ class WallboardConfigRepository:
         'page_size':10,
         'refresh_interval_seconds':20,
         'display_mode':'grid',
+        # Display settings (2026-08-23 revision) -- independent of the
+        # legacy page_size/refresh_interval_seconds above (those keep their
+        # existing meaning/validation for back-compat with callers/tests
+        # that already set them). These four are what the wallboard's own
+        # card grid actually reads for pagination/columns/auto-flip now.
+        'employees_per_page':20,
+        'columns':'auto',             # 'auto' | '1' | '2' | '3'
+        'auto_page_flip':True,
+        'auto_page_flip_seconds':10,
     }
     SORT_CHOICES=('productivity_desc','productivity_asc','name_asc','sessions_desc')
+    EMPLOYEES_PER_PAGE_CHOICES=(10,12,16,20,24,30)
+    COLUMNS_CHOICES=('auto','1','2','3')
+    AUTO_PAGE_FLIP_SECONDS_CHOICES=(5,10,15,30)
 
     def get(self):
         row=fetch_one("SELECT value_json,updated_at FROM app_settings WHERE key=%s",(self.KEY,))
@@ -1659,6 +1695,19 @@ class WallboardConfigRepository:
         if date_mode=='fixed':
             if not from_date or not to_date: raise ValueError('fixed date_mode requires both from and to')
             if date.fromisoformat(from_date)>date.fromisoformat(to_date): raise ValueError('from must not be after to')
+        # Display settings (2026-08-23 revision) -- each is a closed enum,
+        # not a freeform number/string, so an invalid choice fails loud here
+        # instead of silently landing on the client with an unexpected value.
+        employees_per_page=int(config.get('employees_per_page') or self.DEFAULTS['employees_per_page'])
+        if employees_per_page not in self.EMPLOYEES_PER_PAGE_CHOICES:
+            raise ValueError(f'employees_per_page must be one of {", ".join(map(str,self.EMPLOYEES_PER_PAGE_CHOICES))}')
+        columns=str(config.get('columns') if config.get('columns') not in (None,'') else self.DEFAULTS['columns'])
+        if columns not in self.COLUMNS_CHOICES:
+            raise ValueError(f'columns must be one of {", ".join(self.COLUMNS_CHOICES)}')
+        auto_page_flip=bool(config.get('auto_page_flip',self.DEFAULTS['auto_page_flip']))
+        auto_page_flip_seconds=int(config.get('auto_page_flip_seconds') or self.DEFAULTS['auto_page_flip_seconds'])
+        if auto_page_flip_seconds not in self.AUTO_PAGE_FLIP_SECONDS_CHOICES:
+            raise ValueError(f'auto_page_flip_seconds must be one of {", ".join(map(str,self.AUTO_PAGE_FLIP_SECONDS_CHOICES))}')
         payload={
             'date_mode':date_mode,'from':from_date,'to':to_date,
             'department':str(config.get('department') or '').strip() or None,
@@ -1666,6 +1715,8 @@ class WallboardConfigRepository:
             'employee_id':int(config['employee_id']) if config.get('employee_id') else None,
             'sort':sort,'page_size':page_size,'refresh_interval_seconds':refresh,
             'display_mode':str(config.get('display_mode') or self.DEFAULTS['display_mode']),
+            'employees_per_page':employees_per_page,'columns':columns,
+            'auto_page_flip':auto_page_flip,'auto_page_flip_seconds':auto_page_flip_seconds,
             'updated_by':str(actor or ''),
         }
         with transaction() as conn:
@@ -1700,7 +1751,7 @@ class KioskEventRepository:
                 cur.execute("""INSERT INTO kiosk_events(event_uuid,device_uuid,station_id,event_type,severity,message,payload_json,session_id,operation_id,employee_id,occurred_at)
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,COALESCE(%s,CURRENT_TIMESTAMP))
                 ON CONFLICT(event_uuid) DO UPDATE SET received_at=CURRENT_TIMESTAMP RETURNING *, (xmax=0) inserted""",
-                (event_uuid,device_uuid,data.get('station_id'),event_type,severity,str(data.get('message','')),json.dumps(payload,ensure_ascii=False,default=str),data.get('session_id') or None,data.get('operation_id') or None,data.get('employee_id') or None,data.get('occurred_at')))
+                (event_uuid,device_uuid,_fk_id(data.get('station_id')),event_type,severity,str(data.get('message','')),json.dumps(payload,ensure_ascii=False,default=str),_fk_id(data.get('session_id')),_fk_id(data.get('operation_id')),_fk_id(data.get('employee_id')),data.get('occurred_at')))
                 event=cur.fetchone()
                 if severity in {'ERROR','CRITICAL'}:
                     cur.execute("""INSERT INTO notifications(source_type,source_id,severity,title,message,target_role)

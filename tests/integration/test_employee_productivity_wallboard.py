@@ -336,3 +336,66 @@ def test_publish_forbidden_for_viewer_role(api):
         user_id = create.json().get('id')
         if user_id:
             api.patch(f'http://mesflow-test-api:8080/api/users/{user_id}', json={'active': False}, timeout=10)
+
+
+# --- Display settings (2026-08-23): employees_per_page / columns /
+# auto_page_flip / auto_page_flip_seconds -- same app_settings row, same
+# publish/get round trip as every other wallboard config field above. ----
+
+def test_display_settings_default_when_never_published(api):
+    config = _get_config(api)
+    assert config['employees_per_page'] == 20
+    assert config['columns'] == 'auto'
+    assert config['auto_page_flip'] is True
+    assert config['auto_page_flip_seconds'] == 10
+
+
+def test_display_settings_publish_and_persist_after_reread(api):
+    # "Settings persist after reload" -- app_settings is an ordinary
+    # Postgres row (see WallboardConfigRepository's own docstring), so a
+    # fresh GET (as if the page had just reloaded) must reflect exactly
+    # what was published, not a stale in-memory value.
+    after = _publish(api, date_mode='dynamic_mtd', employees_per_page=24, columns='3',
+                      auto_page_flip=False, auto_page_flip_seconds=15)
+    assert after['employees_per_page'] == 24
+    assert after['columns'] == '3'
+    assert after['auto_page_flip'] is False
+    assert after['auto_page_flip_seconds'] == 15
+
+    reread = _get_config(api)
+    assert reread['employees_per_page'] == 24
+    assert reread['columns'] == '3'
+    assert reread['auto_page_flip'] is False
+    assert reread['auto_page_flip_seconds'] == 15
+
+    # Restore the default so this test doesn't leak state into others that
+    # rely on _publish()'s own defaults (mirrors the existing convention in
+    # this file -- other tests here already re-publish their own values).
+    _publish(api, date_mode='dynamic_mtd')
+
+
+def test_public_wallboard_payload_carries_display_settings(db, api, seeded_factory):
+    _publish(api, date_mode='dynamic_mtd', employees_per_page=12, columns='2',
+             auto_page_flip=True, auto_page_flip_seconds=5)
+    response = api.get(WALLBOARD_URL, timeout=10)
+    assert response.status_code == 200, response.text
+    config = response.json()['config']
+    assert config['employees_per_page'] == 12
+    assert config['columns'] == '2'
+    assert config['auto_page_flip_seconds'] == 5
+    _publish(api, date_mode='dynamic_mtd')
+
+
+def test_publish_rejects_invalid_employees_per_page(api):
+    response = api.post(CONFIG_URL, json={'date_mode': 'dynamic_mtd', 'employees_per_page': 17}, timeout=10)
+    assert response.status_code == 400, response.text
+
+
+def test_publish_rejects_invalid_columns(api):
+    response = api.post(CONFIG_URL, json={'date_mode': 'dynamic_mtd', 'columns': '4'}, timeout=10)
+    assert response.status_code == 400, response.text
+
+
+def test_publish_rejects_invalid_auto_page_flip_seconds(api):
+    response = api.post(CONFIG_URL, json={'date_mode': 'dynamic_mtd', 'auto_page_flip_seconds': 7}, timeout=10)
+    assert response.status_code == 400, response.text

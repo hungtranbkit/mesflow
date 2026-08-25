@@ -52,7 +52,7 @@ async function renderEmployeeProductivity() {
     bảng bên dưới cho tới khi bấm "Trình chiếu trên Kiosk"). -->
     <section class="content-panel wallboard-panel" id="epWbPanel">
       <div class="content-panel-head">
-        <div><h3>Trình chiếu Kiosk</h3><p id="epWbState">Đang tải trạng thái...</p></div>
+        <div><h3>Trình chiếu Kiosk</h3><p id="epWbState">Đang tải trạng thái...</p><p class="wallboard-hint">TV 1080p: nên dùng 24–30 nhân viên, 3 cột.</p></div>
         <div class="content-panel-actions">
           <label class="wallboard-dynamic-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động: đầu tháng → hôm nay</span></label>
           <label><span>Sắp xếp trên Kiosk</span><select id="epWbSort">
@@ -61,7 +61,19 @@ async function renderEmployeeProductivity() {
             <option value="name_asc">Tên A→Z</option>
             <option value="sessions_desc">Số session giảm dần</option>
           </select></label>
-          <label><span>Số người/trang</span><input type="number" id="epWbPageSize" min="1" max="50" value="10" style="width:64px"></label>
+          <label><span>Số nhân viên mỗi trang</span><select id="epWbEmployeesPerPage">
+            <option value="10">10</option><option value="12">12</option><option value="16">16</option>
+            <option value="20" selected>20</option><option value="24">24</option><option value="30">30</option>
+          </select></label>
+          <label><span>Số cột hiển thị</span><select id="epWbColumns">
+            <option value="auto" selected>Tự động</option>
+            <option value="1">1 cột</option><option value="2">2 cột</option><option value="3">3 cột</option>
+          </select></label>
+          <label class="wallboard-dynamic-toggle"><input type="checkbox" id="epWbAutoFlip" checked> <span>Tự động chuyển trang</span></label>
+          <label><span>Thời gian chuyển trang</span><select id="epWbFlipSeconds">
+            <option value="5">5 giây</option><option value="10" selected>10 giây</option>
+            <option value="15">15 giây</option><option value="30">30 giây</option>
+          </select></label>
           <label><span>Làm mới mỗi (giây)</span><input type="number" id="epWbRefresh" min="5" max="300" value="20" style="width:72px"></label>
           <button class="btn" id="epWbPreview" type="button">Preview màn trình chiếu</button>
           <button class="btn primary" id="epWbPublish" type="button">Trình chiếu trên Kiosk</button>
@@ -179,7 +191,9 @@ async function renderEmployeeProductivity() {
     if (!cfg.configured) return 'Chưa public — Kiosk sẽ hiện màn "Chưa cấu hình trình chiếu".';
     const range = cfg.date_mode === 'dynamic_mtd' ? 'Đầu tháng → hôm nay (tự động)' : `${epDateShort(cfg.from)} → ${epDateShort(cfg.to)}`;
     const sortLabel = { productivity_desc: 'Năng suất giảm dần', productivity_asc: 'Năng suất tăng dần', name_asc: 'Tên A→Z', sessions_desc: 'Số session giảm dần' }[cfg.sort] || cfg.sort;
-    return `Đang public: ${range} · Sort: ${sortLabel} · ${cfg.page_size} người/trang · Refresh: ${cfg.refresh_interval_seconds}s · Cập nhật lần cuối: ${cfg.updated_at ? epTimeShort(cfg.updated_at) + ' ' + epDateShort(cfg.updated_at) : '—'} · Người cập nhật: ${cfg.updated_by || '—'}`;
+    const columnsLabel = cfg.columns === 'auto' ? 'Tự động' : `${cfg.columns} cột`;
+    const flipLabel = cfg.auto_page_flip ? `Tự động chuyển trang mỗi ${cfg.auto_page_flip_seconds}s` : 'Không tự động chuyển trang';
+    return `Đang public: ${range} · Sort: ${sortLabel} · ${cfg.employees_per_page} người/trang · ${columnsLabel} · ${flipLabel} · Refresh dữ liệu: ${cfg.refresh_interval_seconds}s · Cập nhật lần cuối: ${cfg.updated_at ? epTimeShort(cfg.updated_at) + ' ' + epDateShort(cfg.updated_at) : '—'} · Người cập nhật: ${cfg.updated_by || '—'}`;
   };
   const loadWallboardState = async () => {
     try {
@@ -187,7 +201,10 @@ async function renderEmployeeProductivity() {
       document.getElementById('epWbState').textContent = wbStateText(d.config);
       if (d.config.configured) {
         document.getElementById('epWbSort').value = d.config.sort;
-        document.getElementById('epWbPageSize').value = d.config.page_size;
+        document.getElementById('epWbEmployeesPerPage').value = String(d.config.employees_per_page);
+        document.getElementById('epWbColumns').value = String(d.config.columns);
+        document.getElementById('epWbAutoFlip').checked = !!d.config.auto_page_flip;
+        document.getElementById('epWbFlipSeconds').value = String(d.config.auto_page_flip_seconds);
         document.getElementById('epWbRefresh').value = d.config.refresh_interval_seconds;
         document.getElementById('epWbDynamicMtd').checked = d.config.date_mode === 'dynamic_mtd';
       }
@@ -201,7 +218,10 @@ async function renderEmployeeProductivity() {
     q.set('to', document.getElementById('epTo').value);
     const dept = document.getElementById('epDept').value; if (dept) q.set('department', dept);
     q.set('sort', document.getElementById('epWbSort').value);
-    q.set('page_size', document.getElementById('epWbPageSize').value || '10');
+    q.set('employees_per_page', document.getElementById('epWbEmployeesPerPage').value || '20');
+    q.set('columns', document.getElementById('epWbColumns').value || 'auto');
+    q.set('auto_page_flip', document.getElementById('epWbAutoFlip').checked ? '1' : '0');
+    q.set('auto_page_flip_seconds', document.getElementById('epWbFlipSeconds').value || '10');
     q.set('refresh', document.getElementById('epWbRefresh').value || '20');
     return q;
   };
@@ -216,13 +236,21 @@ async function renderEmployeeProductivity() {
     btn.disabled = true;
     try {
       const dynamic = document.getElementById('epWbDynamicMtd').checked;
+      const employeesPerPage = Number(document.getElementById('epWbEmployeesPerPage').value || 20);
       const body = {
         date_mode: dynamic ? 'dynamic_mtd' : 'fixed',
         from: dynamic ? null : document.getElementById('epFrom').value,
         to: dynamic ? null : document.getElementById('epTo').value,
         department: document.getElementById('epDept').value || null,
         sort: document.getElementById('epWbSort').value,
-        page_size: Number(document.getElementById('epWbPageSize').value || 10),
+        // page_size kept in lockstep with employees_per_page -- one control
+        // in this UI now, but the older field stays valid/round-trippable
+        // for anything still reading it (back-compat, no second control).
+        page_size: employeesPerPage,
+        employees_per_page: employeesPerPage,
+        columns: document.getElementById('epWbColumns').value,
+        auto_page_flip: document.getElementById('epWbAutoFlip').checked,
+        auto_page_flip_seconds: Number(document.getElementById('epWbFlipSeconds').value || 10),
         refresh_interval_seconds: Number(document.getElementById('epWbRefresh').value || 20),
       };
       const d = await api('/api/reports/employee-productivity/wallboard-config', { method: 'POST', body: JSON.stringify(body) });
