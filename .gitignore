@@ -17,3 +17,4 @@ New Text Document.txt
 .env.local-test
 .env.prod-test
 release/
+scripts/production-target.env

@@ -25,16 +25,51 @@ target_config() {
       NETWORK=mesflow-prodtest-net
       ;;
     production)
-      SSH_HOST=127.0.0.1
-      SSH_USER=dell
-      REMOTE_DIR=/opt/mesflow
-      COMPOSE_PROJECT=mesflow
-      APP_SERVICE=mesflow
-      APP_CONTAINER=mesflow-app
-      DB_CONTAINER=mesflow-postgres
+      # PRODUCTION FROZEN as of 2026-08-25 -- see docs/DEPLOY_ARCHITECTURE_A.md
+      # "Production origin investigation". This target used to hardcode
+      # SSH_HOST=127.0.0.1 / REMOTE_DIR=/opt/mesflow on the assumption that
+      # this dev machine's local copy WAS real production. It is not --
+      # confirmed by deploying here and public mesflow.net not changing.
+      # Real production's actual host is unconfirmed (best lead:
+      # ssh-prod.mesflow.net via Cloudflare Access, user kimex -- not
+      # verified, auth not available from this session).
+      #
+      # Refuse to guess. A real target must be explicitly provided in
+      # $PRODUCTION_TARGET_FILE (gitignored -- never commit real prod
+      # credentials/host), and that host must NOT resolve to this machine.
+      local target_file="${PRODUCTION_TARGET_FILE:-$REPO_ROOT/scripts/production-target.env}"
+      if [[ ! -f "$target_file" ]]; then
+        echo "PRODUCTION_TARGET_NOT_CONFIGURED" >&2
+        echo "No $target_file -- real Production's host is unconfirmed (see" >&2
+        echo "docs/DEPLOY_ARCHITECTURE_A.md). Create that file (PRODUCTION_SSH_HOST=" >&2
+        echo "/PRODUCTION_SSH_USER=/PRODUCTION_REMOTE_DIR=...) only once the real" >&2
+        echo "target is verified -- do not guess it back in." >&2
+        exit 1
+      fi
+      # shellcheck disable=SC1090
+      source "$target_file"
+      : "${PRODUCTION_SSH_HOST:?PRODUCTION_SSH_HOST missing from $target_file}"
+      : "${PRODUCTION_SSH_USER:?PRODUCTION_SSH_USER missing from $target_file}"
+      : "${PRODUCTION_REMOTE_DIR:?PRODUCTION_REMOTE_DIR missing from $target_file}"
+      case "$PRODUCTION_SSH_HOST" in
+        127.0.0.1|localhost|::1|"$(hostname)"|"$(hostname -f 2>/dev/null)")
+          echo "PRODUCTION_TARGET_NOT_CONFIGURED" >&2
+          echo "PRODUCTION_SSH_HOST in $target_file resolves to THIS machine" >&2
+          echo "($PRODUCTION_SSH_HOST) -- refusing. This is the exact mistake that" >&2
+          echo "caused the earlier incident. Real production is a different host." >&2
+          exit 1
+          ;;
+      esac
+      SSH_HOST="$PRODUCTION_SSH_HOST"
+      SSH_USER="$PRODUCTION_SSH_USER"
+      REMOTE_DIR="$PRODUCTION_REMOTE_DIR"
+      COMPOSE_PROJECT="${PRODUCTION_COMPOSE_PROJECT:-mesflow}"
+      APP_SERVICE="${PRODUCTION_APP_SERVICE:-mesflow}"
+      APP_CONTAINER="${PRODUCTION_APP_CONTAINER:-mesflow-app}"
+      DB_CONTAINER="${PRODUCTION_DB_CONTAINER:-mesflow-postgres}"
       SERVER_ROLE=PRODUCTION
-      APP_PORT=8080
-      NETWORK=mesflow_network
+      APP_PORT="${PRODUCTION_APP_PORT:-8080}"
+      NETWORK="${PRODUCTION_NETWORK:-mesflow_network}"
       ;;
     *)
       echo "Unknown target: $1 (expected: prodtest | production)" >&2

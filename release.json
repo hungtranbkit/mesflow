@@ -3,5 +3,6 @@
   "version": "71.0.0.62",
   "phase": "web-agent-production",
   "database": "postgresql-only",
-  "deployment_target": "/opt/mesflow"
+  "deployment_target": "/opt/mesflow",
+  "deployment_target_note": "This is dell-Latitude-5511's own local deploy path (the deploy-agent's LOCAL/PRODUCTION_TEST tier) -- NOT confirmed to be the real internet-facing mesflow.net origin. See docs/DEPLOY_ARCHITECTURE_A.md 'Production origin investigation' (2026-08-25). Real Production is frozen/unconfigured in scripts/deploy.sh until verified."
 }

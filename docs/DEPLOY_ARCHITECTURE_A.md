@@ -3,6 +3,24 @@
 Written 2026-08-25, proven end-to-end (deploy + rollback) on PROD-TEST.
 Supersedes ad-hoc `docker compose up --build` on target servers.
 
+## Current environment model (2026-08-25)
+
+| Environment | Domain | Status |
+|---|---|---|
+| DEV | `dev.mesflow.net` | live, stable |
+| PROD-TEST | `prod.mesflow.net` | live, stable -- full deploy/rollback/FAST-test workflow proven (see below) |
+| PRODUCTION | `mesflow.net` | **FROZEN / TARGET UNCONFIRMED** -- `scripts/deploy.sh production` refuses to run (`PRODUCTION_TARGET_NOT_CONFIGURED`) until a real, verified target host is provided in `scripts/production-target.env` (gitignored, does not exist yet) |
+
+**Do not claim Production-ready remote deployment.** This dev machine's
+`/opt/mesflow` was mistaken for real Production earlier in this project's
+history -- confirmed wrong (deploying here does not change what
+`mesflow.net` serves publicly). See "Production origin investigation"
+below for the evidence trail and the current best (unconfirmed) lead.
+`/opt/mesflow` remains a legitimate deploy target in its own right -- it's
+the deploy-agent's own LOCAL/PRODUCTION_TEST tier (per that agent's own
+`.env`, which correctly never called it "PRODUCTION") -- just not the
+internet-facing site.
+
 ## Flow
 
 ```
@@ -193,6 +211,86 @@ from DEV, over SSH.
   expected) -- `http://mesflow.net/api/kiosk/v2/*` and the known-working
   `http://mesflow.net/api/system/ready` both proxy over plain HTTP with no
   forced HTTPS redirect on this vhost.
+
+**Correction, same day**: the "production" promotion this section
+describes was actually executed against `/opt/mesflow` on this dev
+machine, believed at the time to be real Production. It was not -- see
+the investigation immediately below. `71.0.0.66` genuinely is running
+healthy on this host, correctly migrated, correctly serving kiosk v2 --
+it's just not reaching the public internet. Nothing here was undone; the
+facts above remain true of *this host*.
+
+## Production origin investigation (2026-08-25)
+
+Public `mesflow.net` (verified via real DNS, and again forcing the exact
+Cloudflare anycast IPs explicitly to rule out any local resolver
+weirdness) kept serving `71.0.0.62` after this host's `/opt/mesflow` was
+deployed to `71.0.0.66` -- proof they are different instances, not just a
+version mismatch to reconcile.
+
+Evidence gathered (all read-only):
+- **No cloudflared process or config anywhere on this host** has an
+  ingress rule for bare `mesflow.net` -- checked all 4 running tunnel
+  connectors and every config file including timestamped backups.
+- **`artifacts/releases/71.0.0.62/PROMOTION.json`** (this repo's own
+  release pipeline bookkeeping) explicitly records:
+  `"production": {"status": "NOT_DEPLOYED"}` for the exact version public
+  `mesflow.net` is running -- this pipeline never sent it there.
+- **`mesflow-deploy-agent`'s own env** has `MESFLOW_PRODUCTION_AGENT_URL`
+  (the real remote-production target) completely **empty**; only
+  `MESFLOW_PRODUCTION_TEST_AGENT_URL=https://deploy.mesflow.net/agent`
+  (this same host) is configured.
+- **`~/.ssh/config`** has a named alias, `Host prod` / `Host mesflow-prod`
+  -> `ssh-prod.mesflow.net`, user `kimex` (matches the codebase's own
+  hardcoded `"KIMEX Administrator"` admin display name), reached via
+  Cloudflare Access rather than a plain tunnel -- the best lead, **not
+  confirmed**: a read-only connection attempt reached Cloudflare Access's
+  edge (a real websocket handshake attempt) but failed for lack of a valid
+  Access session in this environment. Did not attempt to bypass this.
+
+**Classification: DIFFERENT_REMOTE_HOST (high confidence on "not this
+host"; specific candidate well-evidenced but not independently
+confirmed).** `scripts/deploy.sh production` is frozen
+(`PRODUCTION_TARGET_NOT_CONFIGURED`) until a human confirms the real
+target and creates `scripts/production-target.env`.
+
+## PROD-TEST stabilization (2026-08-25)
+
+Full workflow re-proven end-to-end against `prod.mesflow.net` specifically
+(not just localhost), after the production freeze was added:
+
+- **Kiosk v2 FAST test, 2/2 PASS**: no real ESP32 hardware in this
+  session, so a script drove the exact `/api/kiosk/v2/events` envelope the
+  firmware sends (protocol_version/device/event/context/payload, per
+  `kiosk_v2.py`'s own `_apply_event()`) against `http://prod.mesflow.net`
+  for real. Cycle 1 (GOOD=25/DEFECT=0/REWORK=0) and Cycle 2
+  (GOOD=20/DEFECT=4/REWORK=3) both PASS -- verified independently via
+  direct DB query, not just trusting the API response: both
+  `work_sessions` rows `CLOSED` with exact quantities, 0 `OPEN` sessions,
+  8/8 distinct `kiosk_v2_events` rows (no duplicates). Fixture used:
+  employee `NV001`, a seeded `PO-FASTTEST-01` / `OP-FASTTEST-01` (real
+  production_orders/parts/operations rows, `IN_PROGRESS`, reproducible via
+  the SQL in this doc's history rather than hand-preserved).
+- **Recovery, targeted (not a long stress run)**: exact-duplicate event
+  retry replayed the identical cached response with zero double-effect
+  (1 DB row despite 2 requests); stopping/restarting `mesflow-prodtest-app`
+  produced a clean `502` during the outage (not a hang) and a fully
+  correct resync (`GET /state` returned the exact pre-restart projection)
+  plus a working continuation event afterward.
+- **Rollback, full lineage**: deployed release A -> release B -> rolled
+  back to A (digest-exact, healthy, DB-compatible since both share
+  migration head `0039`) -> restored B (digest-exact, healthy).
+- **Same digest DEV = PROD-TEST**: confirmed via `docker image inspect`
+  on both, not by tag string alone.
+- **Tunnel persistence**: `systemctl --user restart
+  cloudflared-prodtest.service` -- tunnel re-established within ~10s,
+  `enabled` + `linger=yes` (reboot-persistent). No unrelated Docker
+  service was restarted (`mesflow-app`/`mesflow-nginx` RestartCount
+  confirmed unchanged before/after).
+- **No nginx, no duplicate backends confirmed**: `mesflow-prodtest-net`
+  contains exactly `mesflow-prodtest-app` + `mesflow-prodtest-db`; the
+  only nginx container on the host (`mesflow-nginx`) is on a completely
+  separate network, unreachable from PROD-TEST's path.
 
 ## Commands reference
 
