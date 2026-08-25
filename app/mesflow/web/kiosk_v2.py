@@ -438,19 +438,32 @@ def _apply_event(device_id: str, event_id: str, event_type: str, payload: dict, 
 
 def _bundle_json_bytes(version: int) -> bytes | None:
     """Serializes a stored bundle EXACTLY the way /ui-bundles/<version>
-    actually sends it over the wire (Flask's own json.dumps, via
-    jsonify().get_data()) -- deliberately not a naive hash of Postgres's
-    own jsonb-to-text stringification, which reorders/reformats keys
-    differently and would silently drift from what the device actually
+    actually sends it over the wire -- deliberately not a naive hash of
+    Postgres's own jsonb-to-text stringification, which reorders/reformats
+    keys differently and would silently drift from what the device actually
     downloads and hashes on its own end (a real, live gap found seeding
     this exact registry: a DB-side hash and the real served bytes hashed
     to two different values). Only ever called from within a Flask request
     (bootstrap/heartbeat/ui_bundle view functions), so an app/request
-    context is always already active -- no extra context management needed."""
+    context is always already active -- no extra context management needed.
+
+    ensure_ascii=False (2026-08-25 font-audit fix): this used to go through
+    plain jsonify(), which escapes non-ASCII to \\uXXXX -- fine for the
+    ASCII-only bundles that existed when this was written, but a REAL bug
+    for any bundle containing Vietnamese text (found live: a bundle with
+    "QUÉT THẺ NHÂN VIÊN" arrived on-device as the literal text
+    "QUu00c9T THu1eba..."). json_extract.cpp (the firmware's hand-rolled
+    parser) only ever decoded raw UTF-8 bytes, never \\uXXXX escapes --
+    exactly the same class of bug _json_response() above already fixed for
+    /events /bootstrap /state, just not yet applied here. Kept as its own
+    encode call (not routed through _json_response, which also sets
+    mimetype/status) so the hash and the served bytes stay identically
+    derived from this one function -- the "single source of truth" property
+    the docstring above already required, now just with the right escaping."""
     row = fetch_one('SELECT content_json FROM kiosk_v2_ui_bundles WHERE version=%s', (version,))
     if row is None:
         return None
-    return jsonify(row['content_json']).get_data()
+    return json.dumps(row['content_json'], ensure_ascii=False, sort_keys=True).encode('utf-8')
 
 
 def _bundle_hash(version: int) -> str:
