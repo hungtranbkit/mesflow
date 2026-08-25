@@ -20,7 +20,12 @@ echo "-- preflight --"
 REMOTE_HOSTNAME="$(ssh_target "$TARGET" hostname)"
 echo "remote hostname: $REMOTE_HOSTNAME"
 
-REMOTE_PROJECT_NAME="$(ssh_target "$TARGET" "grep '^name:' ${REMOTE_DIR}/compose.yml | awk '{print \$2}'" || true)"
+# Use `compose config`'s resolved project name, not a naive grep for an
+# explicit `name:` key -- compose.yml may omit it and rely on the
+# directory-name fallback (e.g. /opt/mesflow -- production -- has no
+# `name:` line at all; a bare grep silently returns empty and aborts every
+# production deploy at this exact check).
+REMOTE_PROJECT_NAME="$(ssh_target "$TARGET" "cd ${REMOTE_DIR} && MESFLOW_IMAGE=\${MESFLOW_IMAGE:-name-check-placeholder} docker compose --env-file .env config --format json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"name\"])'" || true)"
 if [[ "$REMOTE_PROJECT_NAME" != "$COMPOSE_PROJECT" ]]; then
   echo "ABORT: remote compose project name '$REMOTE_PROJECT_NAME' != expected '$COMPOSE_PROJECT'" >&2
   exit 1

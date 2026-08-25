@@ -1,26 +1,82 @@
 #!/usr/bin/env bash
-# ./scripts/deploy-rollback.sh <prodtest|production>
+# ./scripts/deploy-rollback.sh <prodtest|production> [--dry-run]
 #
 # Manual rollback to the digest recorded as "previous" in the last deploy
-# event. App container only -- DB schema is never auto-reverted (alembic
-# downgrade is not run). Only safe when the previous image is compatible
-# with the CURRENT (possibly newer) DB schema -- verify before running
-# this if the last deploy's migration was non-additive.
+# event (or, before any Architecture-A deploy has happened, the adopted
+# BASELINE_ADOPTED entry -- see release-build.sh's sibling docs). App
+# container only -- DB schema is never auto-reverted (alembic downgrade is
+# not run). Only safe when the previous image is compatible with the
+# CURRENT (possibly newer) DB schema -- verify before running this for
+# real if the last deploy's migration was non-additive.
+#
+# --dry-run: prints what a rollback would target right now, and (if a
+# newer release manifest exists locally) what it would target after that
+# release is deployed. Makes zero remote changes beyond the read-only
+# `cat`/`ssh` calls already needed to answer the question.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/deploy_lib.sh
 
-TARGET="${1:?usage: deploy-rollback.sh <prodtest|production>}"
+DRY_RUN=0
+TARGET=""
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    *) TARGET="$arg" ;;
+  esac
+done
+: "${TARGET:?usage: deploy-rollback.sh <prodtest|production> [--dry-run]}"
 target_config "$TARGET"
 
+CURRENT_STATE="$(ssh_target "$TARGET" "cat ${REMOTE_DIR}/deploy-state.json 2>/dev/null" || echo '{}')"
+CURRENT_VERSION="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('version','unknown'))" "$CURRENT_STATE")"
+CURRENT_DIGEST="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('digest','unknown'))" "$CURRENT_STATE")"
+
 LAST_DEPLOY="$(ssh_target "$TARGET" "grep '\"action\":\"deploy\"' ${REMOTE_DIR}/deploy-history.jsonl 2>/dev/null | tail -1" || true)"
-if [[ -z "$LAST_DEPLOY" ]]; then
-  echo "No deploy history found on $TARGET -- nothing to roll back." >&2
+LAST_BASELINE="$(ssh_target "$TARGET" "grep '\"action\":\"baseline\"' ${REMOTE_DIR}/deploy-history.jsonl 2>/dev/null | tail -1" || true)"
+
+PREVIOUS_DIGEST=""
+MODE=""
+if [[ -n "$LAST_DEPLOY" ]]; then
+  PREVIOUS_DIGEST="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('from_digest') or '')" "$LAST_DEPLOY")"
+  MODE="deploy"
+elif [[ -n "$LAST_BASELINE" ]]; then
+  PREVIOUS_DIGEST="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('to_digest') or '')" "$LAST_BASELINE")"
+  MODE="baseline"
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "CURRENT:"
+  echo "$CURRENT_VERSION  ($CURRENT_DIGEST)"
+  echo
+  echo "ROLLBACK TARGET:"
+  if [[ "$MODE" == "deploy" && -n "$PREVIOUS_DIGEST" ]]; then
+    echo "$PREVIOUS_DIGEST"
+  elif [[ "$MODE" == "baseline" ]]; then
+    echo "$CURRENT_VERSION baseline / no-op before first promotion (nothing has been deployed on top of the adopted baseline yet)"
+  else
+    echo "none recorded -- nothing to roll back to"
+  fi
+  LATEST_MANIFEST="$(ls -t "$RELEASE_DIR"/mesflow-*.json 2>/dev/null | head -1 || true)"
+  if [[ -n "$LATEST_MANIFEST" ]]; then
+    NEXT_VERSION="$(python3 -c "import json; print(json.load(open('$LATEST_MANIFEST'))['version'])")"
+    if [[ "$NEXT_VERSION" != "$CURRENT_VERSION" ]]; then
+      echo
+      echo "After future deploy:"
+      echo "$NEXT_VERSION -> rollback target $CURRENT_VERSION ($CURRENT_DIGEST)"
+    fi
+  fi
+  echo
+  echo "(dry run -- no container change)"
+  exit 0
+fi
+
+if [[ -z "$PREVIOUS_DIGEST" ]]; then
+  echo "No deploy/baseline history found on $TARGET -- nothing to roll back." >&2
   exit 1
 fi
-PREVIOUS_DIGEST="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['from_digest'])" "$LAST_DEPLOY")"
-if [[ -z "$PREVIOUS_DIGEST" || "$PREVIOUS_DIGEST" == "None" ]]; then
-  echo "Last recorded deploy has no previous digest (was the first deploy on this target) -- nothing to roll back to." >&2
+if [[ "$MODE" == "baseline" ]]; then
+  echo "Only a BASELINE_ADOPTED entry exists (no Architecture-A deploy has happened yet on $TARGET) -- nothing to roll back FROM. Refusing." >&2
   exit 1
 fi
 

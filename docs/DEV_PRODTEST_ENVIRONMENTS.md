@@ -151,9 +151,7 @@ or `http://prod.mesflow.net` (PRODUCTION-TEST) directly.
 - `scripts/smoke-test.sh` is real-production-specific (hardcoded
   `Host: mesflow.net`, checks `/nginx-health`) and was left untouched --
   it doesn't apply to DEV/PROD-TEST and real production still has Nginx.
-- The kiosk v2 backend source (`app/mesflow/web/kiosk_v2.py`, migration
-  `0039_kiosk_v2_protocol.py`, this doc, etc.) is still **uncommitted**,
-  sitting on branch `feat/employee-productivity-wallboard` (unrelated
-  work) -- a proper commit/branch cleanup is still outstanding from an
-  earlier consolidation pass and should happen before this is considered
-  durable.
+- ~~The kiosk v2 backend source is still uncommitted~~ -- fixed 2026-08-25,
+  see `docs/DEPLOY_ARCHITECTURE_A.md`: committed on its own branch
+  (`feat/kiosk-v2-deploy-architecture`), version bumped to `71.0.0.66`,
+  built clean (`dirty: false`).

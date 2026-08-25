@@ -38,6 +38,32 @@ Registry: **self-hosted**, `127.0.0.1:5000` (container `mesflow-registry`,
 Chosen over an external registry (Docker Hub/GHCR) specifically to avoid
 publishing source/images externally without a separate decision to do so.
 
+### Registry topology -- current limitation, deliberately deferred
+
+```
+CURRENT TOPOLOGY:   single physical host
+                    (DEV, PROD-TEST, and real Production all run as
+                    containers on this one machine -- confirmed, not
+                    assumed, via `docker inspect`/`ssh` against each)
+REGISTRY:           127.0.0.1:5000
+SINGLE_HOST_DEPLOY_READY:  YES
+REMOTE_DEPLOY_READY:       NO
+```
+
+`127.0.0.1:5000` only resolves for a puller on this exact host. That's
+fine right now -- there is no second host for Production to actually be
+remote from -- but it means this registry topology does **not** carry over
+the moment Production moves to a separate machine. Two ready options were
+scoped out but **intentionally not implemented** in this pass (2026-08-25):
+Tailscale (bind the registry to this host's Tailscale IP, add it to
+Docker's `insecure-registries`, requires a `sudo systemctl restart docker`
+that restarts every container on this host -- a human call, not one to
+make from here) or a Cloudflare Tunnel hostname gated behind Cloudflare
+Access (needs dashboard-level auth config this session can't verify
+blind). **Do not configure Tailscale, `daemon.json`, or a public registry
+route as a side effect of an unrelated task** -- revisit this deliberately
+when an actual second host exists to prove reachability against.
+
 ## Why "SSH deploy" is SSH-to-self here
 
 DEV, PROD-TEST, and real Production all run as containers **on this same
@@ -116,9 +142,57 @@ from DEV, over SSH.
   untouched.** It's still what actually deploys real Production today.
   Removing it is requirement #15's job, gated on Production actually being
   cut over to this flow -- which hasn't happened yet.
-- Kiosk v2 backend source is still uncommitted, on the wrong branch
-  (`feat/employee-productivity-wallboard`) -- unchanged from the prior
-  outstanding gap.
+- ~~Kiosk v2 backend source is still uncommitted, on the wrong branch~~ --
+  fixed 2026-08-25: committed on its own branch,
+  `feat/kiosk-v2-deploy-architecture`, split cleanly from the unrelated
+  pre-existing wallboard WIP (which got its own honest commit on its own
+  branch first, so it wasn't lost or mixed in). `71.0.0.65-kiosk-v2-vn-font`
+  (built dirty) was retired; `71.0.0.66` is the first release built from a
+  clean, fully-committed tree (`release/mesflow-71.0.0.66.json` has
+  `"dirty": false`). `release-build.sh` now refuses a dirty tree by default
+  (`ALLOW_DIRTY_BUILD=1` overrides, for throwaway local iteration only).
+
+## Production first-promotion prep (2026-08-25, prepare-only -- not deployed)
+
+- **Real bug found and fixed**: `deploy.sh`'s compose-project-name
+  preflight check did a bare `grep '^name:' compose.yml`. Production's
+  `compose.yml` has no explicit `name:` key (Compose infers `mesflow` from
+  the `/opt/mesflow` directory name instead) -- the grep silently returned
+  empty, which would have aborted *every* production deploy at the very
+  first preflight check. Fixed to resolve the name via
+  `docker compose config` (which applies the same directory-fallback logic
+  Compose itself uses), verified against both `production` and `prodtest`.
+- **`SERVER_ROLE=PRODUCTION`** added to `/opt/mesflow/.env` (file only --
+  confirmed via `RestartCount`/`StartedAt` that the running container was
+  never touched). Takes effect on the next app recreate, i.e. the first
+  real deploy.
+- **Rollback baseline adopted**: since Production has never gone through
+  this flow, there was no deploy history to roll back to if the *first*
+  Architecture-A deploy fails. `/opt/mesflow/deploy-state.json` and
+  `deploy-history.jsonl` were seeded with the CURRENTLY RUNNING
+  `71.0.0.62` (real image ID/digest, confirmed still present locally) as a
+  `BASELINE_ADOPTED` entry -- metadata only, no container/DB change.
+- **`deploy-rollback.sh --dry-run`** added: reports what a rollback would
+  target right now (falls back to the adopted baseline when no real
+  Architecture-A deploy has happened yet) and, if a newer release manifest
+  exists locally, what it would target after that release deploys. Zero
+  remote mutation.
+- **Migration 0039_kiosk_v2_protocol classified SAFE_FORWARD**: read in
+  full -- four `CREATE TABLE` + one `INSERT` into a new table, no
+  `ALTER`/`DROP`/`TRUNCATE`, never touches `employees`/`operations`/
+  `production_orders`/`work_sessions`. This also means an app-only
+  rollback (no `alembic downgrade`) is safe after this specific migration:
+  the old app code simply doesn't know the new tables exist.
+- **Config compatibility confirmed**: the only env var the new
+  `kiosk_v2.py` module reads is `MESFLOW_ENV` (for a LOCAL_TEST-only
+  timing diagnostic, gated on the literal string `'local_test'`) --
+  production's `MESFLOW_ENV=production` already guarantees that stays off.
+  No new required var is missing from `/opt/mesflow/.env`.
+- **Kiosk v2 HTTP infra path confirmed no-redirect**, even though the
+  routes don't exist in the currently-running `71.0.0.62` yet (404, as
+  expected) -- `http://mesflow.net/api/kiosk/v2/*` and the known-working
+  `http://mesflow.net/api/system/ready` both proxy over plain HTTP with no
+  forced HTTPS redirect on this vhost.
 
 ## Commands reference
 
