@@ -22,6 +22,26 @@ if [[ "$DIRTY_COUNT" != "0" ]]; then
   COMMIT="${COMMIT}-dirty"
 fi
 
+# Keep the root release.json's "version" field in sync with VERSION.txt --
+# this is the actual source of truth (see canonical rule below); release.json
+# is a separate, older, root-level file (predates Architecture A, still read
+# by the legacy deploy-agent/bootstrap tooling) that has no other mechanism
+# forcing it to agree. Found stale once already (71.0.0.62 while VERSION.txt
+# had moved to 71.0.0.67, 2026-08-25 stabilization pass) -- fixed here so it
+# can't happen again rather than just fixing the one instance.
+if [[ -f release.json ]]; then
+  python3 -c "
+import json
+with open('release.json') as f:
+    data = json.load(f)
+data['version'] = '${VERSION}'
+with open('release.json', 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+"
+  echo "release.json version synced to ${VERSION}"
+fi
+
 IMAGE_TAG="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
 echo "== Building ${IMAGE_TAG} (commit ${COMMIT}) =="
 docker build --build-arg GIT_COMMIT="${COMMIT}" -t "${IMAGE_TAG}" .

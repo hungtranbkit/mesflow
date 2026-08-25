@@ -1,5 +1,10 @@
 # MESFlow v65.5.0 — Phase 5 Production Ready
 
+> **Read `docs/CURRENT_STATE.md` first** for the actual current version,
+> environments, and priorities — this file below is an old changelog-style
+> README (references v64/v65, port 18080, `/opt/mesflow-v65`) kept as
+> historical record, not current operational truth.
+
 PostgreSQL-native production package. Không có SQLite, adapter hay mirror.
 
 ## Phase 5 bổ sung
