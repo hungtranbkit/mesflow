@@ -9,8 +9,16 @@ source scripts/deploy_lib.sh
 VERSION="$(cat VERSION.txt)"
 COMMIT="$(git rev-parse --short=12 HEAD)"
 DIRTY_COUNT="$(git status --short | wc -l | tr -d ' ')"
+DIRTY=false
 if [[ "$DIRTY_COUNT" != "0" ]]; then
-  echo "WARNING: working tree has $DIRTY_COUNT uncommitted change(s). Building from the working tree anyway (source consolidation is a separate, still-outstanding task) -- recorded as dirty in the manifest." >&2
+  DIRTY=true
+  if [[ "${ALLOW_DIRTY_BUILD:-}" != "1" ]]; then
+    echo "ABORT: working tree has $DIRTY_COUNT uncommitted change(s). Commit first -- a durable release must be reproducible from committed source." >&2
+    echo "  git status --short   # see what's dirty" >&2
+    echo "Set ALLOW_DIRTY_BUILD=1 to override for a throwaway local iteration build (never do this for a release you intend to keep/promote)." >&2
+    exit 1
+  fi
+  echo "WARNING: ALLOW_DIRTY_BUILD=1 -- building from a dirty working tree ($DIRTY_COUNT change(s)). This is NOT a durable release." >&2
   COMMIT="${COMMIT}-dirty"
 fi
 
@@ -83,6 +91,7 @@ cat > "$MANIFEST" <<EOF
 {
   "version": "${VERSION}",
   "commit": "${COMMIT}",
+  "dirty": ${DIRTY},
   "image": "${IMAGE_TAG}",
   "digest": "${DIGEST_REF}",
   "migration_head": "${MIGRATION_HEAD}",
