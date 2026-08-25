@@ -14,6 +14,17 @@ class Settings:
     admin_password: str = os.environ.get("MESFLOW_ADMIN_PASSWORD", "")
     cookie_secure: bool = _bool("WORKSHOP_COOKIE_SECURE")
     environment: str = os.environ.get("MESFLOW_ENV", "production")
+    # Human/operator-facing label only (e.g. "DEV", "PRODUCTION_TEST") --
+    # distinct from `environment`/MESFLOW_ENV, which code gates key off of.
+    # Never infer one from the other: renaming this must never change
+    # MESFLOW_ENV-gated behavior (see kiosk_v2.py's _TIMING_ENABLED).
+    server_role: str = os.environ.get("SERVER_ROLE", "")
+    # Baked into the image at build time (Dockerfile ARG GIT_COMMIT), not a
+    # runtime env var -- travels with the image regardless of which target
+    # deploys it, so a deploy's health check can confirm the exact commit
+    # that's actually running, independent of what the target's own .env
+    # claims.
+    build_commit: str = os.environ.get("MESFLOW_BUILD_COMMIT", "unknown")
     deployment_id: str = os.environ.get("MESFLOW_DEPLOYMENT_ID", "")
     trusted_proxy_count: int = int(os.environ.get("MESFLOW_TRUSTED_PROXY_COUNT", "1"))
     max_content_length: int = int(os.environ.get("MESFLOW_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))

@@ -1,0 +1,96 @@
+# Canonical DEV stack (2026-08-25: promoted from ad-hoc LOCAL_TEST to the
+# canonical DEV environment -- container/service names and the port kept
+# as-is deliberately, so the existing reboot-persistent tunnel
+# (cloudflared-kiosk-local-test.service, kiosk-v2-local-test.mesflow.net)
+# keeps working unchanged; dev.mesflow.net was added as a second hostname
+# on that same tunnel rather than standing up a parallel one).
+#
+# LOCAL_TEST deployment for Kiosk v2 real-hardware integration testing
+# (mesflow-kiosk-runtime-v2 firmware repo's companion backend).
+#
+# Completely isolated from compose.yml (production): distinct project name,
+# container names, network, volumes, port, and Postgres credentials -- no
+# service name in this file collides with a production service name, so
+# `docker compose -f compose.local-test.yml ...` can never accidentally
+# target/restart a production container even by an operator's mistake.
+#
+# This formalizes what was previously ad-hoc `docker run` commands built up
+# over one long testing session -- same containers/network/volume/port this
+# file's own comments describe, just now reproducible:
+#
+#   docker compose -f compose.local-test.yml up -d --build
+#
+# Never touches /opt/mesflow (production's real runtime) or compose.yml's
+# own services.
+name: mesflow-local-test
+services:
+  mesflow-local-test-db:
+    image: postgres:17-alpine
+    container_name: mesflow-local-test-db
+    environment:
+      POSTGRES_DB: mesflow_local_test
+      POSTGRES_USER: mesflow
+      POSTGRES_PASSWORD: ${LOCAL_TEST_POSTGRES_PASSWORD:-localtestonly}
+      TZ: Asia/Ho_Chi_Minh
+      PGTZ: UTC
+    volumes:
+      - mesflow-local-test-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesflow -d mesflow_local_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - mesflow-local-test-net
+
+  mesflow-local-test-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${LOCAL_TEST_IMAGE:-mesflow-app:local-test}
+    container_name: mesflow-local-test-app
+    environment:
+      # SERVER_ROLE + MESFLOW_ENV together are the safety/observability
+      # signal this whole environment is built around: SERVER_ROLE is what a
+      # human/operator reads (printed by every safety-banner check this
+      # session used); MESFLOW_ENV=local_test is what kiosk_v2.py's own
+      # _TIMING_ENABLED gate checks in code. Keep both -- they serve
+      # different readers, and dropping either weakens a real safety check.
+      SERVER_ROLE: DEV
+      MESFLOW_ENV: local_test
+      DATABASE_URL: postgresql://mesflow:${LOCAL_TEST_POSTGRES_PASSWORD:-localtestonly}@mesflow-local-test-db:5432/mesflow_local_test
+      WORKSHOP_DATABASE_URL: postgresql://mesflow:${LOCAL_TEST_POSTGRES_PASSWORD:-localtestonly}@mesflow-local-test-db:5432/mesflow_local_test
+      MESFLOW_SECRET_KEY: ${LOCAL_TEST_SECRET_KEY:?LOCAL_TEST_SECRET_KEY is required -- generate one, never reuse a production secret}
+      MESFLOW_ADMIN_USERNAME: admin
+      MESFLOW_ADMIN_PASSWORD: ${LOCAL_TEST_ADMIN_PASSWORD:?LOCAL_TEST_ADMIN_PASSWORD is required (>=10 chars) -- never reuse the production admin password}
+      MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      # 2026-08-24: bound to all interfaces (was 127.0.0.1-only) so the real
+      # ESP32 kiosk on the same LAN/WiFi can reach this directly over plain
+      # HTTP -- see docs/KIOSK_V2_PLAIN_HTTP.md for why TLS was removed from
+      # the active kiosk v2 transport path entirely (product decision: this
+      # data isn't confidential, reliability/simplicity/low-RAM won over
+      # confidentiality). LOCAL_TEST only -- compose.yml (production) is a
+      # completely separate file, untouched.
+      - "${LOCAL_TEST_PORT:-8199}:8080"
+    depends_on:
+      mesflow-local-test-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/kiosk/v2/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - mesflow-local-test-net
+
+networks:
+  mesflow-local-test-net:
+    name: mesflow-local-test-net
+    external: true
+
+volumes:
+  mesflow-local-test-pgdata:
+    name: mesflow-local-test-pgdata
+    external: true

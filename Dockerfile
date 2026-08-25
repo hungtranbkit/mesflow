@@ -1,5 +1,7 @@
 FROM python:3.13-slim-bookworm
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Ho_Chi_Minh
+ARG GIT_COMMIT=unknown
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Ho_Chi_Minh \
+    MESFLOW_BUILD_COMMIT=$GIT_COMMIT
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates tzdata postgresql-client && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /app/
