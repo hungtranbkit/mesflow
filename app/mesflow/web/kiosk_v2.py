@@ -48,6 +48,8 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, jsonify, request
 
+from mesflow import __version__
+from mesflow.core.config import settings
 from mesflow.db.connection import transaction, fetch_one, fetch_all
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
 from mesflow.db.repositories.execution import WorkSessionRepository, KioskRepository, _json_safe
@@ -476,9 +478,29 @@ def _resolve_station(payload: dict):
     return KioskRepositoryLookup.station(code) if code else None
 
 
+def _server_identity_fields() -> dict:
+    """environment/server_role/version -- ESP kiosk UX-hardening pass
+    (2026-08-26, §2 "Server Environment Visibility"): a real, confirmed gap
+    found reading this whole file top to bottom -- none of /health,
+    /bootstrap, /heartbeat, /state, /events had ever returned ANY of these,
+    so a device had no way to know whether it was talking to DEV/TEST/PROD.
+    Reads settings.environment/settings.server_role/__version__ exactly the
+    way app.py's /api/system/ready (the browser/admin health endpoint --
+    a different contract, same underlying values) already does -- no new
+    logic invented here, just the same three fields on the kiosk-facing
+    contract too. server_role is '' when unset (e.g. a bare local dev run
+    with no SERVER_ROLE env var) -- returned as None, never a misleading
+    empty string a device might render as a blank environment label."""
+    return {
+        'environment': settings.environment,
+        'server_role': settings.server_role or None,
+        'version': __version__,
+    }
+
+
 @bp.get('/health')
 def health():
-    return jsonify(ok=True, backend='postgresql', phase='kiosk_v2')
+    return jsonify(ok=True, backend='postgresql', phase='kiosk_v2', **_server_identity_fields())
 
 
 @bp.post('/bootstrap')
@@ -506,6 +528,7 @@ def bootstrap():
             'ui_bundle_version': desired_version,
             'ui_bundle_hash': ui_bundle_hash,
         },
+        **_server_identity_fields(),
     }
     if device_id:
         proj = _get_projection(device_id)
