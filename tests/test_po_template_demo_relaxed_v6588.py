@@ -22,7 +22,12 @@ def test_instantiation_does_not_auto_chain_time_dependencies():
     repo=text('app/mesflow/db/repositories/master_data.py')
     instantiate=repo[repo.index('    def instantiate('):]
     assert 'previous_by_part' not in instantiate
-    assert "float(op.get('standard_seconds_per_unit') or 0),None" in instantiate
+    # repair_cycle_time_seconds_per_unit was added as a column between
+    # standard_seconds_per_unit and the predecessor_operation_id=None
+    # param since this was written -- the real invariant this test cares
+    # about (predecessor is NOT auto-chained, stays the literal None) is
+    # unaffected by that insertion, just needs the substring updated.
+    assert "float(op.get('repair_cycle_time_seconds_per_unit') or 0),None" in instantiate
     assert 'pending_sources' in instantiate
     assert 'input_source_operation_id' in instantiate
 
@@ -52,7 +57,11 @@ def test_demo_seed_updates_old_demo_templates():
 
 
 def test_release_version_v6588():
-    assert tuple(map(int,text('VERSION.txt').strip().split('.'))) >= (65,8,8)
     version=text('VERSION.txt').strip()
-    assert f"__version__='{version}'" in text('app/mesflow/__init__.py').replace(' ', '')
+    assert tuple(map(int,version.split('.'))) >= (65,8,8)
+    # __init__.py reads VERSION.txt at import time rather than embedding a
+    # literal (see its own docstring) -- import and compare instead of
+    # grepping for a string that no longer appears in source.
+    import mesflow
+    assert mesflow.__version__==version
     assert f"mesflow-app:{version}" in text('compose.yml')

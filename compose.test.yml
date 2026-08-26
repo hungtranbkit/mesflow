@@ -15,6 +15,14 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+    # Same Gate 17 fix as compose.yml -- this stack routinely stays up for
+    # hours across a long test session (this one included), so an
+    # unbounded default json-file log is a real, not just theoretical, risk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   mesflow-test-api:
     build:
@@ -30,6 +38,16 @@ services:
       MESFLOW_TEST_AUTO_LOGIN_USERNAME: admin
       MESFLOW_ADMIN_USERNAME: admin
       MESFLOW_ADMIN_PASSWORD: Admin@123456
+      # Fix Plan Phase 10: legacy ESP32 kiosk auto-bind-on-first-contact
+      # now defaults OFF for production safety (core/config.py). The
+      # existing pre-Phase-10 integration test suite exercises the legacy
+      # v1 kiosk flow (/station/heartbeat, /session/group/*, offline-sync)
+      # against ad-hoc, never-explicitly-registered device_uuids -- same
+      # reasoning as MESFLOW_TEST_AUTO_LOGIN=1 above (a real permissive
+      # opt-in for THIS test environment only, never set in compose.yml/
+      # compose.local-test.yml -- PROD-TEST/production's own .env are
+      # deploy targets outside this repo, deliberately not touched here).
+      MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND: "1"
       MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
       MESFLOW_ENABLE_FORCE_DELETE_PO: "1"
       MESFLOW_DEPLOYMENT_ID: docker-e2e
@@ -52,6 +70,11 @@ services:
       timeout: 3s
       retries: 40
       start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   tests:
     build:

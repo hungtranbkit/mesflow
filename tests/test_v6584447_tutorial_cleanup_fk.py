@@ -1,13 +1,13 @@
 from pathlib import Path
 import json, ast
 R=Path(__file__).resolve().parents[1]
-E="65.8.44.47"
+E=(R/"VERSION.txt").read_text().strip()
 
 def test_version_sync():
     assert (R/"VERSION.txt").read_text().strip()==E
-    assert E in (R/"app/mesflow/__init__.py").read_text()
+    import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==E  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
     assert json.loads((R/"release.json").read_text())["version"]==E
-    assert f"image: mesflow-app:{E}" in (R/"compose.yml").read_text()
+    assert f"mesflow-app:{E}" in (R/"compose.yml").read_text()
 
 def test_tutorial_data_syntax():
     s=(R/"app/mesflow/tutorial_data.py").read_text()

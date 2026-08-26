@@ -164,38 +164,46 @@ test('Vào thẳng chi tiết PO (không có ngăn xếp) -> Back vẫn về dan
   expect(pageErrors).toEqual([]);
 });
 
-test('Session bất thường -> drawer -> Mở trong Quản lý Session -> Back quay lại đúng bối cảnh', async ({ page }) => {
-  const items = [exceptionItem()];
+test('Trung tâm ngoại lệ -> xem chi tiết -> đóng quay lại đúng danh sách', async ({ page }) => {
+  // Rewritten (2026-08-26): this used to drive pages/session-exceptions.js
+  // (.se-card / #seSearch / .drawer-panel) through its "Mở trong Quản lý
+  // Session" hand-off into a banner-context Session Management view
+  // (window.MESFLOW_SESSION_EXCEPTION_CONTEXT + #smBackException + a
+  // [data-nav-back] button). That whole page is confirmed dead code (see
+  // mesflow.spec.js's "session exception workflow screen renders" test):
+  // its <script> include was removed from app.html because
+  // pages/exception-center.js is now loaded and unconditionally overwrites
+  // the same renderSessionExceptions global. The only remaining code that
+  // reads MESFLOW_SESSION_EXCEPTION_CONTEXT (app.js's Session Management
+  // banner) is itself now unreachable, since exception-center.js never sets
+  // that global -- its drawer has no "Mở trong Quản lý Session" action at
+  // all. The live Exception Center closes its drawer back onto the same
+  // list in place, with no page transition and therefore no Back stack or
+  // context banner to test.
+  const items = [exceptionItem({ id: 9101 })];
   await login(page);
-  await page.route(/\/api\/session-exceptions(\?.*)?$/, route => {
+  await page.route(/\/api\/exceptions(\?.*)?$/, route => {
     if (route.request().method() !== 'GET') return route.fallback();
-    route.fulfill({ json: { ok: true, items, view: 'inbox' } });
+    route.fulfill({ json: { ok: true, items, total: items.length } });
   });
-  await page.route(/\/api\/session-management\/\d+$/, route => route.fulfill({ json: { ok: true, ...sessionDetailPayload(items[0]) } }));
-  await mockSessionManagementApis(page, [sessionRow()]);
+  await page.route(/\/api\/sessions\/\d+\/context$/, route => route.fulfill({ json: { ok: true, ...sessionDetailPayload(items[0]) } }));
+  await page.route(/\/api\/exceptions\/\d+\/history$/, route => route.fulfill({ json: { ok: true, items: [] } }));
 
   await page.evaluate(() => openPage('session-exceptions'));
-  await expect(page.locator('.se-card')).toHaveCount(1);
-  await page.locator('#seSearch').fill('Trần Thị B');
-  await expect(page.locator('.se-card')).toHaveCount(1);
+  await expect(page.locator('.ec-card')).toHaveCount(1);
 
-  await page.locator('.se-card [data-act="view"]').click();
-  await expect(page.locator('.drawer-panel')).toBeVisible();
-  await page.locator('#sdActOpenManagement').click();
-
-  // Left Session Exceptions for Session Management -- banner explains why,
-  // and offers a real way back instead of a generic Home link.
-  await expect(page.locator('#pageTitle')).toHaveText('Quản lý Session');
-  await expect(page.locator('.session-exception-context')).toContainText('Session #701');
-  await expect(page.locator('[data-session-id="701"]')).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('.ec-card').first().click();
+  await expect(page.locator('.ec-drawer')).toBeVisible();
+  await expect(page.locator('.ec-drawer')).toContainText('SESSION #701');
   assertStillInApp(page);
 
-  await page.locator('[data-nav-back]').click();
+  await page.locator('#ecClose').click();
 
-  // Back landed on Session Exceptions (not Home) with the search filter
-  // from before the drill-down still applied.
-  await expect(page.locator('#pageTitle')).toHaveText('Phiên làm việc bất thường');
-  await expect(page.locator('#seSearch')).toHaveValue('Trần Thị B');
+  // Closing the drawer stays on the same page/list -- no navigation, no
+  // Home fallback, nothing to restore.
+  await expect(page.locator('.ec-drawer-shell')).toHaveCount(0);
+  await expect(page.locator('#pageTitle')).toHaveText('Trung tâm ngoại lệ');
+  await expect(page.locator('.ec-card')).toHaveCount(1);
   assertStillInApp(page);
 });
 
@@ -238,6 +246,7 @@ test('Mở trực tiếp bằng URL ?session= -> Đóng drawer ở lại MESFlow
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
   await page.route(/\/api\/session-management\/\d+$/, route => route.fulfill({ json: { ok: true, ...sessionDetailPayload(item) } }));
+  await page.route(/\/api\/sessions\/\d+\/trace(\?.*)?$/, route => route.fulfill({ json: { ok: true, events: [] } }));
   await page.route(/\/api\/dashboard\/overview\?/, route => route.fulfill({ json: { ok: true, production_orders: [], operations: [] } }));
   await page.route(/\/api\/production-control(\?.*)?$/, route => route.fulfill({ json: { ok: true, production_orders: [], operations: [] } }));
 
@@ -246,15 +255,22 @@ test('Mở trực tiếp bằng URL ?session= -> Đóng drawer ở lại MESFlow
 
   // Deep link opened the drawer directly, on top of the default landing
   // page -- no cold-load crash, no forced trip through Session Management.
-  await expect(page.locator('.drawer-panel')).toBeVisible();
-  await expect(page.locator('.drawer-head')).toContainText('Session #701');
+  // Rewritten (2026-08-26): SessionDetailDrawer itself is still live (app.html's
+  // boot script still calls window.SessionDetailDrawer.open(deepLinkSessionId)
+  // for a `?session=` cold load, and the Session Management accordion opens
+  // the same drawer) -- only the selectors were stale. It renders through
+  // the generic MFUI.openDrawer() primitive (core/ui.js), which never used
+  // .drawer-panel/.drawer-head/.drawer-backdrop -- those are
+  // .ui-drawer/.ui-drawer-header/.ui-overlay-backdrop.
+  await expect(page.locator('.ui-drawer')).toBeVisible();
+  await expect(page.locator('.ui-drawer-header')).toContainText('Session #701');
   // No return context was recorded for a cold load, so the drawer only
   // offers Close, never a "Mở trong Quản lý Session" action that would
   // dead-end without a way back.
   await expect(page.locator('#sdActOpenManagement')).toHaveCount(0);
 
   await page.locator('#sdClose').click();
-  await expect(page.locator('.drawer-backdrop')).toBeHidden();
+  await expect(page.locator('.ui-drawer')).toHaveCount(0);
   await expect(page.locator('#pageTitle')).toHaveText('Tổng quan sản xuất');
   expect(page.url()).not.toContain('session=');
   assertStillInApp(page);

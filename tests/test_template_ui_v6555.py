@@ -6,7 +6,9 @@ REPO=(ROOT/'app/mesflow/db/repositories/master_data.py').read_text(encoding='utf
 
 
 def test_template_crud_ui_present():
-    for text in ('+ Template mới','newTemplateOld','saveTemplateOld','cloneTemplateOld','tplDelete'):
+    # Create-button label later changed from "+ Template mới" to "+ Tạo
+    # Template" -- same action, same tplNew id/newTemplateOld() handler.
+    for text in ('+ Tạo Template','newTemplateOld','saveTemplateOld','cloneTemplateOld','tplDelete'):
         assert text in JS
 
 

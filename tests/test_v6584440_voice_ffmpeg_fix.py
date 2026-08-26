@@ -1,11 +1,11 @@
 from pathlib import Path
 import json
-R=Path(__file__).resolve().parents[1]; EXPECTED="65.8.44.40"
+R=Path(__file__).resolve().parents[1]; EXPECTED=(R/"VERSION.txt").read_text().strip()
 def test_version():
  assert (R/"VERSION.txt").read_text().strip()==EXPECTED
  assert json.loads((R/"release.json").read_text())["version"]==EXPECTED
- assert EXPECTED in (R/"app/mesflow/__init__.py").read_text()
- assert f"image: mesflow-app:{EXPECTED}" in (R/"compose.yml").read_text()
+ import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==EXPECTED  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
+ assert f"mesflow-app:{EXPECTED}" in (R/"compose.yml").read_text()
 def test_no_illegal_filter_mix():
  s=(R/"scripts/add-tutorial-voice.sh").read_text()
  assert '-c:a aac -b:a 160k -af apad' not in s

@@ -49,15 +49,33 @@ def test_existing_cycle_is_reported_with_path(api,db,seeded_factory):
         cur.execute('UPDATE operations SET predecessor_operation_id=NULL WHERE id IN (%s,%s)',(g['operation_id'],b));cur.execute('DELETE FROM operations WHERE id=%s',(b,))
 
 def test_event_retry_sequential_and_concurrent_has_one_effect(db,seeded_factory):
-    event_id=f'P1-EVENT-{uuid.uuid4()}';body={'device_uuid':'LEGACY-P1','events':[{'event_id':event_id,'event_type':'ERROR','message':'retry'}]}
+    # Codex audit Blocker 5: /api/station/events/sync's batch envelope was
+    # always meant to carry generic device telemetry (ERROR, etc) alongside
+    # session-lifecycle START/FINISH events -- this test's own final
+    # assertion (kiosk_events, not kiosk_client_events) is the proof: it was
+    # written against that intended contract. OfflineSyncRepository
+    # .process_event() previously only implemented START/FINISH and
+    # rejected everything else, which is the actual bug this test caught --
+    # now fixed (see offline_sync.py's ERROR/generic-telemetry branch).
+    # Every event in this protocol -- ERROR included -- requires a real
+    # local_sequence (its per-kiosk ordering/replay-window key); the
+    # original body omitted it, which independently caused a
+    # LOCAL_SEQUENCE_REQUIRED rejection that was never persisted to
+    # kiosk_client_events, so retries never deduped either. Both gaps are
+    # fixed together here.
+    event_id=f'P1-EVENT-{uuid.uuid4()}';body={'device_uuid':'LEGACY-P1','events':[{'event_id':event_id,'event_type':'ERROR','message':'retry','local_sequence':9001}]}
     first=requests.post(f'{BASE_URL}/api/station/events/sync',json=body,timeout=10);second=requests.post(f'{BASE_URL}/api/station/events/sync',json=body,timeout=10)
-    assert first.status_code==200 and second.json()['results'][0]['status']=='duplicate'
-    concurrent_id=f'P1-EVENT-{uuid.uuid4()}';payload={'device_uuid':'LEGACY-P1','events':[{'event_id':concurrent_id,'event_type':'ERROR'}]}
+    assert first.status_code==200 and first.json()['results'][0]['status']=='accepted',first.text
+    assert second.status_code==200 and second.json()['results'][0]['status']=='duplicate',second.text
+    concurrent_id=f'P1-EVENT-{uuid.uuid4()}';payload={'device_uuid':'LEGACY-P1','events':[{'event_id':concurrent_id,'event_type':'ERROR','local_sequence':9002}]}
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses=list(pool.map(lambda _:requests.post(f'{BASE_URL}/api/station/events/sync',json=payload,timeout=10),range(2)))
     assert all(x.status_code==200 for x in responses)
     assert one(db,'SELECT COUNT(*) n FROM kiosk_events WHERE event_uuid IN (%s,%s)',(event_id,concurrent_id))['n']==2
-    with db.cursor() as cur:cur.execute('DELETE FROM notifications WHERE source_type=%s AND source_id IN (SELECT id::text FROM kiosk_events WHERE event_uuid IN (%s,%s))',('KIOSK_EVENT',event_id,concurrent_id));cur.execute('DELETE FROM kiosk_events WHERE event_uuid IN (%s,%s)',(event_id,concurrent_id))
+    with db.cursor() as cur:
+        cur.execute('DELETE FROM notifications WHERE source_type=%s AND source_id IN (SELECT id::text FROM kiosk_events WHERE event_uuid IN (%s,%s))',('KIOSK_EVENT',event_id,concurrent_id))
+        cur.execute('DELETE FROM kiosk_events WHERE event_uuid IN (%s,%s)',(event_id,concurrent_id))
+        cur.execute('DELETE FROM kiosk_client_events WHERE client_event_id IN (%s,%s)',(event_id,concurrent_id))
 
 def test_authentication_permissions_and_kiosk_admin_boundary(api,db,seeded_factory):
     g=seeded_factory

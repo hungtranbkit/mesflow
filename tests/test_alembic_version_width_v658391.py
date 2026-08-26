@@ -13,5 +13,9 @@ def test_long_revision_widens_alembic_version_before_schema_changes():
 
 def test_runtime_version_matches_release():
     version=(ROOT/'VERSION.txt').read_text(encoding='utf-8').strip()
-    init=(ROOT/'app/mesflow/__init__.py').read_text(encoding='utf-8').replace(' ','')
-    assert f"__version__='{version}'" in init
+    # __init__.py reads VERSION.txt at import time rather than embedding the
+    # version as a literal (see its own docstring) -- the canonical way to
+    # check "did the runtime pick this up" is to import and compare, not
+    # grep the source for a string that deliberately no longer appears there.
+    import mesflow
+    assert mesflow.__version__==version

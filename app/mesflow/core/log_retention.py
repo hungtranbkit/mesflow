@@ -4,7 +4,17 @@ from mesflow.core.config import settings
 from mesflow.db.connection import transaction, fetch_one
 
 ACTION_POLICIES=(
- ('security', "(http_status IN (401,403) OR path ILIKE '/api/auth/%')", 'log_retention_security_days'),
+ # Real confirmed bug (2026-08-26, Reliability Validation Round 2 Gate 17):
+ # this literal '%' in the ILIKE pattern was never escaped for psycopg's
+ # %-style parameter substitution -- every call to preview()/run() crashed
+ # with "only '%s','%b','%t' are allowed as placeholders, got '%'" the
+ # moment it reached this (the FIRST) policy, meaning log_retention had
+ # NEVER successfully executed against a real database: not in the
+ # existing test suite (only static/structural checks existed, never a
+ # real preview()/run() call), and -- if this ran unmodified in production
+ # via the nightly cron -- every single night, silently accumulating
+ # instead of the safe, table-growth-bounding job it was meant to be.
+ ('security', "(http_status IN (401,403) OR path ILIKE '/api/auth/%%')", 'log_retention_security_days'),
  ('unresolved_error', "outcome IN ('ERROR','FAILED') AND NOT resolved", 'log_retention_unresolved_error_days'),
  ('resolved_error', "outcome IN ('ERROR','FAILED') AND resolved", 'log_retention_resolved_error_days'),
  ('slow', "outcome='SLOW'", 'log_retention_slow_days'),

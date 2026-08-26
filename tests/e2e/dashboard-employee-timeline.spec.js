@@ -56,6 +56,15 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   page.on('pageerror', error => errors.push(error.message));
   const date = hcmDate();
   await login(page);
+  // Fixed (2026-08-26): the OPEN session's "now" boundary used to be the
+  // real wall clock at test-run time. sessionsFor()'s first employee starts
+  // at 08:00 -- whether their running segment has crossed the 12:00-13:00
+  // lunch break (and so renders as 3 segments: closed + open-before-break +
+  // open-after-break) depended entirely on what real time the suite
+  // happened to run at, so this failed whenever CI ran before 13:00 HCM.
+  // Freezing the page's clock to a fixed afternoon time makes the expected
+  // 3-segment split deterministic regardless of wall-clock run time.
+  await page.clock.setFixedTime(new Date(`${date}T14:30:00+07:00`));
   await mockDashboard(page, date);
   await page.evaluate(() => openPage('dashboard'));
 

@@ -213,8 +213,98 @@ def run_predictive():
         raise
 
 
+def reconcile_exceptions():
+    """Exception detection/auto-ignore used to run ONLY as
+    a side effect of GET /api/exceptions (still true today, kept for
+    interactive-UX freshness -- see mesflow.web.exceptions -- and heavily
+    exercised by tests/integration/test_v67_exception_center.py, so NOT
+    removed). This is the missing REAL, UI-independent path: run via cron
+    (scripts/install-reconcile-cron.sh) so an exception is detected/
+    auto-resolved even when nobody has the Exception Center open -- which
+    matters now that shift auto-close creates exactly that case (a
+    session closes at 3am; nobody sees the Center until the next shift)."""
+    from mesflow.core.scheduled_job import scheduled_job_run
+    from mesflow.services.exception_service import ExceptionDetectionService
+    correlation_id=f'cli-reconcile-exceptions-{int(time.time())}'
+    with scheduled_job_run('exception_reconciliation'):
+        created=ExceptionDetectionService().reconcile(correlation_id)
+    print(f'[RECONCILE] exception_reconciliation: {len(created)} new exception(s) detected')
+
+
+def reconcile_shift_sessions():
+    """Finds every OPEN work_session past its own
+    shift's end boundary (grace period from MESFLOW_SHIFT_AUTO_CLOSE_GRACE_MINUTES)
+    and auto-closes it -- see services/shift_session_service.py for the
+    detection+dispatch logic and execution.py's auto_close_for_shift_end()
+    for the dedicated (never finish()-reusing) close lifecycle.
+
+    Respects MESFLOW_SHIFT_AUTO_CLOSE_ENABLED/_DRY_RUN (rollout
+    safety) unless --dry-run/--live is passed explicitly on the command
+    line, which always wins over the environment default -- lets a human
+    inspect a real dry-run from cron output without needing to touch env
+    vars, and lets a human force a real run once satisfied."""
+    from mesflow.core.scheduled_job import scheduled_job_run
+    from mesflow.services.shift_session_service import ShiftSessionReconciliationService
+    explicit_dry_run=None
+    if '--dry-run' in sys.argv: explicit_dry_run=True
+    elif '--live' in sys.argv: explicit_dry_run=False
+    correlation_id=f'cli-reconcile-shift-sessions-{int(time.time())}'
+    with scheduled_job_run('shift_session_reconciliation'):
+        results=ShiftSessionReconciliationService().reconcile(dry_run=explicit_dry_run,correlation_id=correlation_id)
+    by_action={}
+    for item in results: by_action[item['action']]=by_action.get(item['action'],0)+1
+    print(f'[RECONCILE] shift_session_reconciliation: {len(results)} candidate(s) -- {by_action}')
+    for item in results:
+        if item['action']=='FAILED':
+            print(f"  FAILED session #{item['session_id']}: {item.get('error')}")
+
+
+def audit_sessions():
+    """Read-only production data audit -- `mesflow
+    audit-sessions [--json]`. Never modifies anything (see
+    services/session_audit_service.py's own docstring). Meant to be run
+    before/after a rollout and periodically to catch data
+    drift early: open sessions, ones past their shift end or over 12h,
+    ones still open from a previous calendar day, employee time-overlap
+    conflicts, impossible (ended-before-started) durations, and offline
+    events whose device clock drifted materially from the server's."""
+    from mesflow.services.session_audit_service import audit
+    result=audit()
+    if '--json' in sys.argv:
+        print(json.dumps(result,indent=2,default=str,ensure_ascii=False))
+        return
+    for category,items in result.items():
+        print(f'{category}: {len(items)}')
+    total_flagged=sum(len(v) for k,v in result.items() if k!='OPEN')
+    print(f'\n{len(result["OPEN"])} OPEN session(s), {total_flagged} flagged row(s) across the other categories '
+          f'(a session can appear in more than one -- e.g. both OPEN_OVER_12H and PAST_SHIFT_END).')
+    print('Use --json for the full per-item detail.')
+
+
+def audit_integrity():
+    """Read-only database invariant audit -- `mesflow
+    audit-integrity [--json]`. Never modifies anything (see
+    services/integrity_audit_service.py's own docstring). Complements
+    audit-sessions (which flags staleness) with checks that flag outright
+    corruption: status/ended_at mismatches, negative quantities, orphaned
+    FKs, duplicate close/quantity/offline events, an auto-close that
+    changed quantity, an Operation marked COMPLETED with a session still
+    OPEN on it, and a DISABLED/PENDING kiosk with a live heartbeat. Meant
+    to be run after every chaos/load/soak test phase."""
+    from mesflow.services.integrity_audit_service import audit_integrity as run
+    result=run()
+    if '--json' in sys.argv:
+        print(json.dumps(result,indent=2,default=str,ensure_ascii=False))
+        return
+    total=sum(len(v) for v in result.values())
+    for category,items in result.items():
+        print(f'{category}: {len(items)}')
+    print(f'\nINTEGRITY VIOLATIONS: {total}')
+    print('Use --json for the full per-item detail.')
+
+
 if __name__=='__main__':
     cmd=sys.argv[1] if len(sys.argv)>1 else ''
-    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'reset-admin':reset_admin,'reset-password':reset_password,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive}
+    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'reset-admin':reset_admin,'reset-password':reset_password,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive,'reconcile-exceptions':reconcile_exceptions,'reconcile-shift-sessions':reconcile_shift_sessions,'audit-sessions':audit_sessions,'audit-integrity':audit_integrity}
     if cmd not in funcs: raise SystemExit('unknown command')
     funcs[cmd]()

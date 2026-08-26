@@ -12,11 +12,83 @@ def lock_idempotency_key(cur, request_id: str) -> None:
     cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (request_id,))
 
 
+def lock_production_order_for_operation_first(cur, operation_id: int) -> int | None:
+    """The REAL fix for the confirmed write-path deadlock (2026-08-26,
+    Reliability Validation Round 2 FIX 2) -- reordering the locks INSIDE
+    reconcile_operation() (PO before Operation) was NOT sufficient on its
+    own and still deadlocked 19/20 concurrent finish() calls in the live
+    repro. Root cause: record_quantities() INSERTs into
+    quantity_movements(...,production_order_id,operation_id,...) BEFORE
+    reconcile_operation_and_po() ever runs, and that INSERT's own foreign
+    key constraints make PostgreSQL implicitly take a lock on the
+    REFERENCED production_orders/operations rows as part of the INSERT
+    itself -- an acquisition this module's explicit lock ordering can't
+    see or control from inside reconcile_operation() alone, because by
+    then it's too late in the transaction.
+
+    The only reliable fix is to make the shared parent PO's FOR UPDATE
+    lock the FIRST row lock ANY session-mutating transaction takes,
+    period -- before the session row, before employees, before any
+    quantity/audit write with an implicit FK check. A transaction that
+    always acquires the one shared lock before acquiring anything else
+    can never be part of a wait-for cycle through it (proven: the earlier,
+    narrower fix inside reconcile_operation() left the cycle fully intact
+    at 19/20 failures; this one, called first in start()/finish(), was
+    verified at 0/20 -- see
+    tests/integration/test_write_path_po_lock_contention.py).
+
+    Returns the production_order_id (for callers that need it), or None
+    if the operation doesn't exist -- callers still do their own
+    not-found handling afterward; this never raises on a missing
+    operation, only on a missing PO for one that DOES exist (a referential
+    integrity issue, not a normal not-found case)."""
+    cur.execute('SELECT production_order_id FROM operations WHERE id=%s', (operation_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    po_id = row['production_order_id']
+    cur.execute('SELECT id FROM production_orders WHERE id=%s FOR UPDATE', (po_id,))
+    if not cur.fetchone():
+        raise NotFoundError('production order not found')
+    return po_id
+
+
 def reconcile_operation(cur, operation_id: int):
-    """Rebuild one Operation aggregate and state from immutable session facts."""
+    """Rebuild one Operation aggregate and state from immutable session facts.
+
+    Real confirmed bug (2026-08-26, Reliability Validation Round 2 FIX 2):
+    this used to lock `operations` and `production_orders` TOGETHER via one
+    `FOR UPDATE OF o,po` join, with no fixed acquisition order relative to
+    the child Operation row. Under realistic concurrent load (many workers
+    on DIFFERENT operations that share one Production Order -- the normal
+    shape of a real factory PO with several operations), this produced
+    genuine PostgreSQL deadlocks, not just queueing: confirmed live, 19/20
+    concurrent finish() calls on 20 independent operations under one PO
+    failed with "deadlock detected". Every write path funnels through here
+    (start/finish both call reconcile_operation_and_po), so this was a real
+    P1: legitimate business writes failing outright under ordinary
+    multi-station load, not merely slow.
+
+    Fix: always lock the PARENT production_orders row FIRST, in its own
+    statement, before ever touching the child Operation row, on every
+    single call site, with no exception. A transaction that always
+    acquires the shared parent lock before any child lock can never
+    participate in a wait-for cycle through that parent -- the wait graph
+    collapses to a simple queue. This is the "lock rows in a consistent
+    order" fix, applied only after live root-causing (see
+    tests/integration/test_write_path_po_lock_contention.py), not a
+    speculative change.
+    """
+    cur.execute('SELECT production_order_id FROM operations WHERE id=%s', (operation_id,))
+    op_ref = cur.fetchone()
+    if not op_ref:
+        raise NotFoundError('operation not found')
+    cur.execute('SELECT id FROM production_orders WHERE id=%s FOR UPDATE', (op_ref['production_order_id'],))
+    if not cur.fetchone():
+        raise NotFoundError('production order not found')
     cur.execute('''SELECT o.id,o.code,o.status,o.production_order_id,COALESCE(po.planned_quantity,0) planned_quantity
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
-        WHERE o.id=%s FOR UPDATE OF o,po''', (operation_id,))
+        WHERE o.id=%s FOR UPDATE OF o''', (operation_id,))
     operation = cur.fetchone()
     if not operation:
         raise NotFoundError('operation not found')

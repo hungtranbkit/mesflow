@@ -7,6 +7,7 @@ from mesflow import __version__
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
+from mesflow.domain.errors import PermissionDeniedError
 
 bp = Blueprint('web_kiosk', __name__)
 
@@ -25,6 +26,9 @@ def _error(exc):
         elif 'input' in lowered or 'available' in lowered or 'sản lượng' in lowered or 'đầu vào' in lowered:
             code, action = 'QTY-409', 'Kết thúc session OP nguồn và nhập đủ sản lượng, hoặc giảm số lượng OP hiện tại.'
         return jsonify(ok=False, error='CONFLICT', error_code=code, message=message, action=action), 409
+    if isinstance(exc, PermissionDeniedError):
+        return jsonify(ok=False, error='FORBIDDEN', error_code='AUTH-403', message=message,
+                       action='Liên hệ quản trị viên để kiểm tra trạng thái kiosk.'), 403
     if isinstance(exc, (ValueError, RepositoryError, KeyError, TypeError)):
         return jsonify(ok=False, error='INVALID_REQUEST', error_code='REQ-400', message=message,
                        action='Quét lại đúng thứ tự hoặc nhập lại dữ liệu.'), 400

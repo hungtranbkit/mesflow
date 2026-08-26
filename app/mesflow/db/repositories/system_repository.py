@@ -18,6 +18,18 @@ class SystemRepository:
     def readiness(self):
         return fetch_one("SELECT 1 AS ready, now() AS checked_at")
 
+    def db_timezone(self):
+        """The PostgreSQL session's own `timezone` GUC -- for
+        observability only. MESFlow's own business
+        calendar logic never reads this: TIMESTAMPTZ columns are stored in
+        UTC internally regardless of this setting, and every business-facing
+        conversion goes through core.time_policy.site_zone(), which is
+        pinned to MESFLOW_TIMEZONE/settings.timezone_name, never to
+        whatever this GUC (or the host/container OS locale) happens to be
+        set to."""
+        row = fetch_one("SELECT current_setting('TimeZone') AS tz")
+        return row.get('tz') if row else None
+
     def table_counts(self):
         tables = (
             'users','employees','stations','equipment','sales_orders',

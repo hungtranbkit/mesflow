@@ -48,32 +48,74 @@ async function openScreen(page, viewport) {
   await expect(page.locator('.session-accordion-item')).toHaveCount(24);
 }
 
-test('danh sách toàn chiều rộng và accordion chỉ mở một session', async ({ page }) => {
+// Real fixture for the SessionDetailDrawer's own two API calls
+// (/api/session-management/{id} and /api/sessions/{id}/trace), matching
+// sessions()[0] above.
+function sessionDetailPayload(row) {
+  return {
+    session: {
+      session_id: row.session_id, employee_id: row.employee_id, operation_id: row.operation_id,
+      station_id: row.station_id, device_uuid: row.device_uuid, status: row.status,
+      started_at: row.started_at, ended_at: row.ended_at,
+      good_qty: row.good_qty, defect_qty: row.defect_qty, rework_qty: row.rework_qty, note: row.note,
+      employee_code: row.employee_code, employee_name: row.employee_name,
+      po_id: row.po_id, po_code: row.po_code, part_id: row.part_id, part_code: row.part_code, part_name: row.part_name,
+      operation_code: row.operation_code, operation_name: row.operation_name,
+      station_code: row.station_code, station_name: row.station_name, duration_seconds: row.duration_seconds,
+      data_source: 'UNKNOWN'
+    },
+    exceptions: [], activity: [], reviews: []
+  };
+}
+
+test('accordion trigger mở drawer chi tiết Session (không mở rộng tại chỗ)', async ({ page }) => {
+  // Rewritten (2026-08-26): a session row used to expand
+  // .session-accordion-detail inline (one at a time, tracked via
+  // aria-expanded), with its own "Sửa Session" (.sm-edit) button. app.js's
+  // drawSessions() now binds every .session-accordion-trigger to
+  // SessionDetailDrawer.open(sessionId,{onOpenManagement:...}) instead --
+  // the old inline-detail template is confirmed dead code (nothing calls
+  // it from the live render path anymore). "Sửa Session" now lives behind
+  // the drawer's "Mở trong Quản lý Session" action, which opens the
+  // existing #smModal edit form.
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  const rows = sessions();
   await openScreen(page, { width: 1366, height: 768 });
   await expect(page.locator('.session-op-layout')).toHaveCount(0);
   await expect(page.locator('#smDetail')).toHaveCount(0);
   await expect(page.locator('.session-accordion-trigger').first()).toContainText(/Đang chạy.*\d+h/);
 
-  await page.locator('.session-accordion-trigger').first().click();
-  await expect(page.locator('.session-accordion-detail')).toHaveCount(1);
-  await expect(page.locator('.session-accordion-detail')).toContainText('KIOSK-01');
-  await expect(page.locator('.session-accordion-detail')).toContainText('Kiểm tra keo đầu ca');
-  await expect(page.locator('.sm-edit')).toBeVisible();
+  await page.route(/\/api\/session-management\/1$/, route => route.fulfill({ json: { ok: true, ...sessionDetailPayload(rows[0]) } }));
+  await page.route(/\/api\/sessions\/1\/trace/, route => route.fulfill({ json: { ok: true, events: [] } }));
 
-  await page.locator('.session-accordion-trigger').nth(1).click();
-  await expect(page.locator('.session-accordion-detail')).toHaveCount(1);
-  await expect(page.locator('.session-accordion-trigger').nth(1)).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('.session-accordion-trigger').first()).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('.session-accordion-trigger').first().click();
+  await expect(page.locator('.ui-drawer')).toBeVisible();
+  await expect(page.locator('.ui-drawer')).toContainText('KIOSK-01');
+  await expect(page.locator('.ui-drawer')).toContainText('Kiểm tra keo đầu ca');
+
+  await page.locator('#sdActOpenManagement').click();
+  // Fixed 2026-08-26: onOpenManagement now closes the drawer before opening
+  // #smModal -- otherwise the modal rendered underneath the drawer's own
+  // overlay (z-index 1000 vs the modal's 40) and was unusable.
+  await expect(page.locator('.ui-drawer')).toHaveCount(0);
+  await expect(page.locator('#smModal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#smEditId')).toHaveText('#1');
+  await page.locator('#smClose').click();
+
+  // Only one Session's drawer at a time; closing it never mutates the list.
+  await expect(page.locator('.session-accordion-item')).toHaveCount(24);
   expect(errors).toEqual([]);
 });
 
-test('lọc và làm mới giữ session đang mở, không nhảy scroll', async ({ page }) => {
+test('lọc và làm mới giữ bộ lọc và vị trí cuộn, không nhảy scroll', async ({ page }) => {
+  // The "stays expanded across a reload" half of this test's old name has
+  // no current equivalent: the accordion no longer has any expanded state
+  // to preserve (see the test above) -- only the filter/scroll-preservation
+  // half still applies, so that's all this asserts now.
   await openScreen(page, { width: 1366, height: 768 });
   await page.locator('#smSearch').fill('Nhân viên 18');
   await expect(page.locator('.session-accordion-item')).toHaveCount(1);
-  await page.locator('.session-accordion-trigger').click();
   await page.locator('.session-accordion-trigger').scrollIntoViewIfNeeded();
   const before = await page.evaluate(() => window.scrollY);
   await Promise.all([
@@ -82,7 +124,7 @@ test('lọc và làm mới giữ session đang mở, không nhảy scroll', asyn
   ]);
   await page.waitForTimeout(100);
   await expect(page.locator('#smSearch')).toHaveValue('Nhân viên 18');
-  await expect(page.locator('.session-accordion-trigger')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.session-accordion-item')).toHaveCount(1);
   expect(Math.abs((await page.evaluate(() => window.scrollY)) - before)).toBeLessThanOrEqual(2);
 });
 

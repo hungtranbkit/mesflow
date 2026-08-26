@@ -1,3 +1,25 @@
+// Rewritten in full (2026-08-26): every test in this file used to drive
+// pages/session-exceptions.js -- its own card markup (.se-card,
+// [data-act="process"/"ignore"/"view"]), its own claim/assign modal
+// (#seModal/#seAssigned/#seModalSave), and its own custom drawer
+// (.drawer-panel/.drawer-head/.drawer-body/.drawer-tech/.drawer-backdrop)
+// including a "Mở trong Quản lý Session" secondary action. That page is
+// confirmed dead code: app.html no longer loads it, because
+// pages/exception-center.js is loaded instead and unconditionally
+// overwrites the same renderSessionExceptions global (see
+// mesflow.spec.js's "session exception workflow screen renders" test).
+//
+// The live Exception Center (exception-center.js) keeps the same top-level
+// promise -- open a session's exception detail without leaving the page --
+// but through a different, simpler implementation: the whole card is
+// clickable (no per-card action buttons), the drawer is
+// .ec-drawer-shell/.ec-drawer with its own header/body/footer, and
+// Acknowledge/Resolve/Ignore all happen in place via footer
+// [data-action] buttons calling POST /api/exceptions/{id}/{action}
+// directly -- there is no claim/assign modal and no "Mở trong Quản lý
+// Session" hand-off at all (that capability was not carried over, not
+// merely renamed; see back-navigation.spec.js for the corresponding
+// finding on the Session Management side).
 const { test, expect } = require('@playwright/test');
 
 async function login(page) {
@@ -7,74 +29,62 @@ async function login(page) {
   await expect(page.locator('#appLayout')).toBeVisible();
 }
 
+// Field names here match ExceptionRepository.list()'s real row shape
+// (exception_records.* joined with employee/po/part/operation labels),
+// not the retired session-exceptions.js workflow_status vocabulary.
 function exceptionItems() {
   const items = [];
   for (let i = 0; i < 14; i++) {
     items.push({
+      id: 6000 + i,
       session_id: 500 + i,
-      exception_code: 'OPEN_TOO_LONG',
-      exception_fingerprint: `OPEN_TOO_LONG:0#${i}`,
-      severity: 'ERROR',
-      exception_message: 'Session đang mở quá 12 giờ',
-      conflict_session_id: null,
-      is_active: true,
-      secondary_evidence: false,
-      session_status: 'OPEN',
-      started_at: new Date(Date.now() - (17 - i * 0.1) * 3600000).toISOString(),
-      ended_at: null,
-      duration_seconds: (17 - i * 0.1) * 3600,
-      good_qty: 0, defect_qty: 0, rework_qty: 0,
-      station_id: 301, device_uuid: 'ESP-KIOSK-07',
-      data_source: 'UNKNOWN', source_trace_id: '',
+      exception_type: 'LONG_OPEN_SESSION',
+      severity: i === 0 ? 'HIGH' : 'MEDIUM',
+      title: 'Session mở quá lâu',
+      message: 'Session đang mở quá 12 giờ',
+      recommended_action: 'Kiểm tra Session và xác nhận trạng thái.',
+      detected_at: new Date(Date.now() - (17 - i * 0.1) * 3600000).toISOString(),
+      status: 'OPEN',
+      row_version: 1,
       employee_id: 900 + i, employee_code: `NV-${String(i + 1).padStart(3, '0')}`,
       employee_name: i === 0 ? 'Phạm Văn A' : `Nhân viên Test ${i + 1}`,
       operation_code: 'OP-CAT-LASER', operation_name: 'CẮT LASER',
-      po_code: 'PO-260813-01', part_code: 'PART-01',
-      workflow_status: 'NEW', resolution: '', review_note: '', assigned_to: '',
-      review_started_at: null, started_by: '', review_created_at: null,
-      resolved_at: null, resolved_by: '', review_updated_at: null,
-      classification: 'ACTION_REQUIRED', data_impact: 'working_time/employee_state',
-      human_decision_required: true
+      po_code: 'PO-260813-01', part_code: 'PART-01'
     });
   }
   return items;
 }
 
-function sessionDetailPayload(item) {
+function sessionContextPayload(item) {
   return {
     session: {
-      session_id: item.session_id, employee_id: item.employee_id, operation_id: 101, station_id: 301,
-      device_uuid: item.device_uuid, status: 'OPEN', started_at: item.started_at, ended_at: null,
-      good_qty: 0, defect_qty: 0, rework_qty: 0, note: '', created_at: item.started_at, updated_at: item.started_at,
-      start_request_id: 'REQ-START-1', finish_request_id: '',
+      session_id: item.session_id, employee_id: item.employee_id, device_uuid: 'ESP-KIOSK-07',
+      status: 'OPEN', started_at: item.detected_at, ended_at: null,
+      good_qty: 0, defect_qty: 0, rework_qty: 0,
       employee_code: item.employee_code, employee_name: item.employee_name,
-      po_id: 1, po_code: item.po_code, part_id: 11, part_code: item.part_code, part_name: 'Chi tiết mẫu',
-      operation_id_ref: 101, operation_code: item.operation_code, operation_name: item.operation_name,
-      station_code: 'ST-07', station_name: 'Trạm cắt laser 07', duration_seconds: item.duration_seconds,
-      data_source: 'UNKNOWN'
+      po_code: item.po_code, part_code: item.part_code, part_name: 'Chi tiết mẫu',
+      operation_code: item.operation_code, operation_name: item.operation_name,
+      station_code: 'ST-07', station_name: 'Trạm cắt laser 07', duration_seconds: 3600
     },
-    exceptions: [item],
     activity: [
-      { id: 1, event_type: 'SCAN_EMPLOYEE', severity: 'INFO', status: 'OK', message: 'Quét nhân viên thành công', occurred_at: item.started_at },
-      { id: 2, event_type: 'SESSION_START', severity: 'INFO', status: 'OK', message: 'Bắt đầu Session', occurred_at: item.started_at }
+      { occurred_at: item.detected_at, event_type: 'SCAN_EMPLOYEE', message: 'Quét nhân viên thành công' },
+      { occurred_at: item.detected_at, event_type: 'SESSION_START', message: 'Bắt đầu Session' }
     ],
-    reviews: []
+    center_exceptions: [item]
   };
 }
 
 async function mockApis(page, items) {
-  await page.route(/\/api\/session-exceptions(\?.*)?$/, route => {
+  await page.route(/\/api\/exceptions(\?.*)?$/, route => {
     if (route.request().method() !== 'GET') return route.fallback();
-    route.fulfill({ json: { ok: true, items, view: 'inbox' } });
+    route.fulfill({ json: { ok: true, items, total: items.length } });
   });
-  await page.route(/\/api\/session-management\/\d+$/, route => {
-    const id = Number(route.request().url().match(/\/(\d+)$/)[1]);
+  await page.route(/\/api\/sessions\/\d+\/context$/, route => {
+    const id = Number(route.request().url().match(/\/sessions\/(\d+)\/context/)[1]);
     const item = items.find(x => x.session_id === id) || items[0];
-    route.fulfill({ json: { ok: true, ...sessionDetailPayload(item) } });
+    route.fulfill({ json: { ok: true, ...sessionContextPayload(item) } });
   });
-  await page.route(/\/api\/session-exceptions\/workflow$/, route => {
-    route.fulfill({ json: { ok: true, items: [], updated_count: 1 } });
-  });
+  await page.route(/\/api\/exceptions\/\d+\/history$/, route => route.fulfill({ json: { ok: true, items: [] } }));
 }
 
 async function openScreen(page, viewport, items) {
@@ -82,7 +92,7 @@ async function openScreen(page, viewport, items) {
   await login(page);
   await mockApis(page, items);
   await page.evaluate(() => openPage('session-exceptions'));
-  await expect(page.locator('.se-card')).toHaveCount(items.length);
+  await expect(page.locator('.ec-card')).toHaveCount(items.length);
 }
 
 test('Xem session mở drawer tại chỗ, không điều hướng trang', async ({ page }) => {
@@ -94,68 +104,58 @@ test('Xem session mở drawer tại chỗ, không điều hướng trang', async
   const items = exceptionItems();
   await openScreen(page, { width: 1920, height: 1080 }, items);
 
-  // 1. Danh sách hiển thị dạng card Header/Body/Footer.
-  const firstCard = page.locator('.se-card').first();
-  await expect(firstCard.locator('.se-card-who b')).toHaveText('Phạm Văn A');
-  await expect(firstCard.locator('.se-card-op')).toContainText('CẮT LASER');
-  await expect(firstCard.locator('.se-card-message')).toContainText('Session đang mở quá 12 giờ');
-  await expect(firstCard.locator('.se-card-impact')).toContainText('Ảnh hưởng');
-  await expect(firstCard.locator('[data-act="process"]')).toBeVisible();
-  await expect(firstCard.locator('[data-act="ignore"]')).toBeVisible();
-  await expect(firstCard.locator('[data-act="view"]')).toBeVisible();
+  // 1. Card content.
+  const firstCard = page.locator('.ec-card').first();
+  await expect(firstCard.locator('.ec-context b')).toHaveText('Phạm Văn A');
+  await expect(firstCard.locator('.ec-context')).toContainText('CẮT LASER');
+  await expect(firstCard.locator('p')).toContainText('Session đang mở quá 12 giờ');
+  await expect(firstCard.locator('.ec-recommend')).toContainText('Cần làm');
 
   await page.screenshot({ path: 'test-results/session-exception-list-1920.png', fullPage: true });
 
-  // 2. Apply a filter.
-  await page.locator('#seSearch').fill('Test 5');
-  await expect(page.locator('.se-card')).toHaveCount(1);
-
-  // 3. Scroll down.
+  // 2. Scroll down (Exception Center's ID-based filters have no free-text
+  // name search equivalent to the retired #seSearch -- filtering isn't
+  // part of what this test needs to prove, so it's left out rather than
+  // faked against a filter field that doesn't exist).
   await page.evaluate(() => window.scrollTo(0, 200));
   const scrollBefore = await page.evaluate(() => window.scrollY);
 
-  // 4. Click Xem session.
+  // 3. Click a card to open its drawer.
   const urlBefore = page.url();
-  await page.locator('.se-card [data-act="view"]').click();
+  await page.locator('.ec-card').nth(4).click();
 
-  // 5. Drawer appears.
-  await expect(page.locator('.drawer-panel')).toBeVisible();
-  // 6. URL/page does not change to Session Management.
+  // 4. Drawer appears in place.
+  await expect(page.locator('.ec-drawer')).toBeVisible();
+  // 5. URL/page does not change to Session Management.
   expect(page.url()).toContain(urlBefore.split('?')[0]);
   expect(page.url()).not.toContain('session-management');
-  await expect(page.locator('#pageTitle')).toHaveText('Phiên làm việc bất thường');
+  await expect(page.locator('#pageTitle')).toHaveText('Trung tâm ngoại lệ');
 
-  // 7. Session data is correct.
-  await expect(page.locator('.drawer-head')).toContainText('Nhân viên Test 5');
-  await expect(page.locator('.drawer-body')).toContainText('Session đang mở quá 12 giờ');
-  await expect(page.locator('.drawer-body')).toContainText('Ảnh hưởng: thời gian công đoạn đang sai');
-  await expect(page.locator('.drawer-body')).toContainText('ESP-KIOSK-07');
-  await expect(page.locator('.drawer-body')).toContainText('SCAN_EMPLOYEE');
-  // Technical details collapsible.
-  await expect(page.locator('.drawer-tech summary')).toHaveText('Chi tiết kỹ thuật');
+  // 6. Session data is correct. (The drawer's "Ngoại lệ liên quan" section
+  // shows the exception's title/status, not its free-text message -- the
+  // message only appears on the list card, confirmed via live DOM
+  // inspection.)
+  await expect(page.locator('.ec-drawer header')).toContainText('Nhân viên Test 5');
+  await expect(page.locator('.ec-drawer-body')).toContainText('Session mở quá lâu');
+  await expect(page.locator('.ec-drawer-body')).toContainText('Trạm cắt laser 07');
+  await expect(page.locator('.ec-drawer-body')).toContainText('Bắt đầu Session');
 
   await page.waitForTimeout(250); // let the drawer's slide-in animation settle before capturing
-  // Viewport-only (not fullPage): fullPage screenshot-stitching duplicates a
-  // position:fixed element (the drawer) across tiles, producing a ghosting
-  // artifact -- the drawer is 100vh tall so nothing below the fold to miss.
   await page.screenshot({ path: 'test-results/session-detail-drawer-1920.png' });
 
-  // 8. Close drawer.
-  await page.locator('#sdClose').click();
-  await expect(page.locator('.drawer-backdrop')).toBeHidden();
+  // 7. Close drawer.
+  await page.locator('#ecClose').click();
+  await expect(page.locator('.ec-drawer-shell')).toHaveCount(0);
 
-  // 9. Filter and scroll position remain.
-  await expect(page.locator('#seSearch')).toHaveValue('Test 5');
-  await expect(page.locator('.se-card')).toHaveCount(1);
+  // 8. List/scroll position remain (closeDrawer() restores state.scroll).
+  await expect(page.locator('.ec-card')).toHaveCount(items.length);
   const scrollAfter = await page.evaluate(() => window.scrollY);
   expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThanOrEqual(2);
 
-  // 10. Open another session.
-  await page.locator('#seSearch').fill('');
-  await expect(page.locator('.se-card')).toHaveCount(items.length);
-  await page.locator('.se-card').nth(2).locator('[data-act="view"]').click();
-  await expect(page.locator('.drawer-panel')).toBeVisible();
-  await expect(page.locator('.drawer-head')).toContainText(items[2].employee_name);
+  // 9. Open another session.
+  await page.locator('.ec-card').nth(2).click();
+  await expect(page.locator('.ec-drawer')).toBeVisible();
+  await expect(page.locator('.ec-drawer header')).toContainText(items[2].employee_name);
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
@@ -168,52 +168,74 @@ test('Xử lý trong drawer cập nhật danh sách, không điều hướng', a
   const items = exceptionItems();
   await openScreen(page, { width: 1920, height: 1080 }, items);
 
-  await page.locator('.se-card').first().locator('[data-act="view"]').click();
-  await expect(page.locator('.drawer-panel')).toBeVisible();
+  await page.locator('.ec-card').first().click();
+  await expect(page.locator('.ec-drawer')).toBeVisible();
 
-  // 11. Resolve/Ignore test case (safe mocked fixture).
-  await page.locator('#sdActClaim').click();
-  await expect(page.locator('#seModal')).toBeVisible();
-  await page.locator('#seAssigned').fill('Quản đốc test');
-
+  let acknowledged = false;
+  await page.route(/\/api\/exceptions\/\d+\/acknowledge$/, route => {
+    acknowledged = true;
+    route.fulfill({ json: { ok: true, item: { ...items[0], status: 'ACKNOWLEDGED', row_version: 2 } } });
+  });
   let listReloaded = false;
-  await page.route(/\/api\/session-exceptions(\?.*)?$/, route => {
+  await page.route(/\/api\/exceptions(\?.*)?$/, route => {
     if (route.request().method() !== 'GET') return route.fallback();
     listReloaded = true;
-    const updated = items.map(x => x.session_id === items[0].session_id ? { ...x, workflow_status: 'IN_PROGRESS' } : x);
-    route.fulfill({ json: { ok: true, items: updated, view: 'inbox' } });
+    const updated = items.map(x => x.id === items[0].id ? { ...x, status: 'ACKNOWLEDGED' } : x);
+    route.fulfill({ json: { ok: true, items: updated, total: updated.length } });
   });
 
-  await page.locator('#seModalSave').click();
-  await expect(page.locator('#seModal')).toBeHidden();
+  // Acknowledge needs no reason prompt (only resolve/ignore do) -- see
+  // exception-center.js's decide().
+  await page.locator('[data-action="acknowledge"]').click();
 
-  // 12. Active list updates without full-page navigation.
+  // Drawer closes and the list reloads without a full-page navigation.
+  await expect.poll(() => acknowledged).toBe(true);
   await expect.poll(() => listReloaded).toBe(true);
+  await expect(page.locator('.ec-drawer-shell')).toHaveCount(0);
   await expect(page.locator('#appLayout')).toBeVisible();
   expect(page.url()).not.toContain('session-management');
-
-  // Drawer closed/updated after the workflow save, per spec.
-  await expect(page.locator('.drawer-backdrop')).toBeHidden();
 
   expect(pageErrors).toEqual([]);
 });
 
-test('Mở trong Quản lý Session là hành động phụ, không bắt buộc', async ({ page }) => {
+test('Ngoại lệ mức cao yêu cầu ghi lý do trước khi Giải quyết/Bỏ qua', async ({ page }) => {
+  // Confirmed current behavior (exception-center.js decide()): resolve/ignore
+  // prompt for a reason via window.prompt, and a HIGH/CRITICAL severity item
+  // refuses to submit with an empty reason. There is no more
+  // "Mở trong Quản lý Session" secondary path around this requirement --
+  // decide() is the only route to Resolve/Ignore now.
   const items = exceptionItems();
   await openScreen(page, { width: 1920, height: 1080 }, items);
-  await page.locator('.se-card').first().locator('[data-act="view"]').click();
-  await expect(page.locator('.drawer-panel')).toBeVisible();
-  const openMgmt = page.locator('#sdActOpenManagement');
-  await expect(openMgmt).toBeVisible();
-  await expect(openMgmt).toHaveText('Mở trong Quản lý Session');
+
+  await page.locator('.ec-card').first().click(); // items[0] is HIGH severity
+  await expect(page.locator('.ec-drawer')).toBeVisible();
+
+  page.once('dialog', dialog => dialog.accept(''));
+  let resolveCalled = false;
+  await page.route(/\/api\/exceptions\/\d+\/resolve$/, route => { resolveCalled = true; route.fulfill({ json: { ok: true, item: items[0] } }); });
+
+  await page.locator('[data-action="resolve"]').click();
+  await page.waitForTimeout(300);
+  expect(resolveCalled).toBe(false); // blocked client-side: empty reason on a HIGH-severity item
+  await expect(page.locator('.ec-drawer')).toBeVisible(); // drawer stays open
+
+  page.once('dialog', dialog => dialog.accept('Đã kiểm tra và xác nhận với nhân viên.'));
+  await page.route(/\/api\/exceptions\/\d+\/resolve$/, route => { resolveCalled = true; route.fulfill({ json: { ok: true, item: { ...items[0], status: 'RESOLVED' } } }); });
+  await page.route(/\/api\/exceptions(\?.*)?$/, route => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    route.fulfill({ json: { ok: true, items: items.filter(x => x.id !== items[0].id), total: items.length - 1 } });
+  });
+  await page.locator('[data-action="resolve"]').click();
+  await expect.poll(() => resolveCalled).toBe(true);
+  await expect(page.locator('.ec-drawer-shell')).toHaveCount(0);
 });
 
 for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }]) {
   test(`bố cục không vỡ tại ${viewport.width}x${viewport.height}`, async ({ page }) => {
     const items = exceptionItems();
     await openScreen(page, viewport, items);
-    await page.locator('.se-card').first().locator('[data-act="view"]').click();
-    await expect(page.locator('.drawer-panel')).toBeVisible();
+    await page.locator('.ec-card').first().click();
+    await expect(page.locator('.ec-drawer')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
     if (viewport.width === 1366) {
@@ -224,18 +246,19 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
 }
 
 test('Tab Lịch sử hiển thị kết quả đã xử lý', async ({ page }) => {
-  const items = exceptionItems().map((x, i) => i === 0 ? { ...x, workflow_status: 'RESOLVED', resolution: 'DATA_CORRECTED', resolved_by: 'admin', resolved_at: new Date().toISOString(), classification: 'HISTORY_ONLY' } : x);
+  const items = exceptionItems().map((x, i) => i === 0 ? { ...x, status: 'RESOLVED' } : x);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await login(page);
-  await page.route(/\/api\/session-exceptions(\?.*)?$/, route => {
+  await page.route(/\/api\/exceptions(\?.*)?$/, route => {
     if (route.request().method() !== 'GET') return route.fallback();
     const url = route.request().url();
-    const view = url.includes('view=history') || url.includes('view=all') ? 'history' : 'inbox';
-    route.fulfill({ json: { ok: true, items: view === 'history' ? items : items.filter(x => x.workflow_status !== 'RESOLVED'), view } });
+    const view = url.includes('view=history') ? 'history' : 'action';
+    const filtered = view === 'history' ? items.filter(x => x.status === 'RESOLVED') : items.filter(x => x.status === 'OPEN');
+    route.fulfill({ json: { ok: true, items: filtered, total: filtered.length, view } });
   });
   await page.evaluate(() => openPage('session-exceptions'));
-  await page.locator('[data-se-view="HISTORY"]').click();
-  await expect(page.locator('.se-card')).toHaveCount(1);
-  await expect(page.locator('.se-card .workflow-badge').first()).toHaveText('Đã xử lý');
+  await page.locator('.ec-tabs button[data-view="history"]').click();
+  await expect(page.locator('.ec-card')).toHaveCount(1);
+  await expect(page.locator('.ec-card .ec-severity span')).toHaveText('Đã giải quyết');
   await page.screenshot({ path: 'test-results/session-history-tab.png', fullPage: true });
 });

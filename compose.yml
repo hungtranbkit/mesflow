@@ -21,13 +21,25 @@ services:
       timeout: 5s
       retries: 20
     stop_grace_period: 60s
+    # Reliability Validation Round 2, Gate 17 (2026-08-26): confirmed live
+    # this host's Docker daemon has no /etc/docker/daemon.json and no
+    # per-service logging block anywhere in this file -- meaning the
+    # default json-file driver's container stdout/stderr log had NO size
+    # cap at all, growing unbounded for the lifetime of the container.
+    # Bounded explicitly here rather than relying on (or changing) the
+    # host-wide daemon default, which is out of this repo's scope.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   mesflow:
     # Transitional source-ZIP fallback. Image releases always deploy with
     # --no-build and an immutable MESFLOW_IMAGE=image@digest.
     build:
       context: .
-    image: ${MESFLOW_IMAGE:-mesflow-app:71.0.0.62}
+    image: ${MESFLOW_IMAGE:-mesflow-app:71.0.0.70}
     container_name: mesflow-app
     restart: unless-stopped
     env_file:
@@ -75,6 +87,11 @@ services:
       retries: 18
       start_period: 60s
     stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       default: {}
       edge:

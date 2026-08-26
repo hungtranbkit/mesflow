@@ -45,6 +45,41 @@ def api():
 
 
 @pytest.fixture()
+def cross_midnight_shift(db):
+    """Session Lifecycle Fix Plan Phase 8: a real, temporary cross-midnight
+    shift fixture (22:00 -> 06:00, cross_midnight=TRUE) for tests that
+    specifically want to exercise cross-midnight working-time logic --
+    NEVER the real seeded NIGHT shift (18:00-00:00, cross_midnight=FALSE
+    as of the migration that fixed it, confirmed via `SELECT * FROM
+    work_shifts`), which does NOT cross midnight and was only ever
+    incidentally usable for this because some OLDER tests assumed a
+    different NIGHT definition than what's actually configured today. Per
+    the fix plan's own instruction: "Không hardcode NIGHT logic ở test.
+    Tests phải dựng shift fixture riêng khi muốn test cross-midnight."
+    Yields {'id':..., 'code':...}; deletes the fixture (intervals cascade)
+    on teardown."""
+    import uuid
+    code = f'TEST-XM-{uuid.uuid4().hex[:8]}'
+    with db.cursor() as cur:
+        cur.execute("""INSERT INTO work_shifts(code,name,timezone,anchor_start,anchor_end,cross_midnight,target_minutes,working_weekdays,sort_order,active)
+            VALUES(%s,'Test Cross-Midnight','Asia/Ho_Chi_Minh','22:00','06:00',TRUE,480,'{0,1,2,3,4,5}',99,TRUE) RETURNING id""", (code,))
+        shift_id = cur.fetchone()['id']
+        # WORK 22:00-00:00, BREAK 00:00-01:00, WORK 01:00-06:00
+        # (minute-of-anchor-day numbering, NOT modulo 1440 -- 1320=22:00,
+        # 1800=30:00=06:00 the NEXT day, matching how shift_bounds()/
+        # working_seconds_between() already interpret NIGHT's own
+        # intervals in core/working_calendar.py). A real break, not just a
+        # single unbroken block, so "...and_excludes_break" tests actually
+        # exercise break-exclusion against a genuinely cross-midnight shift.
+        cur.execute("""INSERT INTO work_shift_intervals(shift_id,interval_type,start_minute,end_minute,label,sort_order)
+            VALUES(%s,'WORK',1320,1440,'Đầu ca',0),(%s,'BREAK',1440,1500,'Nghỉ giữa ca',1),(%s,'WORK',1500,1800,'Cuối ca',2)""",
+            (shift_id, shift_id, shift_id))
+    yield {'id': shift_id, 'code': code}
+    with db.cursor() as cur:
+        cur.execute('DELETE FROM work_shifts WHERE id=%s', (shift_id,))
+
+
+@pytest.fixture()
 def seeded_factory(db):
     """Create a minimal deterministic factory graph and remove it after each test."""
     suffix = datetime.now(timezone.utc).strftime('%H%M%S%f')

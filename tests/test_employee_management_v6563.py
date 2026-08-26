@@ -15,6 +15,6 @@ def test_employee_ui_is_dedicated():
     js=(ROOT/'app/mesflow/web/static/app.js').read_text(encoding='utf-8')
     css=(ROOT/'app/mesflow/web/static/ui.css').read_text(encoding='utf-8')
     assert "if(id==='employees')return renderEmployees()" in js
-    for text in ('+ Thêm nhân viên','Tổ / Nhóm','CCCD','Tổng SP đạt','employeeModal'):
+    for text in ('+ Thêm nhân viên','Tổ / Nhóm','CCCD','SP đạt','employeeModal'):  # column header later shortened from "Tổng SP đạt"
         assert text in js
     assert '.employee-form' in css

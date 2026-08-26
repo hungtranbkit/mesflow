@@ -11,7 +11,7 @@ def test_current_shift_autodetect_present():
 
 def test_shift_picker_is_prominent():
     assert 'shift-picker' in JS
-    assert 'CA HIỆN TẠI' in JS
+    assert 'Ca hiện tại' in JS  # label is no longer all-caps in the JS literal itself
     assert '.shift-picker.is-current' in CSS
     assert '.shift-picker.is-night' in CSS
 

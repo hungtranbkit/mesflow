@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "sections": [
     {
       "id": "getting-started",
@@ -11,7 +11,10 @@
         {"type": "list", "items": ["Công nhân: thao tác tại Kiosk bằng QR nhân viên và QR Operation; bắt đầu/kết thúc công việc và nhập GOOD/DEFECT/REWORK.", "Quản đốc / Quản lý sản xuất: theo dõi Tổng quan, Dashboard, PO, Session, Ngoại lệ, Production Trace, Gantt & Material Flow và báo cáo năng suất.", "Admin: quản lý thêm Template, Nhân viên, QR, Thiết bị, Người dùng & quyền, Lịch làm việc, Trạm Kiosk, Nhật ký nghiệp vụ và Nhật ký ứng dụng."]},
         {"type": "h3", "text": "5 khái niệm cốt lõi"},
         {"type": "list", "items": ["Template: quy trình sản xuất chuẩn để tái sử dụng.", "Production Order (PO): lệnh sản xuất thực tế, được tạo từ Template.", "Part: chi tiết/cụm chi tiết trong PO.", "Operation: một công đoạn sản xuất thuộc Part.", "Work Session: một lần một nhân viên làm một Operation, từ Start đến khi nhập sản lượng và kết thúc."]},
-        {"type": "note", "text": "Sản lượng và thời gian thực tế phải đi từ Work Session. Không sửa tay số tổng hợp ở Operation/PO để thay thế dữ liệu Session."}
+        {"type": "note", "text": "Sản lượng và thời gian thực tế phải đi từ Work Session. Không sửa tay số tổng hợp ở Operation/PO để thay thế dữ liệu Session."},
+        {"type": "h3", "text": "Phiên đăng nhập tự hết hạn"},
+        {"type": "list", "items": ["Phiên đăng nhập web tự hết hạn nếu không thao tác trong một khoảng thời gian (idle timeout) — cần đăng nhập lại, dữ liệu chưa lưu trên form có thể mất.", "Phiên cũng có hạn tối đa kể từ lúc đăng nhập (absolute timeout) dù vẫn đang thao tác liên tục, để một phiên bị quên mở không tồn tại vô thời hạn.", "Kiosk dùng ngưỡng idle timeout ngắn hơn phiên web thông thường, phù hợp với máy trạm dùng chung nhiều người."]},
+        {"type": "note", "text": "Hết hạn phiên chỉ đăng xuất khỏi web/kiosk; Work Session sản xuất đang chạy không tự đóng chỉ vì phiên đăng nhập hết hạn — việc đóng Work Session theo ca làm việc được mô tả riêng ở mục Work Session & Quản lý Session."}
       ]
     },
     {
@@ -89,7 +92,9 @@
         {"type": "h3", "text": "Flow chuẩn"},
         {"type": "steps", "items": ["Quét QR nhân viên.", "Quét QR Operation.", "Xác nhận bắt đầu để tạo Work Session OPEN.", "Khi kết thúc, quét lại thẻ nhân viên.", "Nhập GOOD, DEFECT và REWORK nếu có.", "Xác nhận để đóng Session."]},
         {"type": "table", "headers": ["Tình huống", "Kỳ vọng"], "rows": [["Quét Operation trước thẻ", "Báo quét thẻ trước."], ["PO chưa Start / đang Pause", "Từ chối Start Operation và nêu lý do."], ["Nhân viên đã có Session OPEN", "Không tạo Session thứ hai; lỗi SES-409 / Đã có Session đang mở."], ["REWORK > DEFECT", "Không cho xác nhận."], ["Mất mạng", "Thiết bị hỗ trợ offline phải lưu tạm và đồng bộ lại; xung đột server phải hiển thị lý do."]]},
-        {"type": "note", "text": "Offline sync không được biến một request đã bị server từ chối hợp lệ thành Session thành công giả."}
+        {"type": "note", "text": "Offline sync không được biến một request đã bị server từ chối hợp lệ thành Session thành công giả."},
+        {"type": "h3", "text": "Thời điểm thao tác thật khi mất mạng"},
+        {"type": "list", "items": ["Khi Kiosk đồng bộ lại sau khi mất mạng, hệ thống ưu tiên dùng đúng thời điểm công nhân thao tác trên thiết bị (nếu đồng hồ thiết bị đáng tin cậy), không mặc định lấy thời điểm server nhận được dữ liệu.", "Nếu đồng hồ thiết bị không rõ ràng, không đồng bộ hoặc chênh lệch bất thường so với server, hệ thống dùng thời điểm server nhận dữ liệu thay thế — không suy đoán một mốc thời gian không chắc chắn.", "Điều này ảnh hưởng tới giờ bắt đầu/kết thúc Session hiển thị sau khi đồng bộ offline; lệch giờ đồng hồ thiết bị quá lớn nên được kiểm tra qua Quản lý trạm Kiosk."]}
       ]
     },
     {
@@ -100,7 +105,12 @@
         {"type": "p", "text": "Work Session là nguồn dữ liệu gốc của thời gian và sản lượng. Màn Quản lý Session dùng để tìm, xem chi tiết và khi có quyền phù hợp thì sửa dữ liệu Session sai."},
         {"type": "table", "headers": ["Trạng thái", "Ý nghĩa"], "rows": [["OPEN", "Đã bắt đầu, chưa kết thúc."], ["CLOSED", "Đã kết thúc và chốt sản lượng."]]},
         {"type": "steps", "items": ["Lọc/tìm Operation hoặc Session cần kiểm tra.", "Mở Session Detail để đối chiếu nhân viên, PO/Part/Operation, trạm, thời gian và sản lượng.", "Chỉ sửa Session gốc khi đã xác định dữ liệu sai và có quyền.", "Sau sửa, kiểm tra các projection/tổng hợp liên quan và audit trail."]},
-        {"type": "note", "text": "Một nhân viên chỉ được có tối đa một Session OPEN tại một thời điểm. Mọi chỉnh sửa nghiệp vụ quan trọng cần để lại audit phù hợp."}
+        {"type": "note", "text": "Một nhân viên chỉ được có tối đa một Session OPEN tại một thời điểm. Mọi chỉnh sửa nghiệp vụ quan trọng cần để lại audit phù hợp."},
+        {"type": "h3", "text": "Session quên đóng và tự động đóng ca"},
+        {"type": "p", "text": "Nếu công nhân quên quét thẻ để kết thúc, Session không bị bỏ mặc ở trạng thái OPEN mãi mãi. Hệ thống tự động rà soát và đóng những Session còn mở quá giờ kết thúc ca làm việc của chính Session đó."},
+        {"type": "list", "items": ["Việc tự động đóng chỉ xảy ra sau khi đã qua thời điểm kết thúc ca một khoảng thời gian ngắn (không đóng ngay khi vừa hết giờ), để công nhân còn kịp quét thẻ kết thúc bình thường.", "Sản lượng GOOD/DEFECT/REWORK khi tự động đóng luôn giữ nguyên số đã ghi nhận trước đó — hệ thống không tự bịa hoặc đoán thêm sản lượng.", "Session được tự động đóng luôn có lý do đóng riêng biệt (đóng do hết ca) và được đánh dấu do hệ thống thực hiện, không hiển thị lẫn với việc công nhân tự kết thúc bình thường.", "Nhật ký nghiệp vụ ghi lại rõ Session nào bị tự động đóng, đóng vào lúc nào theo ranh giới ca thực tế."]},
+        {"type": "h3", "text": "Khi hệ thống khởi động lại hoặc mất kết nối một thời gian"},
+        {"type": "list", "items": ["Nếu hệ thống tạm ngưng hoạt động (bảo trì, khởi động lại) trong lúc có Session quá giờ ca, việc rà soát và đóng Session tự động vẫn chạy lại và đóng đúng vào ranh giới ca thực tế đã qua, không đóng nhầm vào thời điểm hệ thống vừa khởi động lại.", "Một Session chỉ bị đóng tự động đúng một lần dù có nhiều lần rà soát chạy gần nhau hoặc chạy đồng thời — không tạo hai lần đóng hoặc nhân đôi sản lượng.", "Sau khi Session cũ của một nhân viên đã được đóng (dù đóng tay hay tự động), nhân viên đó có thể Start Session mới bình thường ở ca tiếp theo."]}
       ]
     },
     {
@@ -118,9 +128,11 @@
       "keywords": ["ngoại lệ", "exception", "overlap", "open too long", "sync conflict", "workflow"],
       "content": [
         {"type": "p", "text": "Tập trung các bất thường cần người vận hành xác nhận và xử lý thay vì tự sửa dữ liệu âm thầm."},
-        {"type": "table", "headers": ["Loại", "Ý nghĩa"], "rows": [["OVERLAP", "Session cùng nhân viên chồng thời gian."], ["OPEN_TOO_LONG", "Session mở quá lâu."], ["ZERO_QTY_LONG", "Session đóng lâu nhưng không có sản lượng."], ["MISSING_STATION", "Thiếu thông tin trạm."], ["INVALID_TIME", "Mốc thời gian bất hợp lệ."], ["KIOSK_SYNC_CONFLICT", "Dữ liệu offline/recovery xung đột với server hiện tại."]]},
+        {"type": "table", "headers": ["Loại", "Ý nghĩa"], "rows": [["OVERLAP", "Session cùng nhân viên chồng thời gian."], ["OPEN_TOO_LONG", "Session mở quá lâu (quá 12 giờ) — dấu hiệu bất thường cần người kiểm tra, khác với việc chỉ đơn thuần quá giờ ca."], ["SESSION_PAST_SHIFT_END", "Session đã qua giờ kết thúc ca một khoảng ngắn nhưng chưa đóng — cảnh báo sớm, xuất hiện trước khi hệ thống tự động đóng Session đó."], ["ZERO_QTY_LONG", "Session đóng lâu nhưng không có sản lượng."], ["MISSING_STATION", "Thiếu thông tin trạm."], ["INVALID_TIME", "Mốc thời gian bất hợp lệ."], ["KIOSK_SYNC_CONFLICT", "Dữ liệu offline/recovery xung đột với server hiện tại."]]},
         {"type": "steps", "items": ["Lọc ngoại lệ cần xử lý.", "Mở chi tiết và evidence/Session liên quan.", "Chuyển NEW → IN_PROGRESS → RESOLVED hoặc IGNORED.", "Ghi lý do khi xử lý hoặc bỏ qua."]},
-        {"type": "note", "text": "Lịch sử xử lý ngoại lệ phải tra được trong Nhật ký nghiệp vụ."}
+        {"type": "note", "text": "Lịch sử xử lý ngoại lệ phải tra được trong Nhật ký nghiệp vụ."},
+        {"type": "h3", "text": "Rà soát định kỳ, không cần mở màn hình"},
+        {"type": "list", "items": ["Việc phát hiện và tự động bỏ qua các ngoại lệ đã hết hiệu lực chạy định kỳ theo lịch của hệ thống, không phụ thuộc vào việc có ai đang mở Trung tâm ngoại lệ hay không — một ngoại lệ vẫn được phát hiện dù không ai xem màn hình vào lúc đó.", "Khi một Session SESSION_PAST_SHIFT_END được hệ thống tự động đóng theo ca, ngoại lệ tương ứng cũng tự động chuyển sang đã xử lý, ghi rõ do hệ thống xử lý — không cần thao tác tay để đóng ngoại lệ đó."]}
       ]
     },
     {
@@ -161,7 +173,11 @@
         {"type": "p", "text": "Màn quản trị trạm Kiosk dùng để đăng ký/nhận diện thiết bị, theo dõi online/offline, firmware, lỗi và action log theo từng trạm."},
         {"type": "steps", "items": ["Tìm trạm theo device/tên/trạm/IP/firmware.", "Lọc Online, Offline, Có lỗi, Chờ duyệt hoặc Đã khóa.", "Mở chi tiết trạm để xem heartbeat/sức khỏe, sự kiện gần nhất và lỗi liên quan.", "Chỉ thực hiện hành động quản trị/firmware khi đúng trạm và đúng trạng thái; sau thao tác phải kiểm tra lại health/action log."]},
         {"type": "h3", "text": "Offline, recovery và firmware"},
-        {"type": "list", "items": ["Online/offline phản ánh khả năng liên lạc gần đây, không tự kết luận dữ liệu sản xuất đã mất.", "Các event lưu tạm trên Kiosk phải reconcile khi kết nối lại và xung đột phải surfacing thành evidence/exception.", "OTA/firmware là chức năng quản trị thiết bị; requirement xác nhận ở đây là chọn đúng trạm, có trạng thái rõ ràng, có kết quả và có log, không cập nhật mù."]}
+        {"type": "list", "items": ["Online/offline phản ánh khả năng liên lạc gần đây, không tự kết luận dữ liệu sản xuất đã mất.", "Các event lưu tạm trên Kiosk phải reconcile khi kết nối lại và xung đột phải surfacing thành evidence/exception.", "OTA/firmware là chức năng quản trị thiết bị; requirement xác nhận ở đây là chọn đúng trạm, có trạng thái rõ ràng, có kết quả và có log, không cập nhật mù."]},
+        {"type": "h3", "text": "Trạng thái thiết bị"},
+        {"type": "table", "headers": ["Trạng thái", "Ý nghĩa"], "rows": [["ACTIVE", "Đã duyệt, đang được phép hoạt động bình thường."], ["PENDING", "Thiết bị mới, đang chờ Admin duyệt — chưa được phép chạy Kiosk."], ["DISABLED", "Đã bị khóa bởi Admin (ví dụ nghi ngờ mất/hỏng); trạm này bị từ chối mọi thao tác cho tới khi được kích hoạt lại thủ công."]]},
+        {"type": "note", "text": "Một trạm đã bị khóa (DISABLED) không thể tự quay lại ACTIVE chỉ bằng cách thiết bị tiếp tục gửi dữ liệu lên server — việc mở khóa luôn phải do Admin chủ động thực hiện lại tại đây."},
+        {"type": "list", "items": ["Một số môi trường triển khai cho phép thiết bị hoàn toàn mới tự đăng ký khi lần đầu kết nối, thay vì bắt buộc Admin đăng ký tay trước — đây là tính năng tương thích cho hạ tầng Kiosk cũ, chỉ nên bật khi hiểu rõ mặt an toàn của tuỳ chọn này.", "Việc đổi/lấy lại token của một trạm đã ACTIVE yêu cầu chứng minh đang giữ đúng token hiện tại của trạm đó; chỉ biết mã định danh công khai của trạm là không đủ để tự cấp token mới."]}
       ]
     },
     {
@@ -219,7 +235,9 @@
       "content": [
         {"type": "p", "text": "Khai báo ca làm việc và khoảng nghỉ dùng cho Dashboard, tính thời gian làm việc và các logic liên quan tới ca."},
         {"type": "steps", "items": ["Tạo ca với giờ bắt đầu/kết thúc.", "Khai báo khoảng làm việc/nghỉ.", "Chọn ngày áp dụng và giờ công mục tiêu.", "Kiểm tra riêng ca qua nửa đêm."]},
-        {"type": "note", "text": "Ca đêm qua 00:00 phải được tính như một ca liên tục theo cấu hình, không tùy tiện cắt Session chỉ vì đổi ngày dương lịch."}
+        {"type": "note", "text": "Ca đêm qua 00:00 phải được tính như một ca liên tục theo cấu hình, không tùy tiện cắt Session chỉ vì đổi ngày dương lịch."},
+        {"type": "h3", "text": "Ca mặc định và ca tự khai báo"},
+        {"type": "list", "items": ["Hệ thống có sẵn ca Ngày và ca Đêm mặc định; xưởng có thể khai báo thêm ca riêng với khung giờ khác, kể cả ca qua nửa đêm theo nhu cầu thực tế.", "Một khoảng thời gian không thuộc bất kỳ ca nào đã khai báo được xem là ngoài ca làm việc — hệ thống không tự gán bừa khoảng đó vào ca gần nhất; các tính năng dựa trên ca (Dashboard, tự động đóng Session theo ca...) coi đây là không có ca đang hoạt động."]}
       ]
     },
     {
@@ -261,6 +279,17 @@
         {"type": "list", "items": ["Session đang chạy không được dùng để chốt điểm trung bình.", "Session thiếu định mức/dữ liệu phải thể hiện là không đủ dữ liệu, không ép thành 0%.", "Có thể vượt 100% nếu nhanh hơn định mức.", "Số Session phải hiển thị để người đọc biết mức độ đại diện của điểm trung bình."]},
         {"type": "steps", "items": ["Chọn khoảng ngày.", "Lọc nhân viên/bộ phận.", "Xem KPI tổng quan và bảng nhân viên.", "Mở chi tiết từng Session để kiểm chứng con số trước khi đưa ra kết luận."]},
         {"type": "note", "text": "Báo cáo năng suất là dữ liệu hỗ trợ điều hành, không tự động là xếp hạng tốt/xấu hoặc căn cứ nhân sự nếu chưa có requirement riêng được xác nhận."}
+      ]
+    },
+    {
+      "id": "system-health",
+      "title": "26. Sức khỏe hệ thống (dành cho Admin)",
+      "keywords": ["sức khỏe hệ thống", "system health", "job", "never run", "healthy", "failed", "missed", "disabled", "giám sát"],
+      "content": [
+        {"type": "p", "text": "Cho biết các tác vụ tự động chạy nền của hệ thống (ví dụ: rà soát ngoại lệ, tự động đóng Session quá giờ ca) có đang thực sự hoạt động đúng lịch hay không, để Admin phát hiện sớm khi có tác vụ bị đứng hoặc chưa từng chạy."},
+        {"type": "table", "headers": ["Trạng thái", "Ý nghĩa"], "rows": [["NEVER_RUN", "Tác vụ đã được khai báo nhưng chưa từng thực thi lần nào — cần kiểm tra vì sao chưa chạy, không được coi là bình thường."], ["HEALTHY", "Lần chạy gần nhất thành công và đúng nhịp lịch."], ["RUNNING", "Đang trong quá trình thực thi."], ["MISSED", "Đã quá thời điểm đáng lẽ phải chạy theo lịch mà chưa thấy chạy/hoàn tất."], ["FAILED", "Lần chạy gần nhất kết thúc bằng lỗi."], ["DISABLED", "Tác vụ đang bị tắt có chủ đích."]]},
+        {"type": "note", "text": "NEVER_RUN không được hiển thị lẫn với HEALTHY. Một tác vụ nền quan trọng (như tự động đóng Session theo ca) chưa từng chạy lần nào là một vấn đề cần xử lý ngay, không phải trạng thái \"chưa có gì để báo lỗi\"."},
+        {"type": "list", "items": ["Các số liệu vận hành liên quan (số Session đang mở, số Session đã quá giờ ca, số Session được tự động đóng gần đây...) đi kèm ở cùng khu vực để đối chiếu nhanh với trạng thái tác vụ nền.", "Màn này phục vụ Admin/kỹ thuật để giám sát hệ thống, không phải màn nghiệp vụ hàng ngày cho quản đốc/công nhân."]}
       ]
     }
   ]

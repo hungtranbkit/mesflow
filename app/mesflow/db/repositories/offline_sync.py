@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 
 from mesflow.db.connection import fetch_all, fetch_one, transaction
@@ -19,6 +20,11 @@ BUSINESS_ERRORS = (ValueError, ConflictError, NotFoundError, RepositoryError)
 def _canonical_hash(event: dict[str, Any]) -> str:
     encoded = json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str).encode('utf-8')
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _normalized_quality(event: dict[str, Any]) -> str:
+    quality = str(event.get('time_quality') or 'unknown').lower()
+    return quality if quality in {'synced', 'estimated', 'unknown'} else 'unknown'
 
 
 def _event_time(value: Any, quality: str, epoch: Any = None):
@@ -61,7 +67,17 @@ class OfflineSyncRepository:
         revision = hashlib.sha256(revision_source.encode()).hexdigest()[:20]
         return {
             'schema_version': 1,
-            'generated_at': datetime.now().astimezone().isoformat(),
+            # Codex audit: was `datetime.now().astimezone()` --
+            # the HOST/container OS-local timezone (whatever the `TZ` env
+            # var or system tzdata happens to be), not an explicit business
+            # timezone. Only ever "worked" because every compose file
+            # currently sets TZ=Asia/Ho_Chi_Minh; a container started
+            # without that env var would silently generate a snapshot
+            # timestamp in a different zone. This is a pure freshness
+            # marker (compared for equality/staleness by the kiosk, not
+            # displayed as business-local wall time), so UTC with an
+            # explicit offset is the correct, environment-independent choice.
+            'generated_at': datetime.now(timezone.utc).isoformat(),
             'revision': revision,
             'kiosk_id': kiosk_id,
             'employees': employees,
@@ -75,9 +91,7 @@ class OfflineSyncRepository:
     def _record(self, kiosk_id: str, event: dict[str, Any], payload_hash: str,
                 status: str, result: dict[str, Any], session_id: int | None = None,
                 reason_code: str = '', reason: str = '') -> None:
-        quality = str(event.get('time_quality') or 'unknown').lower()
-        if quality not in {'synced', 'estimated', 'unknown'}:
-            quality = 'unknown'
+        quality = _normalized_quality(event)
         # 'sync_source' is set by the kiosk only when replaying a
         # previously-ACKed event during DR reconciliation (see
         # esp-kiosk/esp/mesflow_app.cpp's runGenerationReconciliation()); a
@@ -87,26 +101,51 @@ class OfflineSyncRepository:
         # Exceptions KIOSK_SYNC_CONFLICT branch (see analytics.py) without a
         # dedicated column.
         source = 'RECONCILE_REPLAY' if str(event.get('sync_source') or '').lower() == 'reconcile_replay' else 'OFFLINE_SYNC'
-        with transaction() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""INSERT INTO kiosk_client_events(
-                    client_event_id,payload_hash,kiosk_id,local_sequence,local_session_id,
-                    session_trace_id,event_type,event_time,time_quality,device_uptime_ms,
-                    boot_id,snapshot_revision,source,status,reason_code,reason,server_session_id,
-                    payload_json,result_json,processed_at)
-                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
-                  ON CONFLICT(client_event_id) DO NOTHING""", (
-                    str(event['client_event_id']), payload_hash, kiosk_id,
-                    int(event.get('local_sequence') or 0), str(event.get('local_session_id') or ''),
-                    str(event.get('session_trace_id') or ''), str(event.get('event_type') or '').upper(),
-                    _event_time(event.get('event_time'), quality, event.get('event_time_epoch')), quality,
-                    int(event.get('device_uptime_ms') or 0), str(event.get('boot_id') or ''),
-                    str(event.get('offline_snapshot_revision') or ''), source, status, reason_code, reason,
-                    session_id, Jsonb(event), Jsonb(result)))
-                cur.execute("""UPDATE kiosk_identities SET
-                    last_sequence_received=GREATEST(last_sequence_received,%s)
-                    WHERE device_uuid=%s""",
-                    (int(event.get('local_sequence') or 0), kiosk_id))
+        try:
+            with transaction() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""INSERT INTO kiosk_client_events(
+                        client_event_id,payload_hash,kiosk_id,local_sequence,local_session_id,
+                        session_trace_id,event_type,event_time,time_quality,device_uptime_ms,
+                        boot_id,snapshot_revision,source,status,reason_code,reason,server_session_id,
+                        payload_json,result_json,processed_at)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                      ON CONFLICT(client_event_id) DO NOTHING""", (
+                        str(event['client_event_id']), payload_hash, kiosk_id,
+                        int(event.get('local_sequence') or 0), str(event.get('local_session_id') or ''),
+                        str(event.get('session_trace_id') or ''), str(event.get('event_type') or '').upper(),
+                        _event_time(event.get('event_time'), quality, event.get('event_time_epoch')), quality,
+                        int(event.get('device_uptime_ms') or 0), str(event.get('boot_id') or ''),
+                        str(event.get('offline_snapshot_revision') or ''), source, status, reason_code, reason,
+                        session_id, Jsonb(event), Jsonb(result)))
+                    cur.execute("""UPDATE kiosk_identities SET
+                        last_sequence_received=GREATEST(last_sequence_received,%s)
+                        WHERE device_uuid=%s""",
+                        (int(event.get('local_sequence') or 0), kiosk_id))
+        except UniqueViolation:
+            # Codex audit: two threads
+            # posting the EXACT same event concurrently can both pass the
+            # `existing = self._existing(event_id)` check above (neither has
+            # committed yet -- plain SELECT, no lock) and both reach this
+            # INSERT. `ON CONFLICT(client_event_id)` only arbitrates THAT
+            # constraint; kiosk_client_events also has a separate
+            # UNIQUE(kiosk_id, local_sequence) constraint
+            # (uq_kiosk_client_event_sequence), which the loser of the race
+            # can violate instead -- an unhandled UniqueViolation that used
+            # to propagate all the way to a bare 409 with no `results` key,
+            # exactly the flake this test caught.
+            #
+            # Re-check by client_event_id (not silently swallow-and-return):
+            # if a row for THIS event_id now exists, a concurrent peer
+            # request already recorded it -- fine, nothing lost, the
+            # underlying business effect (WorkSessionRepository.start()/
+            # finish(), already called above) is itself idempotent and only
+            # ran its real effect once. If no such row exists, this was a
+            # genuine conflict between two DIFFERENT events racing for the
+            # same (kiosk_id, local_sequence) slot -- a real client protocol
+            # bug, not safe to swallow, so it re-raises.
+            if self._existing(str(event['client_event_id'])) is None:
+                raise
 
     def process_event(self, kiosk_id: str, station_id: int | None, event: dict[str, Any]) -> dict[str, Any]:
         event_id = str(event.get('client_event_id') or event.get('event_id') or '').strip()
@@ -143,6 +182,16 @@ class OfflineSyncRepository:
             return {'client_event_id': event_id, 'status': 'rejected', 'reason_code': 'LOCAL_SEQUENCE_CONFLICT'}
         event['local_sequence'] = sequence
         kind = str(event.get('event_type') or '').upper()
+        # The device's own trusted clock reading (only
+        # non-None when time_quality=='synced' -- see _event_time()), threaded
+        # into WorkSessionRepository so an offline-synced session's
+        # started_at/ended_at reflects when the operator actually acted, not
+        # merely when this sync request happened to reach the server (which
+        # can be minutes to hours later after a real network outage).
+        # WorkSessionRepository re-validates skew/ordering itself before
+        # trusting it (see trusted_event_time()) -- this is best-effort, not
+        # a bypass of that check.
+        occurred_at = _event_time(event.get('event_time'), _normalized_quality(event), event.get('event_time_epoch'))
         try:
             if kind == 'START':
                 worker_qr = str(event.get('employee_qr') or event.get('worker_qr') or '')
@@ -156,7 +205,7 @@ class OfflineSyncRepository:
                 output = WorkSessionRepository().start({
                     'request_id': event_id, 'employee_id': employee['id'],
                     'operation_id': operation['id'], 'station_id': station_id,
-                    'device_uuid': kiosk_id,
+                    'device_uuid': kiosk_id, 'occurred_at': occurred_at,
                 })
                 session_id = int(output['session']['id'])
             elif kind == 'FINISH':
@@ -177,9 +226,34 @@ class OfflineSyncRepository:
                     'defect_qty': event.get('defect_qty', 0),
                     'rework_qty': event.get('repairable_qty', event.get('rework_qty', 0)),
                     'note': 'OFFLINE SYNC',
+                    'occurred_at': occurred_at,
                 })
+            elif kind:
+                # Codex audit: this batch envelope was never
+                # START/FINISH-only -- an offline kiosk queues EVERY event it
+                # captures while disconnected (session lifecycle AND generic
+                # device telemetry like ERROR) through this one endpoint for
+                # ordered, idempotent delivery, same as it does for
+                # START/FINISH. Telemetry (anything that isn't START/FINISH)
+                # goes to kiosk_events -- the existing generic ingest table
+                # /api/kiosk/events itself writes to (see KioskEventRepository
+                # .ingest()) -- rather than WorkSessionRepository, which has
+                # no notion of a non-session event. Idempotency here is
+                # kiosk_events.event_uuid's own UNIQUE constraint (ON
+                # CONFLICT DO UPDATE SET received_at, never a second row/
+                # notification), on top of this method's own kiosk_client_events
+                # dedup above -- belt and suspenders across a retry AND a
+                # legitimate replay from a different sync path.
+                from mesflow.db.repositories.analytics import KioskEventRepository
+                telemetry = KioskEventRepository().ingest({
+                    'event_uuid': event_id, 'device_uuid': kiosk_id, 'station_id': station_id,
+                    'event_type': kind, 'severity': str(event.get('severity') or 'INFO'),
+                    'message': str(event.get('message') or ''), 'payload': event,
+                })
+                session_id = None
+                kiosk_event_id = telemetry.get('id')
             else:
-                raise ValueError('event_type must be START or FINISH')
+                raise ValueError('event_type is required')
         except BUSINESS_ERRORS as exc:
             result = {'client_event_id': event_id, 'status': 'rejected', 'reason_code': 'BUSINESS_REJECT', 'reason': str(exc)}
             self._record(kiosk_id, event, payload_hash, 'rejected', result,
@@ -191,6 +265,8 @@ class OfflineSyncRepository:
             return {'client_event_id': event_id, 'status': 'transient', 'reason_code': 'TEMPORARY_FAILURE'}
 
         result = {'client_event_id': event_id, 'status': 'accepted', 'server_session_id': session_id}
+        if kind not in ('START', 'FINISH'):
+            result['kiosk_event_id'] = kiosk_event_id
         self._record(kiosk_id, event, payload_hash, 'accepted', result, session_id=session_id)
         return result
 

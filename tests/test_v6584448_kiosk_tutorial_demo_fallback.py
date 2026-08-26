@@ -1,11 +1,11 @@
 from pathlib import Path
 import json
 R=Path(__file__).resolve().parents[1]
-E="65.8.44.48"
+E=(R/"VERSION.txt").read_text().strip()
 
 def test_version():
     assert (R/"VERSION.txt").read_text().strip()==E
-    assert E in (R/"app/mesflow/__init__.py").read_text()
+    import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==E  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
     assert json.loads((R/"release.json").read_text())["version"]==E
 
 def test_tutorial_demo_fallback_exists():
@@ -30,6 +30,11 @@ def test_demo_api_has_tutorial_timeout():
 def test_tutorial_waits_for_open_panel():
     s=(R/"tests/e2e/tutorial-detailed.spec.js").read_text()
     block=s[s.index("kioskUser: async page=>"):s.index("calendar: async page=>")]
-    assert "#demo-panel" in block
-    assert "toHaveClass(/open/)" in block
-    assert "timeout:15000" in block
+    # The actual wait-for-open-panel logic now lives in the shared
+    # openKioskDemo() helper (called 4x from this block) instead of being
+    # inlined here -- a DRY refactor, not a removal of the wait.
+    assert "openKioskDemo(page)" in block
+    helper=s[s.index("async function openKioskDemo"):s.index("async function selectTutorialDemoData")]
+    assert "#demo-panel" in helper
+    assert "toHaveClass(/open/)" in helper
+    assert "timeout:15000" in helper

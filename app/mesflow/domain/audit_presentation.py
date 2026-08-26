@@ -33,6 +33,11 @@ from typing import Any
 ACTION_CATALOG: dict[str, dict[str, str]] = {
     'SESSION_STARTED': {'label': 'Bắt đầu Session', 'category': 'session'},
     'SESSION_FINISHED': {'label': 'Kết thúc Session', 'category': 'session'},
+    # A SEPARATE action from
+    # SESSION_FINISHED on purpose -- an auto-closed session must never be
+    # presented as if an operator manually finished it (audit_actor_username
+    # is always 'SYSTEM' for this action, never a real user).
+    'SESSION_AUTO_CLOSED': {'label': 'Tự động đóng ca (quá giờ)', 'category': 'session'},
     'SESSION_EDIT': {'label': 'Chỉnh sửa Session', 'category': 'session'},
     'SESSION_ADJUST': {'label': 'Điều chỉnh sản lượng Session', 'category': 'quantity'},
     'SESSION_EXCEPTION_WORKFLOW_UPDATE': {'label': 'Xử lý Session bất thường', 'category': 'exception'},
@@ -510,8 +515,15 @@ def present(row: dict[str, Any], *, employees: dict[int, dict] | None = None,
         result = _present_session_edit(row, details, employees=employees, operations=operations, stations=stations)
     elif action == 'SESSION_ADJUST':
         result = _present_session_adjust(row, details, employees=employees, operations=operations, stations=stations)
-    elif action in ('SESSION_STARTED', 'SESSION_FINISHED'):
-        result = _present_session_started_finished(row, action, before, after, employees=employees, operations=operations, stations=stations)
+    elif action in ('SESSION_STARTED', 'SESSION_FINISHED', 'SESSION_AUTO_CLOSED'):
+        # SESSION_AUTO_CLOSED reuses the same presenter as SESSION_FINISHED
+        # (same before/after diff shape, same "kết thúc" verb reads
+        # naturally) -- actor_username is always 'SYSTEM' for this action
+        # (see WorkSessionRepository.auto_close_for_shift_end()), so the
+        # summary line ("Hệ thống đã kết thúc Session #X") already makes
+        # clear this wasn't a human, without a third bespoke presenter.
+        verb_action = 'SESSION_FINISHED' if action == 'SESSION_AUTO_CLOSED' else action
+        result = _present_session_started_finished(row, verb_action, before, after, employees=employees, operations=operations, stations=stations)
     elif action == 'SESSION_EXCEPTION_WORKFLOW_UPDATE':
         result = _present_exception_workflow_update(row, details, employees=employees, operations=operations, stations=stations, sessions=sessions)
     elif action in ('EXCEPTION_ACKNOWLEDGED', 'EXCEPTION_RESOLVED', 'EXCEPTION_IGNORED', 'EXCEPTION_AUTO_IGNORED'):

@@ -4,9 +4,9 @@ ROOT=Path(__file__).parents[1]
 
 
 def test_version_and_runtime_tutorial_contract():
-    expected='65.8.44.58'
+    expected=(ROOT/'VERSION.txt').read_text().strip()
     assert (ROOT/'VERSION.txt').read_text().strip()==expected
-    assert expected in (ROOT/'app/mesflow/__init__.py').read_text()
+    import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==expected  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
     assert expected in (ROOT/'release.json').read_text()
     assert f'mesflow-app:{expected}' in (ROOT/'compose.yml').read_text()
     app=(ROOT/'app/mesflow/web/app.py').read_text()

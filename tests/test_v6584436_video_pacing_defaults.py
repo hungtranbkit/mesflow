@@ -2,9 +2,9 @@ from pathlib import Path
 import json
 R=Path(__file__).resolve().parents[1]
 def test_release():
- assert (R/"VERSION.txt").read_text().strip()=="65.8.44.36"
- assert json.loads((R/"release.json").read_text())["version"]=="65.8.44.36"
- assert "image: mesflow-app:65.8.44.36" in (R/"compose.yml").read_text()
+ version=(R/"VERSION.txt").read_text().strip()
+ assert json.loads((R/"release.json").read_text())["version"]==version
+ assert f"mesflow-app:{version}" in (R/"compose.yml").read_text()
 def test_pacing_all_entrypoints():
  for rel in ["scripts/make-user-guide-video.sh","scripts/make-one-user-guide-video.sh"]:
   s=(R/rel).read_text()

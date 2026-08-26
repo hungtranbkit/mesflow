@@ -240,7 +240,12 @@ async function login(page){
   if(!me.ok()){
     const user=process.env.MESFLOW_TUTORIAL_USERNAME||'admin';
     const password=process.env.MESFLOW_TUTORIAL_PASSWORD||'';
-    expect(password,'Thiếu MESFLOW_TUTORIAL_PASSWORD').toBeTruthy();
+    // This narration/recording spec needs a real credential (cookie, auth
+    // state, or password) -- none of which a plain CI Playwright run
+    // provides. Skip cleanly instead of hard-failing so the standard
+    // regression suite isn't reported as broken by a tool that's only ever
+    // meant to run through scripts/make-user-guide-video.sh.
+    test.skip(!password,'Thiếu MESFLOW_TUTORIAL_PASSWORD (chạy qua scripts/make-user-guide-video.sh)');
     const r=await page.request.post('/api/auth/login',{data:{username:user,password}});
     const text=await r.text();
     expect(r.ok(),`Đăng nhập video hướng dẫn lỗi HTTP ${r.status()} ${text.slice(0,240)}`).toBeTruthy();

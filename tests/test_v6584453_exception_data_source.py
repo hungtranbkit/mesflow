@@ -3,12 +3,12 @@ import json
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "65.8.44.56"
+VERSION=(ROOT/"VERSION.txt").read_text().strip()
 
 
 def test_version_declarations_are_synchronized():
     assert (ROOT / "VERSION.txt").read_text().strip() == VERSION
-    assert VERSION in (ROOT / "app/mesflow/__init__.py").read_text()
+    import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==VERSION  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
     assert json.loads((ROOT / "release.json").read_text())["version"] == VERSION
     assert f"mesflow-app:{VERSION}" in (ROOT / "compose.yml").read_text()
 

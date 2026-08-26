@@ -16,11 +16,22 @@ RUN pip install --no-cache-dir -r requirements-test.txt
 COPY app ./app
 COPY tests ./tests
 COPY scripts ./scripts
-COPY compose.yml compose.test.yml pytest.ini VERSION.txt release.json ./
-COPY Dockerfile.test ./
+COPY compose.yml compose.test.yml pytest.ini VERSION.txt release.json USER_GUIDE_VIDEO.md ./
+COPY Dockerfile Dockerfile.test ./
+COPY tutorial ./tutorial
+# mesflow.__version__ (app/mesflow/__init__.py) reads VERSION.txt as a
+# SIBLING of the mesflow/ package directory -- that's where the real
+# Dockerfile puts it (`COPY app /app` + `COPY VERSION.txt /app/VERSION.txt`,
+# so mesflow/__init__.py and VERSION.txt are both directly under /app).
+# This test image's layout differs (`COPY app ./app`, app code under
+# /workspace/app/mesflow/, VERSION.txt at /workspace/VERSION.txt) --
+# without this second copy, __version__ silently fell back to its stale
+# hardcoded literal in every test run, and no test caught it because
+# nothing actually imported mesflow and compared __version__ before.
+COPY VERSION.txt ./app/VERSION.txt
 COPY nginx ./nginx
 COPY gateway ./gateway
-COPY package.json playwright.config.js Dockerfile.playwright ./
+COPY package.json playwright.config.js playwright.tutorial.config.js playwright.tutorial-detailed.config.js Dockerfile.playwright ./
 COPY tests/e2e ./tests/e2e
 RUN find ./scripts -type f -name '*.sh' -exec chmod +x {} +
 CMD ["./scripts/test/run-all.sh"]

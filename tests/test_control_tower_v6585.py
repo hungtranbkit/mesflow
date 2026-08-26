@@ -16,6 +16,10 @@ def test_shift_dashboard_backend_contract():
     assert 'cross_midnight' in shifts
 
 def test_release_version_6585():
-    assert tuple(map(int,(ROOT/'VERSION.txt').read_text(encoding='utf-8').strip().split('.'))) >= (65,8,33)
     version=(ROOT/'VERSION.txt').read_text(encoding='utf-8').strip()
-    assert f"__version__='{version}'" in (ROOT/'app/mesflow/__init__.py').read_text(encoding='utf-8').replace(' ', '')
+    assert tuple(map(int,version.split('.'))) >= (65,8,33)
+    # __init__.py reads VERSION.txt at import time rather than embedding a
+    # literal (see its own docstring) -- import and compare instead of
+    # grepping for a string that no longer appears in source.
+    import mesflow
+    assert mesflow.__version__==version

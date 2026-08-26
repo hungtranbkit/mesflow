@@ -6,6 +6,7 @@ from werkzeug.security import check_password_hash
 from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 from mesflow import __version__
+from mesflow.core import session_policy
 from mesflow.core.config import settings
 from mesflow.db.repositories.system_repository import SystemRepository
 from mesflow.db.repositories.user_repository import UserRepository
@@ -118,7 +119,7 @@ def create_app():
 
     @app.get('/uploads/<path:filename>')
     def uploaded_file(filename):
-        if not session.get('user_id'):
+        if session_policy.validate_and_touch() is not None:
             return redirect(url_for('login_page', next=request.path))
         upload_root='/data/uploads'
         return send_from_directory(upload_root, filename, as_attachment=True,mimetype='application/octet-stream')
@@ -135,9 +136,20 @@ def create_app():
     @app.get('/api/system/ready')
     def ready():
         try:
+            import os as _os
             repo=SystemRepository()
             check=repo.readiness()
-            return jsonify(ok=True,status='ready',checked_at=check['checked_at'],schema_version=repo.schema_version(),migration_head=repo.migration_head(),version=__version__,server_role=settings.server_role or None,environment=settings.environment,commit=settings.build_commit)
+            # Codex audit: expose the EFFECTIVE business timezone
+            # explicitly, alongside the host/container OS timezone (TZ env
+            # var) and PostgreSQL session timezone -- these can legitimately
+            # differ (host is dev-machine-local, e.g. Asia/Bangkok; business
+            # calendar logic is always Asia/Ho_Chi_Minh regardless) and
+            # currently only appear equal by coincidence (both UTC+7) on
+            # this deployment. business_timezone is the only one MESFlow's
+            # own shift/session/reporting logic actually reads
+            # (core.time_policy.site_zone()); the others are informational.
+            timezone_info={'business_timezone':settings.timezone_name,'host_timezone':_os.environ.get('TZ') or None,'database_timezone':repo.db_timezone()}
+            return jsonify(ok=True,status='ready',checked_at=check['checked_at'],schema_version=repo.schema_version(),migration_head=repo.migration_head(),version=__version__,server_role=settings.server_role or None,environment=settings.environment,commit=settings.build_commit,timezone=timezone_info)
         except Exception as e:
             return jsonify(ok=False,status='not-ready',error=f'{type(e).__name__}: {e}',version=__version__),503
 
@@ -189,11 +201,11 @@ def create_app():
 
     @app.get('/')
     def home():
-        return redirect(url_for('app_page') if session.get('user_id') else url_for('login_page'))
+        return redirect(url_for('app_page') if session_policy.validate_and_touch() is None else url_for('login_page'))
 
     @app.get('/login')
     def login_page():
-        if session.get('user_id'):
+        if session_policy.validate_and_touch() is None:
             return redirect(url_for('app_page'))
         return render_template(
             'login.html',
@@ -207,14 +219,14 @@ def create_app():
 
     @app.get('/app')
     def app_page():
-        if not session.get('user_id'):
+        if session_policy.validate_and_touch() is not None:
             return redirect(url_for('login_page'))
         permissions=RBACRepository().permissions_for_role(session.get('role'))
         return render_template('app.html', version=__version__, username=session.get('username'), role=session.get('role'), session_user_id=session.get('user_id'), permissions=permissions)
 
     @app.get('/api/tutorials')
     def tutorial_manifest():
-        if not session.get('user_id'):
+        if session_policy.validate_and_touch() is not None:
             return jsonify(ok=False,error='AUTH_REQUIRED'),401
         tutorial_root=Path(os.environ.get('MESFLOW_TUTORIAL_DIR','/data/tutorials')).resolve()
         manifest_path=tutorial_root/'manifest.json'
@@ -249,7 +261,7 @@ def create_app():
 
     @app.get('/tutorials/<path:filename>')
     def tutorial_video(filename):
-        if not session.get('user_id'):
+        if session_policy.validate_and_touch() is not None:
             return jsonify(ok=False,error='AUTH_REQUIRED'),401
         tutorial_root=Path(os.environ.get('MESFLOW_TUTORIAL_DIR','/data/tutorials')).resolve()
         candidate=(tutorial_root/filename).resolve()
@@ -266,7 +278,7 @@ def create_app():
 
     @app.get('/api/esp-kiosk-tutorial')
     def esp_kiosk_tutorial_manifest():
-        if not session.get('user_id'):
+        if session_policy.validate_and_touch() is not None:
             return jsonify(ok=False,error='AUTH_REQUIRED'),401
         root=Path(os.environ.get('MESFLOW_ESP_TUTORIAL_DIR','/data/tutorials/esp-kiosk')).resolve()
         manifest_path=root/'manifest.json'
@@ -297,7 +309,7 @@ def create_app():
 
     @app.get('/esp-kiosk-tutorial/videos/<path:filename>')
     def esp_kiosk_tutorial_video(filename):
-        if not session.get('user_id'): return jsonify(ok=False,error='AUTH_REQUIRED'),401
+        if session_policy.validate_and_touch() is not None: return jsonify(ok=False,error='AUTH_REQUIRED'),401
         if Path(filename).name!=filename or not filename.lower().endswith('.mp4'): abort(404)
         root=Path(os.environ.get('MESFLOW_ESP_TUTORIAL_DIR','/data/tutorials/esp-kiosk')).resolve()
         manifest_path=root/'manifest.json'
@@ -316,14 +328,15 @@ def create_app():
     @app.get('/admin')
     @app.get('/admin/')
     def admin_page():
-        if not session.get('user_id'):
+        if session_policy.validate_and_touch() is not None:
             return redirect(url_for('login_page', next=request.path))
         return redirect(url_for('app_page'))
 
     @app.get('/api/auth/me')
     def auth_me():
-        if not session.get('user_id'):
-            return jsonify(ok=False,error='AUTH_REQUIRED'),401
+        expired_reason=session_policy.validate_and_touch()
+        if expired_reason is not None:
+            return jsonify(ok=False,error='AUTH_REQUIRED' if expired_reason=='NOT_LOGGED_IN' else 'SESSION_EXPIRED',reason=expired_reason),401
         user=UserRepository().get_by_id(session.get('user_id'))
         return jsonify(ok=True,user={'id':session.get('user_id'),'username':session.get('username'),'role':session.get('role'),'display_name':user['display_name'] if user else session.get('username'),'must_change_password':bool(user and user['must_change_password']),'permissions':RBACRepository().permissions_for_role(session.get('role'))})
 
@@ -336,7 +349,7 @@ def create_app():
         u=UserRepository().get_by_username(settings.test_auto_login_username)
         if not u or not u['active']:
             return jsonify(ok=False,error='AUTO_LOGIN_USER_NOT_FOUND',message='Không tìm thấy tài khoản auto-login đang hoạt động.'),503
-        session['user_id']=u['id']; session['username']=u['username']; session['role']=u['role']
+        session_policy.start_session(u['id'],u['username'],u['role'])
         return jsonify(ok=True,user={'id':u['id'],'username':u['username'],'role':u['role'],'must_change_password':u['must_change_password'],'permissions':RBACRepository().permissions_for_role(u['role'])})
 
     @app.post('/api/auth/login')
@@ -351,7 +364,7 @@ def create_app():
             try: AuditRepository().log(username,'LOGIN_FAILED','user','',{'reason':'inactive' if u and not u['active'] else 'invalid_credentials'})
             except Exception: pass
             return jsonify(ok=False,error='INVALID_CREDENTIALS'),401
-        session['user_id']=u['id']; session['username']=u['username']; session['role']=u['role']
+        session_policy.start_session(u['id'],u['username'],u['role'],kiosk_mode=bool(b.get('kiosk_mode')))
         try: AuditRepository().log(u['username'],'LOGIN_SUCCESS','user',str(u['id']),{})
         except Exception: pass
         return jsonify(ok=True,user={'id':u['id'],'username':u['username'],'role':u['role'],'must_change_password':u['must_change_password'],'permissions':RBACRepository().permissions_for_role(u['role'])})
