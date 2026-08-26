@@ -268,18 +268,83 @@ def _apply_event(device_id: str, event_id: str, event_type: str, payload: dict, 
         kind, key = _parse_scan(payload.get('raw', ''))
         raw = payload.get('raw', '')
 
-        if state == _STATE_WAIT_EMPLOYEE:
-            if kind != 'EMP':
+        # SHARED-TERMINAL FIX (2026-08-26): this file used to gate SCAN
+        # entirely on `state` (WAIT_EMPLOYEE/WAIT_OPERATION/SESSION_ACTIVE),
+        # which conflated two different things -- SERVER session state
+        # (which employee has an OPEN work_session, tracked in
+        # work_sessions, independent per employee) and KIOSK UI state (this
+        # one device's current short-lived interaction, tracked in
+        # kiosk_v2_projection, ONE ROW PER DEVICE). A successful OP scan
+        # used to set state_name=SESSION_ACTIVE and LEAVE it there -- the
+        # device stayed "occupied" by employee A's session for as long as
+        # A's session stayed open (which is exactly the point of an open
+        # session: it can legitimately stay open for hours). Any OTHER
+        # employee scanning their own card during that window hit the
+        # SESSION_ACTIVE branch below and got SESSION_EMPLOYEE_MISMATCH --
+        # a shared kiosk was, in effect, single-employee-locked for the
+        # duration of whoever started a session on it last.
+        #
+        # Fix: an EMP scan is now handled the SAME way regardless of the
+        # kiosk's current state (the one exception is the "same employee
+        # confirms finish" case just below, which legitimately depends on
+        # what THIS device is currently showing). Every other case
+        # re-resolves the JUST-SCANNED employee's own state from scratch --
+        # do they have an OPEN session (server truth, queried fresh) or
+        # not -- discarding whatever the kiosk was previously displaying.
+        # Nothing destructive has happened in any of those prior states (no
+        # session is created until a real OP scan succeeds), so nothing is
+        # lost by discarding them; the kiosk belongs to the workstation, not
+        # to whichever employee last touched it.
+        if kind not in ('EMP', 'OP'):
+            if state == _STATE_WAIT_EMPLOYEE:
                 return False, 'STATE_INVALID_TRANSITION', 'Cần quét thẻ nhân viên', proj
+            if state == _STATE_WAIT_OPERATION:
+                return False, 'STATE_INVALID_TRANSITION', 'Cần quét mã công đoạn', proj
+            return False, 'STATE_INVALID_TRANSITION', 'Không thể quét mã ở trạng thái này', proj
+
+        if kind == 'EMP':
             emp = KioskRepositoryLookup.employee(raw, key)
             if timer: timer.lap('employee_lookup_ms')
             if emp is None:
                 return False, 'EMPLOYEE_NOT_FOUND', 'Nhân viên không hợp lệ', proj
-            new_proj = _set_projection(
-                device_id, proj['state_version'],
-                state_name=_STATE_WAIT_OPERATION, employee_id=emp['id'], employee_name=emp['name'],
-                operation_id=None, operation_code='', operation_name='', work_session_id=None,
-                started_at=None, target_qty=0, produced_qty=0)
+
+            # Canonical finish path (2026-08-24 diagnosis, preserved as-is):
+            # scanning the SAME employee card again while the kiosk is
+            # showing THAT employee's own freshly-resolved open session
+            # confirms intent to finish. This is the one place an EMP scan's
+            # outcome legitimately depends on current kiosk state -- every
+            # other case below is a fresh, state-independent resolve.
+            if (state == _STATE_SESSION_ACTIVE and proj.get('employee_id') == emp['id']
+                    and proj.get('work_session_id')):
+                session_row = fetch_one('SELECT status FROM work_sessions WHERE id=%s', (proj['work_session_id'],))
+                if timer: timer.lap('active_session_lookup_ms')
+                if session_row is None or str(session_row.get('status') or '').upper() != 'OPEN':
+                    return False, 'SESSION_NOT_OPEN', 'Phiên đã kết thúc hoặc không tồn tại', proj
+                new_proj = _set_projection(device_id, proj['state_version'], state_name=_STATE_QUANTITY_INPUT)
+                KioskEventRepository().ingest({
+                    'event_uuid': f'{device_id}-SCAN-EMP-FINISH-{uuid.uuid4()}', 'device_uuid': device_id,
+                    'event_type': 'SCAN_EMPLOYEE_FINISH', 'severity': 'INFO',
+                    'message': f"Quét lại thẻ {emp['employee_no']} để kết thúc (kiosk v2)",
+                    'employee_id': emp['id'], 'session_id': proj['work_session_id'], 'payload': {'qr': raw}})
+                return True, None, None, new_proj
+
+            # Fresh resolve: does THIS employee (not whoever the kiosk was
+            # previously showing) have their own OPEN session right now?
+            open_session = _find_open_session_for_employee(emp['id'])
+            if timer: timer.lap('active_session_lookup_ms')
+            if open_session:
+                new_proj = _set_projection(
+                    device_id, proj['state_version'], state_name=_STATE_SESSION_ACTIVE,
+                    employee_id=emp['id'], employee_name=emp['name'],
+                    operation_id=open_session['operation_id'], operation_code=open_session['operation_code'],
+                    operation_name=open_session['operation_name'], work_session_id=open_session['work_session_id'],
+                    started_at=open_session['started_at'], target_qty=int(open_session.get('target_qty') or 0),
+                    produced_qty=0)
+            else:
+                new_proj = _set_projection(
+                    device_id, proj['state_version'], state_name=_STATE_WAIT_OPERATION,
+                    employee_id=emp['id'], employee_name=emp['name'], operation_id=None, operation_code='',
+                    operation_name='', work_session_id=None, started_at=None, target_qty=0, produced_qty=0)
             KioskEventRepository().ingest({
                 'event_uuid': f'{device_id}-SCAN-EMP-{uuid.uuid4()}', 'device_uuid': device_id,
                 'event_type': 'SCAN_EMPLOYEE', 'severity': 'INFO',
@@ -287,77 +352,52 @@ def _apply_event(device_id: str, event_id: str, event_type: str, payload: dict, 
                 'employee_id': emp['id'], 'payload': {'qr': raw}})
             return True, None, None, new_proj
 
-        if state == _STATE_WAIT_OPERATION:
-            if kind != 'OP':
-                return False, 'STATE_INVALID_TRANSITION', 'Cần quét mã công đoạn', proj
-            op = KioskRepositoryLookup.operation(raw, key)
-            if timer: timer.lap('operation_lookup_ms')
-            if op is None:
-                return False, 'OPERATION_NOT_FOUND', 'Công đoạn không hợp lệ', proj
-            if str(op.get('po_status') or '').upper() != 'IN_PROGRESS':
-                return False, 'OPERATION_NOT_WORKABLE', f"PO {op.get('po_code') or ''} chưa Start hoặc đang tạm dừng", proj
-            try:
-                station_row = _resolve_station(payload)
-                result = _sessions.start({
-                    'request_id': request_id, 'employee_id': proj['employee_id'], 'operation_id': op['id'],
-                    'station_id': station_row['id'] if station_row else None, 'device_uuid': device_id,
-                })
-            except (NotFoundError, ConflictError, ValueError, RepositoryError) as exc:
-                if timer: timer.lap('session_repository_ms')
-                code, msg = _canonical_error(exc)
-                return False, code, msg, proj
+        # kind == 'OP': unlike EMP, this genuinely depends on the kiosk's
+        # current short-lived interaction -- an operation code carries no
+        # employee identity of its own, it only means anything in
+        # combination with whichever employee the immediately-preceding EMP
+        # scan selected. That 2-step (EMP then OP) interaction is expected
+        # to complete within seconds; it is the one case where staying
+        # kiosk-global for its brief duration is correct by the target
+        # design, not a bug.
+        if state != _STATE_WAIT_OPERATION:
+            return False, 'STATE_INVALID_TRANSITION', 'Cần quét thẻ nhân viên trước', proj
+        op = KioskRepositoryLookup.operation(raw, key)
+        if timer: timer.lap('operation_lookup_ms')
+        if op is None:
+            return False, 'OPERATION_NOT_FOUND', 'Công đoạn không hợp lệ', proj
+        if str(op.get('po_status') or '').upper() != 'IN_PROGRESS':
+            return False, 'OPERATION_NOT_WORKABLE', f"PO {op.get('po_code') or ''} chưa Start hoặc đang tạm dừng", proj
+        try:
+            station_row = _resolve_station(payload)
+            result = _sessions.start({
+                'request_id': request_id, 'employee_id': proj['employee_id'], 'operation_id': op['id'],
+                'station_id': station_row['id'] if station_row else None, 'device_uuid': device_id,
+            })
+        except (NotFoundError, ConflictError, ValueError, RepositoryError) as exc:
             if timer: timer.lap('session_repository_ms')
-            session = result['session']
-            po_row = fetch_one('SELECT planned_quantity FROM production_orders WHERE id='
-                               '(SELECT production_order_id FROM operations WHERE id=%s)', (op['id'],))
-            target_qty = int((po_row or {}).get('planned_quantity') or 0)
-            new_proj = _set_projection(
-                device_id, proj['state_version'],
-                state_name=_STATE_SESSION_ACTIVE, operation_id=op['id'], operation_code=op['code'],
-                operation_name=op['name'], work_session_id=session['id'], started_at=session['started_at'],
-                target_qty=target_qty, produced_qty=0)
-            KioskEventRepository().ingest({
-                'event_uuid': f'{device_id}-SCAN-OP-{uuid.uuid4()}', 'device_uuid': device_id,
-                'event_type': 'SCAN_OPERATION', 'severity': 'INFO',
-                'message': f"Quét OP {op['code']} (kiosk v2)",
-                'operation_id': op['id'], 'session_id': session['id'], 'payload': {'qr': raw}})
-            return True, None, None, new_proj
-
-        if state == _STATE_SESSION_ACTIVE:
-            # Real product contract (2026-08-24 diagnosis): the canonical
-            # MESFlow operator flow finishes a session by scanning the SAME
-            # employee card again, not by pressing a keypad key. '#' /
-            # FINISH_REQUESTED stays below as an explicit optional
-            # compatibility shortcut, but it must never be the ONLY way
-            # this transition works -- it previously was, because this
-            # branch didn't exist and any SCAN here fell through to the
-            # generic STATE_INVALID_TRANSITION reject at the bottom.
-            if kind != 'EMP':
-                return False, 'STATE_INVALID_TRANSITION', 'Cần quét lại thẻ nhân viên để kết thúc', proj
-            emp = KioskRepositoryLookup.employee(raw, key)
-            if timer: timer.lap('employee_lookup_ms')
-            if emp is None:
-                return False, 'EMPLOYEE_NOT_FOUND', 'Nhân viên không hợp lệ', proj
-            if emp['id'] != proj.get('employee_id'):
-                # Must never collapse into a generic/network-looking error --
-                # this is a real, distinct business rejection (§10/§16 of
-                # the diagnosis task).
-                return False, 'SESSION_EMPLOYEE_MISMATCH', 'Không đúng nhân viên đang làm', proj
-            if not proj.get('work_session_id'):
-                return False, 'SESSION_NOT_OPEN', 'Không có phiên đang hoạt động', proj
-            session_row = fetch_one('SELECT status FROM work_sessions WHERE id=%s', (proj['work_session_id'],))
-            if timer: timer.lap('session_repository_ms')
-            if session_row is None or str(session_row.get('status') or '').upper() != 'OPEN':
-                return False, 'SESSION_NOT_OPEN', 'Phiên đã kết thúc hoặc không tồn tại', proj
-            new_proj = _set_projection(device_id, proj['state_version'], state_name=_STATE_QUANTITY_INPUT)
-            KioskEventRepository().ingest({
-                'event_uuid': f'{device_id}-SCAN-EMP-FINISH-{uuid.uuid4()}', 'device_uuid': device_id,
-                'event_type': 'SCAN_EMPLOYEE_FINISH', 'severity': 'INFO',
-                'message': f"Quét lại thẻ {emp['employee_no']} để kết thúc (kiosk v2)",
-                'employee_id': emp['id'], 'session_id': proj['work_session_id'], 'payload': {'qr': raw}})
-            return True, None, None, new_proj
-
-        return False, 'STATE_INVALID_TRANSITION', 'Không thể quét mã ở trạng thái này', proj
+            code, msg = _canonical_error(exc)
+            return False, code, msg, proj
+        if timer: timer.lap('session_repository_ms')
+        session = result['session']
+        # SHARED-TERMINAL FIX: the session itself stays OPEN server-side --
+        # that is the whole point, the server owns durable session state.
+        # But the DEVICE's own short-lived interaction context must reset to
+        # WAIT_EMPLOYEE immediately so the NEXT employee can use the kiosk
+        # right away, instead of the old state_name=SESSION_ACTIVE here,
+        # which held the kiosk hostage to this one employee until they
+        # scanned again (see this function's own docstring/comment above for
+        # the full root-cause writeup).
+        new_proj = _set_projection(
+            device_id, proj['state_version'], state_name=_STATE_WAIT_EMPLOYEE,
+            employee_id=None, employee_name='', operation_id=None, operation_code='', operation_name='',
+            work_session_id=None, started_at=None, target_qty=0, produced_qty=0)
+        KioskEventRepository().ingest({
+            'event_uuid': f'{device_id}-SCAN-OP-{uuid.uuid4()}', 'device_uuid': device_id,
+            'event_type': 'SCAN_OPERATION', 'severity': 'INFO',
+            'message': f"Quét OP {op['code']} (kiosk v2)",
+            'operation_id': op['id'], 'session_id': session['id'], 'payload': {'qr': raw}})
+        return True, None, None, new_proj
 
     if event_type == 'FINISH_REQUESTED':
         # Optional compatibility shortcut (kept per the task's own explicit
@@ -477,6 +517,31 @@ def _bundle_hash(version: int) -> str:
 def _resolve_station(payload: dict):
     code = str(payload.get('station_code') or request.headers.get('X-Station-ID') or '').strip()
     return KioskRepositoryLookup.station(code) if code else None
+
+
+def _find_open_session_for_employee(employee_id: int):
+    """Shared-terminal fix (2026-08-26): returns the employee's OWN currently
+    OPEN work session, enriched with everything the kiosk_v2 projection
+    needs to resume it (operation code/name, target quantity) -- or None.
+    At most one row can ever match: DB-enforced by
+    uq_open_session_per_employee, a partial UNIQUE index on
+    work_sessions(employee_id) WHERE status='OPEN' (confirmed via \\d
+    work_sessions -- the same "one employee = one active session" rule
+    WorkSessionRepository.start() itself already relies on, see its own
+    23505 -> ConflictError('employee already has an open session')
+    handling). This function only ever surfaces that existing rule, never
+    invents a second one. The WHERE clause here is exactly what that index
+    covers, so this is a single indexed row lookup, not a table scan."""
+    return fetch_one(
+        """SELECT ws.id AS work_session_id, ws.operation_id, ws.started_at,
+                  o.code AS operation_code, o.name AS operation_name,
+                  po.planned_quantity AS target_qty
+           FROM work_sessions ws
+           JOIN operations o ON o.id = ws.operation_id
+           LEFT JOIN production_orders po ON po.id = o.production_order_id
+           WHERE ws.employee_id=%s AND ws.status='OPEN'
+           LIMIT 1""",
+        (employee_id,))
 
 
 def _server_identity_fields() -> dict:
