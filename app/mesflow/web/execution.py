@@ -157,11 +157,34 @@ def penalty():
 def _legacy_kiosk_identity(body=None):
     """Compatibility identity resolver for hardware kiosks.
 
-    Security-relaxed mode: kiosk tokens are NOT required for legacy/ESP32
-    execution APIs. Resolve by immutable UUID or legacy device_id; if the
-    identity does not yet exist, auto-bind it as ACTIVE. Business validation
-    (employee/operation/station/session) remains enforced by the endpoints.
+    Kiosk tokens are still NOT required for legacy/ESP32 execution APIs
+    (unchanged -- that's a separate, larger compatibility decision than
+    this fix). Business validation (employee/operation/station/session)
+    remains enforced by the endpoints, same as before.
+
+    SECURITY BUG this used to have, found live: for an
+    EXISTING identity, it silently flipped DISABLED/PENDING back to ACTIVE
+    on every single request (an admin disabling a compromised/decommissioned
+    kiosk via /kiosk-management/<id>/status did nothing -- the device's own
+    next heartbeat undid it before the admin's next page load). Fixed: an
+    existing DISABLED identity now REJECTS execution (403); PENDING also
+    rejects (still awaiting an admin's explicit /approve). Only a
+    genuinely-ACTIVE identity is allowed through, same as
+    /kiosk-management's own status is meant to actually mean.
+
+    Auto-bind-on-first-contact (an UNKNOWN device_uuid silently becoming a
+    new ACTIVE identity, no admin approval) is now gated behind
+    MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND, default OFF/production-safe. When
+    OFF, an unrecognized device gets a clear 403 pointing at
+    /kiosk-management (register+approve explicitly) instead of a silent
+    auto-bind. When ON (an environment still relying on the old
+    zero-touch-provisioning fleet behavior, opting in explicitly), the
+    original auto-bind-as-ACTIVE behavior is unchanged -- this is a
+    deliberate compatibility mode, not removed, so an existing ESP32 fleet
+    is never silently broken by this change.
     """
+    from mesflow.core.config import settings
+    from mesflow.domain.errors import PermissionDeniedError
     body = body or {}
     candidates = [
         body.get('device_uuid'),
@@ -176,16 +199,21 @@ def _legacy_kiosk_identity(body=None):
     from mesflow.db.connection import fetch_one
     row = fetch_one("SELECT * FROM kiosk_identities WHERE device_uuid=%s LIMIT 1", (device,))
     if row:
-        # Security-relaxed mode also re-enables an existing identity so
-        # heartbeat/status writes cannot fail on status='DISABLED/PENDING'.
-        if str(row.get('status') or '').upper() != 'ACTIVE':
-            from mesflow.db.connection import transaction
-            with transaction() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE kiosk_identities SET status='ACTIVE',updated_at=CURRENT_TIMESTAMP,last_seen_at=CURRENT_TIMESTAMP WHERE device_uuid=%s RETURNING *", (device,))
-                    row = cur.fetchone() or row
+        status = str(row.get('status') or '').upper()
+        if status != 'ACTIVE':
+            raise PermissionDeniedError(
+                f"Kiosk '{device}' đang ở trạng thái {status} -- liên hệ quản trị viên để kích hoạt lại qua /kiosk-management."
+            )
         return row
 
+    if not settings.allow_legacy_kiosk_autobind:
+        raise PermissionDeniedError(
+            f"Kiosk '{device}' chưa được đăng ký. Đăng ký và duyệt qua /kiosk-management trước khi sử dụng."
+        )
+
+    import logging
+    logging.getLogger(__name__).warning(
+        'MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND=1: auto-binding unknown device_uuid=%s as ACTIVE with no admin approval', device)
     bind_body = dict(body)
     bind_body['device_uuid'] = device
     bind_body.setdefault('device_id', device)
@@ -199,6 +227,41 @@ def _legacy_kiosk_identity(body=None):
 def legacy_kiosk_bind():
     body=request.get_json(silent=True) or {}
     try:
+        import hashlib,logging
+        from mesflow.core.config import settings
+        from mesflow.domain.errors import PermissionDeniedError
+        device=str(body.get('device_uuid') or body.get('device_id') or '').strip()
+        if not device:
+            raise ValueError('device_id required')
+        existing=fetch_one("SELECT status,token_hash FROM kiosk_identities WHERE device_uuid=%s LIMIT 1",(device,))
+        if existing and str(existing.get('status') or '').upper()!='ACTIVE':
+            raise PermissionDeniedError(
+                f"Kiosk '{device}' đang ở trạng thái {existing.get('status')} -- chỉ quản trị viên mới có thể kích hoạt lại."
+            )
+        if not existing and not settings.allow_legacy_kiosk_autobind:
+            raise PermissionDeniedError(
+                f"Kiosk '{device}' chưa được đăng ký. Đăng ký và duyệt qua /kiosk-management trước khi sử dụng."
+            )
+        if existing:
+            # An identity that is already ACTIVE must prove possession of
+            # its CURRENT token before bind_legacy() is allowed to rotate a
+            # new one -- otherwise anyone who merely knows/guesses a real
+            # device_uuid (a public identifier, sent in the clear on every
+            # request) could hijack a live kiosk's credentials. Token can
+            # arrive either the normal way (X-Kiosk-Token header) or in the
+            # body (`kiosk_token`) for firmware that only knows how to POST
+            # JSON on this specific legacy endpoint.
+            presented=str(request.headers.get('X-Kiosk-Token') or body.get('kiosk_token') or '').strip()
+            token_ok=bool(presented) and hashlib.sha256(presented.encode()).hexdigest()==existing.get('token_hash')
+            if not token_ok:
+                if settings.allow_legacy_unauthenticated_rebind:
+                    logging.getLogger(__name__).warning(
+                        'MESFLOW_ALLOW_LEGACY_UNAUTHENTICATED_REBIND=1: rebinding ACTIVE device_uuid=%s with no proof of its current token', device)
+                else:
+                    raise PermissionDeniedError(
+                        f"Kiosk '{device}' đã kích hoạt -- cần đúng kiosk token hiện tại để rebind/đổi trạm. "
+                        "Nếu mất token, quản trị viên phải cấp lại qua /kiosk-management."
+                    )
         row,token=KioskRepository().bind_legacy(body,request.remote_addr or '')
         station = KioskRepositoryLookup.station(str(body.get('station_code') or '')) if body.get('station_code') else None
         generation=ServerGenerationRepository().current()
@@ -366,13 +429,29 @@ def legacy_lookup():
 def legacy_group_start():
     body=request.get_json(silent=True) or {}
     try:
+        # work_sessions.uq_open_session_per_employee (one
+        # partial unique index, WHERE status='OPEN') means a SECOND start()
+        # for the same employee within one "group" was ALWAYS guaranteed to
+        # ConflictError -- start() commits its own transaction per call, so
+        # this reliably left OP1 committed/OPEN and the whole API response
+        # an error: a real partial-write bug.
+        # Rather than build atomic multi-session START semantics the real
+        # business rule doesn't actually support (an employee can only ever
+        # have ONE open session -- confirmed at the schema level, not a
+        # guess), reject a multi-operation group BEFORE creating anything.
+        operation_qrs=list(body.get('operation_qrs') or [])
+        if len(operation_qrs)>1:
+            raise ConflictError(
+                'Một nhân viên chỉ có thể có một Session đang mở -- không thể Start nhiều Operation cùng lúc cho một nhân viên. '
+                'Hãy Start từng Operation một lượt.'
+            )
         identity=_legacy_kiosk_identity(body)
         device=str(identity['device_uuid'])
         emp=KioskRepositoryLookup.employee(str(body.get('worker_qr') or ''),str(body.get('worker_qr') or '').split('|')[-1])
         if not emp: raise NotFoundError('employee not found')
         station=KioskRepositoryLookup.station(str(body.get('station_id') or request.headers.get('X-Station-ID') or ''))
         ids=[]; group=str(body.get('batch_token') or f'GROUP-{uuid.uuid4()}')
-        for idx,oqr in enumerate(body.get('operation_qrs') or []):
+        for idx,oqr in enumerate(operation_qrs):
             op=KioskRepositoryLookup.operation(str(oqr),str(oqr).split('|')[-1])
             if not op: raise NotFoundError('operation not found')
             out=WorkSessionRepository().start({'request_id':group if idx==0 else f'{group}-{idx}','employee_id':emp['id'],'operation_id':op['id'],'station_id':station['id'] if station else None,'device_uuid':device})
@@ -388,10 +467,18 @@ def legacy_group_finish():
         identity=_legacy_kiosk_identity(body)
         device=str(identity['device_uuid'])
         station=KioskRepositoryLookup.station(str(body.get('station_id') or request.headers.get('X-Station-ID') or ''))
-        finished=[]; token=str(body.get('finish_token') or f'FINISH-{uuid.uuid4()}')
-        for idx,item in enumerate(body.get('results') or []):
-            sid=int(item['session_id']); out=WorkSessionRepository().finish(sid,{'request_id':token if idx==0 else f'{token}-{idx}','good_qty':item.get('good_qty',0),'defect_qty':item.get('defect_qty',0),'rework_qty':item.get('rework_qty',0),'note':item.get('note','')})
-            sess=out['session']; finished.append(sid)
+        results=list(body.get('results') or [])
+        token=str(body.get('finish_token') or f'FINISH-{uuid.uuid4()}')
+        # Atomic: finish_many() drives every item under
+        # ONE shared transaction (execution.py), so this either fully
+        # succeeds or fully rolls back, never a partial batch.
+        items=[(int(item['session_id']),{'request_id':token if idx==0 else f'{token}-{idx}','good_qty':item.get('good_qty',0),'defect_qty':item.get('defect_qty',0),'rework_qty':item.get('rework_qty',0),'note':item.get('note','')})
+               for idx,item in enumerate(results)]
+        outs=WorkSessionRepository().finish_many(items)
+        finished=[]
+        for idx,(item,out) in enumerate(zip(results,outs)):
+            sess=out['session']
+            sid=int(item['session_id']); finished.append(sid)
             KioskEventRepository().ingest({'event_uuid':f'{token}-{idx}-FINISH','device_uuid':device or 'LEGACY','station_id':station['id'] if station else sess.get('station_id'),'event_type':'QUANTITY_REPORTED','severity':'ERROR' if int(item.get('defect_qty') or 0)>0 else 'INFO','message':f"Nhập SL đạt {item.get('good_qty',0)}, lỗi {item.get('defect_qty',0)}, sửa được {item.get('rework_qty',0)}",'session_id':sid,'operation_id':sess.get('operation_id'),'employee_id':sess.get('employee_id'),'payload':body})
         return jsonify(ok=True,group_id=body.get('session_group_id'),finished_session_ids=finished)
     except Exception as exc:return err(exc)

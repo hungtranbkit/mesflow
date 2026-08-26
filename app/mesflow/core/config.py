@@ -34,6 +34,59 @@ class Settings:
     local_auto_login: bool = _bool("MESFLOW_LOCAL_AUTO_LOGIN", "0")
     internal_qa_auto_login: bool = _bool("MESFLOW_INTERNAL_QA_AUTO_LOGIN", "0")
     internal_http_session: bool = _bool("MESFLOW_INTERNAL_HTTP_SESSION", "1")
+    # Login sessions previously had no
+    # server-side expiry at all (decorators only checked session['user_id'],
+    # the client-side cookie itself was the only "expiry" and defaults to
+    # browser-close). idle=inactivity window; absolute=hard ceiling from
+    # login regardless of activity (a stolen/forgotten-open session still
+    # dies eventually). kiosk_* is a SEPARATE, shorter default for shared/
+    # walk-up terminals (see core/session_policy.py's own docstring for why
+    # a single policy for both is wrong).
+    session_idle_minutes: int = int(os.environ.get("MESFLOW_SESSION_IDLE_MINUTES", "60"))
+    session_absolute_hours: int = int(os.environ.get("MESFLOW_SESSION_ABSOLUTE_HOURS", "12"))
+    kiosk_session_idle_minutes: int = int(os.environ.get("MESFLOW_KIOSK_SESSION_IDLE_MINUTES", "15"))
+    # A work_session left OPEN past its shift's end
+    # boundary gets auto-closed by ShiftSessionReconciliationService, not by
+    # a human opening the UI. grace_minutes is deliberately small (a real
+    # operator might scan a finish a few minutes after the nominal shift
+    # end) -- see session_past_shift_end_grace_minutes below for the
+    # earlier-warning tier vs this actually acting on it. `enabled`/
+    # `dry_run` are the first-production-rollout safety switches:
+    # a first deploy should run dry-run-only, inspect `audit-sessions` +
+    # the dry-run reconcile output, THEN flip enabled=1/dry_run=0 -- never
+    # auto-close a fleet's worth of historical stale sessions unreviewed.
+    shift_auto_close_grace_minutes: int = int(os.environ.get("MESFLOW_SHIFT_AUTO_CLOSE_GRACE_MINUTES", "15"))
+    shift_auto_close_enabled: bool = _bool("MESFLOW_SHIFT_AUTO_CLOSE_ENABLED", "0")
+    shift_auto_close_dry_run: bool = _bool("MESFLOW_SHIFT_AUTO_CLOSE_DRY_RUN", "1")
+    # SESSION_PAST_SHIFT_END exception fires this many minutes after
+    # shift end (a much shorter, purely-informational warning) -- separate
+    # from the grace window above (which is when auto-close actually acts).
+    session_past_shift_end_grace_minutes: int = int(os.environ.get("MESFLOW_SESSION_PAST_SHIFT_END_GRACE_MINUTES", "10"))
+    # _legacy_kiosk_identity() (web/execution.py) used to
+    # auto-bind ANY unknown device_uuid as ACTIVE with no token check, AND
+    # silently flip an admin-DISABLED/PENDING identity back to ACTIVE on its
+    # very next heartbeat -- an admin disabling a compromised/decommissioned
+    # kiosk did nothing, since the device's own next request undid it.
+    # Default OFF (production-safe) -- an environment with a live legacy
+    # ESP32 fleet still depending on old auto-bind-on-first-contact behavior
+    # must opt in explicitly and understand the tradeoff (see that
+    # function's own docstring for the compatibility path when OFF: a
+    # never-seen device gets a clear 403 telling an operator to register it
+    # via /kiosk-management, not a silent auto-bind).
+    allow_legacy_kiosk_autobind: bool = _bool("MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND", "0")
+    # Codex audit follow-up: autobind-gating alone left a second
+    # hole -- an identity that IS already ACTIVE could still call
+    # /api/kiosk/bind|connect with nothing but its own public device_uuid
+    # and walk away with a BRAND NEW token (bind_legacy() rotates
+    # token_hash unconditionally on conflict), i.e. an attacker who merely
+    # knows/guesses a real device_uuid could hijack that kiosk identity
+    # without ever proving possession of its current token. Default OFF: an
+    # ACTIVE identity now must present its current X-Kiosk-Token (or
+    # `kiosk_token` in the body) to rebind/rotate. Set to "1" only as a
+    # temporary compatibility bridge for hardware that cannot yet send its
+    # token on bind/connect -- logs a warning on every use, same spirit as
+    # allow_legacy_kiosk_autobind above.
+    allow_legacy_unauthenticated_rebind: bool = _bool("MESFLOW_ALLOW_LEGACY_UNAUTHENTICATED_REBIND", "0")
     action_log_enabled: bool = _bool("MESFLOW_ACTION_LOG_ENABLED", "1")
     action_log_get_requests: bool = _bool("MESFLOW_ACTION_LOG_GET_REQUESTS", "0")
     action_log_slow_ms: int = int(os.environ.get("MESFLOW_ACTION_LOG_SLOW_MS", "1500"))

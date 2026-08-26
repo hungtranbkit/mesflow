@@ -45,7 +45,11 @@ def test_excel_import_does_not_create_empty_po():
 
 
 def test_release_version():
-    assert tuple(map(int,text('VERSION.txt').strip().split('.'))) >= (65,8,33)
     version=text('VERSION.txt').strip()
-    assert f"__version__='{version}'" in text('app/mesflow/__init__.py').replace(' ', '')
+    assert tuple(map(int,version.split('.'))) >= (65,8,33)
+    # __init__.py reads VERSION.txt at import time rather than embedding a
+    # literal (see its own docstring) -- import and compare instead of
+    # grepping for a string that no longer appears in source.
+    import mesflow
+    assert mesflow.__version__==version
     assert f"mesflow-app:{version}" in text('compose.yml')

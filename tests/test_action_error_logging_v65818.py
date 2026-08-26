@@ -2,7 +2,11 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def test_version_and_migration():
     version=(ROOT/'VERSION.txt').read_text().strip()
-    assert f"__version__='{version}'" in (ROOT/'app/mesflow/__init__.py').read_text().replace(' ', '')
+    # __init__.py reads VERSION.txt at import time rather than embedding a
+    # literal (see its own docstring) -- import and compare instead of
+    # grepping for a string that no longer appears in source.
+    import mesflow
+    assert mesflow.__version__==version
     m=(ROOT/'app/migrations/versions/0016_action_error_logs.py').read_text()
     assert "create_table('action_logs'" in m and 'traceback_text' in m and 'trace_id' in m
 def test_hooks_and_masking():

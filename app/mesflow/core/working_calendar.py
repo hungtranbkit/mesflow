@@ -20,10 +20,22 @@ def _clock(value: Any) -> str:
     if value is None: return "00:00"
     return value.strftime("%H:%M") if hasattr(value,"strftime") else str(value)[:5]
 
+class ShiftConfigDegraded(RuntimeError):
+    """get_work_shifts() used to catch every Exception and
+    silently return DEFAULT_SHIFTS -- a real DB outage, missing migration,
+    auth failure, or schema corruption looked IDENTICAL to "table not
+    created yet" (a legitimate bootstrap/dev case). Raised for anything that
+    is NOT that one narrow case; callers that can degrade gracefully should
+    catch this specific type (never bare Exception) and report
+    SHIFT_CONFIG_DEGRADED rather than pretend the fallback shifts are the
+    real configured ones."""
+
+
 def get_work_shifts(active_only: bool=True) -> list[dict[str,Any]]:
     from mesflow.db.connection import fetch_all
+    import psycopg
+    clause="WHERE s.active=true" if active_only else ""
     try:
-        clause="WHERE s.active=true" if active_only else ""
         rows=fetch_all(f"""SELECT s.id,s.code,s.name,s.timezone,s.anchor_start,s.anchor_end,s.cross_midnight,
           s.target_minutes,s.working_weekdays,s.sort_order,s.active,
           COALESCE(json_agg(json_build_object('id',i.id,'interval_type',i.interval_type,'start_minute',i.start_minute,
@@ -31,15 +43,23 @@ def get_work_shifts(active_only: bool=True) -> list[dict[str,Any]]:
           FILTER (WHERE i.id IS NOT NULL),'[]'::json) intervals
           FROM work_shifts s LEFT JOIN work_shift_intervals i ON i.shift_id=s.id {clause}
           GROUP BY s.id ORDER BY s.sort_order,s.id""")
-        result=[]
-        for r in rows:
-            item=dict(r);item['anchor_start']=_clock(item['anchor_start']);item['anchor_end']=_clock(item['anchor_end'])
-            item['working_weekdays']=[int(x) for x in (item.get('working_weekdays') or [])]
-            item['intervals']=[dict(x) for x in (item.get('intervals') or [])]
-            result.append(item)
-        return result or [dict(x) for x in DEFAULT_SHIFTS]
-    except Exception:
+    except psycopg.errors.UndefinedTable:
+        # The ONE legitimate silent-fallback case: work_shifts hasn't been
+        # created yet (fresh checkout/bootstrap before the first `alembic
+        # upgrade head`, or a dev/test DB reset mid-migration). Every other
+        # failure mode (connection refused, auth failure, any other schema
+        # error) must not be confused with this and must not silently look
+        # "healthy" -- see ShiftConfigDegraded above.
         return [dict(x) for x in DEFAULT_SHIFTS]
+    except psycopg.Error as exc:
+        raise ShiftConfigDegraded(f'work_shifts query failed: {type(exc).__name__}: {exc}') from exc
+    result=[]
+    for r in rows:
+        item=dict(r);item['anchor_start']=_clock(item['anchor_start']);item['anchor_end']=_clock(item['anchor_end'])
+        item['working_weekdays']=[int(x) for x in (item.get('working_weekdays') or [])]
+        item['intervals']=[dict(x) for x in (item.get('intervals') or [])]
+        result.append(item)
+    return result or [dict(x) for x in DEFAULT_SHIFTS]
 
 def get_work_shift(code: str|None=None, shift_id: int|None=None) -> dict[str,Any]:
     shifts=get_work_shifts()
@@ -95,17 +115,53 @@ def shift_bounds(shift_date: date, shift: dict[str,Any]) -> tuple[datetime,datet
     end_day=shift_date+timedelta(days=1 if shift.get('cross_midnight') or end_is_midnight else 0)
     return start,datetime.combine(end_day,time(end_h,end_m),tzinfo=zone)
 
-def resolve_shift_for_datetime(moment: datetime) -> dict[str,Any]:
-    for shift in get_work_shifts():
+def resolve_shift_for_datetime(moment: datetime) -> dict[str,Any] | None:
+    """Used to silently fall back to the DAY shift when
+    `moment` doesn't land inside ANY configured shift's window -- a real gap
+    (e.g. 00:00-08:00 with today's DAY=08:00-17:00/NIGHT=18:00-00:00
+    defaults) got mislabeled as DAY instead of "no active shift", which is
+    exactly wrong for anything using this to decide a shift-end boundary
+    (auto-close) or to attribute a timestamp to a shift (reports).
+    Returns None -- callers must handle NO_ACTIVE_SHIFT explicitly, never
+    assume a shift always exists for any given instant."""
+    resolved=resolve_shift_window_for_datetime(moment)
+    return resolved[0] if resolved else None
+
+
+def resolve_shift_window_for_datetime(moment: datetime, shifts: list[dict[str,Any]]|None=None) -> tuple[dict[str,Any],datetime,datetime] | None:
+    """Same resolution as resolve_shift_for_datetime(), but also returns the
+    concrete [start,end) window for the specific date `moment` falls in --
+    needed by anything that has to know exactly WHEN this shift ends (Phase
+    2's auto-close boundary), not just which shift is active. Returns None
+    for the same NO_ACTIVE_SHIFT case.
+
+    `shifts`: pass a pre-fetched get_work_shifts() result when resolving
+    MANY moments in a loop (ShiftSessionReconciliationService.find_candidates(),
+    ExceptionRepository._session_past_shift_end_ids()) -- each call defaults
+    to fetching fresh, and get_work_shifts() itself opens a real DB
+    connection per call (mesflow.db.connection.fetch_all -- no pool, see
+    its own docstring), so resolving N open sessions without this became a
+    real N+1-connections bug found live (500s under concurrent load in
+    tests/integration/test_v67_exception_center.py's concurrent-detection
+    test -- 5 parallel requests each doing an unbounded number of shift
+    lookups exhausted Postgres's connection limit). Omit it for a genuine
+    one-off lookup; a fresh fetch there is correct and cheap."""
+    if moment.tzinfo is None:raise ValueError('naive datetime is not allowed in shift logic')
+    for shift in (shifts if shifts is not None else get_work_shifts()):
         anchor=_anchor_date_for(moment,shift);start,end=shift_bounds(anchor,shift)
-        if moment.tzinfo is None:raise ValueError('naive datetime is not allowed in shift logic')
         local=moment.astimezone(start.tzinfo)
-        if start<=local<end:return shift
-    return get_work_shift('DAY')
+        if start<=local<end:return shift,start,end
+    return None
 
 def working_seconds_between(start: datetime,end: datetime,cfg: dict[str,Any]|None=None,shift_code: str|None=None) -> int:
     if not start or not end or end<=start:return 0
     shift=get_work_shift(shift_code) if shift_code else (get_work_shift(cfg.get('shift_code')) if cfg and cfg.get('shift_code') else resolve_shift_for_datetime(start))
+    if shift is None:
+        # `start` falls in a genuine NO_ACTIVE_SHIFT gap (Phase 2/8) -- no
+        # shift definition to measure working time against. Fail safe (0),
+        # never silently borrow DAY's intervals for a moment DAY doesn't
+        # actually cover.
+        return 0
     zone=ZoneInfo(shift.get('timezone') or settings.timezone_name)
     if start.tzinfo is None or end.tzinfo is None:raise ValueError('naive datetime is not allowed in working-time logic')
     start=start.astimezone(zone);end=end.astimezone(zone)

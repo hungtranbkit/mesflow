@@ -35,16 +35,26 @@ test('QR print center renders a result or clear empty state', async ({ page }) =
 });
 
 test('session exception workflow screen renders', async ({ page }) => {
+  // Rewritten (2026-08-26): pages/session-exceptions.js -- which every
+  // selector below used to target (#seList, role=tab, #seDataSource,
+  // #seHistory*) -- is confirmed dead code. app.html loads
+  // pages/exception-center.js right after it, which unconditionally
+  // overwrites the same renderSessionExceptions global; that dead
+  // <script> include has since been removed. The live Exception Center is
+  // exception-center.js: plain buttons (not role="tab"), data-view
+  // attributes instead of aria-selected, #ecList instead of #seList, and
+  // one shared ecFrom/ecTo date-range filter instead of a dedicated
+  // per-field history search (seHistoryFrom/seHistoryEmployee/etc. have no
+  // equivalent in the current UI -- that granularity was never carried
+  // over, not merely renamed).
   await page.evaluate(()=>openPage('session-exceptions',document.querySelector('[data-page="session-exceptions"]')));
-  await expect(page.locator('#seList')).toBeVisible();
-  await expect(page.getByRole('tab',{name:'Cần xử lý'})).toHaveAttribute('aria-selected','true');
-  await expect(page.locator('#seDataSource')).toBeVisible();
-  await expect(page.locator('#seDataSource')).toContainText('QA Test');
-  await expect(page.getByRole('tab',{name:'Đang xử lý'})).toBeVisible();
-  await page.getByRole('tab',{name:'Lịch sử'}).click();
-  await expect(page.locator('#seHistoryFilters')).toBeVisible();
-  await expect(page.locator('#seHistoryFrom')).toBeVisible();
-  await expect(page.locator('#seHistoryHandler')).toBeVisible();
+  await expect(page.locator('#ecList')).toBeVisible();
+  await expect(page.locator('.ec-tabs button[data-view="action"]')).toHaveClass(/active/);
+  await expect(page.locator('.ec-tabs button[data-view="all"]')).toBeVisible();
+  await page.locator('.ec-tabs button[data-view="history"]').click();
+  await expect(page.locator('.ec-tabs button[data-view="history"]')).toHaveClass(/active/);
+  await expect(page.locator('#ecFrom')).toBeVisible();
+  await expect(page.locator('#ecTo')).toBeVisible();
 });
 
 test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page }) => {
@@ -54,12 +64,22 @@ test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page })
   await expect(page.locator('[data-page="esp-kiosk-tutorial"]')).toHaveCount(0);
   await nav.click();
   await expect(page.locator('#pageTitle')).toHaveText('Hướng dẫn');
-  await expect(page.locator('.guide-subtabs button')).toHaveCount(2);
-  await expect(page.locator('.guide-subtabs button').first()).toHaveAttribute('aria-selected','true');
+  // Rewritten (2026-08-26): opening Tutorials now lands on the TEXT guide
+  // by default (renderTutorials was repointed to renderTextGuide -- "Hướng
+  // dẫn bằng chữ" is now the primary requirement contract, per its own
+  // commit history), with a NEW outer Text/Video tab layer in front of the
+  // old KIMEX/ESP video sub-tabs (both layers reuse the same .guide-tabs
+  // .mf-tabs.mf-tab markup, which is why a bare count-2 check alone is
+  // ambiguous between the two levels). #tutorialSearch/the KIMEX+ESP
+  // sub-tabs only exist after switching to the "Video hướng dẫn" tab.
+  await expect(page.getByRole('button', { name: 'Hướng dẫn bằng chữ' })).toHaveClass(/active/);
+  await page.getByRole('button', { name: 'Video hướng dẫn' }).click();
+  await expect(page.getByRole('button', { name: 'Video hướng dẫn' })).toHaveClass(/active/);
+  await expect(page.getByRole('button', { name: 'KIMEX', exact: true })).toHaveClass(/active/);
   await expect(page.locator('#tutorialSearch')).toBeVisible();
   expect(await page.locator('#nav').evaluate(x=>x.scrollWidth<=x.clientWidth)).toBeTruthy();
-  await page.locator('.guide-subtabs button').nth(1).click();
-  await expect(page.locator('.guide-subtabs button').nth(1)).toHaveAttribute('aria-selected','true');
+  await page.getByRole('button', { name: 'ESP Kiosk' }).click();
+  await expect(page.getByRole('button', { name: 'ESP Kiosk' })).toHaveClass(/active/);
   await expect(page.locator('#espTutorialVersions')).toContainText('5.1.9.2');
   await expect(page.locator('#espTutorialList button')).toHaveCount(7);
   await expect(page.locator('#espTutorialWorkspace')).not.toContainText('.mp4');
@@ -91,10 +111,18 @@ test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page })
     expect(await page.locator('.workspace-main').evaluate(x=>x.scrollWidth<=x.clientWidth+1)).toBeTruthy();
     await expect(video).toBeVisible();
   }
-  await page.locator('.guide-subtabs button').first().click();
+  // Rewritten (2026-08-26): the old `/app?guide=esp-kiosk` deep-link query
+  // param has no handler anywhere in current app.js/text-guide.js -- that
+  // mechanism was removed, not renamed, when the outer Text/Video tab
+  // layer was added (deep-linking now goes through AppNav.setQuery's own
+  // `tab=video` param instead, at the OUTER level, not a specific inner
+  // sub-tab). Re-verify the still-real behavior instead: clicking back to
+  // KIMEX restores its own content, and ESP Kiosk is reachable again from
+  // there without a page reload losing state.
+  await page.getByRole('button', { name: 'KIMEX', exact: true }).click();
   await expect(page.locator('#tutorialSearch')).toBeVisible();
-  await page.goto('/app?guide=esp-kiosk');
-  await expect(page.locator('.guide-subtabs button').nth(1)).toHaveAttribute('aria-selected','true');
+  await page.getByRole('button', { name: 'ESP Kiosk' }).click();
+  await expect(page.getByRole('button', { name: 'ESP Kiosk' })).toHaveClass(/active/);
   await expect(page.locator('#espTutorialList button')).toHaveCount(7);
   await page.route('**/api/esp-kiosk-tutorial',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:true,manifest:null})}));
   await page.evaluate(()=>renderEspKioskTutorial());

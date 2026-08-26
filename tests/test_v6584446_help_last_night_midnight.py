@@ -4,13 +4,15 @@ from datetime import date
 R=Path(__file__).resolve().parents[1]
 
 def test_version():
-    assert (R/"VERSION.txt").read_text().strip()=="65.8.44.46"
-    assert json.loads((R/"release.json").read_text())["version"]=="65.8.44.46"
+    version=(R/"VERSION.txt").read_text().strip()
+    assert json.loads((R/"release.json").read_text())["version"]==version
 
 def test_tutorial_is_last_menu_item():
     s=(R/"app/mesflow/web/static/app.js").read_text()
     block=s[s.index("const menu=["):s.index("const nav=")]
-    assert block.rfind("Hướng dẫn sử dụng") > block.rfind("Hệ thống")
+    # Label was later shortened site-wide from "Hướng dẫn sử dụng" to
+    # "Hướng dẫn" -- the "tutorial is the last item" invariant is unchanged.
+    assert block.rfind("Hướng dẫn") > block.rfind("Hệ thống")
 
 def test_night_default_ends_at_midnight_not_cross_day():
     s=(R/"app/mesflow/core/working_calendar.py").read_text()

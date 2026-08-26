@@ -16,7 +16,12 @@ def test_same_input_source_does_not_require_source_operation_completed():
 
 
 def test_finish_explains_missing_source_reported_quantity():
-    assert "chưa có sản lượng đã báo cáo" in EXECUTION
+    # Wording later improved to distinguish GOOD vs REWORK source quantity
+    # ("... chưa có sản lượng đạt để cấp" / "... chưa có lỗi sửa được để
+    # cấp") instead of one generic phrase -- the underlying guarantee (a
+    # clear message when the source operation hasn't reported any
+    # quantity yet) is unchanged, just more specific now.
+    assert "chưa có {label} để cấp" in EXECUTION
     assert "kết thúc ít nhất một session OP nguồn" in EXECUTION
 
 

@@ -42,7 +42,16 @@ test('MESFlow — video hướng dẫn tổng quan hệ thống', async ({ page 
 
   const tutorialUser = process.env.MESFLOW_TUTORIAL_USERNAME || 'admin';
   const tutorialPassword = process.env.MESFLOW_TUTORIAL_PASSWORD || '';
-  expect(tutorialPassword, 'Thiếu MESFLOW_TUTORIAL_PASSWORD để quay video production-safe').toBeTruthy();
+  // This spec is the narration/recording tool behind scripts/make-user-guide-video.sh,
+  // not a regression test -- it deliberately logs in through the real
+  // password endpoint (see test_tutorial_uses_password_login's static
+  // contract) instead of the test-only auto-login shortcut used elsewhere
+  // in tests/e2e/, so the recorded video shows a genuine login. Running
+  // the bare Playwright suite (no MESFLOW_TUTORIAL_PASSWORD)
+  // used to hard-fail here every time; skip cleanly instead so a normal CI
+  // run isn't reported as broken for a video-recording tool it never
+  // configured credentials for.
+  test.skip(!tutorialPassword, 'Cần MESFLOW_TUTORIAL_PASSWORD (chạy qua scripts/make-user-guide-video.sh) để quay video production-safe');
 
   await page.goto('/login');
   const login = await page.request.post('/api/auth/login', {

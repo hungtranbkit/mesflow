@@ -37,14 +37,37 @@ def test_wip_first_operation_partial_downstream_terminal_and_rework():
     ledger=operation_wip(base(operation_id=3,input_flow_enabled=True,input_source_operation_id=1,input_available_qty=7,input_source_kind='REWORK'),None)
     assert ledger['wip_qty']==7
 
-def test_working_time_crosses_midnight_and_excludes_break():
+def test_working_time_crosses_midnight_and_excludes_break(cross_midnight_shift):
+    # Fix Plan Phase 8: uses the dedicated cross_midnight_shift fixture
+    # (conftest.py), NOT the real seeded NIGHT (18:00-00:00,
+    # cross_midnight=FALSE as of the migration that corrected it -- see
+    # test_postgres_schema.py's own fixed assertion). The fixture's own
+    # WORK 22:00-00:00 / BREAK 00:00-01:00 / WORK 01:00-06:00 structure is
+    # deliberately shaped so this exact 3h expectation still holds: of the
+    # 4h window [22:00,02:00), 22:00-00:00 (2h) and 01:00-02:00 (1h) are
+    # WORK, 00:00-01:00 (1h) is BREAK -- 3h WORK total.
+    code = cross_midnight_shift['code']
     start=datetime(2026,8,8,15,0,tzinfo=timezone.utc) # 22:00 HCM
     end=datetime(2026,8,8,19,0,tzinfo=timezone.utc)   # 02:00 HCM
-    assert working_seconds_between(start,end,shift_code='NIGHT')==3*3600
+    assert working_seconds_between(start,end,shift_code=code)==3*3600
     # OPEN session uses the frozen report time as its effective end.
-    assert working_seconds_between(start,NOW.replace(year=2026,month=8,day=8,hour=19),shift_code='NIGHT')==3*3600
+    assert working_seconds_between(start,NOW.replace(year=2026,month=8,day=8,hour=19),shift_code=code)==3*3600
+
+
+def test_all_shift_working_seconds_between_sums_real_shifts_with_a_genuine_gap():
+    """Fix Plan Phase 8: this used to assert 15h for the 08:00(HCM)->
+    02:00(HCM,+1d) window using `all_shift_working_seconds_between` (which
+    sums EVERY configured shift, not one specific shift_code) -- also
+    stale against the real current NIGHT (18:00-00:00). Recomputed against
+    the ACTUAL seeded config: DAY 08:00-17:00 contributes 8h WORK (480min
+    work minus the lunch break, i.e. its own two WORK intervals), NIGHT
+    18:00-00:00 contributes 5h WORK (target_minutes=300), and 00:00-02:00
+    is a genuine NO_ACTIVE_SHIFT gap (Phase 2/8's own fix -- no shift
+    covers it, contributes 0) -- 13h total, not 15h. Deliberately does NOT
+    use cross_midnight_shift (that fixture would itself add a 3rd shift's
+    contribution to this sum, which is not what this test is about)."""
     multi_start=datetime(2026,8,8,1,0,tzinfo=timezone.utc);multi_end=datetime(2026,8,8,19,0,tzinfo=timezone.utc)
-    assert all_shift_working_seconds_between(multi_start,multi_end)==15*3600
+    assert all_shift_working_seconds_between(multi_start,multi_end)==13*3600
 
 def test_backend_start_uses_partial_upstream_wip(api,db,seeded_factory):
     g=seeded_factory;code=f'P2-DOWN-{g["suffix"]}'
@@ -63,9 +86,13 @@ def test_backend_start_uses_partial_upstream_wip(api,db,seeded_factory):
         cur.execute('DELETE FROM operation_adjustments WHERE operation_id=%s',(down,))
         cur.execute('DELETE FROM work_sessions WHERE operation_id=%s',(down,));cur.execute('DELETE FROM operations WHERE id=%s',(down,))
 
-def test_shift_api_allocates_cross_boundary_without_changing_session(api,db,seeded_factory):
+def test_shift_api_allocates_cross_boundary_without_changing_session(api,db,seeded_factory,cross_midnight_shift):
+    # Fix Plan Phase 8: uses the dedicated cross_midnight_shift fixture
+    # instead of the real NIGHT (no longer cross-midnight) -- see
+    # test_working_time_crosses_midnight_and_excludes_break's own comment
+    # for why 3h WORK / 4h duration still holds for this fixture's shape.
     g=seeded_factory
-    shift=db.execute("SELECT id FROM work_shifts WHERE code='NIGHT'").fetchone()['id']
+    shift=cross_midnight_shift['id']
     start=datetime(2026,8,8,15,0,tzinfo=timezone.utc);end=datetime(2026,8,8,19,0,tzinfo=timezone.utc)
     with db.cursor() as cur:
         cur.execute("INSERT INTO work_sessions(employee_id,operation_id,station_id,status,started_at,ended_at,start_request_id,finish_request_id) VALUES(%s,%s,%s,'CLOSED',%s,%s,%s,%s) RETURNING id",(g['employee_id'],g['operation_id'],g['station_id'],start,end,f'P2-S-{uuid.uuid4()}',f'P2-F-{uuid.uuid4()}'));sid=cur.fetchone()['id']

@@ -37,6 +37,7 @@ EXPECTED_TOC = [
     ('troubleshooting', 'Xử lý lỗi thường gặp'),
     ('recommended-workflow', 'Quy trình sử dụng MESFlow đề xuất'),
     ('employee-productivity', 'Báo cáo năng suất nhân viên'),
+    ('system-health', 'Sức khỏe hệ thống (dành cho Admin)'),
 ]
 KNOWN_BLOCK_TYPES = {'h3', 'p', 'note', 'example', 'diagram', 'list', 'steps', 'table'}
 

@@ -2,6 +2,8 @@
 from __future__ import annotations
 import json
 from typing import Any
+from mesflow.core.config import settings
+from mesflow.core.working_calendar import get_work_shifts, resolve_shift_window_for_datetime
 from mesflow.db.connection import fetch_all, fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError
 from mesflow.domain.audit import record_audit
@@ -9,8 +11,33 @@ from mesflow.domain.audit import record_audit
 ACTIVE=('OPEN','ACKNOWLEDGED')
 
 class ExceptionRepository:
+    def _session_past_shift_end_ids(self)->set[int]:
+        """SESSION_PAST_SHIFT_END is computed in Python,
+        not SQL, because it needs the SAME shift-resolution logic
+        ShiftSessionReconciliationService uses (resolve_shift_window_for_datetime,
+        per-session's OWN started_at, never "today's" shift) -- duplicating
+        that in a raw SQL UNION branch would be exactly the "two parsers/
+        two shift-boundary calculations drifting apart" class of bug this
+        codebase's own comments elsewhere warn against. A session whose
+        started_at falls in a NO_ACTIVE_SHIFT gap is skipped here too (same
+        reasoning as the reconciliation service) -- it's still covered by
+        the 12h LONG_OPEN_SESSION anomaly below regardless."""
+        from mesflow.core.time_policy import utc_now
+        from datetime import timedelta
+        now=utc_now();grace=timedelta(minutes=settings.session_past_shift_end_grace_minutes)
+        rows=fetch_all("SELECT id,started_at FROM work_sessions WHERE status='OPEN'")
+        shifts=get_work_shifts()  # fetched ONCE, see resolve_shift_window_for_datetime()'s own docstring on why
+        ids=set()
+        for row in rows:
+            window=resolve_shift_window_for_datetime(row['started_at'],shifts)
+            if window is None: continue
+            _shift,_start,end=window
+            if now>=end+grace: ids.add(row['id'])
+        return ids
+
     def detected_conditions(self)->list[dict[str,Any]]:
-        return fetch_all("""WITH flags AS (
+        past_shift_end_ids=self._session_past_shift_end_ids()
+        rows=fetch_all("""WITH flags AS (
           SELECT ws.id session_id,'LONG_OPEN_SESSION' exception_type,'HIGH' severity,
             'Session mở quá lâu' title,'Session đã mở quá 12 giờ và cần được kiểm tra.' message,
             'Kiểm tra Session và xác nhận trạng thái.' recommended_action
@@ -32,6 +59,10 @@ class ExceptionRepository:
             'Nhân viên có hai Session chồng thời gian.','Kiểm tra cả hai Session và bằng chứng kiosk.'
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
             AND tstzrange(a.started_at,COALESCE(a.ended_at,'infinity'::timestamptz),'[)') && tstzrange(b.started_at,COALESCE(b.ended_at,'infinity'::timestamptz),'[)')
+          UNION ALL SELECT ws.id,'SESSION_PAST_SHIFT_END','MEDIUM','Session quá giờ kết thúc ca',
+            'Session vẫn còn OPEN sau khi ca làm việc đã kết thúc. Hệ thống sẽ tự động đóng ca sau ít phút nếu không có thao tác thủ công.',
+            'Kết thúc Session thủ công, hoặc chờ hệ thống tự động đóng ca.'
+          FROM work_sessions ws WHERE ws.status='OPEN' AND ws.id=ANY(%s)
         ) SELECT f.*,ws.employee_id,ws.operation_id,o.production_order_id,o.part_id,
           ws.started_at,ws.ended_at,ws.status session_status,ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
           e.employee_no employee_code,e.name employee_name,po.code po_code,p.code part_code,
@@ -40,7 +71,9 @@ class ExceptionRepository:
           f.exception_type||':SESSION:'||ws.id::text fingerprint
         FROM flags f JOIN work_sessions ws ON ws.id=f.session_id JOIN employees e ON e.id=ws.employee_id
         JOIN operations o ON o.id=ws.operation_id JOIN production_orders po ON po.id=o.production_order_id
-        JOIN parts p ON p.id=o.part_id LEFT JOIN stations s ON s.id=ws.station_id""")
+        JOIN parts p ON p.id=o.part_id LEFT JOIN stations s ON s.id=ws.station_id""",
+        (list(past_shift_end_ids),))
+        return rows
 
     @staticmethod
     def _history(cur,exception_id,action,previous,new,actor_id=None,actor='',reason='',correlation_id='',metadata=None):
@@ -50,10 +83,25 @@ class ExceptionRepository:
         return cur.fetchone()
 
     def reconcile(self,conditions:list[dict[str,Any]],correlation_id='')->list[dict[str,Any]]:
+        # Deadlock hazard found live under concurrent load (Phase 5 added a
+        # 6th UNION branch to detected_conditions(), which raised the row
+        # count enough to make this pre-existing hazard reproduce reliably
+        # in tests/integration/test_v67_exception_center.py's 5-concurrent-
+        # requests test): two overlapping reconcile() calls could acquire
+        # per-fingerprint FOR UPDATE locks in DIFFERENT orders (Python dict
+        # iteration order == `conditions`' own UNION ALL order, which
+        # Postgres does not guarantee is identical across two concurrent
+        # executions), then both reach the bulk `condition_active=TRUE FOR
+        # UPDATE` scan below and deadlock waiting on each other's rows.
+        # Sorting by fingerprint (a stable string, same set of fingerprints
+        # for the same underlying data regardless of scan order) makes
+        # every concurrent caller take these locks in the SAME order --
+        # the standard fix for a lock-ordering deadlock.
         current={x['fingerprint']:x for x in conditions}; created=[]
         with transaction() as conn:
           with conn.cursor() as cur:
-            for fp,item in current.items():
+            for fp in sorted(current):
+                item=current[fp]
                 cur.execute("SELECT * FROM exception_records WHERE fingerprint=%s ORDER BY occurrence_no DESC,id DESC LIMIT 1 FOR UPDATE",(fp,))
                 prior=cur.fetchone()
                 if prior and (prior['status'] in ACTIVE or prior['condition_active']):
@@ -68,7 +116,8 @@ class ExceptionRepository:
                 row=cur.fetchone()
                 if row:
                     self._history(cur,row['id'],'DETECTED',None,'OPEN',correlation_id=correlation_id,metadata={'fingerprint':fp});created.append(row)
-            cur.execute("SELECT * FROM exception_records WHERE condition_active=TRUE FOR UPDATE")
+            # ORDER BY id: same deterministic-lock-order reasoning as above.
+            cur.execute("SELECT * FROM exception_records WHERE condition_active=TRUE ORDER BY id FOR UPDATE")
             for row in cur.fetchall():
                 if row['fingerprint'] in current: continue
                 if row['status'] not in ACTIVE:
@@ -77,7 +126,7 @@ class ExceptionRepository:
                     # new incident rather than resurrecting the old decision.
                     cur.execute("UPDATE exception_records SET condition_active=FALSE,updated_at=CURRENT_TIMESTAMP WHERE id=%s",(row['id'],))
                     continue
-                reason='SESSION_ALREADY_CLOSED' if row['exception_type'] in ('LONG_OPEN_SESSION','OPERATION_COMPLETED_SESSION_OPEN') else 'CONDITION_NO_LONGER_TRUE'
+                reason='SESSION_ALREADY_CLOSED' if row['exception_type'] in ('LONG_OPEN_SESSION','OPERATION_COMPLETED_SESSION_OPEN','SESSION_PAST_SHIFT_END') else 'CONDITION_NO_LONGER_TRUE'
                 can_auto=row['severity'] in ('LOW','MEDIUM') or reason=='SESSION_ALREADY_CLOSED'
                 if can_auto:
                     cur.execute("""UPDATE exception_records SET status='AUTO_IGNORED',condition_active=FALSE,ignored_at=CURRENT_TIMESTAMP,

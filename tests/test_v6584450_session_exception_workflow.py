@@ -1,11 +1,19 @@
+# Codex audit E2E finding: window.MESFLOW_SESSION_EXCEPTION_CONTEXT (read by
+# renderSessionManagement()'s deep-link/back logic below, still live in
+# app.js) is only ever SET to a real value inside pages/session-exceptions.js,
+# which is confirmed dead code (see test_v6584451_receive_exception_ui.py's
+# module docstring) -- its dead <script> tag has been removed from app.html.
+# In practice nothing sets this context today, so this receiving code path
+# is currently unreachable end-to-end even though it is itself correct and
+# still exercised by test_session_management_focus_and_back below.
 from pathlib import Path
 import json
 R=Path(__file__).resolve().parents[1]
-E="65.8.44.50"
+E=(R/"VERSION.txt").read_text().strip()
 
 def test_version():
     assert (R/"VERSION.txt").read_text().strip()==E
-    assert E in (R/"app/mesflow/__init__.py").read_text()
+    import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==E  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
     assert json.loads((R/"release.json").read_text())["version"]==E
 
 def test_exception_history_survives_correction():
@@ -36,7 +44,12 @@ def test_session_management_focus_and_back():
     block=s[s.index("async function renderSessionManagement"):s.index("async function renderRolePermissions")]
     assert "MESFLOW_SESSION_EXCEPTION_CONTEXT" in block
     assert "smBackException" in block
-    assert "expandedSessionId=target" in block
+    # Deep-link targeting later changed from an `expandedSessionId=target`
+    # expand-the-row state to a direct scrollIntoView() on the target
+    # session's row -- simpler, same "land on and highlight the session
+    # that sent you here" outcome.
+    assert 'scrollIntoView({behavior:\'smooth\',block:\'center\'})' in block
+    assert "returnContext.sessionId" in block
     assert "Quay lại bất thường" in block
 
 def test_css_limits_queue_height():

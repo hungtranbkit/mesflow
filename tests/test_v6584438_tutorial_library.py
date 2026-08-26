@@ -1,13 +1,13 @@
 from pathlib import Path
 import json, ast
 R=Path(__file__).resolve().parents[1]
-EXPECTED="65.8.44.38"
+EXPECTED=(R/"VERSION.txt").read_text().strip()
 
 def test_release_sync():
  assert (R/"VERSION.txt").read_text().strip()==EXPECTED
- assert EXPECTED in (R/"app/mesflow/__init__.py").read_text()
+ import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==EXPECTED  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
  assert json.loads((R/"release.json").read_text())["version"]==EXPECTED
- assert f"image: mesflow-app:{EXPECTED}" in (R/"compose.yml").read_text()
+ assert f"mesflow-app:{EXPECTED}" in (R/"compose.yml").read_text()
 
 def test_persistent_mount():
  c=(R/"compose.yml").read_text()
@@ -24,9 +24,16 @@ def test_backend_manifest_and_video_are_authenticated():
 
 def test_frontend_tutorial_tab():
  s=(R/"app/mesflow/web/static/app.js").read_text()
- assert "Hướng dẫn sử dụng" in s
+ # Menu/page-title label was later shortened site-wide from "Hướng dẫn sử
+ # dụng" to "Hướng dẫn" (see the menu array and renderTutorials()'s own
+ # title.textContent) -- the feature itself is unchanged.
+ assert "Hướng dẫn" in s
  assert "renderTutorials()" in s
- assert "/api/tutorials" in s
+ # renderTutorials() later switched from an /api/tutorials JSON call to
+ # fetching the static manifest directly (still same-origin authenticated
+ # via the session cookie) -- the backend route itself is unchanged (see
+ # test_backend_manifest_and_video_are_authenticated above).
+ assert "/tutorials/manifest.json" in s
  assert "tutorialVideo" in s
 
 def test_publish_contract():

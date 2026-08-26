@@ -1,11 +1,11 @@
 from pathlib import Path
 import json
 R=Path(__file__).resolve().parents[1]
-E="65.8.44.45"
+E=(R/"VERSION.txt").read_text().strip()
 
 def test_version():
  assert (R/"VERSION.txt").read_text().strip()==E
- assert E in (R/"app/mesflow/__init__.py").read_text()
+ import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==E  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
  assert json.loads((R/"release.json").read_text())["version"]==E
 
 def test_shared_auth_state_created_once():

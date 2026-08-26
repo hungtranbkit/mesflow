@@ -18,7 +18,7 @@ def test_material_flow_trace_contract():
 def test_ledger_mutation_guards():
     repo=text('app/mesflow/db/repositories/master_data.py')
     assert 'Không thể đổi OP nguồn' in repo
-    assert 'Không thể giảm sản lượng xuống dưới' in repo
+    assert 'Không thể giảm sản lượng đạt xuống dưới' in repo  # wording later specified WHICH quantity (đạt/good)
     assert 'Không thể xóa Operation vì đã phát sinh Ledger' in repo
     excel=text('app/mesflow/web/excel_io.py')
     assert 'Không thể Replace cấu trúc Operation' in excel

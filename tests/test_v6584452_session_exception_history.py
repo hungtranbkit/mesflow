@@ -1,14 +1,20 @@
+# Codex audit E2E finding (Blocker 9/10): see test_v6584451_receive_exception_ui.py's
+# module docstring -- pages/session-exceptions.js (read by
+# test_ui_has_three_user_workflow_states_and_history_filters below) is
+# confirmed dead code, permanently shadowed by pages/exception-center.js.
+# Its own dead <script> tag has been removed from app.html. The assertion
+# below still accurately describes that file's own source text.
 from pathlib import Path
 import json
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "65.8.44.56"
+EXPECTED_VERSION=(ROOT/"VERSION.txt").read_text().strip()
 
 
 def test_version_declarations_are_synchronized():
     assert (ROOT / "VERSION.txt").read_text().strip() == EXPECTED_VERSION
-    assert EXPECTED_VERSION in (ROOT / "app/mesflow/__init__.py").read_text()
+    import mesflow as _mesflow_runtime; assert _mesflow_runtime.__version__==EXPECTED_VERSION  # __init__.py now reads VERSION.txt at import time, not a hardcoded literal
     assert json.loads((ROOT / "release.json").read_text())["version"] == EXPECTED_VERSION
     assert f"mesflow-app:{EXPECTED_VERSION}" in (ROOT / "compose.yml").read_text()
 
@@ -33,7 +39,12 @@ def test_corrected_in_progress_occurrence_remains_visible():
 def test_ui_has_three_user_workflow_states_and_history_filters():
     source = (ROOT / "app/mesflow/web/static/pages/session-exceptions.js").read_text()
     assert 'data-se-view="NEW"' in source
-    assert 'data-se-view="IN_PROGRESS"' in source
+    # Third tab's filter value was later renamed from the raw status
+    # IN_PROGRESS to the more UX-appropriate CONFIRMATION ("Cần xác nhận")
+    # -- still exactly 3 tabs/workflow states; the underlying exception
+    # status transitions (saveWorkflow's targetStatus) still use
+    # IN_PROGRESS internally, unaffected by this UI-only rename.
+    assert 'data-se-view="CONFIRMATION"' in source
     assert 'data-se-view="HISTORY"' in source
     for field in ("seHistoryFrom", "seHistoryEmployee", "seHistoryPo", "seHistoryType", "seHistoryResult", "seHistoryHandler"):
         assert field in source

@@ -31,9 +31,17 @@ class FakeTemplateRepository:
 def authenticated_client(app):
     client = app.test_client()
     with client.session_transaction() as session:
-        session['user_id'] = 1
-        session['username'] = 'admin'
-        session['role'] = 'ADMIN'
+        # Fix Plan Phase 1: session['user_id'] alone is no longer sufficient
+        # -- mesflow.core.session_policy.validate_and_touch() now also
+        # requires login_at/last_activity_at/absolute_expires_at (every
+        # authenticated request validates idle/absolute expiry; a session
+        # missing those fields fails closed as SESSION_MISSING_FIELDS, by
+        # design -- see that module's own docstring). Reuse the real
+        # start_session() here instead of hand-rolling the field set again,
+        # so this helper can never drift from what a real login actually
+        # writes.
+        from mesflow.core import session_policy
+        session.update(session_policy.session_fields_for_login(1, 'admin', 'ADMIN'))
     return client
 
 
@@ -67,4 +75,4 @@ def test_template_screen_has_visible_create_form():
     assert 'id="tplName"' in js
     assert "api('/api/templates',{method:'POST'" in js
     assert 'Template mới' in js
-    assert 'Cấu trúc sản phẩm' in js
+    assert 'Cấu trúc sản xuất' in js  # later reworded from "Cấu trúc sản phẩm"

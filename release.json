@@ -1,6 +1,6 @@
 {
   "name": "MESFlow",
-  "version": "71.0.0.67",
+  "version": "71.0.0.70",
   "phase": "web-agent-production",
   "database": "postgresql-only",
   "deployment_target": "/opt/mesflow",

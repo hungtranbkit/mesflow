@@ -7,10 +7,11 @@ from psycopg.types.json import Jsonb
 from typing import Any
 from mesflow.db.connection import transaction,fetch_all,fetch_one
 from .base import NotFoundError,ConflictError,RepositoryError
-from .production_state import lock_idempotency_key,lock_startable_operation,reconcile_operation_and_po
+from .production_state import lock_idempotency_key,lock_startable_operation,reconcile_operation_and_po,lock_production_order_for_operation_first
 from .scheduling import dispatch_state_from_db
 from mesflow.domain.audit import record_audit
 from mesflow.domain.trace import record_event,record_quantities
+from mesflow.core.time_policy import trusted_event_time
 
 
 def _json_safe(value: Any):
@@ -182,6 +183,13 @@ class KioskRepository:
         device_name=str(data.get('device_name') or 'Web Kiosk Demo').strip()[:120]
         with transaction() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT status FROM kiosk_identities WHERE device_uuid=%s FOR UPDATE",(device_uuid,))
+                existing=cur.fetchone()
+                if existing and str(existing.get('status') or '').upper()!='ACTIVE':
+                    from mesflow.domain.errors import PermissionDeniedError
+                    raise PermissionDeniedError(
+                        f"Kiosk '{device_uuid}' đang ở trạng thái {existing.get('status')} -- chỉ quản trị viên mới có thể kích hoạt lại."
+                    )
                 cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,firmware_version,last_ip,last_seen_at,status,updated_at)
                     VALUES(%s,%s,%s,%s,CURRENT_TIMESTAMP,'ACTIVE',CURRENT_TIMESTAMP)
                     ON CONFLICT(device_uuid) DO UPDATE SET device_name=EXCLUDED.device_name,
@@ -294,15 +302,36 @@ class WorkSessionRepository:
     def start(self,data,audit_actor_username='',audit_actor_user_id=None,audit_correlation_id=''):
         request_id=str(data.get('request_id','')).strip()
         if not request_id: raise ValueError('request_id required')
+        # Reliability Validation Round 2, FIX 2: opt-in stage timing
+        # (MESFLOW_TIMING_DEBUG=1) to profile the write-path concurrency
+        # ceiling Gate 13 found -- see core/timing_debug.py's own docstring.
+        # No-op, near-zero overhead when disabled (the default).
+        from mesflow.core.timing_debug import StageTimer
+        timer=StageTimer('session_start')
         with transaction() as conn:
-            with conn.cursor() as cur: lock_idempotency_key(cur,request_id)
-            replay=self._replay(conn,request_id,'START')
-            if replay is not None: return {**replay,'idempotent_replay':True}
+            with timer.stage('idempotency_lock_and_replay'):
+                with conn.cursor() as cur: lock_idempotency_key(cur,request_id)
+                replay=self._replay(conn,request_id,'START')
+            if replay is not None:
+                timer.emit(request_id=request_id,idempotent_replay=True)
+                return {**replay,'idempotent_replay':True}
             employee_id=int(data['employee_id']); operation_id=int(data['operation_id'])
             with conn.cursor() as cur:
-                cur.execute('SELECT id,active FROM employees WHERE id=%s FOR SHARE',(employee_id,)); emp=cur.fetchone()
-                if not emp or not emp['active']: raise RepositoryError('employee inactive or missing')
-                operation=lock_startable_operation(cur,operation_id)
+                with timer.stage('lock_po_first'):
+                    # MUST be the very first row lock this transaction takes --
+                    # see lock_production_order_for_operation_first()'s own
+                    # docstring for the confirmed-live deadlock this prevents.
+                    lock_production_order_for_operation_first(cur,operation_id)
+                with timer.stage('employee_check'):
+                    cur.execute('SELECT id,active FROM employees WHERE id=%s FOR SHARE',(employee_id,)); emp=cur.fetchone()
+                    if not emp or not emp['active']: raise RepositoryError('employee inactive or missing')
+                with timer.stage('lock_operation_and_po'):
+                    # This is the PO-row-serialization hot spot: reconcile_operation_and_po()
+                    # (called from lock_startable_operation -> reconcile_operation ->
+                    # reconcile_production_order) takes FOR UPDATE on the SHARED parent
+                    # production_orders row -- every concurrent start()/finish() for ANY
+                    # operation under the same PO serializes here, one at a time.
+                    operation=lock_startable_operation(cur,operation_id)
                 if not operation: raise NotFoundError('operation not found')
                 if str(operation.get('po_status') or '').upper()!='IN_PROGRESS':
                     raise ConflictError(f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng")
@@ -333,60 +362,124 @@ class WorkSessionRepository:
                 if predecessor_id and predecessor_id!=input_source_id:
                     cur.execute('SELECT status,code FROM operations WHERE id=%s',(predecessor_id,)); pred=cur.fetchone()
                     if not pred:raise ConflictError('Operation dependency không tồn tại')
-                readiness=dispatch_state_from_db(cur,operation_id)
-                if not readiness.get('actionable'):
-                    reason=readiness.get('readiness_reason') or 'NOT_READY'
-                    raise ConflictError(f"Operation chưa sẵn sàng để Start: {reason}; WIP={readiness.get('wip_qty',0)}")
+                with timer.stage('readiness_check'):
+                    readiness=dispatch_state_from_db(cur,operation_id)
+                    if not readiness.get('actionable'):
+                        reason=readiness.get('readiness_reason') or 'NOT_READY'
+                        raise ConflictError(f"Operation chưa sẵn sàng để Start: {reason}; WIP={readiness.get('wip_qty',0)}")
                 cur.execute("SELECT CURRENT_TIMESTAMP now_at")
                 now_at=cur.fetchone()['now_at']
-                _raise_overlap(_find_employee_session_overlap(cur,employee_id,now_at,None))
-                try:
-                    cur.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,start_request_id)
-                    VALUES(%s,%s,%s,%s,%s) RETURNING *""",(employee_id,operation_id,data.get('station_id'),str(data.get('device_uuid','')),request_id))
-                except Exception as exc:
-                    if getattr(exc,'sqlstate',None)=='23505': raise ConflictError('employee already has an open session') from exc
-                    raise
-                row=cur.fetchone()
-                reconcile_operation_and_po(cur,operation_id)
+                # `occurred_at`, when present, is a Python
+                # datetime already produced by a trusted source (currently
+                # only OfflineSyncRepository, via time_policy.trusted_event_time()
+                # against the device's own time_quality=='synced' clock) --
+                # never a raw HTTP body field (no route passes user input
+                # through this key; see web/kiosk.py's/execution.py's explicit
+                # payload whitelists). Re-validated here anyway, defensively,
+                # so a future caller can't accidentally create an impossible
+                # started_at by passing something unvetted.
+                started_at=trusted_event_time(data.get('occurred_at'),'synced',server_now=now_at) if data.get('occurred_at') is not None else None
+                started_at_trusted=started_at is not None
+                if started_at is None: started_at=now_at
+                with timer.stage('employee_overlap_query'):
+                    _raise_overlap(_find_employee_session_overlap(cur,employee_id,started_at,None))
+                with timer.stage('session_insert'):
+                    try:
+                        cur.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,start_request_id,started_at,started_at_trusted)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING *""",(employee_id,operation_id,data.get('station_id'),str(data.get('device_uuid','')),request_id,started_at,started_at_trusted))
+                    except Exception as exc:
+                        if getattr(exc,'sqlstate',None)=='23505': raise ConflictError('employee already has an open session') from exc
+                        raise
+                    row=cur.fetchone()
+                with timer.stage('reconcile_operation_and_po'):
+                    reconcile_operation_and_po(cur,operation_id)
                 response=_json_safe({'ok':True,'session':dict(row),'idempotent_replay':False})
-                cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'START',Jsonb(response)))
+                with timer.stage('idempotency_insert'):
+                    cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'START',Jsonb(response)))
                 # V66: transactionally-consistent audit row -- same cursor/commit as the
                 # INSERT above, so a session can never exist without a matching audit
                 # entry (or vice versa). audit_actor_* defaults keep kiosk/device callers
                 # (which have no web user session) working unchanged.
-                record_audit(cur,action='SESSION_STARTED',entity_type='work_session',entity_id=str(row['id']),
-                    actor_username=audit_actor_username,actor_user_id=audit_actor_user_id,employee_id=employee_id,
-                    correlation_id=audit_correlation_id or request_id,after=response['session'],source='mesflow.web')
-                record_event(cur,event_type='SESSION_STARTED',category='SESSION',title='Session bắt đầu',operation_id=operation_id,
-                    session_id=row['id'],actor_id=audit_actor_user_id,actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,
-                    metadata={'employee_id':employee_id,'request_id':request_id})
+                with timer.stage('audit_and_event'):
+                    record_audit(cur,action='SESSION_STARTED',entity_type='work_session',entity_id=str(row['id']),
+                        actor_username=audit_actor_username,actor_user_id=audit_actor_user_id,employee_id=employee_id,
+                        correlation_id=audit_correlation_id or request_id,after=response['session'],source='mesflow.web')
+                    record_event(cur,event_type='SESSION_STARTED',category='SESSION',title='Session bắt đầu',operation_id=operation_id,
+                        session_id=row['id'],actor_id=audit_actor_user_id,actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,
+                        metadata={'employee_id':employee_id,'request_id':request_id})
+                timer.emit(request_id=request_id,session_id=row['id'],operation_id=operation_id,idempotent_replay=False)
                 return response
-    def finish(self,session_id,data,audit_actor_username='',audit_actor_user_id=None,audit_correlation_id=''):
+    def _finish_within(self,conn,session_id,data,audit_actor_username='',audit_actor_user_id=None,audit_correlation_id=''):
+        """The real body of finish(), operating on an ALREADY-OPEN
+        connection/transaction -- factored out so
+        finish_many() can drive several sessions' worth of this under ONE
+        shared transaction (true atomicity: all-or-nothing across the whole
+        batch) instead of each finish() call committing independently,
+        which is exactly the "OP1 committed, OP2 failed, API tổng thể trả
+        error" partial-write bug this avoids. finish() below is
+        now a one-line wrapper: open a transaction, call this once, done --
+        every existing single-item caller is unaffected."""
         request_id=str(data.get('request_id','')).strip()
         if not request_id: raise ValueError('request_id required')
         good=max(int(data.get('good_qty',0) or 0),0); defect=max(int(data.get('defect_qty',0) or 0),0); rework=max(int(data.get('rework_qty',0) or 0),0)
         if rework>defect: raise ValueError('rework_qty cannot exceed defect_qty')
-        with transaction() as conn:
+        # Reliability Validation Round 2, FIX 2: same opt-in timing as
+        # start() above -- see core/timing_debug.py. For finish_many()'s
+        # batch case, this timer's "total_ms" only covers ITS OWN item
+        # (the shared connection/transaction was already open before this
+        # call), so it excludes connection-acquisition time for every item
+        # after the first in a batch -- noted rather than papered over.
+        from mesflow.core.timing_debug import StageTimer
+        timer=StageTimer('session_finish')
+        with timer.stage('idempotency_lock_and_replay'):
             with conn.cursor() as cur: lock_idempotency_key(cur,request_id)
             replay=self._replay(conn,request_id,'FINISH')
-            if replay is not None: return {**replay,'idempotent_replay':True}
-            with conn.cursor() as cur:
+        if replay is not None:
+            timer.emit(request_id=request_id,session_id=session_id,idempotent_replay=True)
+            return {**replay,'idempotent_replay':True}
+        with conn.cursor() as cur:
+            with timer.stage('lock_po_first'):
+                # MUST be the very first row lock this transaction takes --
+                # see lock_production_order_for_operation_first()'s own
+                # docstring for the confirmed-live deadlock this prevents.
+                # A plain, unlocked lookup first (session_id doesn't tell us
+                # operation_id yet) -- if the session doesn't exist this
+                # returns None and the FOR UPDATE lookup right below raises
+                # the real NotFoundError, same as before.
+                cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
+                if pre: lock_production_order_for_operation_first(cur,pre['operation_id'])
+            with timer.stage('lock_session_and_input_consumption'):
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
                 if not row: raise NotFoundError('session not found')
                 if row['status']!='OPEN': raise ConflictError('session already closed')
                 _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect)
-                cur.execute("SELECT CURRENT_TIMESTAMP now_at")
-                finish_at=cur.fetchone()['now_at']
+            cur.execute("SELECT CURRENT_TIMESTAMP now_at")
+            server_now=cur.fetchone()['now_at']
+            # Same trusted-timestamp handling as start()
+            # above. A trusted ended_at that would land at/before started_at
+            # (e.g. a device's own start/finish events raced or its clock
+            # jumped between the two) is NOT used -- falls back to server
+            # time rather than writing an impossible-duration session.
+            finish_at=trusted_event_time(data.get('occurred_at'),'synced',server_now=server_now) if data.get('occurred_at') is not None else None
+            ended_at_trusted=finish_at is not None and finish_at>row['started_at']
+            if not ended_at_trusted: finish_at=server_now
+            with timer.stage('employee_overlap_query'):
                 _raise_overlap(_find_employee_session_overlap(cur,row['employee_id'],row['started_at'],finish_at,session_id))
+            with timer.stage('record_quantities_and_session_update'):
                 movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=audit_actor_user_id,
                     actor_name=audit_actor_username,source='SESSION_FINISH',reason=str(data.get('note','')),correlation_id=audit_correlation_id or request_id)
-                cur.execute("UPDATE work_sessions SET status='CLOSED',ended_at=%s,good_qty=%s,defect_qty=%s,rework_qty=%s,note=%s,finish_request_id=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *",(finish_at,good,defect,rework,str(data.get('note','')),request_id,session_id)); closed=cur.fetchone()
+                cur.execute("UPDATE work_sessions SET status='CLOSED',ended_at=%s,ended_at_trusted=%s,good_qty=%s,defect_qty=%s,rework_qty=%s,note=%s,finish_request_id=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *",(finish_at,ended_at_trusted,good,defect,rework,str(data.get('note','')),request_id,session_id)); closed=cur.fetchone()
+            with timer.stage('reconcile_operation_and_po'):
+                # Same PO-row-serialization hot spot as start() -- see its
+                # comment above lock_startable_operation().
                 reconcile_operation_and_po(cur,row['operation_id'])
-                response=_json_safe({'ok':True,'session':dict(closed),'idempotent_replay':False})
+            response=_json_safe({'ok':True,'session':dict(closed),'idempotent_replay':False})
+            with timer.stage('idempotency_insert'):
                 cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'FINISH',Jsonb(response)))
-                # V66: transactionally-consistent audit row, same cursor/commit as the
-                # UPDATE above -- see start() for the same rationale. before=the OPEN
-                # session snapshot captured under FOR UPDATE at the top of this method.
+            # V66: transactionally-consistent audit row, same cursor/commit as the
+            # UPDATE above -- see start() for the same rationale. before=the OPEN
+            # session snapshot captured under FOR UPDATE at the top of this method.
+            with timer.stage('audit_and_events'):
                 record_audit(cur,action='SESSION_FINISHED',entity_type='work_session',entity_id=str(session_id),
                     actor_username=audit_actor_username,actor_user_id=audit_actor_user_id,employee_id=row['employee_id'],
                     correlation_id=audit_correlation_id or request_id,before=_json_safe(dict(row)),after=response['session'],source='mesflow.web')
@@ -397,11 +490,102 @@ class WorkSessionRepository:
                 record_event(cur,event_type='SESSION_FINISHED',category='SESSION',title='Session kết thúc',operation_id=row['operation_id'],session_id=session_id,
                     actor_id=audit_actor_user_id,actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,occurred_at=finish_at,
                     metadata={'good':good,'defect':defect,'repairable':rework,'request_id':request_id})
-                return response
+            timer.emit(request_id=request_id,session_id=session_id,operation_id=row['operation_id'],idempotent_replay=False)
+            return response
+
+    def finish(self,session_id,data,audit_actor_username='',audit_actor_user_id=None,audit_correlation_id=''):
+        with transaction() as conn:
+            return self._finish_within(conn,session_id,data,audit_actor_username,audit_actor_user_id,audit_correlation_id)
+
+    def finish_many(self,items,audit_actor_username='',audit_actor_user_id=None,audit_correlation_id=''):
+        """Atomic batch finish for /session/group/finish --
+        ALL items succeed or the WHOLE transaction rolls back (a single
+        `with transaction()` shared across every item, via _finish_within()),
+        never a partial commit with some sessions closed and others not.
+        `items`: list of (session_id, data) tuples, data shaped like
+        finish()'s own `data` param (request_id/good_qty/defect_qty/
+        rework_qty/note per item). Returns the list of per-item responses in
+        the SAME order as `items` -- raises (and rolls back everything) on
+        the first item that fails: a true atomic batch, not a
+        partial-result/recovery-semantics design."""
+        with transaction() as conn:
+            return [self._finish_within(conn,session_id,data,audit_actor_username,audit_actor_user_id,audit_correlation_id)
+                    for session_id,data in items]
     def list(self,limit=200):
         return fetch_all("""SELECT s.*,e.employee_no,e.name employee_name,o.code operation_code,o.name operation_name
         FROM work_sessions s JOIN employees e ON e.id=s.employee_id JOIN operations o ON o.id=s.operation_id
         ORDER BY s.id DESC LIMIT %s""",(limit,))
+
+    def auto_close_for_shift_end(self,session_id:int,shift_end_at,correlation_id:str=''):
+        """A DEDICATED auto-close
+        lifecycle -- deliberately NOT a thin wrapper around
+        `finish(good_qty=0,...)`, since finish() conflates quantity entry/input-consumption
+        validation/reconciliation/audit/domain-events for a REAL operator
+        action with what an unattended system boundary-crossing needs).
+
+        Keeps whatever good/defect/rework the session already had (never
+        invents a number -- `record_quantities()` records zero movements
+        when nothing changed, so this never fabricates a quantity_movements
+        row either), reconciles Operation/PO from the resulting CLOSED
+        fact, and marks close_reason/closed_by_system/shift_boundary_used_at
+        (migration 0040) so an auto-closed session is queryable/auditable
+        as distinct from a real operator finish -- SESSION_AUTO_CLOSED is a
+        separate domain event type from SESSION_FINISHED, never disguised
+        as a manual finish.
+
+        Idempotent + concurrency-safe (Phase 3): an advisory xact lock
+        keyed per session_id serializes two reconciliation runs racing on
+        the SAME session (the same pattern lock_idempotency_key() uses for
+        START/FINISH's request_id); if the session is no longer OPEN by the
+        time the lock is acquired (already manually finished, or already
+        auto-closed by a run that got there first), this is a no-op
+        returning None -- callers (ShiftSessionReconciliationService) must
+        treat None as "nothing to do", never as an error.
+        """
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,1))',(f'auto-close-session-{session_id}',))
+                # Same PO-lock-first requirement as start()/finish() -- see
+                # lock_production_order_for_operation_first()'s docstring.
+                # The reconciliation service can run several sessions
+                # concurrently (Phase 3 concurrency-safety), so this is not
+                # theoretical here either.
+                cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
+                if pre: lock_production_order_for_operation_first(cur,pre['operation_id'])
+                cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,))
+                row=cur.fetchone()
+                if not row:
+                    return None
+                if row['status']!='OPEN':
+                    return None
+                if shift_end_at<=row['started_at']:
+                    raise ValueError(f'shift_end_at {shift_end_at} is not after session #{session_id} started_at {row["started_at"]}')
+                good=int(row.get('good_qty') or 0);defect=int(row.get('defect_qty') or 0);rework=int(row.get('rework_qty') or 0)
+                # Same overlap guard finish() applies -- auto-close must not
+                # silently create a time-range conflict finish() itself
+                # would have refused.
+                _raise_overlap(_find_employee_session_overlap(cur,row['employee_id'],row['started_at'],shift_end_at,session_id))
+                # Mirrors finish()'s own input-consumption upsert (kept
+                # consistent even though quantities aren't changing here) so
+                # an auto-closed session's ledger row is never silently
+                # stale/missing relative to a manually-finished one.
+                _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='AUTO_SHIFT_CLOSE')
+                record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=None,actor_name='SYSTEM',
+                    source='AUTO_SHIFT_CLOSE',reason='Tự động đóng ca vào cuối giờ làm việc',correlation_id=correlation_id)
+                cur.execute("""UPDATE work_sessions SET status='CLOSED',ended_at=%s,good_qty=%s,defect_qty=%s,rework_qty=%s,
+                    close_reason='AUTO_SHIFT_END',closed_by_system=TRUE,shift_boundary_used_at=%s,updated_at=CURRENT_TIMESTAMP
+                    WHERE id=%s RETURNING *""",(shift_end_at,good,defect,rework,shift_end_at,session_id))
+                closed=cur.fetchone()
+                reconcile_operation_and_po(cur,row['operation_id'])
+                response=_json_safe({'ok':True,'session':dict(closed),'auto_closed':True})
+                record_audit(cur,action='SESSION_AUTO_CLOSED',entity_type='work_session',entity_id=str(session_id),
+                    actor_username='SYSTEM',actor_user_id=None,employee_id=row['employee_id'],correlation_id=correlation_id,
+                    before=_json_safe(dict(row)),after=response['session'],source='shift-reconciliation',
+                    metadata={'shift_end_at':shift_end_at.isoformat() if hasattr(shift_end_at,'isoformat') else str(shift_end_at)})
+                record_event(cur,event_type='SESSION_AUTO_CLOSED',category='SESSION',title='Session tự động đóng ca',
+                    operation_id=row['operation_id'],session_id=session_id,actor_name='SYSTEM',correlation_id=correlation_id,
+                    occurred_at=shift_end_at,metadata={'close_reason':'AUTO_SHIFT_END','good':good,'defect':defect,'rework':rework})
+                return response
 
 class QCRepository:
     def start(self,data,user_id):
@@ -430,6 +614,11 @@ class SupervisorRepository:
                 replay=WorkSessionRepository()._replay(conn,request_id,'SESSION_ADJUST')
                 if replay is not None:return replay
             with conn.cursor() as cur:
+                # Same PO-lock-first requirement as WorkSessionRepository's
+                # start()/finish() -- see
+                # lock_production_order_for_operation_first()'s docstring.
+                cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
+                if pre: lock_production_order_for_operation_first(cur,pre['operation_id'])
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
                 if not row: raise NotFoundError('session not found')
                 if row['status']=='CLOSED':

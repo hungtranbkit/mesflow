@@ -8,7 +8,14 @@ async function login(page){
   if(state&&fs.existsSync(state)){
     const target=new URL(process.env.MESFLOW_BASE_URL||'http://127.0.0.1:8080');
     if(['127.0.0.1','localhost'].includes(target.hostname)){const auth=JSON.parse(fs.readFileSync(state,'utf8')),cookie=(auth.cookies||[]).find(x=>x.name==='session');if(cookie)await page.context().addCookies([{...cookie,domain:target.hostname}])}
-  }else{const r=await page.request.post('/api/auth/login',{data:{username:process.env.MESFLOW_TUTORIAL_USERNAME||'admin',password:process.env.MESFLOW_TUTORIAL_PASSWORD||''}});expect(r.ok(),'Đăng nhập coverage runner').toBeTruthy()}
+  }else{
+    const password=process.env.MESFLOW_TUTORIAL_PASSWORD||'';
+    // Same as tutorial-video.spec.js/tutorial-detailed.spec.js: this runner
+    // needs a real credential (auth state or password) that a plain CI
+    // Playwright run never provides -- skip cleanly instead of hard-failing.
+    test.skip(!password,'Thiếu MESFLOW_TUTORIAL_PASSWORD hoặc MESFLOW_TUTORIAL_AUTH_STATE (chạy qua scripts/make-user-guide-video.sh)');
+    const r=await page.request.post('/api/auth/login',{data:{username:process.env.MESFLOW_TUTORIAL_USERNAME||'admin',password}});expect(r.ok(),'Đăng nhập coverage runner').toBeTruthy()
+  }
   await page.goto('/app');await expect(page.locator('#appLayout')).toBeVisible();
 }
 async function openFeature(page,feature){

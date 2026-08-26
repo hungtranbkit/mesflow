@@ -50,7 +50,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from mesflow.db.connection import transaction, fetch_one, fetch_all
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
-from mesflow.db.repositories.execution import WorkSessionRepository, _json_safe
+from mesflow.db.repositories.execution import WorkSessionRepository, KioskRepository, _json_safe
 from mesflow.db.repositories.analytics import KioskEventRepository
 from mesflow.web.execution import _legacy_kiosk_identity, KioskRepositoryLookup
 
@@ -515,11 +515,39 @@ def bootstrap():
 
 @bp.post('/heartbeat')
 def heartbeat():
+    # REAL BUG (found live, 2026-08-26): this endpoint only ever resolved/
+    # validated the identity via _legacy_kiosk_identity() (a pure SELECT +
+    # ACTIVE/PENDING/DISABLED check -- see its own docstring) and returned
+    # accepted=True, but NEVER wrote to kiosk_status. system_health_service
+    # .KioskProvider (and the Trạm kiosk / kiosk-management dashboard it
+    # backs) computes ONLINE/DEGRADED/OFFLINE entirely from
+    # kiosk_status.last_heartbeat_at. Result: a genuinely healthy, actively
+    # heartbeating v2 kiosk could never show as ONLINE -- the server was
+    # accepting every heartbeat (200 accepted:true) while silently never
+    # recording that it happened, for the entire lifetime of the v2
+    # protocol. /station/heartbeat (the legacy v1 endpoint) already does
+    # this correctly via KioskRepository().heartbeat(); v2 just never
+    # called it. Fixed by doing the same here.
     body = request.get_json(silent=True) or {}
     device_id = str(body.get('device_id') or '').strip()
     if device_id:
         try:
             _legacy_kiosk_identity({'device_uuid': device_id})
+            KioskRepository().heartbeat(device_id, {
+                'ui_state': body.get('ui_state') or 'UNKNOWN',
+                'health_state': 'ERROR' if body.get('last_error') else 'OK',
+                'queue_size': body.get('queue_size') or body.get('pending_events') or 0,
+                'wifi_rssi': body.get('wifi_rssi'),
+                'free_heap': body.get('free_heap'),
+                'last_error': body.get('last_error') or '',
+                'firmware_version': body.get('firmware_version') or body.get('app_version') or '',
+                'firmware_build': body.get('firmware_build') or '',
+                'hardware_model': body.get('hardware_model') or '',
+                'ota_capable': bool(body.get('ota_capable', False)),
+                'boot_id': body.get('boot_id') or '',
+                'uptime_seconds': body.get('uptime_seconds') or 0,
+                'boot_reason': body.get('boot_reason') or '',
+            })
         except Exception:
             pass
     return jsonify(accepted=True)

@@ -3,4 +3,17 @@ WORKDIR /workspace
 COPY package.json playwright.config.js ./
 RUN npm install --no-audit --no-fund
 COPY tests/e2e ./tests/e2e
+# Some specs read a local frontend asset directly (e.g. mobile-navigation.spec.js's
+# page.addStyleTag({path: '.../app/mesflow/web/static/ui.css'})) rather than only
+# fetching it over HTTP from the app server -- without this, that read is a bare
+# ENOENT inside this container (confirmed live: this image never copied app/ at
+# all), unrelated to whatever the test is actually trying to verify.
+COPY app/mesflow/web/static ./app/mesflow/web/static
+# Same class of bug as above (2026-08-26): tutorial-coverage.spec.js and
+# tutorial-detailed.spec.js read tutorial/*.json directly off disk
+# (coverage-matrix.json, exception-scenarios.json, tutorial.config.json,
+# terminology.json) rather than over HTTP -- this image never copied
+# tutorial/ either, so both specs failed at require-time with a bare ENOENT
+# before a single test in them could even run.
+COPY tutorial ./tutorial
 CMD ["npm","run","test:e2e"]

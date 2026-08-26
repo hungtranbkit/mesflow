@@ -43,7 +43,19 @@
   <script src="/static/pages/session-detail.js?v={{ version }}"></script>
   <script src="/static/app.js?v={{ version }}"></script>
   <script src="/static/pages/overview.js?v={{ version }}"></script>
-  <script src="/static/pages/session-exceptions.js?v={{ version }}"></script>
+  <!-- pages/session-exceptions.js is NOT loaded here on purpose: it defines
+       its own renderSessionExceptions(), but exception-center.js (below)
+       always loads after it and unconditionally overwrites that same
+       global (`renderSessionExceptions=ExceptionCenter.render`), so the
+       session-exceptions.js implementation never actually ran in the
+       browser -- confirmed live via Playwright (the rendered Exception
+       Center page matches exception-center.js's 5-tab UI, not
+       session-exceptions.js's 3-tab UI). Loading a script that can never
+       take effect is dead weight, not a harmless fallback; removed. If
+       session-exceptions.js's richer per-session workflow/classification
+       UI is meant to replace exception-center.js, that is a real product
+       decision (backend parity with /api/exceptions' reconciliation needs
+       verifying first) -- not something to flip silently here. -->
   <script src="/static/pages/exception-center.js?v={{ version }}"></script>
   <script src="/static/pages/production-trace.js?v={{ version }}"></script>
   <script src="/static/pages/qr-print.js?v={{ version }}"></script>

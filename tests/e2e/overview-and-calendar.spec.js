@@ -8,20 +8,31 @@ async function login(page) {
 }
 
 test('tổng quan sản xuất dễ quét và không tràn ở viewport chính', async ({ page }) => {
+  // Rewritten (2026-08-26): this page was rebuilt on the MFUI Golden
+  // Reference primitives (filterBar/pageShell) some time ago -- the old
+  // bespoke "Việc cần xử lý trong xưởng" <h2> and .overview-filters wrapper
+  // are gone from the source entirely (confirmed via grep across
+  // app/mesflow/web/), not merely renamed; #pageTitle alone now carries the
+  // page's title. The real filter bar is MFUI.filterBar's
+  // .ui-filter-controls, with 5 fields (Tìm nhanh/Production
+  // Order/Repair/Tình trạng/Sắp xếp), not 4.
   await login(page);
   await expect(page.locator('#pageTitle')).toHaveText('Tổng quan sản xuất');
-  await expect(page.getByRole('heading', { name: 'Việc cần xử lý trong xưởng' })).toBeVisible();
-  await expect(page.locator('.overview-filters label')).toHaveCount(4);
+  await expect(page.locator('.ui-filter-controls label')).toHaveCount(5);
+  await expect(page.locator('.overview-po-list, .overview-empty, .overview-loading').first()).toBeVisible();
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', await page.locator('body').evaluate(el => el.clientWidth));
 });
 
 test('dashboard theo ngày mở ổn định và dùng dữ liệu ca từ API', async ({ page }) => {
+  // Rewritten (2026-08-26): "Báo cáo ca sản xuất" is not in the source
+  // anywhere (grep-confirmed) -- #pageTitle ("Dashboard theo ngày") is the
+  // only page-level heading now; #dailyKpis/#dailyShift already cover the
+  // real content this test needs.
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await login(page);
   await page.evaluate(() => openPage('dashboard'));
   await expect(page.locator('#pageTitle')).toHaveText('Dashboard theo ngày');
-  await expect(page.getByRole('heading', { name: 'Báo cáo ca sản xuất' })).toBeVisible();
   await expect(page.locator('#dailyShift option')).not.toHaveCount(0);
   await expect(page.locator('#dailyKpis .daily-kpi')).toHaveCount(4);
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', await page.locator('body').evaluate(el => el.clientWidth));
@@ -29,12 +40,15 @@ test('dashboard theo ngày mở ổn định và dùng dữ liệu ca từ API',
 });
 
 test('danh sách Production Order có luồng tạo và lọc rõ ràng', async ({ page }) => {
+  // Rewritten (2026-08-26): "Quản lý lệnh sản xuất" is not in the source
+  // anywhere (grep-confirmed) -- #pageTitle ("Production Order") plus
+  // #poSummary/#poStatus/the "+ Tạo PO từ Template" button are the real
+  // current page-identity markers.
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await login(page);
   await page.evaluate(() => openPage('production-orders'));
   await expect(page.locator('#pageTitle')).toHaveText('Production Order');
-  await expect(page.getByRole('heading', { name: 'Quản lý lệnh sản xuất' })).toBeVisible();
   await expect(page.getByRole('button', { name: '+ Tạo PO từ Template' })).toBeVisible();
   await expect(page.locator('#poStatus')).toBeVisible();
   await expect(page.locator('#poStatus option[value="DRAFT"]')).toHaveText('Bản nháp');

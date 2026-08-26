@@ -105,20 +105,65 @@ docker push "$IMAGE_TAG"
 DIGEST_REF="$(docker image inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")"
 DIGEST="${DIGEST_REF#*@}"
 
+# Reliability Validation Round 2, FIX 1: a release manifest needs enough of
+# its own metadata to say what it supersedes, so deploy.sh's rollback
+# decision (Gate 12) never has to guess or hardcode a revision pair. The
+# PREVIOUS release is found from the manifests already on disk (the most
+# recently built one that isn't this VERSION), not from a hardcoded
+# version number -- this generalizes to any past/future version pair.
 mkdir -p "$RELEASE_DIR"
 MANIFEST="$RELEASE_DIR/mesflow-${VERSION}.json"
+PREVIOUS_MANIFEST_JSON="$(python3 -c "
+import glob, json, sys
+candidates = []
+for path in glob.glob('${RELEASE_DIR}/mesflow-*.json'):
+    try:
+        data = json.load(open(path))
+    except Exception:
+        continue
+    # Only canonical version-named manifests are trustworthy 'previous
+    # release' candidates -- ad-hoc/experimental manifest filenames (e.g.
+    # mesflow-71.0.0.66-deploy-arch-a-rollback-test.json) are excluded.
+    if data.get('version') == '${VERSION}':
+        continue
+    built_at = data.get('built_at', '')
+    candidates.append((built_at, data))
+candidates.sort(key=lambda x: x[0])
+print(json.dumps(candidates[-1][1]) if candidates else '{}')
+")"
+PREVIOUS_VERSION="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('version') or '')" "$PREVIOUS_MANIFEST_JSON")"
+PREVIOUS_MIGRATION_REVISION="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('migration_revision') or json.loads(sys.argv[1]).get('migration_head') or '')" "$PREVIOUS_MANIFEST_JSON")"
+echo "previous release on record: ${PREVIOUS_VERSION:-<none>} (migration_revision=${PREVIOUS_MIGRATION_REVISION:-<none>})"
+
 cat > "$MANIFEST" <<EOF
 {
+  "app_version": "${VERSION}",
   "version": "${VERSION}",
   "commit": "${COMMIT}",
   "dirty": ${DIRTY},
   "image": "${IMAGE_TAG}",
   "digest": "${DIGEST_REF}",
+  "migration_revision": "${MIGRATION_HEAD}",
   "migration_head": "${MIGRATION_HEAD}",
+  "previous_version": $(python3 -c "import json; print(json.dumps('${PREVIOUS_VERSION}') if '${PREVIOUS_VERSION}' else 'null')"),
+  "previous_migration_revision": $(python3 -c "import json; print(json.dumps('${PREVIOUS_MIGRATION_REVISION}') if '${PREVIOUS_MIGRATION_REVISION}' else 'null')"),
   "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "tests": "smoke-only"
 }
 EOF
+
+# Validate release metadata during packaging (per FIX 1's explicit
+# requirement) -- a manifest missing what the rollback decision needs must
+# never silently ship.
+python3 -c "
+import json, sys
+data = json.load(open('${MANIFEST}'))
+required = ['app_version', 'migration_revision', 'digest', 'image']
+missing = [k for k in required if not data.get(k)]
+if missing:
+    print(f'ABORT: release manifest {sys.argv[1]} is missing required field(s): {missing}', file=sys.stderr)
+    sys.exit(1)
+" "$MANIFEST"
 
 echo
 echo "== Release manifest: $MANIFEST =="

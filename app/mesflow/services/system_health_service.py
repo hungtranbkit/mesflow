@@ -111,17 +111,76 @@ class KioskProvider(Provider):
   counts={x:0 for x in ('ONLINE','DEGRADED','OFFLINE','UNKNOWN')};versions={}
   for x in rows:
    age=x.get('age_seconds');queue=int(x.get('queued_events') or x.get('queue_size') or 0);state='UNKNOWN' if age is None else ('OFFLINE' if age>settings.health_kiosk_offline_seconds else ('DEGRADED' if age>settings.health_kiosk_degraded_seconds or queue or str(x.get('health_state')).upper() in ('ERROR','DEGRADED') else 'ONLINE'));x['normalized_status']=state;counts[state]+=1;v=x.get('firmware_version') or 'unknown';versions[v]=versions.get(v,0)+1
-  return self.r(HealthStatus.DEGRADED if counts['OFFLINE'] or counts['DEGRADED'] else (HealthStatus.HEALTHY if rows else HealthStatus.UNKNOWN),f"{counts['ONLINE']}/{len(rows)} online",details={'total':len(rows),'online':counts['ONLINE'],'offline':counts['OFFLINE'],'counts':counts,'versions':versions,'items':rows})
+  # Codex audit follow-up: both legacy-compatibility escape hatches are
+  # insecure-by-design opt-ins (silent auto-bind of unknown devices; ACTIVE
+  # kiosks rebindable without proving their current token) -- surfaced here
+  # so an admin looking at system health, not just an env var, can see
+  # whether either is live in this environment. Neither being True is the
+  # only production-safe state; DEGRADED (not just a detail flag) if either
+  # compatibility flag is on, so it can't get lost in an otherwise-green card.
+  compat={'allow_legacy_kiosk_autobind':settings.allow_legacy_kiosk_autobind,'allow_legacy_unauthenticated_rebind':settings.allow_legacy_unauthenticated_rebind}
+  status=HealthStatus.DEGRADED if counts['OFFLINE'] or counts['DEGRADED'] or any(compat.values()) else (HealthStatus.HEALTHY if rows else HealthStatus.UNKNOWN)
+  message=f"{counts['ONLINE']}/{len(rows)} online"+(' -- compatibility mode ON' if any(compat.values()) else '')
+  return self.r(status,message,details={'total':len(rows),'online':counts['ONLINE'],'offline':counts['OFFLINE'],'counts':counts,'versions':versions,'items':rows,'compatibility_flags':compat})
 class JobProvider(Provider):
  component='JOBS'
+ # scheduled_job_health truthfulness: the old CASE fell
+ # through to `last_status` whenever next_expected_at was NULL -- exactly
+ # the state a job that has NEVER ONCE run sits in forever (the migration
+ # seed leaves last_status='UNKNOWN', next_expected_at NULL, and nothing
+ # ever called scheduled_job_run() to change either) -- and 'UNKNOWN' was
+ # not counted in `bad` below, so a job seeded-but-never-run showed up as
+ # part of an overall-HEALTHY card. NEVER_RUN is now its own real status,
+ # checked BEFORE the MISSED/last_status fallthrough, and counted as bad.
+ # A RUNNING row whose own last_started_at is already older than its
+ # expected interval+grace is also reclassified MISSED (stuck/crashed
+ # mid-run without scheduled_job_run()'s except-branch ever firing --
+ # e.g. the process itself was killed) rather than showing perpetually
+ # "currently running".
+ _NORMALIZED_STATUS_SQL="""CASE
+     WHEN NOT enabled THEN 'DISABLED'
+     WHEN last_started_at IS NULL THEN 'NEVER_RUN'
+     WHEN last_status='RUNNING' AND last_started_at<CURRENT_TIMESTAMP-(GREATEST(COALESCE(expected_interval_seconds,60),1)+grace_seconds||' seconds')::interval THEN 'MISSED'
+     WHEN last_status='RUNNING' THEN 'RUNNING'
+     WHEN next_expected_at IS NOT NULL AND CURRENT_TIMESTAMP>next_expected_at+(grace_seconds||' seconds')::interval THEN 'MISSED'
+     WHEN last_status='SUCCESS' THEN 'HEALTHY'
+     WHEN last_status='FAILED' THEN 'FAILED'
+     ELSE 'NEVER_RUN'
+   END"""
  def check(self):
-  rows=fetch_all("SELECT *,CASE WHEN NOT enabled THEN 'DISABLED' WHEN next_expected_at IS NOT NULL AND CURRENT_TIMESTAMP>next_expected_at+(grace_seconds||' seconds')::interval THEN 'MISSED' ELSE last_status END normalized_status FROM scheduled_job_health ORDER BY display_name");bad=sum(x['normalized_status'] in ('FAILED','MISSED') for x in rows);return self.r(HealthStatus.DEGRADED if bad else (HealthStatus.HEALTHY if rows else HealthStatus.UNKNOWN),f'{bad} job cần chú ý',details={'items':rows})
+  rows=fetch_all(f"SELECT *,{self._NORMALIZED_STATUS_SQL} normalized_status FROM scheduled_job_health ORDER BY display_name")
+  bad=sum(x['normalized_status'] in ('FAILED','MISSED','NEVER_RUN') for x in rows)
+  return self.r(HealthStatus.DEGRADED if bad else (HealthStatus.HEALTHY if rows else HealthStatus.UNKNOWN),f'{bad} job cần chú ý',details={'items':rows})
+class SessionLifecycleProvider(Provider):
+ component='SESSION_LIFECYCLE'
+ # Observability: the minimal metric set an operator actually needs,
+ # reusing what already exists rather than standing up a new metrics
+ # system -- session_audit_service.audit() for the open/past-shift-end/
+ # oldest-open numbers (already proven read-only by
+ # test_session_audit_phase14.py), scheduled_job_health (already kept
+ # truthful by scheduled_job_run()) for the two reconcile jobs'
+ # last-success timestamps, and one plain COUNT for auto-closes in the
+ # last 24h using the closed_by_system/ended_at columns on work_sessions.
+ def check(self):
+  from mesflow.services.session_audit_service import audit
+  a=audit()
+  open_sessions=len(a['OPEN']);past_shift_end=len(a['PAST_SHIFT_END'])
+  oldest_open_hours=max((x['open_hours'] for x in a['OPEN']),default=0)
+  auto_closed_24h=fetch_one("SELECT COUNT(*) n FROM work_sessions WHERE closed_by_system AND ended_at>=CURRENT_TIMESTAMP-INTERVAL '24 hours'")['n']
+  jobs={x['job_name']:x for x in fetch_all("SELECT job_name,last_success_at FROM scheduled_job_health WHERE job_name IN ('exception_reconciliation','shift_session_reconciliation')")}
+  exc_last_success=jobs.get('exception_reconciliation',{}).get('last_success_at')
+  shift_last_success=jobs.get('shift_session_reconciliation',{}).get('last_success_at')
+  details={'open_sessions':open_sessions,'past_shift_end_sessions':past_shift_end,'auto_closed_sessions_last_24h':auto_closed_24h,'oldest_open_session_age_hours':round(oldest_open_hours,1),'exception_reconcile_last_success':exc_last_success.isoformat() if exc_last_success else None,'shift_reconcile_last_success':shift_last_success.isoformat() if shift_last_success else None}
+  if past_shift_end:status=HealthStatus.DEGRADED;msg=f'{past_shift_end} phiên quá giờ ca chưa đóng'
+  elif open_sessions:status=HealthStatus.HEALTHY;msg=f'{open_sessions} phiên đang mở'
+  else:status=HealthStatus.HEALTHY;msg='Không có phiên đang mở'
+  return self.r(status,msg,details=details)
 SEVERITY_ORDER={'CRITICAL':0,'HIGH':1,'MEDIUM':2,'LOW':3}
-LABELS={'MESFLOW':'MESFlow','POSTGRESQL':'Database','SERVER':'Server','DOCKER':'Docker','DEPLOY_AGENT':'Deploy Agent','QA_CENTER':'QA Center','KIOSK_FLEET':'Kiosk Fleet'}
+LABELS={'MESFLOW':'MESFlow','POSTGRESQL':'Database','SERVER':'Server','DOCKER':'Docker','DEPLOY_AGENT':'Deploy Agent','QA_CENTER':'QA Center','KIOSK_FLEET':'Kiosk Fleet','SESSION_LIFECYCLE':'Session Lifecycle'}
 class SystemHealthService:
  def providers(self):
   fetch=DeployAgentFetch().fetch()
-  return [MESFlowProvider(),PostgreSQLProvider(),ServerProvider(fetch),DockerProvider(fetch),DeployAgentProvider(fetch),HTTPProvider('QA_CENTER',settings.health_qa_url),KioskProvider(),JobProvider()]
+  return [MESFlowProvider(),PostgreSQLProvider(),ServerProvider(fetch),DockerProvider(fetch),DeployAgentProvider(fetch),HTTPProvider('QA_CENTER',settings.health_qa_url),KioskProvider(),JobProvider(),SessionLifecycleProvider()]
  def summary(self,correlation_id=''):
   results=[]
   for p in self.providers():
@@ -179,7 +238,7 @@ class SystemHealthService:
   jobs=by.get('JOBS')
   if jobs and jobs.configured:
    for j in (jobs.details or {}).get('items',[]):
-    if j.get('normalized_status') in ('FAILED','MISSED'):out.append((f"JOB_{j['normalized_status']}:{j['job_name']}",'JOBS','MEDIUM',f"Job {j.get('display_name')} {j['normalized_status'].lower()}",j.get('last_error') or '',{'job_name':j['job_name']}))
+    if j.get('normalized_status') in ('FAILED','MISSED','NEVER_RUN'):out.append((f"JOB_{j['normalized_status']}:{j['job_name']}",'JOBS','MEDIUM',f"Job {j.get('display_name')} {j['normalized_status'].lower()}",j.get('last_error') or '',{'job_name':j['job_name']}))
   return out
  def sync_alerts(self,conditions,correlation_id='',notify=True):
   """Fingerprint dedup + recovery, per section 16/20: a condition that

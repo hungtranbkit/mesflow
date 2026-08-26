@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Bump the MESFlow application version consistently across every declared
 # location (see AGENTS.md "MESFlow version rules"):
-#   - VERSION.txt
-#   - app/mesflow/__init__.py (__version__)
+#   - VERSION.txt (the single source of truth)
 #   - release.json ("version")
 #   - compose.yml (MESFLOW_IMAGE default tag)
+# app/mesflow/__init__.py is NOT written here -- it reads VERSION.txt at
+# import time (see its own docstring), so writing VERSION.txt above is
+# sufficient; this script only verifies that dynamic-read mechanism is
+# still intact.
 #
 # This ONLY edits source text. It never builds, tags, or pushes a Docker
 # image -- run scripts/build-release.sh separately, when ready, to build.
@@ -48,17 +51,23 @@ next_patch(){ python3 -c "print('.'.join('$1'.split('.')[:3] + [str(int('$1'.spl
 # value) so it can heal drift of any size, not just a single bump.
 sync_and_verify(){
   local target="$1" fail=0
-  for f in VERSION.txt app/mesflow/__init__.py release.json compose.yml; do
+  for f in VERSION.txt app/mesflow/__init__.py release.json compose.yml; do  # __init__.py existence only, not written
     [[ -f "$f" ]] || die "Expected file missing: $f"
   done
 
   printf '%s' "$target" > VERSION.txt
-  sed -i -E "s/__version__ ?= ?'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'/__version__='${target}'/" app/mesflow/__init__.py
+  # app/mesflow/__init__.py deliberately does NOT embed the version as a
+  # literal any more -- it reads VERSION.txt at import time (see its own
+  # docstring: bumping used to silently do nothing because __version__ was
+  # a separate hardcoded string here). This script must not re-introduce
+  # that duplication; the only thing to verify is that the dynamic-read
+  # mechanism itself is still intact, which is what actually makes the
+  # VERSION.txt write above take effect at runtime.
   sed -i -E "s/\"version\": \"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\"/\"version\": \"${target}\"/" release.json
   sed -i -E "s/mesflow-app:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/mesflow-app:${target}/" compose.yml
 
   [[ "$(tr -d '[:space:]' < VERSION.txt)" == "$target" ]] || { echo "VERIFY_FAILED: VERSION.txt" >&2; fail=1; }
-  grep -qF "__version__='${target}'" app/mesflow/__init__.py || { echo "VERIFY_FAILED: app/mesflow/__init__.py" >&2; fail=1; }
+  grep -qF "_VERSION_FILE" app/mesflow/__init__.py || { echo "VERIFY_FAILED: app/mesflow/__init__.py (dynamic VERSION.txt read mechanism missing)" >&2; fail=1; }
   grep -qF "\"version\": \"${target}\"" release.json || { echo "VERIFY_FAILED: release.json" >&2; fail=1; }
   grep -qF "mesflow-app:${target}" compose.yml || { echo "VERIFY_FAILED: compose.yml" >&2; fail=1; }
   [[ "$fail" -eq 0 ]] || die "One or more version declarations failed to update; inspect working tree before proceeding."
@@ -72,7 +81,7 @@ if [[ "${1:-}" == "--if-released" ]]; then
     while is_frozen "$target"; do target="$(next_patch "$target")"; done
     sync_and_verify "$target"
     echo "VERSION_PREPARE: $current is frozen (already released) -> bumped to $target"
-    echo "Files updated: VERSION.txt, app/mesflow/__init__.py, release.json, compose.yml"
+    echo "Files updated: VERSION.txt, release.json, compose.yml (app/mesflow/__init__.py reads VERSION.txt directly, verified intact)"
   else
     sync_and_verify "$current"
     echo "VERSION_PREPARE: $current not yet released -> no bump, declarations synchronized"
@@ -109,5 +118,5 @@ sync_and_verify "$target"
 echo "VERSION BUMP PASS"
 echo "Old version: $current"
 echo "New version: $target"
-echo "Files updated: VERSION.txt, app/mesflow/__init__.py, release.json, compose.yml"
+echo "Files updated: VERSION.txt, release.json, compose.yml (app/mesflow/__init__.py reads VERSION.txt directly, verified intact)"
 echo "NOTE: no build was run. Build with scripts/build-release.sh when ready."

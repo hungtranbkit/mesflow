@@ -484,16 +484,36 @@ def import_template_workbook():
             code=parsed['code']; name=parsed['name']; product=parsed['product']; version=parsed['version']; active=parsed['active']
             parts=parsed['parts']; operations=parsed['operations']
         with transaction() as conn:
-            base=code; suffix=2
-            while conn.execute('SELECT 1 FROM templates WHERE UPPER(code)=UPPER(%s)',(code,)).fetchone():
-                code=f'{base}-{suffix}'; suffix+=1
-            t=conn.execute('INSERT INTO templates(code,name,product,version,active,source_workbook) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',(code,name,product,version,active,upload.filename)).fetchone()
+            # Gate 19 (2026-08-26): real confirmed bug -- this used to silently
+            # fork a NEW template with an auto-suffixed code ('-2','-3',...) on
+            # every code collision, including re-uploading the exact same
+            # file. A client retry after a timeout/network blip (the standard
+            # "did my write actually land?" scenario, same as every other
+            # import/write path in this codebase) then created a permanent
+            # duplicate template instead of a safe no-op, violating the same
+            # retry-safety guarantee import_operations() already gives (that
+            # one updates in place by matching code, see above). Fixed by
+            # matching the SAME update-in-place-by-code idiom already used
+            # both there and by seed_demo_templates() just below: a code
+            # collision now replaces the existing template's Parts/Operations
+            # content instead of forking a second template under it.
+            existing=conn.execute('SELECT id FROM templates WHERE UPPER(code)=UPPER(%s)',(code,)).fetchone()
+            replaced=bool(existing)
+            if existing:
+                t={'id':existing['id']}
+                conn.execute('UPDATE templates SET name=%s,product=%s,version=%s,active=%s,source_workbook=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s',
+                    (name,product,version,active,upload.filename,t['id']))
+                conn.execute('DELETE FROM template_operations WHERE template_id=%s',(t['id'],))
+                conn.execute('DELETE FROM template_parts WHERE template_id=%s',(t['id'],))
+            else:
+                t=conn.execute('INSERT INTO templates(code,name,product,version,active,source_workbook) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',(code,name,product,version,active,upload.filename)).fetchone()
             ids={}
             for pitem in parts:
                 r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order) VALUES(%s,%s,%s,%s) RETURNING id',(t['id'],pitem['code'],pitem['name'],pitem['sort_order'])).fetchone()
                 ids[pitem['key']]=r['id']
             for opitem in operations:
                 conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit) VALUES(%s,%s,%s,%s,%s,%s,%s)',(t['id'],ids[opitem['part_key']],opitem['code'],opitem['name'],opitem['sort_order'],opitem['equipment_code'],float(opitem.get('standard_seconds_per_unit') or 0)))
-        return jsonify(ok=True,message=f'Đã tạo Template {code}: {len(parts)} Part, {len(operations)} Operation.',template_id=t['id'],part_count=len(parts),operation_count=len(operations),source_format=source_format)
+        verb='cập nhật' if replaced else 'tạo'
+        return jsonify(ok=True,message=f'Đã {verb} Template {code}: {len(parts)} Part, {len(operations)} Operation.',template_id=t['id'],part_count=len(parts),operation_count=len(operations),source_format=source_format,replaced=replaced)
     except Exception as exc:
         return api_error_response(exc,logger_name=__name__)
