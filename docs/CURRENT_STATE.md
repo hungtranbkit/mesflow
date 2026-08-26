@@ -15,12 +15,18 @@ for that).
 
 ## Version / release metadata
 
-- App version: `VERSION.txt` = `71.0.0.67` — this is the single source of
+- App version: `VERSION.txt` = `71.0.0.70` — this is the single source of
   truth; `mesflow.__version__` reads it at import time, `release.json`'s
   `version` field is kept in sync by `scripts/release-build.sh` (fixed
   2026-08-25 after being found stale once — was `71.0.0.62` while
   `VERSION.txt` had already moved on).
-- Migration head: `0039_kiosk_v2_protocol`.
+- Migration head: `0041_job_health_last_success` (2026-08-26: merged the
+  Gate 17-25 reliability validation round -- log_retention fix, RBAC
+  permission-matrix fixes, template import idempotency,
+  deploy.sh migration-aware rollback fix -- full regression suite + a
+  60-minute soak + 2x clean-install reproducibility + release build
+  reproducibility all verified green before merge; DEV redeployed to
+  this version).
 - Kiosk Runtime v2 firmware version: `0.9.0` (that repo's own `VERSION`
   file / commit `22a0047`).
 
