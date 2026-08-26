@@ -54,6 +54,7 @@ from mesflow.db.connection import transaction, fetch_one, fetch_all
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
 from mesflow.db.repositories.execution import WorkSessionRepository, KioskRepository, _json_safe
 from mesflow.db.repositories.analytics import KioskEventRepository
+from mesflow.domain.errors import PermissionDeniedError
 from mesflow.web.execution import _legacy_kiosk_identity, KioskRepositoryLookup
 
 bp = Blueprint('kiosk_v2', __name__, url_prefix='/api/kiosk/v2')
@@ -508,9 +509,40 @@ def bootstrap():
     body = request.get_json(silent=True) or {}
     device_id = str(body.get('device_id') or '').strip()
     hardware_id = str(body.get('hardware_id') or '').strip()
+    # ESP kiosk physical field test (2026-08-26), §11 "401/403 test": real,
+    # confirmed P1 security bug found live -- a bare `except Exception:
+    # identity = None` here swallowed the PermissionDeniedError
+    # _legacy_kiosk_identity() correctly raises for a DISABLED/SUSPENDED/
+    # PENDING device (or an unregistered one when auto-bind is off), and
+    # `identity=None` then evaluates as `not identity` in the device_status
+    # ternary below -- reporting "ACTIVE" for a device an admin had
+    # DELIBERATELY disabled via /kiosk-management. Verified live: setting a
+    # real kiosk_identities row to SUSPENDED had zero effect on this
+    # endpoint's response before this fix. Fixed by propagating the
+    # intended rejection as a real 403 (FORBIDDEN), same status/shape every
+    # other PermissionDeniedError caller in this codebase gets via
+    # api_error_response -- routed through this file's own _json_response()
+    # instead (see the except block below for why that distinction matters
+    # here specifically). Only PermissionDeniedError is treated as a real
+    # rejection here --
+    # any other, genuinely-unexpected exception keeps the previous
+    # permissive fallback (identity=None), since this endpoint's job is
+    # bootstrap/config discovery, not the place to turn an unrelated bug
+    # into a device-bricking failure.
     try:
         identity = _legacy_kiosk_identity({'device_uuid': device_id or hardware_id, 'device_id': device_id,
                                             'hardware_id': hardware_id})
+    except PermissionDeniedError as exc:
+        # Real regression caught live testing this exact fix on real
+        # hardware (2026-08-26): api_error_response()/jsonify() escapes
+        # non-ASCII to \uXXXX by default -- the Vietnamese rejection
+        # message arrived on-device as literal "u0111ang u1edf
+        # tru1ea1ng..." instead of "đang ở trạng...", the EXACT class of
+        # bug _json_response() exists to prevent everywhere else in this
+        # file (see its own docstring) -- this path just wasn't routed
+        # through it yet. ok:false/error/message shape matches what
+        # api_error_response would have produced, just correctly encoded.
+        return _json_response({'ok': False, 'error': 'FORBIDDEN', 'message': str(exc)}, status=403)
     except Exception:
         identity = None
 
@@ -551,6 +583,17 @@ def heartbeat():
     # protocol. /station/heartbeat (the legacy v1 endpoint) already does
     # this correctly via KioskRepository().heartbeat(); v2 just never
     # called it. Fixed by doing the same here.
+    # §11 of the 2026-08-26 ESP kiosk physical field test: same class of
+    # bug as bootstrap()'s own fix just above -- a bare `except Exception:
+    # pass` here also swallowed PermissionDeniedError for a DISABLED/
+    # SUSPENDED/PENDING device, then still fell through to
+    # `return jsonify(accepted=True)` unconditionally. A device an admin
+    # disabled kept getting accepted=True heartbeats forever. Fixed the
+    # same way: PermissionDeniedError now short-circuits with a real 403
+    # before ever reaching KioskRepository().heartbeat(); any other,
+    # genuinely-unexpected exception keeps the previous tolerant behavior
+    # (this is best-effort telemetry, not where an unrelated bug should
+    # turn into a failed heartbeat).
     body = request.get_json(silent=True) or {}
     device_id = str(body.get('device_id') or '').strip()
     if device_id:
@@ -571,6 +614,10 @@ def heartbeat():
                 'uptime_seconds': body.get('uptime_seconds') or 0,
                 'boot_reason': body.get('boot_reason') or '',
             })
+        except PermissionDeniedError as exc:
+            # Same \uXXXX-escaping regression/fix as bootstrap()'s own
+            # PermissionDeniedError branch above -- see its comment.
+            return _json_response({'ok': False, 'error': 'FORBIDDEN', 'message': str(exc)}, status=403)
         except Exception:
             pass
     return jsonify(accepted=True)

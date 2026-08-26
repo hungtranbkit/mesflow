@@ -68,10 +68,17 @@ def test_v2_heartbeat_still_rejects_disabled_kiosk(db):
         cur.execute("UPDATE kiosk_identities SET status='DISABLED' WHERE id=%s", (identity_id,))
 
     r = requests.post(f'{BASE_URL}/api/kiosk/v2/heartbeat', json={'device_id': device}, timeout=10)
-    # The endpoint always returns accepted:true (fire-and-forget protocol,
-    # unchanged by this fix) -- but it must NOT have written a live
-    # heartbeat for a DISABLED identity.
-    assert r.status_code == 200
+    # ESP kiosk physical field test (2026-08-26): this assertion used to be
+    # `== 200` with a comment explaining the endpoint "always returns
+    # accepted:true (fire-and-forget protocol)" for a DISABLED identity --
+    # that was itself the confirmed bug (a bare `except Exception: pass`
+    # swallowing the PermissionDeniedError _legacy_kiosk_identity() already
+    # correctly raised), found live flashing a real ESP32-S3 test board and
+    # fixed in kiosk_v2.py::heartbeat() -- see
+    # test_kiosk_v2_disabled_identity_rejection.py for the full regression
+    # coverage of that fix. A DISABLED kiosk now gets a real 403, not a
+    # misleading 200.
+    assert r.status_code == 403
     with db.cursor() as cur:
         cur.execute('SELECT 1 FROM kiosk_status WHERE device_uuid=%s', (device,))
         assert cur.fetchone() is None
