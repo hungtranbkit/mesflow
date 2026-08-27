@@ -47,6 +47,7 @@ services:
         required: false
     environment:
       MESFLOW_ENV: production
+      MESFLOW_SECRET_KEY: ${MESFLOW_SECRET_KEY:?MESFLOW_SECRET_KEY is required}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       WORKSHOP_DATABASE_URL: ${WORKSHOP_DATABASE_URL:-${DATABASE_URL}}
       WORKSHOP_COOKIE_SECURE: "1"
