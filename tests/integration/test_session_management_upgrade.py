@@ -13,9 +13,9 @@ import pytest
 
 from mesflow.core.working_calendar import resolve_shift_window_for_datetime
 from mesflow.db.repositories.execution import SupervisorRepository, WorkSessionRepository
-from mesflow.db.repositories.analytics import ReportRepository
+from mesflow.db.repositories.analytics import DashboardRepository, KPIRepository, ReportRepository
 from mesflow.db.repositories.base import ConflictError
-from mesflow.db.repositories.production_state import reconcile_operation_and_po
+from mesflow.db.repositories.production_state import reconcile_operation_and_po, reconcile_production_order
 
 pytestmark = pytest.mark.postgres
 
@@ -32,12 +32,12 @@ def _open_session(db, g, started_at: datetime, request_id: str, good=0, defect=0
         return cur.fetchone()['id']
 
 
-def _closed_session(db, g, started_at: datetime, request_id: str, good=0, defect=0) -> int:
+def _closed_session(db, g, started_at: datetime, request_id: str, good=0, defect=0, duration_minutes=60) -> int:
     with db.cursor() as cur:
         cur.execute(
             """INSERT INTO work_sessions(employee_id,operation_id,station_id,status,started_at,ended_at,good_qty,defect_qty,start_request_id,finish_request_id)
                VALUES(%s,%s,%s,'CLOSED',%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (g['employee_id'], g['operation_id'], g['station_id'], started_at, started_at + timedelta(hours=1),
+            (g['employee_id'], g['operation_id'], g['station_id'], started_at, started_at + timedelta(minutes=duration_minutes),
              good, defect, request_id, request_id + '-fin'),
         )
         return cur.fetchone()['id']
@@ -332,3 +332,148 @@ def test_excluded_session_never_appears_in_the_review_inbox(db, seeded_factory):
     assert not [row for row in inbox_after if row['session_id'] == sid]
     all_rows = ReportRepository().session_exceptions(employee_id=g['employee_id'], limit=200, session_id=sid)
     assert any(row['classification'] == 'EXCLUDED' for row in all_rows)
+
+
+# ---- Cross-run-path symmetry: exclude -> restore must round-trip cleanly
+# across every reporting aggregation, not just Operation progress (spec
+# section 6, using the exact fixture from section 7) ----
+
+def test_exclude_restore_symmetry_across_operation_employee_kpi_and_dashboard(db, seeded_factory):
+    g = seeded_factory
+    baseline_dashboard = DashboardRepository().summary()
+    baseline_good = int(baseline_dashboard['total_good_qty'])
+    baseline_defect = int(baseline_dashboard['total_defect_qty'])
+
+    # Session A: good=10 defect=1 duration=30min (stays included throughout)
+    sid_a = _closed_session(db, g, datetime(2026, 8, 11, 8, 0, tzinfo=HCM), f'SYM-A-{g["suffix"]}',
+                            good=10, defect=1, duration_minutes=30)
+    # Session B: good=20 defect=2 duration=60min (excluded then restored)
+    sid_b = _closed_session(db, g, datetime(2026, 8, 11, 9, 0, tzinfo=HCM), f'SYM-B-{g["suffix"]}',
+                            good=20, defect=2, duration_minutes=60)
+    with db.cursor() as cur:
+        reconcile_operation_and_po(cur, g['operation_id'])
+
+    def _employee_kpi():
+        perf = ReportRepository().employee_performance(employee_id=g['employee_id'])['summary']
+        kpi_rows = KPIRepository().employees()
+        kpi = next(r for r in kpi_rows if r['id'] == g['employee_id'])
+        return perf, kpi
+
+    # ---- Baseline: both sessions count everywhere ----
+    op = _operation_row(db, g['operation_id'])
+    assert int(op['done_qty']) == 30 and int(op['defect_qty']) == 3
+    perf, kpi = _employee_kpi()
+    assert int(perf['good_qty']) == 30 and int(perf['defect_qty']) == 3
+    assert perf['work_seconds'] == 30 * 60 + 60 * 60
+    assert int(kpi['good_qty']) == 30 and int(kpi['defect_qty']) == 3
+    assert kpi['work_seconds'] == 30 * 60 + 60 * 60
+    dash = DashboardRepository().summary()
+    assert int(dash['total_good_qty']) - baseline_good == 30
+    assert int(dash['total_defect_qty']) - baseline_defect == 3
+
+    # ---- Exclude B: only A's numbers remain everywhere ----
+    SupervisorRepository().exclude_session(sid_b, {'reason': 'Duplicate'}, user_id=None, actor_username='tester')
+    op = _operation_row(db, g['operation_id'])
+    assert int(op['done_qty']) == 10 and int(op['defect_qty']) == 1
+    perf, kpi = _employee_kpi()
+    assert int(perf['good_qty']) == 10 and int(perf['defect_qty']) == 1
+    assert perf['work_seconds'] == 30 * 60
+    assert int(kpi['good_qty']) == 10 and int(kpi['defect_qty']) == 1
+    assert kpi['work_seconds'] == 30 * 60
+    dash = DashboardRepository().summary()
+    assert int(dash['total_good_qty']) - baseline_good == 10
+    assert int(dash['total_defect_qty']) - baseline_defect == 1
+    # The excluded session itself is untouched and still real data.
+    row_b = _row(db, sid_b)
+    assert row_b['excluded_from_reports'] is True
+    assert int(row_b['good_qty']) == 20 and int(row_b['defect_qty']) == 2
+
+    # ---- Restore B: back to the full baseline everywhere ----
+    SupervisorRepository().restore_session(sid_b, {'reason': 'Loại nhầm'}, user_id=None, actor_username='tester')
+    op = _operation_row(db, g['operation_id'])
+    assert int(op['done_qty']) == 30 and int(op['defect_qty']) == 3
+    perf, kpi = _employee_kpi()
+    assert int(perf['good_qty']) == 30 and int(perf['defect_qty']) == 3
+    assert perf['work_seconds'] == 30 * 60 + 60 * 60
+    assert int(kpi['good_qty']) == 30 and int(kpi['defect_qty']) == 3
+    dash = DashboardRepository().summary()
+    assert int(dash['total_good_qty']) - baseline_good == 30
+    assert int(dash['total_defect_qty']) - baseline_defect == 3
+    # Both sessions still exist, still show their real numbers, in Session
+    # Management's own (never-filtered) view.
+    detail_a = ReportRepository().session_detail(sid_a)['session']
+    detail_b = ReportRepository().session_detail(sid_b)['session']
+    assert int(detail_a['good_qty']) == 10 and int(detail_b['good_qty']) == 20
+    assert detail_b['excluded_from_reports'] is False
+
+
+def test_all_sessions_of_an_operation_excluded_resets_status_not_stuck_in_progress(db, seeded_factory):
+    g = seeded_factory
+    sid = _closed_session(db, g, datetime(2026, 8, 11, 8, 0, tzinfo=HCM), f'OPALL-{g["suffix"]}', good=5, defect=0)
+    with db.cursor() as cur:
+        reconcile_operation_and_po(cur, g['operation_id'])
+    op = _operation_row(db, g['operation_id'])
+    assert op['status'] == 'IN_PROGRESS' and int(op['done_qty']) == 5
+
+    SupervisorRepository().exclude_session(sid, {'reason': 'Dữ liệu test'}, user_id=None, actor_username='tester')
+    op = _operation_row(db, g['operation_id'])
+    # The Operation's ONLY session is now excluded -- it must read back to a
+    # non-running status, never stay IN_PROGRESS on the strength of a
+    # session that no longer counts as real production.
+    assert op['status'] != 'IN_PROGRESS'
+    assert int(op['done_qty']) == 0 and int(op['defect_qty']) == 0
+
+
+def test_all_sessions_of_a_po_excluded_resets_has_history_and_status(db, seeded_factory):
+    """Isolates the has_history fix from reconcile_production_order()'s
+    SEPARATE, pre-existing `current in ('IN_PROGRESS','COMPLETED')` sticky
+    fallback (a deliberate "once started, stays started" business rule this
+    task does not touch): once a PO's persisted status has ever actually
+    been reconciled to IN_PROGRESS while a session genuinely counted, that
+    sticky clause keeps it IN_PROGRESS on every later reconcile regardless
+    of has_history -- a real, separate limitation documented in the final
+    report, not something excluding a session alone can undo. This test
+    instead covers the case has_history actually controls: a PO whose
+    persisted status was never (yet) reconciled to IN_PROGRESS, and whose
+    only session is excluded before reconcile_operation_and_po() ever runs
+    for it -- exclude_session() itself performs that first-ever reconcile.
+    """
+    g = seeded_factory
+    with db.cursor() as cur:
+        cur.execute("UPDATE production_orders SET status='RELEASED' WHERE id=%s", (g['po_id'],))
+        cur.execute("UPDATE operations SET status='RELEASED' WHERE id=%s", (g['operation_id'],))
+    sid = _closed_session(db, g, datetime(2026, 8, 11, 8, 0, tzinfo=HCM), f'POALL-{g["suffix"]}', good=5, defect=0)
+
+    # exclude_session() runs the FIRST reconcile this PO/Operation ever sees
+    # -- by the time it looks, the session is already excluded, so
+    # has_history must read FALSE and the PO must never have been persisted
+    # as IN_PROGRESS on the strength of it.
+    SupervisorRepository().exclude_session(sid, {'reason': 'Dữ liệu test'}, user_id=None, actor_username='tester')
+    with db.cursor() as cur:
+        cur.execute('SELECT status FROM production_orders WHERE id=%s', (g['po_id'],))
+        po_status = cur.fetchone()['status']
+    assert po_status != 'IN_PROGRESS'
+
+
+def test_employee_productivity_reports_exclude_excluded_sessions_from_the_average(db, seeded_factory):
+    g = seeded_factory
+    # completion_percent (and therefore valid_session_count) is only ever
+    # non-NULL when the Operation has a real standard_seconds_per_unit --
+    # seeded_factory's dummy Operation has none configured by default.
+    with db.cursor() as cur:
+        cur.execute('UPDATE operations SET standard_seconds_per_unit=60 WHERE id=%s', (g['operation_id'],))
+    sid_a = _closed_session(db, g, datetime(2026, 8, 11, 8, 0, tzinfo=HCM), f'PROD-A-{g["suffix"]}', good=10, defect=0)
+    sid_b = _closed_session(db, g, datetime(2026, 8, 11, 9, 0, tzinfo=HCM), f'PROD-B-{g["suffix"]}', good=20, defect=0)
+    report = ReportRepository().employee_productivity(employee_id=g['employee_id'])
+    assert report['summary']['completed_sessions'] == 2
+
+    SupervisorRepository().exclude_session(sid_b, {'reason': 'Duplicate'}, user_id=None, actor_username='tester')
+    report = ReportRepository().employee_productivity(employee_id=g['employee_id'])
+    assert report['summary']['completed_sessions'] == 1
+
+    detail = ReportRepository().employee_productivity_detail(g['employee_id'])
+    ids_in_detail = {row['session_id'] for row in detail['sessions']}
+    assert {sid_a, sid_b} <= ids_in_detail, 'excluded session must stay visible in the detail drill-down'
+    excluded_row = next(row for row in detail['sessions'] if row['session_id'] == sid_b)
+    assert excluded_row['excluded_from_reports'] is True
+    assert detail['valid_session_count'] == 1
