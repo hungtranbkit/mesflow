@@ -9,6 +9,7 @@ from mesflow.core.time_policy import coerce_utc,utc_now,business_date,business_d
 from mesflow.db.repositories.scheduling import priority_for_operation,priority_sort_key
 from mesflow.core.config import settings
 from mesflow.domain.audit_presentation import ACTION_CATALOG,CATEGORY_LABELS,present as present_audit_row
+from psycopg.types.json import Jsonb
 
 class AuditRepository:
     def log(self,actor_username:str,action:str,entity_type:str='',entity_id:str='',details:dict[str,Any]|None=None):
@@ -1644,6 +1645,42 @@ class KPIRepository:
                 VALUES(%s,'SYSTEM','ALL',%s) ON CONFLICT(snapshot_date,scope_type,scope_id)
                 DO UPDATE SET metrics_json=EXCLUDED.metrics_json,created_at=CURRENT_TIMESTAMP RETURNING *""",(snapshot_date,metrics))
                 return cur.fetchone()
+
+class WallboardConfigRepository:
+    """Persist the employee-productivity wallboard display configuration."""
+    KEY = 'employee_productivity_wallboard'
+    DEFAULTS = {'date_mode':'dynamic_mtd','from':None,'to':None,'department':None,
+        'team':None,'employee_id':None,'sort':'productivity_desc','page_size':10,
+        'refresh_interval_seconds':20,'display_mode':'grid','employees_per_page':20,
+        'columns':'auto','auto_page_flip':True,'auto_page_flip_seconds':10}
+    SORT_CHOICES = ('productivity_desc','productivity_asc','name_asc','sessions_desc')
+    EMPLOYEES_PER_PAGE_CHOICES = (10,12,16,20,24,30)
+    COLUMNS_CHOICES = ('auto','1','2','3')
+    AUTO_PAGE_FLIP_SECONDS_CHOICES = (5,10,15,30)
+
+    def get(self):
+        row = fetch_one('SELECT value_json,updated_at FROM app_settings WHERE key=%s',(self.KEY,))
+        if not row: return {**self.DEFAULTS,'configured':False,'updated_at':None,'updated_by':None}
+        return {**self.DEFAULTS,**(row.get('value_json') or {}),'configured':True,'updated_at':row.get('updated_at')}
+
+    def publish(self, config:dict[str,Any], actor:str):
+        cfg = {**self.DEFAULTS, **(config or {})}
+        if cfg['date_mode'] not in ('dynamic_mtd','fixed'): raise ValueError('invalid date_mode')
+        if cfg['sort'] not in self.SORT_CHOICES: raise ValueError('invalid sort')
+        cfg['page_size'] = int(cfg['page_size']); cfg['refresh_interval_seconds'] = int(cfg['refresh_interval_seconds'])
+        cfg['employees_per_page'] = int(cfg['employees_per_page']); cfg['auto_page_flip_seconds'] = int(cfg['auto_page_flip_seconds'])
+        if not 1 <= cfg['page_size'] <= 50 or not 5 <= cfg['refresh_interval_seconds'] <= 300: raise ValueError('invalid wallboard bounds')
+        if cfg['employees_per_page'] not in self.EMPLOYEES_PER_PAGE_CHOICES or cfg['columns'] not in self.COLUMNS_CHOICES: raise ValueError('invalid display settings')
+        if cfg['auto_page_flip_seconds'] not in self.AUTO_PAGE_FLIP_SECONDS_CHOICES: raise ValueError('invalid page flip interval')
+        cfg['employee_id'] = int(cfg['employee_id']) if cfg.get('employee_id') else None
+        cfg['updated_by'] = str(actor or '')
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""INSERT INTO app_settings(key,value_json,updated_at) VALUES(%s,%s,CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET value_json=EXCLUDED.value_json,updated_at=CURRENT_TIMESTAMP
+                    RETURNING value_json,updated_at""",(self.KEY,Jsonb(cfg)))
+                row = cur.fetchone()
+        return {**self.DEFAULTS,**row['value_json'],'configured':True,'updated_at':row['updated_at']}
 
 class KioskEventRepository:
     def ingest(self,data:dict[str,Any]):
