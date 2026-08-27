@@ -787,9 +787,16 @@ class DashboardRepository:
         FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id
         JOIN operations o ON o.id=ws.operation_id JOIN production_orders po ON po.id=o.production_order_id
         JOIN parts p ON p.id=o.part_id
+        -- "Session theo ngày" lists by calendar date (day_start/day_end,
+        -- the plain 00:00-24:00 window of shift_date) -- NOT by the
+        -- requested shift's own anchor window (range_start/range_end,
+        -- still used above for duration_seconds/work_duration_seconds).
+        -- shift_id only selects which shift's WORK windows are used for
+        -- the duration math; it must never exclude an otherwise same-day
+        -- session from the list.
         WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
           AND {reportable_session_sql('ws')}
-        ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['range_end'],ctx['range_start'],min(max(limit,1),3000)))
+        ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['day_end'],ctx['day_start'],min(max(limit,1),3000)))
 
     def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None):
         ctx=resolve_shift_context(shift_date,shift_id,shift_code)
