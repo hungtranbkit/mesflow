@@ -818,6 +818,7 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 
 /* Báo cáo năng suất nhân viên (pages/employee-productivity.js) */
 .badge.neutral{background:#eef1f4;color:#5c6773}
+.badge.excluded{background:#f1eafc;color:#5b3aa8}
 .ep-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 .ep-table th.sortable:hover{color:var(--text-primary)}
 .ep-row{cursor:pointer}
@@ -879,6 +880,10 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 .se-steps{display:grid;gap:7px;margin-top:12px}.se-steps>div{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px;border:1px solid var(--border-default);border-radius:7px}.se-steps>div>b{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#e7edf2;color:var(--text-primary)}.se-steps>div.done>b{background:#dcfce7;color:#166534}.se-steps span{display:grid;gap:2px}.se-steps small{color:var(--text-secondary)}.se-step-ok{font-size:20px;color:#16845b}
 .se-secondary-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 .session-exception-context{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:10px 12px;border:1px solid #9fc3dc;border-left:5px solid var(--action-primary);border-radius:7px;background:#f1f7fb}.session-exception-context>div{display:grid;gap:3px}.session-exception-context span{color:var(--text-secondary);font-size:12px}
+.session-inbox-banner{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:12px 14px;margin-bottom:14px;border:1px solid #f3c98d;border-left:5px solid #b45309;border-radius:7px;background:#fff8ec}.session-inbox-banner b{display:block}.session-inbox-banner span{color:var(--text-secondary);font-size:12px}
+.session-secondary-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 20px 0;border-top:1px solid var(--line)}
+.session-cross-part-confirm{display:flex!important;align-items:center;gap:8px;font-weight:400!important}.session-cross-part-confirm input{width:auto!important;margin:0!important}
+@media(max-width:640px){.session-inbox-banner{flex-direction:column;align-items:flex-start}.session-secondary-actions{padding-left:14px;padding-right:14px}}
 
 /* Shared label/value detail grid -- ONE canonical primitive for "Session
    Detail" content, used by the Session Detail drawer and (retrofitted)
