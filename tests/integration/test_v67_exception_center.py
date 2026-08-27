@@ -17,13 +17,46 @@ def make_long_open(db,g):
 def find(items,session_id,kind='LONG_OPEN_SESSION'):
     return next(x for x in items if x['session_id']==session_id and x['exception_type']==kind)
 
+def make_employee_conflict(db,g):
+    # §9/§19 of the 2026-08-27 Session Exception Management task: unlike
+    # LONG_OPEN_SESSION (see resolve()'s own comment for why), EMPLOYEE_
+    # SESSION_CONFLICT is CRITICAL and NOT in ExceptionRepository.
+    # reconcile()'s SESSION_ALREADY_CLOSED auto-resolve list -- clearing
+    # its condition never auto-transitions the record, so a genuine manual
+    # "Hoàn tất" is the only way to resolve it.
+    #
+    # Both CLOSED, not OPEN (a real constraint found live writing this
+    # test: uq_open_session_per_employee makes two simultaneously-OPEN
+    # sessions for the same employee impossible at the DB layer -- this
+    # exception type's real-world trigger is necessarily a historical/
+    # corrected-data overlap between two CLOSED sessions, e.g. a manual
+    # time edit, never two genuinely-concurrent open ones). A overlaps B
+    # between started_at+2h and started_at+2h30 initially; the exception
+    # attaches to the LATER (higher id, i.e. B) one, matching
+    # detected_conditions()'s own `b.id<a.id` self-join direction.
+    with db.cursor() as cur:
+        cur.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,status,started_at,ended_at,start_request_id)
+          VALUES(%s,%s,%s,'CLOSED',CURRENT_TIMESTAMP-INTERVAL '3 hours',CURRENT_TIMESTAMP-INTERVAL '1 hours',%s)""",
+          (g['employee_id'],g['operation_id'],g['station_id'],f"TEST-V67-CONFLICT-A-{g['suffix']}"))
+        cur.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,status,started_at,ended_at,start_request_id)
+          VALUES(%s,%s,%s,'CLOSED',CURRENT_TIMESTAMP-INTERVAL '2 hours',CURRENT_TIMESTAMP-INTERVAL '30 minutes',%s) RETURNING id""",
+          (g['employee_id'],g['operation_id'],g['station_id'],f"TEST-V67-CONFLICT-B-{g['suffix']}"))
+        return cur.fetchone()['id']
+
 def test_long_open_detection_dedup_decision_history_and_stale_conflict(db,api,seeded_factory):
-    sid=make_long_open(db,seeded_factory)
+    # Uses EMPLOYEE_SESSION_CONFLICT (CRITICAL, not on reconcile()'s auto-
+    # resolve list -- see make_employee_conflict()'s own comment) rather
+    # than LONG_OPEN_SESSION: this test's whole point is the MANUAL
+    # acknowledge->resolve->history->stale-conflict path, which needs a
+    # condition that only a human "Hoàn tất" click ever clears -- see
+    # test_session_close_auto_ignores_long_open_with_explicit_reason for
+    # the (deliberately different, already-covered) auto-resolve case.
+    sid=make_employee_conflict(db,seeded_factory)
     first=api.get(f'{BASE}/api/exceptions?view=action',timeout=10)
     assert first.status_code==200,first.text
-    item=find(first.json()['items'],sid)
+    item=find(first.json()['items'],sid,kind='EMPLOYEE_SESSION_CONFLICT')
     second=api.get(f'{BASE}/api/exceptions?view=action',timeout=10)
-    assert find(second.json()['items'],sid)['id']==item['id']
+    assert find(second.json()['items'],sid,kind='EMPLOYEE_SESSION_CONFLICT')['id']==item['id']
     with db.cursor() as cur:
         cur.execute("SELECT COUNT(*) n FROM exception_records WHERE fingerprint=%s",(item['fingerprint'],))
         assert cur.fetchone()['n']==1
@@ -32,6 +65,14 @@ def test_long_open_detection_dedup_decision_history_and_stale_conflict(db,api,se
     acknowledged=api.post(f"{BASE}/api/exceptions/{item['id']}/acknowledge",json={'expected_version':item['row_version']},headers={'X-Trace-ID':ack_trace},timeout=10)
     assert acknowledged.status_code==200,acknowledged.text
     changed=acknowledged.json()['item'];assert changed['status']=='ACKNOWLEDGED'
+    # §9/§19 of the 2026-08-27 Session Exception Management task: RESOLVED
+    # now re-verifies the underlying condition first (never a blind status
+    # flip) -- end the earlier of the two overlapping Sessions for real
+    # before expecting resolve to succeed, same as any real reviewer would
+    # have to (open it, fix the overlap, THEN mark it resolved).
+    with db.cursor() as cur:
+        cur.execute("UPDATE work_sessions SET status='CLOSED',ended_at=CURRENT_TIMESTAMP-INTERVAL '125 minutes',updated_at=CURRENT_TIMESTAMP WHERE employee_id=%s AND start_request_id=%s",
+                    (seeded_factory['employee_id'],f"TEST-V67-CONFLICT-A-{seeded_factory['suffix']}"))
     resolved=api.post(f"{BASE}/api/exceptions/{item['id']}/resolve",json={'expected_version':changed['row_version'],'reason':'Đã kiểm tra phiếu giấy'},headers={'X-Trace-ID':resolve_trace},timeout=10)
     assert resolved.status_code==200,resolved.text
     stale=api.post(f"{BASE}/api/exceptions/{item['id']}/resolve",json={'expected_version':changed['row_version'],'reason':'retry'},timeout=10)
@@ -86,11 +127,22 @@ def test_concurrent_detection_jobs_create_one_active_incident(db,api,seeded_fact
         assert cur.fetchone()['n']==1
 
 def test_new_true_edge_after_resolved_incident_creates_new_occurrence(db,api,seeded_factory):
-    sid=make_long_open(db,seeded_factory);first=find(api.get(f'{BASE}/api/exceptions?view=action',timeout=10).json()['items'],sid)
+    # Same EMPLOYEE_SESSION_CONFLICT choice as the test above -- resolve()
+    # must genuinely succeed here (not race an auto-ignore), so the
+    # incident must be a type that only clears via a real manual decision.
+    sid=make_employee_conflict(db,seeded_factory)
+    first=find(api.get(f'{BASE}/api/exceptions?view=action',timeout=10).json()['items'],sid,kind='EMPLOYEE_SESSION_CONFLICT')
+    a_request_id=f"TEST-V67-CONFLICT-A-{seeded_factory['suffix']}"
+    with db.cursor() as cur:
+        cur.execute("UPDATE work_sessions SET status='CLOSED',ended_at=CURRENT_TIMESTAMP-INTERVAL '125 minutes' WHERE employee_id=%s AND start_request_id=%s",
+                    (seeded_factory['employee_id'],a_request_id))
     response=api.post(f"{BASE}/api/exceptions/{first['id']}/resolve",json={'expected_version':first['row_version'],'reason':'Đã kiểm tra'},timeout=10)
     assert response.status_code==200,response.text
-    with db.cursor() as cur:cur.execute("UPDATE work_sessions SET status='CLOSED',ended_at=CURRENT_TIMESTAMP WHERE id=%s",(sid,))
     api.get(f'{BASE}/api/exceptions?view=action',timeout=10)
-    with db.cursor() as cur:cur.execute("UPDATE work_sessions SET status='OPEN',ended_at=NULL,started_at=CURRENT_TIMESTAMP-INTERVAL '13 hours' WHERE id=%s",(sid,))
-    second=find(api.get(f'{BASE}/api/exceptions?view=action',timeout=10).json()['items'],sid)
+    # Re-open the SAME earlier Session, overlapping again -- a fresh true
+    # edge on the identical fingerprint (same pair of session ids).
+    with db.cursor() as cur:
+        cur.execute("UPDATE work_sessions SET status='OPEN',ended_at=NULL,started_at=CURRENT_TIMESTAMP-INTERVAL '2 hours' WHERE employee_id=%s AND start_request_id=%s",
+                    (seeded_factory['employee_id'],a_request_id))
+    second=find(api.get(f'{BASE}/api/exceptions?view=action',timeout=10).json()['items'],sid,kind='EMPLOYEE_SESSION_CONFLICT')
     assert second['id']!=first['id'] and second['occurrence_no']==2

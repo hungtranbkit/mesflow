@@ -5,7 +5,7 @@ from mesflow.domain.events import EventBus,ExceptionDetected,ExceptionStateChang
 from mesflow.services.exception_service import ExceptionDecisionCommand,ExceptionDetectionService,ExceptionService
 ROOT=Path(__file__).parents[1]
 class FakeRepository:
-    def __init__(self):self.row={'id':7,'exception_type':'LONG_OPEN_SESSION','severity':'HIGH','status':'OPEN','row_version':1}
+    def __init__(self):self.row={'id':7,'exception_type':'LONG_OPEN_SESSION','severity':'HIGH','status':'OPEN','row_version':1,'condition_active':False,'auto_ignore_reason':None}
     def detected_conditions(self):return [{'fingerprint':'LONG_OPEN_SESSION:SESSION:7'}]
     def reconcile(self,conditions,correlation_id):return [{'id':7,'exception_type':'LONG_OPEN_SESSION','severity':'HIGH'}]
     def get(self,_):return dict(self.row)

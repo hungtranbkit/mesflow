@@ -45,11 +45,30 @@ def test_po_trace_merges_sessions_and_cursor_pagination(db,api,seeded_factory):
     second=api.get(f"{BASE}/api/production-orders/{seeded_factory['po_id']}/trace",params={'limit':2,'before':first['next_before']},timeout=10).json();assert not ({x['id'] for x in first['events']}&{x['id'] for x in second['events']})
     assert all(x['po_id']==seeded_factory['po_id'] for x in first['events'])
 def test_exception_lifecycle_appears_in_po_trace(db,api,seeded_factory):
+    # §9/§19 of the 2026-08-27 Session Exception Management task: RESOLVED
+    # now re-verifies the underlying condition first. LONG_OPEN_SESSION
+    # auto-transitions to AUTO_IGNORED the moment its Session closes
+    # (ExceptionRepository.reconcile()'s own SESSION_ALREADY_CLOSED branch)
+    # -- a manual RESOLVED (the exact trace event this test checks for) is
+    # only ever reachable for a type that does NOT auto-resolve.
+    # EMPLOYEE_SESSION_CONFLICT (CRITICAL, not on that list) needs a real
+    # human decision instead, matching test_v67_exception_center.py's own
+    # fix for the identical race (see that file's make_employee_conflict).
     sid=start(api,seeded_factory).json()['session']['id']
-    with db.cursor() as cur:cur.execute("UPDATE work_sessions SET started_at=CURRENT_TIMESTAMP-INTERVAL '13 hours' WHERE id=%s",(sid,))
-    exceptions=api.get(f'{BASE}/api/exceptions?view=action',timeout=10).json()['items'];x=next(x for x in exceptions if x['session_id']==sid and x['exception_type']=='LONG_OPEN_SESSION')
+    other_request_id=f'v68-conflict-{uuid.uuid4()}'
+    with db.cursor() as cur:
+        cur.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,status,started_at,ended_at,start_request_id)
+          VALUES(%s,%s,%s,'CLOSED',CURRENT_TIMESTAMP-INTERVAL '2 hours',CURRENT_TIMESTAMP+INTERVAL '10 minutes',%s)""",
+          (seeded_factory['employee_id'],seeded_factory['operation_id'],seeded_factory['station_id'],other_request_id))
+    exceptions=api.get(f'{BASE}/api/exceptions?view=action',timeout=10).json()['items']
+    x=next(x for x in exceptions if x['exception_type']=='EMPLOYEE_SESSION_CONFLICT' and x['employee_id']==seeded_factory['employee_id'])
     ack=api.post(f"{BASE}/api/exceptions/{x['id']}/acknowledge",json={'expected_version':x['row_version']},timeout=10).json()['item']
-    api.post(f"{BASE}/api/exceptions/{x['id']}/resolve",json={'expected_version':ack['row_version'],'reason':'Đã xác minh'},timeout=10)
+    # Fix the overlap for real -- end the other Session before sid started,
+    # same as any real reviewer would via the audited Session editor.
+    with db.cursor() as cur:
+        cur.execute("UPDATE work_sessions SET ended_at=CURRENT_TIMESTAMP-INTERVAL '3 hours' WHERE start_request_id=%s",(other_request_id,))
+    resolved=api.post(f"{BASE}/api/exceptions/{x['id']}/resolve",json={'expected_version':ack['row_version'],'reason':'Đã xác minh'},timeout=10)
+    assert resolved.status_code==200,resolved.text
     events=api.get(f"{BASE}/api/production-orders/{seeded_factory['po_id']}/trace?category=EXCEPTION",timeout=10).json()['events'];types={e['event_type'] for e in events}
     assert {'EXCEPTION_DETECTED','EXCEPTION_ACKNOWLEDGED','EXCEPTION_RESOLVED'}<=types
 def test_worker_cannot_read_trace_or_quantity_history(db,api,seeded_factory):

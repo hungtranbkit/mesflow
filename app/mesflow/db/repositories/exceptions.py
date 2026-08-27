@@ -58,7 +58,19 @@ class ExceptionRepository:
           UNION ALL SELECT a.id,'EMPLOYEE_SESSION_CONFLICT','CRITICAL','Nhân viên có Session xung đột',
             'Nhân viên có hai Session chồng thời gian.','Kiểm tra cả hai Session và bằng chứng kiosk.'
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
-            AND tstzrange(a.started_at,COALESCE(a.ended_at,'infinity'::timestamptz),'[)') && tstzrange(b.started_at,COALESCE(b.ended_at,'infinity'::timestamptz),'[)')
+            -- Real bug found live (2026-08-27 Session Exception Management
+            -- task): tstzrange() raises "range lower bound must be less
+            -- than or equal to range upper bound" for any session whose
+            -- ended_at < started_at -- exactly the case INVALID_DURATION
+            -- exists to catch separately -- which used to take down THIS
+            -- ENTIRE reconcile() query (every exception type, not just
+            -- this one) the moment one malformed session existed.
+            -- GREATEST(...,started_at) clamps such a session to a
+            -- zero-width range here (never matches any real overlap,
+            -- correctly leaving it to INVALID_DURATION alone) instead of
+            -- crashing detection for everyone.
+            AND tstzrange(a.started_at,GREATEST(COALESCE(a.ended_at,'infinity'::timestamptz),a.started_at),'[)')
+              && tstzrange(b.started_at,GREATEST(COALESCE(b.ended_at,'infinity'::timestamptz),b.started_at),'[)')
           UNION ALL SELECT ws.id,'SESSION_PAST_SHIFT_END','MEDIUM','Session quá giờ kết thúc ca',
             'Session vẫn còn OPEN sau khi ca làm việc đã kết thúc. Hệ thống sẽ tự động đóng ca sau ít phút nếu không có thao tác thủ công.',
             'Kết thúc Session thủ công, hoặc chờ hệ thống tự động đóng ca.'
@@ -184,7 +196,17 @@ class ExceptionRepository:
             if before['row_version']!=expected_version: raise ConflictError('Ngoại lệ đã được người khác cập nhật. Vui lòng tải lại.')
             if before['status'] not in ACTIVE: raise ConflictError('Ngoại lệ đã được xử lý')
             if target=='ACKNOWLEDGED' and before['status']!='OPEN': raise ConflictError('Ngoại lệ đã được xác nhận')
-            if target in ('RESOLVED','MANUAL_IGNORED') and before['severity'] in ('HIGH','CRITICAL') and not reason.strip():
+            # §1/§10 of the 2026-08-27 Session Exception Management task:
+            # IGNORED must ALWAYS require a reason, at every severity -- it
+            # is management explicitly accepting the anomaly as-is, an
+            # intentional decision that always needs to be justified in the
+            # audit trail, unlike RESOLVED (a real data fix), which only
+            # needs one for HIGH/CRITICAL (kept as-is; already covered by
+            # tests/integration/test_v67_exception_center.py's own
+            # high-severity-requires-reason case).
+            if target=='MANUAL_IGNORED' and not reason.strip():
+                raise ValueError('Bỏ qua ngoại lệ cần ghi lý do')
+            if target=='RESOLVED' and before['severity'] in ('HIGH','CRITICAL') and not reason.strip():
                 raise ValueError('Ngoại lệ HIGH/CRITICAL cần ghi lý do')
             cur.execute("""UPDATE exception_records SET status=%s,row_version=row_version+1,updated_at=CURRENT_TIMESTAMP,
               acknowledged_at=CASE WHEN %s='ACKNOWLEDGED' THEN CURRENT_TIMESTAMP ELSE acknowledged_at END,

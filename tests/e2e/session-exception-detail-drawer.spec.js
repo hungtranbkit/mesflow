@@ -16,10 +16,18 @@
 // .ec-drawer-shell/.ec-drawer with its own header/body/footer, and
 // Acknowledge/Resolve/Ignore all happen in place via footer
 // [data-action] buttons calling POST /api/exceptions/{id}/{action}
-// directly -- there is no claim/assign modal and no "Mở trong Quản lý
-// Session" hand-off at all (that capability was not carried over, not
-// merely renamed; see back-navigation.spec.js for the corresponding
-// finding on the Session Management side).
+// directly.
+//
+// UPDATE (2026-08-27, Session Exception Management task): the "Mở trong
+// Quản lý Session" hand-off IS back -- a real field complaint ("chỉ có
+// tính năng xem rồi đóng, chưa giải quyết triệt để") traced to exactly
+// this gap: the drawer could show Session context read-only but never let
+// a manager actually correct it through the real audited Session editor.
+// Restored as "Mở Session #<id>" in the footer, reusing the SAME
+// window.MESFLOW_SESSION_EXCEPTION_CONTEXT + AppNav.push() + #smBackException
+// mechanism Session Management already had (see back-navigation.spec.js's
+// employee-context test for proof that mechanism itself was never broken --
+// only exception-center.js never triggered it). See the new test below.
 const { test, expect } = require('@playwright/test');
 
 async function login(page) {
@@ -261,4 +269,34 @@ test('Tab Lịch sử hiển thị kết quả đã xử lý', async ({ page }) 
   await expect(page.locator('.ec-card')).toHaveCount(1);
   await expect(page.locator('.ec-card .ec-severity span')).toHaveText('Đã giải quyết');
   await page.screenshot({ path: 'test-results/session-history-tab.png', fullPage: true });
+});
+
+test('Mở Session điều hướng đúng Session, giữ ngữ cảnh quay lại', async ({ page }) => {
+  const items = exceptionItems();
+  const target = items[3]; // an arbitrary non-first row -- proves the RIGHT session opens, not always #0
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await login(page);
+  await mockApis(page, items);
+  await page.route(/\/api\/session-management\/operations\?/, route =>
+    route.fulfill({ json: { ok: true, items: [], filters: { production_orders: [], parts: [], operations: [], employees: [], stations: [] } } }));
+  await page.route(/\/api\/session-management\?/, route =>
+    route.fulfill({ json: { ok: true, items: [], filters: { production_orders: [], parts: [], operations: [], employees: [], stations: [] } } }));
+
+  await page.evaluate(() => openPage('session-exceptions'));
+  await page.locator(`.ec-card[data-id="${target.id}"]`).click();
+  await expect(page.locator('.ec-drawer')).toContainText(`SESSION #${target.session_id}`);
+
+  await page.getByRole('button', { name: `Mở Session #${target.session_id}` }).click();
+
+  // Real navigation to Session Management, not just closing the drawer --
+  // the exact gap the field report was about.
+  await expect(page.locator('#pageTitle')).toHaveText('Quản lý Session');
+  await expect(page.locator('.session-exception-context')).toContainText(`Session #${target.session_id}`);
+  await expect(page.locator('.session-exception-context')).toContainText('Session mở quá lâu');
+
+  // Back returns to the exception list, same page identity as before --
+  // not a generic Home fallback.
+  await page.locator('[data-nav-back]').click();
+  await expect(page.locator('#pageTitle')).toHaveText('Trung tâm ngoại lệ');
+  await expect(page.locator('.ec-card')).toHaveCount(items.length);
 });
