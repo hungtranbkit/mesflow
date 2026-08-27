@@ -163,19 +163,19 @@ def test_full_shared_terminal_multi_user_scenario(db, three_employee_graph):
 
     # A returns: server finds A's OPEN OP-A session, kiosk shows it fresh
     # (not a hangover -- this row didn't exist on the device between A's
-    # START and now, it just went through B and C).
+    # START and now, it just went through B and C). One card tap is enough
+    # to reach QUANTITY_INPUT directly -- SESSION_ACTIVE (a separate info-
+    # only confirm screen) is no longer part of this path (real field
+    # report, 2026-08-27: three total taps to finish -- open, view, confirm
+    # -- was confusing; one tap when a session is already open is enough).
     r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'A')})
     assert r['accepted'] is True, r
-    assert r['state']['name'] == 'SESSION_ACTIVE'
+    assert r['state']['name'] == 'QUANTITY_INPUT'
     assert r['view']['employee_name'] == 'Docker Test Worker A'
     assert r['view']['operation_code'] == f"TEST-OP-SHARED-A-{g['suffix']}"
     # B's context must not have leaked into what A now sees.
     assert 'Worker B' not in r['view']['employee_name']
 
-    # A scans again to confirm finish -> QUANTITY_INPUT -> submits -> READY.
-    r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'A')})
-    assert r['accepted'] is True, r
-    assert r['state']['name'] == 'QUANTITY_INPUT'
     r = _send(device, 'QUANTITY_SUBMITTED', {'quantity_good': 10, 'quantity_defect': 0, 'quantity_rework': 0})
     assert r['accepted'] is True, r
     assert r['state']['name'] == 'WAIT_EMPLOYEE'
@@ -187,12 +187,12 @@ def test_full_shared_terminal_multi_user_scenario(db, three_employee_graph):
     assert row['good_qty'] == 10
 
     # B returns while C's session is still open and untouched -- server
-    # finds B's OPEN OP-B session, not A's (now closed) or C's.
+    # finds B's OPEN OP-B session, not A's (now closed) or C's. Same
+    # single-tap-to-QUANTITY_INPUT path as A above.
     r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'B')})
     assert r['accepted'] is True, r
-    assert r['state']['name'] == 'SESSION_ACTIVE'
+    assert r['state']['name'] == 'QUANTITY_INPUT'
     assert r['view']['operation_code'] == f"TEST-OP-SHARED-B-{g['suffix']}"
-    r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'B')})
     r = _send(device, 'QUANTITY_SUBMITTED', {'quantity_good': 5, 'quantity_defect': 1, 'quantity_rework': 0})
     assert r['accepted'] is True, r
     assert r['state']['name'] == 'WAIT_EMPLOYEE'
