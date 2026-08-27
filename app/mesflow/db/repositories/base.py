@@ -7,6 +7,20 @@ class RepositoryError(RuntimeError): pass
 class NotFoundError(RepositoryError): pass
 class ConflictError(RepositoryError): pass
 
+class SessionChangedError(ConflictError):
+    """Raised by SupervisorRepository.edit_session() when the caller passed
+    expected_updated_at and it no longer matches the row's current
+    updated_at (2026-08-28 Session Exception Resolution modal, §11:
+    another supervisor changed the Session while this one's modal was
+    open). Subclasses ConflictError so any caller that doesn't specifically
+    handle it still gets a sane 409/BUSINESS_CONFLICT via api_error_response
+    -- callers that need the distinct SESSION_CHANGED shape (with the fresh
+    row attached, so the UI can show what changed) catch this exact class
+    first and read .current off it."""
+    def __init__(self,message:str,current:dict):
+        super().__init__(message)
+        self.current=current
+
 
 def reportable_session_sql(alias: str = 'ws') -> str:
     """Single source of truth for the "REPORTABLE session" predicate (Session
