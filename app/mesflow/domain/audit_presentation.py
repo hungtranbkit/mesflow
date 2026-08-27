@@ -48,6 +48,14 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
     'SESSION_EXCLUDE': {'label': 'Loại Session khỏi báo cáo', 'category': 'session'},
     'SESSION_RESTORE': {'label': 'Khôi phục Session vào báo cáo', 'category': 'session'},
     'SESSION_EXCEPTION_WORKFLOW_UPDATE': {'label': 'Xử lý Session bất thường', 'category': 'exception'},
+    # Inline Session Exception Resolution modal (2026-08-28): distinct from
+    # both SESSION_EDIT (the full Session Management editor) and
+    # SESSION_EXCEPTION_WORKFLOW_UPDATE (the retired workflow's own action)
+    # so a Business Audit Trail reader can tell "this correction happened
+    # through the exception modal's narrow, exception-type-scoped field
+    # whitelist" apart from an ordinary full-form Session edit, even though
+    # both ultimately call the same SupervisorRepository.edit_session().
+    'SESSION_EXCEPTION_CORRECT_SESSION': {'label': 'Sửa Session từ màn hình xử lý ngoại lệ', 'category': 'exception'},
     'EXCEPTION_ACKNOWLEDGED': {'label': 'Xác nhận ngoại lệ', 'category': 'exception'},
     'EXCEPTION_RESOLVED': {'label': 'Giải quyết ngoại lệ', 'category': 'exception'},
     'EXCEPTION_IGNORED': {'label': 'Bỏ qua ngoại lệ', 'category': 'exception'},
@@ -519,7 +527,11 @@ def present(row: dict[str, Any], *, employees: dict[int, dict] | None = None,
     before = _loads(row.get('before_json'))
     after = _loads(row.get('after_json'))
 
-    if action == 'SESSION_EDIT':
+    if action in ('SESSION_EDIT', 'SESSION_EXCEPTION_CORRECT_SESSION'):
+        # Same before/after/reason shape as SESSION_EDIT (both ultimately go
+        # through SupervisorRepository.edit_session()) -- the catalog label
+        # already tells a reader this one came from the exception modal's
+        # narrower field whitelist, so no separate presenter is needed.
         result = _present_session_edit(row, details, employees=employees, operations=operations, stations=stations)
     elif action == 'SESSION_ADJUST':
         result = _present_session_adjust(row, details, employees=employees, operations=operations, stations=stations)

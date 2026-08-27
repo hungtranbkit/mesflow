@@ -188,6 +188,12 @@ test('Trung tâm ngoại lệ -> xem chi tiết -> đóng quay lại đúng danh
   });
   await page.route(/\/api\/sessions\/\d+\/context$/, route => route.fulfill({ json: { ok: true, ...sessionDetailPayload(items[0]) } }));
   await page.route(/\/api\/exceptions\/\d+\/history$/, route => route.fulfill({ json: { ok: true, items: [] } }));
+  // The live drawer (2026-08-28 inline resolution modal) loads everything
+  // through this one combined endpoint, not the two separate calls above.
+  await page.route(/\/api\/session-exceptions\/\d+\/resolution-context$/, route => {
+    const detail = sessionDetailPayload(items[0]);
+    route.fulfill({ json: { ok: true, exception: items[0], session: { ...detail.session, updated_at: detail.session.started_at }, activity: detail.activity, history: [], editable_fields: ['ended_at', 'status'] } });
+  });
 
   await page.evaluate(() => openPage('session-exceptions'));
   await expect(page.locator('.ec-card')).toHaveCount(1);

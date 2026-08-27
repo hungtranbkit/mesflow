@@ -6,12 +6,31 @@ from uuid import UUID
 from psycopg.types.json import Jsonb
 from typing import Any
 from mesflow.db.connection import transaction,fetch_all,fetch_one
-from .base import NotFoundError,ConflictError,RepositoryError
+from .base import NotFoundError,ConflictError,RepositoryError,SessionChangedError
 from .production_state import lock_idempotency_key,lock_startable_operation,reconcile_operation_and_po,lock_production_order_for_operation_first
 from .scheduling import dispatch_state_from_db
 from mesflow.domain.audit import record_audit
 from mesflow.domain.trace import record_event,record_quantities
 from mesflow.core.time_policy import trusted_event_time
+
+
+def _parse_client_timestamp(value):
+    """Best-effort parse of a timestamp a client echoed back to us, tolerant
+    of either serialization this codebase's own JSON responses can produce
+    for a bare datetime -- Flask's default provider emits RFC 822 ("Thu, 27
+    Aug 2026 17:55:09 GMT") unless a route pre-converts via _json_safe
+    (ISO 8601). SessionChangedError's own comparison must not care which
+    one the caller happened to hold, only whether the two values mean the
+    same instant. Returns None (never raises) on anything unparseable --
+    the caller then falls back to a raw string compare, which still
+    correctly flags "different" for a genuinely different value."""
+    if not isinstance(value,str) or not value.strip(): return None
+    try: return datetime.fromisoformat(value.replace('Z','+00:00'))
+    except ValueError: pass
+    try:
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(value)
+    except (TypeError, ValueError): return None
 
 
 def _json_safe(value: Any):
@@ -645,7 +664,7 @@ class SupervisorRepository:
                 record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Điều chỉnh sản lượng Session',description=reason,operation_id=row['operation_id'],session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'adjustment_id':result['id'],'movements':[x['id'] for x in movements]})
                 if request_id:cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_ADJUST',Jsonb(result)))
                 return result
-    def edit_session(self,session_id,data,user_id):
+    def edit_session(self,session_id,data,user_id,expected_updated_at=None):
         reason=str(data.get('reason') or '').strip()
         if not reason: raise ValueError('Phải nhập lý do chỉnh sửa session')
         request_id=str(data.get('request_id') or '').strip()
@@ -657,6 +676,42 @@ class SupervisorRepository:
             with conn.cursor() as cur:
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
                 if not old: raise NotFoundError('session not found')
+                # §11 of the 2026-08-28 Session Exception Resolution modal
+                # task: optional, opt-in concurrency guard -- expected_
+                # updated_at is None for every pre-existing caller (Session
+                # Management's own full editor), so this changes nothing for
+                # them. The inline exception-resolution modal is the one
+                # caller that loads a Session, may sit open for a while, and
+                # needs to know if ANOTHER supervisor changed it meanwhile --
+                # checked here, inside the SAME row lock the rest of this
+                # method already takes, so there is no separate check-then-
+                # update race window.
+                #
+                # Parse-then-compare, never a raw string match: a real
+                # caller got expected_updated_at from a PRIOR API response,
+                # and this codebase's own JSON responses are NOT consistent
+                # about how a bare datetime serializes (Flask's default
+                # provider emits RFC 822; a route that pre-converts via
+                # _json_safe emits ISO 8601) -- str(old['updated_at']) vs a
+                # client-held string of either format made EVERY correction
+                # spuriously 409 as SESSION_CHANGED even when nothing had
+                # changed. Caught live by qa-center's
+                # session_exception_resolution_modal.py scenario (mocked
+                # unit/integration tests never exercised the real
+                # read-then-send-back-unchanged path with a real datetime).
+                # _parse_client_timestamp() understands both formats; a
+                # timestamp that fails to parse at all still correctly
+                # falls back to a raw compare, so a genuinely bogus/altered
+                # value is still caught as a change, not silently accepted.
+                if expected_updated_at is not None:
+                    parsed=_parse_client_timestamp(str(expected_updated_at))
+                    mismatch=(old['updated_at']!=parsed) if parsed is not None else (_json_safe(old['updated_at'])!=str(expected_updated_at))
+                else:
+                    mismatch=False
+                if mismatch:
+                    raise SessionChangedError(
+                        'Session đã được người khác thay đổi. Vui lòng xem lại dữ liệu mới nhất.',
+                        current=_json_safe(dict(old)))
                 employee_id=int(data.get('employee_id') or old['employee_id'])
                 operation_id=int(data.get('operation_id') or old['operation_id'])
                 station_id=data.get('station_id',old['station_id']); station_id=int(station_id) if station_id not in (None,'') else None
