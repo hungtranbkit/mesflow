@@ -92,12 +92,20 @@ def reconcile_operation(cur, operation_id: int):
     operation = cur.fetchone()
     if not operation:
         raise NotFoundError('operation not found')
+    # Session Management upgrade (spec section 7 -- "Loai khoi bao cao"):
+    # excluded_from_reports=TRUE is the ONE place Operation/PO progress,
+    # quantity and status are derived from, so filtering it out HERE is
+    # enough for it to stop counting toward done_qty/defect_qty/rework_qty,
+    # session_count and open_session_count everywhere downstream (PO
+    # progress, dashboard summary) without a second aggregation to keep in
+    # sync. The session itself is untouched -- still OPEN/CLOSED, still in
+    # history/audit -- only its contribution to this rollup disappears.
     cur.execute('''SELECT COUNT(*) session_count,
           COUNT(*) FILTER (WHERE status='OPEN') open_session_count,
           COALESCE(SUM(good_qty) FILTER (WHERE status='CLOSED'),0) good_qty,
           COALESCE(SUM(defect_qty) FILTER (WHERE status='CLOSED'),0) defect_qty,
           COALESCE(SUM(rework_qty) FILTER (WHERE status='CLOSED'),0) rework_qty
-        FROM work_sessions WHERE operation_id=%s''', (operation_id,))
+        FROM work_sessions WHERE operation_id=%s AND NOT excluded_from_reports''', (operation_id,))
     facts = cur.fetchone() or {}
     current = str(operation.get('status') or 'PLANNED').upper()
     sessions = int(facts.get('session_count') or 0)

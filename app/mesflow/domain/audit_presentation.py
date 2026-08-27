@@ -40,6 +40,13 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
     'SESSION_AUTO_CLOSED': {'label': 'Tự động đóng ca (quá giờ)', 'category': 'session'},
     'SESSION_EDIT': {'label': 'Chỉnh sửa Session', 'category': 'session'},
     'SESSION_ADJUST': {'label': 'Điều chỉnh sản lượng Session', 'category': 'quantity'},
+    # Session Management upgrade (spec section 6/7): dedicated actions,
+    # separate from SESSION_EDIT, so a Business Audit Trail reader can tell
+    # "Operation was reassigned" / "this session's data was excluded from
+    # reporting" apart from an ordinary field correction at a glance.
+    'SESSION_OPERATION_TRANSFER': {'label': 'Chuyển Operation cho Session', 'category': 'session'},
+    'SESSION_EXCLUDE': {'label': 'Loại Session khỏi báo cáo', 'category': 'session'},
+    'SESSION_RESTORE': {'label': 'Khôi phục Session vào báo cáo', 'category': 'session'},
     'SESSION_EXCEPTION_WORKFLOW_UPDATE': {'label': 'Xử lý Session bất thường', 'category': 'exception'},
     'EXCEPTION_ACKNOWLEDGED': {'label': 'Xác nhận ngoại lệ', 'category': 'exception'},
     'EXCEPTION_RESOLVED': {'label': 'Giải quyết ngoại lệ', 'category': 'exception'},

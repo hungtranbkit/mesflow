@@ -943,6 +943,21 @@ class ReportRepository:
           UNION ALL
           SELECT ws.id,NULL,'INVALID_TIME','CRITICAL','Giờ kết thúc trước giờ bắt đầu',false
             FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at
+          UNION ALL
+          -- Session Management upgrade (spec section 2/4): a session the
+          -- shift-auto-close job closed (close_reason='AUTO_SHIFT_END')
+          -- without any human ever confirming the final numbers
+          -- (quantity_confirmed=FALSE, set only by auto_close_for_shift_end()
+          -- and cleared back TRUE the moment an admin/supervisor corrects it
+          -- via adjust()/edit_session()). Distinct from ZERO_QTY_LONG above --
+          -- that one only fires past a flat 4h duration regardless of WHY it
+          -- closed; this fires for ANY auto-closed session still unconfirmed,
+          -- including a short shift where the operator genuinely forgot to
+          -- press finish.
+          SELECT ws.id,NULL,'AUTO_CLOSED_UNCONFIRMED','ERROR',
+            'Session được tự động đóng khi hết giờ ca và chưa có ai xác nhận số liệu',false
+            FROM work_sessions ws WHERE ws.status='CLOSED' AND ws.closed_by_system
+              AND NOT ws.quantity_confirmed
         ), kiosk_reconcile_flags AS (
           -- DR reconciliation conflict (audit reports/KIOSK_OFFLINE_DR_SYNC_AUDIT.md
           -- section 7/11): a kiosk replayed an event it believed was already
@@ -1039,6 +1054,7 @@ class ReportRepository:
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
           ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,ws.station_id,ws.device_uuid,
           ws.note session_note,ws.start_request_id,ws.finish_request_id,
+          ws.close_reason,ws.closed_by_system,ws.quantity_confirmed,ws.excluded_from_reports,ws.exclusion_reason,
           CASE
             WHEN COALESCE(ws.start_request_id,'') LIKE 'QA-REAL-START-%%'
               OR COALESCE(ws.start_request_id,'') LIKE 'QA-RUN-%%' THEN 'QA_TEST'
@@ -1081,6 +1097,13 @@ class ReportRepository:
             secondary=bool(row.get('secondary_evidence'))
             if wf in ('RESOLVED','IGNORED'):
                 return 'HISTORY_ONLY'
+            if row.get('excluded_from_reports'):
+                # A human already decided this session's data doesn't count
+                # (spec section 7) -- that decision itself IS the review
+                # outcome, so it must never sit in the default Inbox waiting
+                # for a second look, regardless of what workflow_status the
+                # underlying exception_review row happens to carry.
+                return 'EXCLUDED'
             # QA/Tutorial fixtures never surface as manager work, full stop --
             # including when their seeded/demo data happens to carry an
             # IN_PROGRESS workflow_status (real bug caught live: a Tutorial
@@ -1127,6 +1150,12 @@ class ReportRepository:
                 return 'CONFIRMATION' if secondary else 'ACTION_REQUIRED'
             if code=='ZERO_QTY_LONG':
                 return 'CONFIRMATION'
+            if code=='AUTO_CLOSED_UNCONFIRMED':
+                # Unlike ZERO_QTY_LONG (CONFIRMATION -- data exists, just looks
+                # suspicious), here NO human has ever entered a number for this
+                # close at all -- always real work for someone, never a soft
+                # "just double check" prompt.
+                return 'ACTION_REQUIRED'
             return 'UNKNOWN'
         for row in rows:
             if str(row.get('data_source') or '').upper()=='UNKNOWN' and row.get('source_trace_id'):
@@ -1136,7 +1165,7 @@ class ReportRepository:
             row['data_impact']={
                 'OVERLAP':'working_time/kpi', 'OPEN_TOO_LONG':'working_time/employee_state',
                 'ZERO_QTY_LONG':'quantity/kpi/po_progress', 'MISSING_STATION':'kpi/po_progress',
-                'INVALID_TIME':'working_time/kpi'
+                'INVALID_TIME':'working_time/kpi', 'AUTO_CLOSED_UNCONFIRMED':'quantity/kpi/po_progress'
             }.get(str(row.get('exception_code') or '').upper(),'unknown')
             row['human_decision_required']=row['classification'] in ('ACTION_REQUIRED','CONFIRMATION')
         if inbox_only:
@@ -1219,7 +1248,11 @@ class ReportRepository:
         employees=fetch_all("""SELECT e.id employee_id,e.employee_no employee_code,e.name employee_name,
           e.department,e.team,e.position,e.employment_status
         FROM employees e ORDER BY e.employee_no,e.name LIMIT 5000""")
-        conditions=['1=1']; params=[]
+        # Session Management upgrade (spec section 7): a session marked
+        # excluded_from_reports must never count toward an employee's
+        # working time/quantity/KPI here -- it stays visible everywhere else
+        # (history, audit), just not in this report.
+        conditions=['NOT ws.excluded_from_reports']; params=[]
         if employee_id:
             conditions.append('ws.employee_id=%s'); params.append(employee_id)
         if date_from:
@@ -1419,6 +1452,8 @@ class ReportRepository:
         params.append(min(max(int(limit or 3000),1),10000))
         items=fetch_all(f"""SELECT ws.id session_id,ws.employee_id,ws.operation_id,ws.station_id,ws.device_uuid,ws.status,
           ws.started_at,ws.ended_at,ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,ws.note,ws.created_at,ws.updated_at,
+          ws.close_reason,ws.closed_by_system,ws.quantity_confirmed,
+          ws.excluded_from_reports,ws.exclusion_reason,ws.excluded_by,ws.excluded_at,
           e.employee_no employee_code,e.name employee_name,po.id po_id,po.code po_code,
           p.id part_id,p.code part_code,p.name part_name,o.code operation_code,o.name operation_name,
           s.code station_code,s.name station_name,
@@ -1448,6 +1483,8 @@ class ReportRepository:
         row=fetch_one("""SELECT ws.id session_id,ws.employee_id,ws.operation_id,ws.station_id,ws.device_uuid,ws.status,
           ws.started_at,ws.ended_at,ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,ws.note,
           ws.created_at,ws.updated_at,ws.start_request_id,ws.finish_request_id,
+          ws.close_reason,ws.closed_by_system,ws.quantity_confirmed,
+          ws.excluded_from_reports,ws.exclusion_reason,ws.excluded_by,ws.excluded_at,
           e.employee_no employee_code,e.name employee_name,
           po.id po_id,po.code po_code,
           p.id part_id,p.code part_code,p.name part_name,
