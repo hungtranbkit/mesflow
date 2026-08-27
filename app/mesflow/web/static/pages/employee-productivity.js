@@ -111,7 +111,7 @@ async function renderEmployeeProductivity() {
         <td><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
         <td><b>${totalCompleted} session</b><small>${x.running_sessions} đang chạy${x.completed_invalid_sessions ? ` · ${x.completed_invalid_sessions} không đủ dữ liệu` : ''}</small></td>
         <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} session hợp lệ</small></td>
-        <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>Lỗi ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
+        <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>NG ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
         <td>${epDur(x.worked_seconds)}</td>
         <td><span class="badge ep-band ${band.cls}">${band.label}</span></td>
       </tr>`;

@@ -572,8 +572,17 @@ class WorkSessionRepository:
                 _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='AUTO_SHIFT_CLOSE')
                 record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=None,actor_name='SYSTEM',
                     source='AUTO_SHIFT_CLOSE',reason='Tự động đóng ca vào cuối giờ làm việc',correlation_id=correlation_id)
+                # quantity_confirmed=FALSE: a human never confirmed the final
+                # numbers for THIS close (see migration 0042) -- even if
+                # good/defect already carry some real value from earlier in
+                # the shift, nobody has looked at and confirmed them as the
+                # session's true final result. ReportRepository.session_
+                # exceptions() surfaces this as AUTO_CLOSED_UNCONFIRMED until
+                # an admin/supervisor correction (adjust()/edit_session())
+                # flips it back TRUE.
                 cur.execute("""UPDATE work_sessions SET status='CLOSED',ended_at=%s,good_qty=%s,defect_qty=%s,rework_qty=%s,
-                    close_reason='AUTO_SHIFT_END',closed_by_system=TRUE,shift_boundary_used_at=%s,updated_at=CURRENT_TIMESTAMP
+                    close_reason='AUTO_SHIFT_END',closed_by_system=TRUE,shift_boundary_used_at=%s,
+                    quantity_confirmed=FALSE,updated_at=CURRENT_TIMESTAMP
                     WHERE id=%s RETURNING *""",(shift_end_at,good,defect,rework,shift_end_at,session_id))
                 closed=cur.fetchone()
                 reconcile_operation_and_po(cur,row['operation_id'])
@@ -625,7 +634,11 @@ class SupervisorRepository:
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
                 movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
-                cur.execute('UPDATE work_sessions SET good_qty=%s,defect_qty=%s,rework_qty=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s',(good,defect,rework,session_id))
+                # An explicit admin/supervisor correction IS the human
+                # confirmation this session was missing (spec section 2/4) --
+                # always flips quantity_confirmed back TRUE, whatever it was
+                # before (see migration 0042).
+                cur.execute('UPDATE work_sessions SET good_qty=%s,defect_qty=%s,rework_qty=%s,quantity_confirmed=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=%s',(good,defect,rework,session_id))
                 reconcile_operation_and_po(cur,row['operation_id'])
                 cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,old_defect_qty,new_defect_qty,old_rework_qty,new_rework_qty,reason,adjusted_by)
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",(session_id,row['operation_id'],row['good_qty'],good,row['defect_qty'],defect,int(row.get('rework_qty') or 0),rework,reason,user_id)); result=_json_safe(dict(cur.fetchone()))
@@ -671,7 +684,8 @@ class SupervisorRepository:
                     cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
                 cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
                 movements=record_quantities(cur,session=old,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
-                cur.execute("""UPDATE work_sessions SET employee_id=%s,operation_id=%s,station_id=%s,status=%s,started_at=%s::timestamptz,ended_at=%s::timestamptz,good_qty=%s,defect_qty=%s,rework_qty=%s,note=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *""",(employee_id,operation_id,station_id,status,started_at,ended_at,good,defect,rework,note,session_id)); new=cur.fetchone()
+                # Same confirmation rule as adjust() above.
+                cur.execute("""UPDATE work_sessions SET employee_id=%s,operation_id=%s,station_id=%s,status=%s,started_at=%s::timestamptz,ended_at=%s::timestamptz,good_qty=%s,defect_qty=%s,rework_qty=%s,note=%s,quantity_confirmed=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *""",(employee_id,operation_id,station_id,status,started_at,ended_at,good,defect,rework,note,session_id)); new=cur.fetchone()
                 cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,old_defect_qty,new_defect_qty,old_rework_qty,new_rework_qty,reason,adjusted_by) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(session_id,operation_id,old['good_qty'],good,old['defect_qty'],defect,int(old.get('rework_qty') or 0),rework,reason,user_id))
                 reconcile_operation_and_po(cur,old['operation_id'])
                 if int(old['operation_id'])!=operation_id:
@@ -679,6 +693,135 @@ class SupervisorRepository:
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
                 record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Chỉnh sửa Session',description=reason,operation_id=operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'before':_json_safe(dict(old)),'after':_json_safe(dict(new)),'movement_ids':[x['id'] for x in movements]})
                 if request_id:cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_EDIT',Jsonb(result)))
+                return result
+
+    def transfer_operation(self,session_id,data,user_id,actor_role=''):
+        """Chuyen Operation (spec section 6): a DEDICATED action, deliberately
+        separate from edit_session()'s generic field-by-field form. Operation
+        is the one field where a wrong click has outsized consequences --
+        the session's quantities silently start counting toward a different
+        Part/PO's progress -- so it gets its own confirm step and its own
+        validation instead of riding along inside an ordinary time/quantity
+        correction.
+
+        Rules (spec section 6): new Operation must exist and not be
+        CANCELLED; same-Part transfers are always allowed; a cross-Part
+        transfer (still same PO) requires the caller to have explicitly
+        confirmed (confirm_cross_part=true) -- never silently allowed; a
+        cross-PO transfer is blocked unless the actor is 'admin' (this
+        RBAC's highest role -- there is no separate finer-grained permission
+        for it, see AGENTS.md's real role list).
+        """
+        new_operation_id=int(data.get('operation_id') or 0)
+        if not new_operation_id: raise ValueError('Chưa chọn Operation mới')
+        reason=str(data.get('reason') or '').strip()
+        if not reason: raise ValueError('Phải nhập lý do chuyển Operation')
+        confirm_cross_part=bool(data.get('confirm_cross_part'))
+        request_id=str(data.get('request_id') or '').strip()
+        with transaction() as conn:
+            if request_id:
+                with conn.cursor() as cur: lock_idempotency_key(cur,request_id)
+                replay=WorkSessionRepository()._replay(conn,request_id,'SESSION_OPERATION_TRANSFER')
+                if replay is not None:return replay
+            with conn.cursor() as cur:
+                cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
+                if not pre: raise NotFoundError('session not found')
+                cur.execute('SELECT production_order_id FROM operations WHERE id=%s',(pre['operation_id'],)); src_ref=cur.fetchone()
+                if not src_ref: raise NotFoundError('session not found')
+                cur.execute('SELECT production_order_id FROM operations WHERE id=%s',(new_operation_id,)); tgt_ref=cur.fetchone()
+                if not tgt_ref: raise ValueError('Operation không tồn tại')
+                # Lock every PO involved, in a FIXED (ascending id) order --
+                # same deadlock-avoidance reasoning as
+                # lock_production_order_for_operation_first()'s own docstring,
+                # generalized to the (rare, admin-only) two-different-PO case
+                # a reverse concurrent transfer could otherwise deadlock on.
+                for po_id in sorted({src_ref['production_order_id'],tgt_ref['production_order_id']}):
+                    cur.execute('SELECT id FROM production_orders WHERE id=%s FOR UPDATE',(po_id,))
+                cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
+                if not old: raise NotFoundError('session not found')
+                if int(old['operation_id'])==new_operation_id: raise ValueError('Operation mới trùng Operation hiện tại')
+                cur.execute("""SELECT o.id,o.code,o.name,o.status,o.part_id,o.production_order_id,p.code part_code,
+                    po.code po_code FROM operations o JOIN parts p ON p.id=o.part_id
+                    JOIN production_orders po ON po.id=o.production_order_id WHERE o.id=%s FOR UPDATE OF o""",(old['operation_id'],))
+                source_op=cur.fetchone()
+                cur.execute("""SELECT o.id,o.code,o.name,o.status,o.part_id,o.production_order_id,p.code part_code,
+                    po.code po_code FROM operations o JOIN parts p ON p.id=o.part_id
+                    JOIN production_orders po ON po.id=o.production_order_id WHERE o.id=%s FOR UPDATE OF o""",(new_operation_id,))
+                target_op=cur.fetchone()
+                if not target_op: raise ValueError('Operation không tồn tại')
+                if str(target_op.get('status') or '').upper()=='CANCELLED':
+                    raise ConflictError(f"Operation {target_op.get('code') or new_operation_id} đã CANCELLED, không thể chuyển vào")
+                if int(target_op['production_order_id'])!=int(source_op['production_order_id']):
+                    if str(actor_role or '').lower()!='admin':
+                        raise ConflictError(f"Operation mới thuộc PO khác ({target_op.get('po_code')} khác {source_op.get('po_code')}); chỉ admin mới được chuyển khác PO")
+                elif int(target_op['part_id'])!=int(source_op['part_id']) and not confirm_cross_part:
+                    raise ConflictError(f"Operation mới thuộc Part khác ({target_op.get('part_code')} khác {source_op.get('part_code')}); cần xác nhận rõ trước khi chuyển")
+                cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
+                # Time and good/reject quantities stay exactly as they were --
+                # only the Operation assignment (and, transitively, which
+                # PO/Part's progress+KPI count them) changes.
+                cur.execute('UPDATE work_sessions SET operation_id=%s,quantity_confirmed=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *',(new_operation_id,session_id)); new=cur.fetchone()
+                reconcile_operation_and_po(cur,int(source_op['id']))
+                reconcile_operation_and_po(cur,int(target_op['id']))
+                result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason,
+                    'from_operation':{'id':source_op['id'],'code':source_op['code'],'name':source_op['name']},
+                    'to_operation':{'id':target_op['id'],'code':target_op['code'],'name':target_op['name']}})
+                record_event(cur,event_type='OPERATION_TRANSFERRED',category='CHANGE',
+                    title='Chuyển Operation cho Session',description=reason,
+                    operation_id=new_operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,
+                    correlation_id=request_id,
+                    metadata={'from_operation_id':source_op['id'],'from_operation_code':source_op['code'],
+                              'to_operation_id':target_op['id'],'to_operation_code':target_op['code'],'reason':reason})
+                if request_id:cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_OPERATION_TRANSFER',Jsonb(result)))
+                return result
+
+    def exclude_session(self,session_id,data,user_id,actor_username=''):
+        """Loai khoi bao cao (spec section 7): never deletes -- the session
+        stays in history/audit forever, only its contribution to time/
+        quantity/KPI/progress reporting stops (reconcile_operation() filters
+        excluded_from_reports=TRUE out at the source, see migration 0042)."""
+        reason=str(data.get('reason') or '').strip()
+        if not reason: raise ValueError('Phải chọn lý do khi loại Session khỏi báo cáo')
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
+                if not pre: raise NotFoundError('session not found')
+                lock_production_order_for_operation_first(cur,pre['operation_id'])
+                cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
+                if not old: raise NotFoundError('session not found')
+                if old['excluded_from_reports']: raise ConflictError('Session đã được loại khỏi báo cáo')
+                cur.execute("""UPDATE work_sessions SET excluded_from_reports=TRUE,exclusion_reason=%s,
+                    excluded_by=%s,excluded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+                    WHERE id=%s RETURNING *""",(reason,actor_username,session_id)); new=cur.fetchone()
+                reconcile_operation_and_po(cur,int(old['operation_id']))
+                result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
+                record_event(cur,event_type='SESSION_EXCLUDED',category='CHANGE',title='Loại Session khỏi báo cáo',
+                    description=reason,operation_id=old['operation_id'],session_id=session_id,actor_id=user_id,
+                    actor_name=actor_username,metadata={'reason':reason})
+                return result
+
+    def restore_session(self,session_id,data,user_id,actor_username=''):
+        """Undo exclude_session() -- report/KPI/progress count this session
+        again from the next reconcile onward. Requires a reason for the same
+        auditability reason exclude itself does."""
+        reason=str(data.get('reason') or '').strip()
+        if not reason: raise ValueError('Phải nhập lý do khôi phục Session vào báo cáo')
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
+                if not pre: raise NotFoundError('session not found')
+                lock_production_order_for_operation_first(cur,pre['operation_id'])
+                cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
+                if not old: raise NotFoundError('session not found')
+                if not old['excluded_from_reports']: raise ConflictError('Session hiện không bị loại khỏi báo cáo')
+                cur.execute("""UPDATE work_sessions SET excluded_from_reports=FALSE,exclusion_reason='',
+                    excluded_by='',excluded_at=NULL,updated_at=CURRENT_TIMESTAMP
+                    WHERE id=%s RETURNING *""",(session_id,)); new=cur.fetchone()
+                reconcile_operation_and_po(cur,int(old['operation_id']))
+                result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
+                record_event(cur,event_type='SESSION_RESTORED',category='CHANGE',title='Khôi phục Session vào báo cáo',
+                    description=reason,operation_id=old['operation_id'],session_id=session_id,actor_id=user_id,
+                    actor_name=actor_username,metadata={'reason':reason,'previous_exclusion_reason':old.get('exclusion_reason')})
                 return result
 
     def penalty(self,data,user_id):

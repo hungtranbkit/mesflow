@@ -146,6 +146,40 @@ def edit_session_full(session_id):
         return jsonify(ok=True,item=result['item'])
     except Exception as exc: return err(exc)
 
+@bp.post('/supervisor/sessions/<int:session_id>/transfer-operation')
+@roles_required('admin','manager','supervisor')
+def transfer_session_operation(session_id):
+    try:
+        body=request.get_json(silent=True) or {}
+        actor_role=str(session.get('role') or '')
+        result=SupervisorRepository().transfer_operation(session_id,body,session.get('user_id'),actor_role=actor_role)
+        AuditRepository().log(str(session.get('username','')),'SESSION_OPERATION_TRANSFER','work_session',str(session_id),
+            _json_safe({'reason':body.get('reason'),'from_operation':result['from_operation'],'to_operation':result['to_operation']}))
+        return jsonify(ok=True,item=result['item'])
+    except Exception as exc: return err(exc)
+
+@bp.post('/supervisor/sessions/<int:session_id>/exclude')
+@roles_required('admin','manager','supervisor')
+def exclude_session(session_id):
+    try:
+        body=request.get_json(silent=True) or {}
+        actor_username=str(session.get('username') or '')
+        result=SupervisorRepository().exclude_session(session_id,body,session.get('user_id'),actor_username=actor_username)
+        AuditRepository().log(actor_username,'SESSION_EXCLUDE','work_session',str(session_id),_json_safe({'reason':body.get('reason')}))
+        return jsonify(ok=True,item=result['item'])
+    except Exception as exc: return err(exc)
+
+@bp.post('/supervisor/sessions/<int:session_id>/restore')
+@roles_required('admin','manager','supervisor')
+def restore_session(session_id):
+    try:
+        body=request.get_json(silent=True) or {}
+        actor_username=str(session.get('username') or '')
+        result=SupervisorRepository().restore_session(session_id,body,session.get('user_id'),actor_username=actor_username)
+        AuditRepository().log(actor_username,'SESSION_RESTORE','work_session',str(session_id),_json_safe({'reason':body.get('reason')}))
+        return jsonify(ok=True,item=result['item'])
+    except Exception as exc: return err(exc)
+
 @bp.post('/supervisor/penalties')
 @roles_required('admin','manager','supervisor')
 def penalty():

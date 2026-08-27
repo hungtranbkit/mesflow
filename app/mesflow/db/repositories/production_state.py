@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .base import ConflictError, NotFoundError
+from .base import ConflictError, NotFoundError, reportable_session_sql
 from mesflow.domain.trace import record_event
 
 
@@ -92,12 +92,20 @@ def reconcile_operation(cur, operation_id: int):
     operation = cur.fetchone()
     if not operation:
         raise NotFoundError('operation not found')
-    cur.execute('''SELECT COUNT(*) session_count,
+    # Session Management upgrade (spec section 7 -- "Loai khoi bao cao"):
+    # excluded_from_reports=TRUE is the ONE place Operation/PO progress,
+    # quantity and status are derived from, so filtering it out HERE is
+    # enough for it to stop counting toward done_qty/defect_qty/rework_qty,
+    # session_count and open_session_count everywhere downstream (PO
+    # progress, dashboard summary) without a second aggregation to keep in
+    # sync. The session itself is untouched -- still OPEN/CLOSED, still in
+    # history/audit -- only its contribution to this rollup disappears.
+    cur.execute(f'''SELECT COUNT(*) session_count,
           COUNT(*) FILTER (WHERE status='OPEN') open_session_count,
           COALESCE(SUM(good_qty) FILTER (WHERE status='CLOSED'),0) good_qty,
           COALESCE(SUM(defect_qty) FILTER (WHERE status='CLOSED'),0) defect_qty,
           COALESCE(SUM(rework_qty) FILTER (WHERE status='CLOSED'),0) rework_qty
-        FROM work_sessions WHERE operation_id=%s''', (operation_id,))
+        FROM work_sessions WHERE operation_id=%s AND {reportable_session_sql("")}''', (operation_id,))
     facts = cur.fetchone() or {}
     current = str(operation.get('status') or 'PLANNED').upper()
     sessions = int(facts.get('session_count') or 0)
@@ -139,12 +147,20 @@ def reconcile_production_order(cur, po_id: int):
     po = cur.fetchone()
     if not po:
         raise NotFoundError('production order not found')
-    cur.execute('''SELECT COUNT(*) operation_count,
+    # has_history edge case (Session Management exclude/restore audit): a PO
+    # whose ONLY session(s) are all excluded_from_reports must NOT read as
+    # "has real production history" -- that field exists specifically to
+    # keep a PO looking IN_PROGRESS even when every one of its Operations
+    # has individually fallen back to a non-running status (see below), and
+    # an excluded session is explicitly "does not count as production" by
+    # definition. The session row itself is untouched -- reportable_session_
+    # sql() only affects this EXISTS check, never work_sessions itself.
+    cur.execute(f'''SELECT COUNT(*) operation_count,
           COUNT(*) FILTER (WHERE status='COMPLETED') completed_count,
           COUNT(*) FILTER (WHERE status='CANCELLED') cancelled_count,
           COUNT(*) FILTER (WHERE status='IN_PROGRESS') running_count,
           EXISTS(SELECT 1 FROM work_sessions ws JOIN operations x ON x.id=ws.operation_id
-                 WHERE x.production_order_id=%s) has_history
+                 WHERE x.production_order_id=%s AND {reportable_session_sql("ws")}) has_history
         FROM operations WHERE production_order_id=%s''', (po_id, po_id))
     facts = cur.fetchone() or {}
     current = str(po.get('status') or 'DRAFT').upper()

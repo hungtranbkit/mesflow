@@ -11,26 +11,35 @@ const MF_EXCEPTION_LABELS={
   OPEN_TOO_LONG:'Mở quá lâu',
   ZERO_QTY_LONG:'Không có sản lượng',
   MISSING_STATION:'Thiếu trạm',
-  INVALID_TIME:'Sai thời gian'
+  INVALID_TIME:'Sai thời gian',
+  AUTO_CLOSED_UNCONFIRMED:'Quá giờ · Chưa nhập sản lượng'
 };
 const MF_EXCEPTION_HINTS={
   OVERLAP:'Kiểm tra hai Session trùng giờ. Thường cần sửa thời gian hoặc Session ghi nhầm.',
   OPEN_TOO_LONG:'Kiểm tra công nhân đã kết thúc công việc chưa. Nếu quên đóng, sửa Session và nhập giờ kết thúc đúng.',
   ZERO_QTY_LONG:'Đối chiếu phiếu sản xuất. Chỉ nhập sản lượng khi có bằng chứng; nếu thực tế không sản xuất, ghi rõ lý do.',
   MISSING_STATION:'Xác minh công nhân làm tại trạm nào. Chỉ bổ sung trạm nếu có căn cứ.',
-  INVALID_TIME:'Giờ kết thúc đang trước giờ bắt đầu. Cần sửa lại thời gian đúng trước khi hoàn tất xử lý.'
+  INVALID_TIME:'Giờ kết thúc đang trước giờ bắt đầu. Cần sửa lại thời gian đúng trước khi hoàn tất xử lý.',
+  AUTO_CLOSED_UNCONFIRMED:'Hệ thống đã tự động kết thúc Session này sau giờ ca. Nhập số lượng thực tế (đạt/lỗi) để hoàn tất, hoặc sửa lại giờ kết thúc nếu công nhân đã dừng sớm hơn.'
 };
 const MF_WORKFLOW_LABELS={NEW:'Mới',IN_PROGRESS:'Đang xử lý',RESOLVED:'Đã xử lý',IGNORED:'Bỏ qua'};
 const MF_SEVERITY_LABELS={CRITICAL:'Nghiêm trọng',ERROR:'Cần xử lý',WARNING:'Cảnh báo',INFO:'Đã thay đổi'};
 const MF_SOURCE_LABELS={QA_TEST:'QA Test',TUTORIAL:'Tutorial/Demo',TUTORIAL_DEMO:'Tutorial/Demo',REAL_USER:'Thực tế',UNKNOWN:'Không xác định'};
-const MF_CLASSIFICATION_LABELS={ACTION_REQUIRED:'Cần xử lý',CONFIRMATION:'Cần xác nhận',USER_MISTAKE:'Lỗi thao tác nhỏ',AUTO_RECOVERED:'Tự khôi phục',QA_TEST:'QA Test',TUTORIAL:'Tutorial/Demo',HISTORY_ONLY:'Lịch sử',UNKNOWN:'Không xác định'};
+const MF_CLASSIFICATION_LABELS={ACTION_REQUIRED:'Cần xử lý',CONFIRMATION:'Cần xác nhận',USER_MISTAKE:'Lỗi thao tác nhỏ',AUTO_RECOVERED:'Tự khôi phục',QA_TEST:'QA Test',TUTORIAL:'Tutorial/Demo',HISTORY_ONLY:'Lịch sử',EXCLUDED:'Đã loại khỏi báo cáo',UNKNOWN:'Không xác định'};
 const MF_IMPACT_LABELS={
   OVERLAP:'Ảnh hưởng: thời gian công đoạn đang bị trùng.',
   OPEN_TOO_LONG:'Ảnh hưởng: thời gian công đoạn đang sai.',
   ZERO_QTY_LONG:'Ảnh hưởng: sản lượng/KPI có thể thiếu chính xác.',
   MISSING_STATION:'Ảnh hưởng: không xác định được trạm làm việc.',
-  INVALID_TIME:'Ảnh hưởng: thời gian công đoạn đang sai.'
+  INVALID_TIME:'Ảnh hưởng: thời gian công đoạn đang sai.',
+  AUTO_CLOSED_UNCONFIRMED:'Ảnh hưởng: sản lượng/KPI/tiến độ Operation có thể thiếu chính xác cho đến khi nhập số liệu.'
 };
+
+// "Đã loại khỏi báo cáo" badge (spec section 7) -- shown wherever a session
+// can appear (accordion row, detail drawer, exception card) so nobody
+// mistakes an excluded session for one that still counts.
+const excludedBadgeHtml=x=>x&&x.excluded_from_reports?'<span class="badge excluded" title="'+esc(x.exclusion_reason||'')+'">Đã loại khỏi báo cáo</span>':'';
+const unconfirmedQtyBadgeHtml=x=>x&&x.closed_by_system&&x.quantity_confirmed===false?'<span class="badge warning">Chưa xác nhận số liệu</span>':'';
 
 // --- Shared key/value detail grid ------------------------------------------
 // rows: [{label, value(html-safe already), wide?}]. One canonical layout for
@@ -67,7 +76,7 @@ function sessionCoreFieldRows(x){
     {label:'Trạm',value:esc(x.station_code||x.station_name||'Chưa gán')},
     {label:'Device / kiosk',value:esc(x.device_uuid||'—')},
     {label:'Nguồn',value:sourceBadgeHtml(x.data_source)},
-    {label:'Trạng thái',value:x.status==='OPEN'?'<span class="badge warning">Đang chạy</span>':'<span class="badge success">Đã kết thúc</span>'},
+    {label:'Trạng thái',value:(x.status==='OPEN'?'<span class="badge warning">Đang chạy</span>':'<span class="badge success">Đã kết thúc</span>')+(x.closed_by_system?' <span class="badge">Tự động kết thúc</span>':'')+' '+unconfirmedQtyBadgeHtml(x)+' '+excludedBadgeHtml(x)},
     {label:'Bắt đầu',value:esc(fmt(x.started_at))},
     {label:'Kết thúc',value:x.ended_at?esc(fmt(x.ended_at)):'Đang chạy'},
     {label:'Thời lượng',value:esc(mfDisplayDuration(x.duration_seconds))},
@@ -199,3 +208,5 @@ window.MF_CLASSIFICATION_LABELS=MF_CLASSIFICATION_LABELS;
 window.sessionCoreFieldRows=sessionCoreFieldRows;
 window.MF_IMPACT_LABELS=MF_IMPACT_LABELS;
 window.sourceBadgeHtml=sourceBadgeHtml;
+window.excludedBadgeHtml=excludedBadgeHtml;
+window.unconfirmedQtyBadgeHtml=unconfirmedQtyBadgeHtml;
