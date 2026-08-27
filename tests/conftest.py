@@ -11,6 +11,7 @@ BEHAVIOR_FILES={
     'test_session_overlap_and_exceptions.py',
     'test_session_exception_workflow.py',
     'test_shift_dashboard.py',
+    'test_super_admin_system_console.py',
 }
 
 

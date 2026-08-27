@@ -70,7 +70,7 @@ def test_clean_db_upgrades_to_head(scratch_db):
 
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
         head = conn.execute('SELECT version_num FROM alembic_version').fetchone()
-        assert head['version_num'] == '0042_session_review_and_exclusion'
+        assert head['version_num'] == '0043_super_admin_role'
         version = conn.execute("SELECT value FROM system_meta WHERE key='schema_version'").fetchone()
         assert version['value'] == '72.0.3.0'
         cols = {r['column_name'] for r in conn.execute(
@@ -190,7 +190,7 @@ def test_downgrade_then_reupgrade_is_clean(scratch_db):
     assert reup.returncode == 0, reup.stdout + reup.stderr
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
         head = conn.execute('SELECT version_num FROM alembic_version').fetchone()
-        assert head['version_num'] == '0042_session_review_and_exclusion'
+        assert head['version_num'] == '0043_super_admin_role'
         cols = {r['column_name'] for r in conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name='work_sessions'")}
         assert {'close_reason', 'closed_by_system', 'started_at_trusted', 'ended_at_trusted'} <= cols

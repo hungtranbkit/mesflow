@@ -44,6 +44,35 @@ def api():
     return session
 
 
+@pytest.fixture(scope='session')
+def super_admin_api(db):
+    """SUPER_ADMIN / IT System Console (task): /api/system-health/* is now
+    super_admin-only, not admin/manager/supervisor -- every existing test
+    that exercised its real business logic (job status, kiosk fleet
+    counting, error fingerprinting, predictive insights, notification
+    channels, AI analysis) needs a super_admin session instead of the
+    shared `api` (plain admin) fixture. One throwaway super_admin account
+    for the whole test session, mirroring `api`'s own login pattern; not
+    the bootstrap path (mesflow.cli.seed_super_admin), which is a
+    separate, env-gated, real-deployment-only mechanism."""
+    from werkzeug.security import generate_password_hash
+    import uuid
+    username = f'sa-fixture-{uuid.uuid4().hex[:10]}'
+    password = 'Test@123456'
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO users(username,display_name,password_hash,role,active,must_change_password) "
+            "VALUES(%s,%s,%s,'super_admin',TRUE,FALSE) RETURNING id",
+            (username, 'Test Super Admin', generate_password_hash(password)))
+        user_id = cur.fetchone()['id']
+    session = requests.Session()
+    response = session.post(f'{BASE_URL}/api/auth/login', json={'username': username, 'password': password}, timeout=10)
+    assert response.status_code == 200, response.text
+    yield session
+    with db.cursor() as cur:
+        cur.execute('DELETE FROM users WHERE id=%s', (user_id,))
+
+
 @pytest.fixture()
 def cross_midnight_shift(db):
     """Session Lifecycle Fix Plan Phase 8: a real, temporary cross-midnight

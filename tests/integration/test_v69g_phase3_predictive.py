@@ -141,14 +141,20 @@ def test_predictive_insight_lifecycle_active_then_cleared(db):
   fsvc.settings=orig
 
 
-def test_api_predictions_and_recurring_endpoints(api):
- r=api.get(f'{BASE}/api/system-health/predictions',timeout=10);assert r.status_code==200,r.text
+def test_api_predictions_and_recurring_endpoints(super_admin_api):
+ r=super_admin_api.get(f'{BASE}/api/system-health/predictions',timeout=10);assert r.status_code==200,r.text
  assert 'items' in r.json()
- r=api.get(f'{BASE}/api/system-health/recurring-incidents',timeout=10);assert r.status_code==200,r.text
+ r=super_admin_api.get(f'{BASE}/api/system-health/recurring-incidents',timeout=10);assert r.status_code==200,r.text
  assert 'items' in r.json()
 
 
-def test_metric_trend_endpoint_is_admin_only(db):
+def test_metric_trend_and_predictions_are_super_admin_only(db, super_admin_api):
+ # SUPER_ADMIN / IT System Console (task): the whole /api/system-health
+ # blueprint -- including predictions and metric trend -- is now
+ # super_admin-only. There is no longer a supervisor/admin split here (was:
+ # "supervisor CAN see predictions but NOT raw metric trend", section 57 of
+ # an earlier phase); that distinction predates this task and is superseded
+ # by the blanket re-gate in mesflow.web.system_health.ok()/admin_only().
  import requests
  from werkzeug.security import generate_password_hash
  u=f'v69g-super-{uuid.uuid4()}';p='Test@123456'
@@ -158,19 +164,20 @@ def test_metric_trend_endpoint_is_admin_only(db):
  try:
   s=requests.Session()
   assert s.post(f'{BASE}/api/auth/login',json={'username':u,'password':p}).status_code==200
-  # supervisor CAN see predictions (section 57) but NOT raw metric trend
-  assert s.get(f'{BASE}/api/system-health/predictions').status_code==200
+  assert s.get(f'{BASE}/api/system-health/predictions').status_code==403
   assert s.get(f'{BASE}/api/system-health/metrics/DISK_USAGE_PERCENT/trend').status_code==403
  finally:
   with db.cursor() as cur:cur.execute('DELETE FROM users WHERE id=%s',(uid,))
+ assert super_admin_api.get(f'{BASE}/api/system-health/predictions').status_code==200
+ assert super_admin_api.get(f'{BASE}/api/system-health/metrics/DISK_USAGE_PERCENT/trend').status_code==200
 
 
-def test_ai_analysis_reports_disabled_when_not_configured(api,db):
+def test_ai_analysis_reports_disabled_when_not_configured(super_admin_api,db):
  fp=f'TEST_AI:{uuid.uuid4()}'
  with db.cursor() as cur:
   cur.execute("INSERT INTO health_alerts(fingerprint,component,severity,title,message) VALUES(%s,'MESFLOW','HIGH','test alert','') RETURNING id",(fp,))
   alert_id=cur.fetchone()['id']
- r=api.get(f'{BASE}/api/system-health/alerts/{alert_id}/ai-analysis',timeout=15)
+ r=super_admin_api.get(f'{BASE}/api/system-health/alerts/{alert_id}/ai-analysis',timeout=15)
  assert r.status_code==200,r.text
  assert r.json()['item']['status']=='DISABLED'
 

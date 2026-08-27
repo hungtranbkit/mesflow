@@ -19,7 +19,7 @@ from conftest import BASE_URL
 pytestmark = pytest.mark.postgres
 
 
-def test_v2_heartbeat_actually_updates_kiosk_status_liveness(db):
+def test_v2_heartbeat_actually_updates_kiosk_status_liveness(db, super_admin_api):
     device = f'V2-HB-{uuid.uuid4().hex[:10]}'
     bind = requests.post(f'{BASE_URL}/api/kiosk/bind', json={'device_uuid': device}, timeout=10)
     assert bind.status_code == 200, bind.text
@@ -50,9 +50,8 @@ def test_v2_heartbeat_actually_updates_kiosk_status_liveness(db):
         assert cur.fetchone()['firmware_version'] == '0.10.2'
 
     # And the actual health computation the dashboard uses now sees it as ONLINE.
-    s = requests.Session()
-    s.post(f'{BASE_URL}/api/auth/login', json={'username': 'admin', 'password': 'Admin@123456'}, timeout=10)
-    health = s.get(f'{BASE_URL}/api/system-health', timeout=10).json()
+    # /api/system-health is super_admin-only (SUPER_ADMIN System Console task).
+    health = super_admin_api.get(f'{BASE_URL}/api/system-health', timeout=10).json()
     kiosk_component = next(c for c in health['components'] if c['component'] == 'KIOSK_FLEET')
     item = next(x for x in kiosk_component['details']['items'] if x['device_uuid'] == device)
     assert item['normalized_status'] == 'ONLINE'

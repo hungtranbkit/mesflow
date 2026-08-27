@@ -12,7 +12,7 @@ pytestmark = pytest.mark.postgres
 BASE = 'http://mesflow-test-api:8080'
 
 
-def test_session_lifecycle_component_reports_minimal_metric_set(db, api, seeded_factory):
+def test_session_lifecycle_component_reports_minimal_metric_set(db, super_admin_api, seeded_factory):
     g = seeded_factory
     with db.cursor() as cur:
         cur.execute(
@@ -23,7 +23,7 @@ def test_session_lifecycle_component_reports_minimal_metric_set(db, api, seeded_
              datetime.now(timezone.utc) - timedelta(hours=2), datetime.now(timezone.utc) - timedelta(hours=1),
              f'P13-S-{g["suffix"]}', f'P13-F-{g["suffix"]}'),
         )
-    r = api.get(f'{BASE}/api/system-health', timeout=10)
+    r = super_admin_api.get(f'{BASE}/api/system-health', timeout=10)
     assert r.status_code == 200, r.text
     by = {x['component']: x for x in r.json()['components']}
     assert 'SESSION_LIFECYCLE' in by

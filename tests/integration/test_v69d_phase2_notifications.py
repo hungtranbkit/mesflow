@@ -23,12 +23,12 @@ def _seed_offline_kiosk(db,age_seconds=600):
  return device
 
 
-def test_kiosk_offline_vertical_slice_open_dedup_diagnose_recover(db,api):
+def test_kiosk_offline_vertical_slice_open_dedup_diagnose_recover(db,super_admin_api):
  device=_seed_offline_kiosk(db,age_seconds=900)
  fp=f'KIOSK_OFFLINE:{device}'
 
  # 1) first poll: threshold crossed -> exactly one alert opens
- r1=api.get(f'{BASE}/api/system-health',timeout=15);assert r1.status_code==200,r1.text
+ r1=super_admin_api.get(f'{BASE}/api/system-health',timeout=15);assert r1.status_code==200,r1.text
  alert=db.execute("SELECT * FROM health_alerts WHERE fingerprint=%s AND resolved_at IS NULL",(fp,)).fetchone()
  assert alert is not None and alert['severity']=='HIGH'
 
@@ -44,7 +44,7 @@ def test_kiosk_offline_vertical_slice_open_dedup_diagnose_recover(db,api):
  assert len(snap)>=1 and snap[0]['level']=='SUMMARY'
 
  # 4) second poll, same condition still true -> NO duplicate alert row, NO duplicate WEB delivery
- r2=api.get(f'{BASE}/api/system-health',timeout=15);assert r2.status_code==200
+ r2=super_admin_api.get(f'{BASE}/api/system-health',timeout=15);assert r2.status_code==200
  open_rows=db.execute("SELECT COUNT(*) n FROM health_alerts WHERE fingerprint=%s AND resolved_at IS NULL",(fp,)).fetchone()
  assert open_rows['n']==1
  deliveries_after_second_poll=db.execute("SELECT COUNT(*) n FROM notification_deliveries WHERE alert_fingerprint=%s AND event_type='OPENED' AND channel='WEB'",(fp,)).fetchone()
@@ -52,15 +52,15 @@ def test_kiosk_offline_vertical_slice_open_dedup_diagnose_recover(db,api):
 
  # 5) via the API: diagnostics + notifications for this alert are retrievable
  alert_id=alert['id']
- diag=api.get(f'{BASE}/api/system-health/alerts/{alert_id}/diagnostics',timeout=10)
+ diag=super_admin_api.get(f'{BASE}/api/system-health/alerts/{alert_id}/diagnostics',timeout=10)
  assert diag.status_code==200 and diag.json()['items']
- notifs=api.get(f'{BASE}/api/system-health/alerts/{alert_id}/notifications',timeout=10)
+ notifs=super_admin_api.get(f'{BASE}/api/system-health/alerts/{alert_id}/notifications',timeout=10)
  assert notifs.status_code==200 and any(x['channel']=='WEB' for x in notifs.json()['items'])
 
  # 6) recovery: fresh heartbeat -> alert resolves, recovery WEB notification fires
  with db.cursor() as cur:
   cur.execute("UPDATE kiosk_status SET last_heartbeat_at=CURRENT_TIMESTAMP WHERE device_uuid=%s",(device,))
- r3=api.get(f'{BASE}/api/system-health',timeout=15);assert r3.status_code==200
+ r3=super_admin_api.get(f'{BASE}/api/system-health',timeout=15);assert r3.status_code==200
  resolved=db.execute("SELECT * FROM health_alerts WHERE fingerprint=%s AND resolved_at IS NOT NULL ORDER BY id DESC LIMIT 1",(fp,)).fetchone()
  assert resolved is not None
  recovery_notif=db.execute("SELECT * FROM notifications WHERE source_type='HEALTH_ALERT' AND source_id=%s",(f'{fp}#resolved',)).fetchone()
@@ -69,28 +69,28 @@ def test_kiosk_offline_vertical_slice_open_dedup_diagnose_recover(db,api):
  assert recovery_delivery['n']==1
 
  # 7) Incident History preserves both the open and the recovery
- hist=api.get(f'{BASE}/api/system-health/history?limit=500',timeout=10).json()['items']
+ hist=super_admin_api.get(f'{BASE}/api/system-health/history?limit=500',timeout=10).json()['items']
  kinds=[h['kind'] for h in hist if h.get('component')=='KIOSK_FLEET' and h.get('title')==alert['title']]
  assert 'ALERT_OPENED' in kinds and 'ALERT_RESOLVED' in kinds
 
 
-def test_notification_channels_report_not_configured_by_default(api):
- r=api.get(f'{BASE}/api/system-health/notification-channels',timeout=10);assert r.status_code==200,r.text
+def test_notification_channels_report_not_configured_by_default(super_admin_api):
+ r=super_admin_api.get(f'{BASE}/api/system-health/notification-channels',timeout=10);assert r.status_code==200,r.text
  body=r.json()['channels']
  assert body['WEB']['configured'] is True
  assert body['EMAIL']['configured'] is False
  assert body['TELEGRAM']['configured'] is False
 
 
-def test_test_notification_email_not_configured_returns_skipped(api):
- r=api.post(f'{BASE}/api/system-health/notification-channels/email/test',timeout=10)
+def test_test_notification_email_not_configured_returns_skipped(super_admin_api):
+ r=super_admin_api.post(f'{BASE}/api/system-health/notification-channels/email/test',timeout=10)
  assert r.status_code==200,r.text
  body=r.json()
  assert body['ok'] is False and body['status']=='SKIPPED' and body['error']=='NOT_CONFIGURED'
 
 
-def test_logs_endpoint_rejects_unknown_source_and_requires_admin(api,db):
- bad=api.get(f'{BASE}/api/system-health/logs?source=../../etc/passwd',timeout=10)
+def test_logs_endpoint_rejects_unknown_source_and_requires_admin(super_admin_api,db):
+ bad=super_admin_api.get(f'{BASE}/api/system-health/logs?source=../../etc/passwd',timeout=10)
  assert bad.status_code in (400,403)
 
 
