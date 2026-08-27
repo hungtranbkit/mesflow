@@ -1415,3 +1415,17 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
    tables were never marked up for this; applied to the golden pages'
    quantity columns in this migration, not swept across every table. */
 .table-wrap table th.num,.table-wrap table td.num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* SUPER_ADMIN / IT System Console (task spec section 19: information-dense,
+   scannable in ~10s, red reserved for real technical failure). Reuses the
+   same .table-wrap/.content-panel/.ui-status primitives as every other
+   page -- these are only the console-specific bits (kv grid, log preformatted
+   block, production banner) with no counterpart elsewhere yet. */
+.sc-kv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;padding:14px 16px}
+.sc-kv-grid>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.sc-kv-grid>div>span{font-size:11px;color:var(--text-secondary,#718096)}
+.sc-kv-grid>div>b{font-size:14px;overflow-wrap:anywhere}
+.sc-muted{color:var(--text-secondary,#718096)}
+.sc-log-pre,.sc-diag-json{max-height:60vh;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-word}
+.sc-prod-banner{padding:10px 14px;border-radius:var(--radius-panel,10px);background:#fdecec;color:#9b2525;border:1px solid #f3c8c8;font-size:13px;margin-bottom:2px}
+@media(max-width:520px){.sc-kv-grid{grid-template-columns:1fr 1fr;padding:10px}}

@@ -283,13 +283,23 @@
     },
     {
       "id": "system-health",
-      "title": "26. Sức khỏe hệ thống (dành cho Admin)",
-      "keywords": ["sức khỏe hệ thống", "system health", "job", "never run", "healthy", "failed", "missed", "disabled", "giám sát"],
+      "title": "26. Hệ thống (dành cho Super Admin / IT)",
+      "keywords": ["sức khỏe hệ thống", "system health", "job", "never run", "healthy", "failed", "missed", "disabled", "giám sát", "super admin", "system console", "lỗi hệ thống", "dịch vụ", "chẩn đoán", "nhật ký quản trị", "restart"],
       "content": [
-        {"type": "p", "text": "Cho biết các tác vụ tự động chạy nền của hệ thống (ví dụ: rà soát ngoại lệ, tự động đóng Session quá giờ ca) có đang thực sự hoạt động đúng lịch hay không, để Admin phát hiện sớm khi có tác vụ bị đứng hoặc chưa từng chạy."},
-        {"type": "table", "headers": ["Trạng thái", "Ý nghĩa"], "rows": [["NEVER_RUN", "Tác vụ đã được khai báo nhưng chưa từng thực thi lần nào — cần kiểm tra vì sao chưa chạy, không được coi là bình thường."], ["HEALTHY", "Lần chạy gần nhất thành công và đúng nhịp lịch."], ["RUNNING", "Đang trong quá trình thực thi."], ["MISSED", "Đã quá thời điểm đáng lẽ phải chạy theo lịch mà chưa thấy chạy/hoàn tất."], ["FAILED", "Lần chạy gần nhất kết thúc bằng lỗi."], ["DISABLED", "Tác vụ đang bị tắt có chủ đích."]]},
+        {"type": "p", "text": "Nhóm menu \"Hệ thống\" chỉ hiển thị cho tài khoản vai trò Super Admin — kể cả Admin thường cũng không thấy nhóm này và bị từ chối nếu gọi thẳng API. Đây là khu vực kỹ thuật để bảo trì chính MESFlow (sức khỏe hạ tầng, lỗi hệ thống, log, chẩn đoán, điều khiển dịch vụ, audit kỹ thuật) — tách biệt hoàn toàn khỏi dữ liệu sản xuất/nghiệp vụ."},
+        {"type": "table", "headers": ["Trang", "Nội dung"], "rows": [
+          ["Tổng quan hệ thống", "Sức khỏe MESFlow/DB/QA Center/Deploy Agent, phiên bản, môi trường (LOCAL/TEST/PRODUCTION), migration, tác vụ nền."],
+          ["Lỗi hệ thống", "HTTP 500, mất kết nối DB, dịch vụ gián đoạn — theo Time/Service/Severity/Message/Occurrences."],
+          ["Nhật ký", "Log kỹ thuật theo nguồn (MESFlow/DB/QA Center/Deploy Agent), giới hạn số dòng, đã ẩn thông tin nhạy cảm."],
+          ["Dịch vụ", "Sức khỏe và khởi động lại theo danh sách cho phép (MESFlow App, QA Center) — không có ô nhập tên dịch vụ tự do."],
+          ["Chẩn đoán", "Kiểm tra chỉ đọc: DB, migration, QA Center, Deploy Agent — không tự sửa dữ liệu."],
+          ["Nhật ký quản trị", "Ai cấp/thu hồi Super Admin, khởi động lại dịch vụ nào, khi nào, lý do gì, kết quả ra sao."]
+        ]},
+        {"type": "table", "headers": ["Trạng thái tác vụ nền", "Ý nghĩa"], "rows": [["NEVER_RUN", "Tác vụ đã được khai báo nhưng chưa từng thực thi lần nào — cần kiểm tra vì sao chưa chạy, không được coi là bình thường."], ["HEALTHY", "Lần chạy gần nhất thành công và đúng nhịp lịch."], ["RUNNING", "Đang trong quá trình thực thi."], ["MISSED", "Đã quá thời điểm đáng lẽ phải chạy theo lịch mà chưa thấy chạy/hoàn tất."], ["FAILED", "Lần chạy gần nhất kết thúc bằng lỗi."], ["DISABLED", "Tác vụ đang bị tắt có chủ đích."]]},
         {"type": "note", "text": "NEVER_RUN không được hiển thị lẫn với HEALTHY. Một tác vụ nền quan trọng (như tự động đóng Session theo ca) chưa từng chạy lần nào là một vấn đề cần xử lý ngay, không phải trạng thái \"chưa có gì để báo lỗi\"."},
-        {"type": "list", "items": ["Các số liệu vận hành liên quan (số Session đang mở, số Session đã quá giờ ca, số Session được tự động đóng gần đây...) đi kèm ở cùng khu vực để đối chiếu nhanh với trạng thái tác vụ nền.", "Màn này phục vụ Admin/kỹ thuật để giám sát hệ thống, không phải màn nghiệp vụ hàng ngày cho quản đốc/công nhân."]}
+        {"type": "note", "text": "Ba khái niệm KHÔNG được gộp chung: (1) NG sản phẩm (Đạt/NG) là dữ liệu sản xuất bình thường, NG > 0 không phải lỗi hệ thống; (2) Ngoại lệ Session (session bỏ ngỏ, số lượng bất thường, cần Quản đốc xác nhận) thuộc Trung tâm ngoại lệ; (3) Lỗi hệ thống (HTTP 500, mất kết nối DB, dịch vụ gián đoạn) chỉ nằm ở trang \"Lỗi hệ thống\" của Super Admin."},
+        {"type": "note", "text": "Khởi động lại dịch vụ luôn yêu cầu nhập lý do; trên môi trường PRODUCTION còn yêu cầu xác nhận rõ ràng tên môi trường. Chỉ có MESFlow App và QA Center được phép khởi động lại từ đây — Database không được điều khiển từ System Console."},
+        {"type": "list", "items": ["Chỉ Super Admin hiện có mới được cấp/thu hồi vai trò Super Admin cho người khác — Admin thường không tự nâng quyền được, kể cả cho chính mình.", "Hệ thống luôn giữ lại ít nhất một tài khoản Super Admin đang hoạt động — không thể khóa hoặc hạ quyền tài khoản Super Admin cuối cùng.", "Màn này phục vụ Super Admin/kỹ thuật để bảo trì hệ thống, không phải màn nghiệp vụ hàng ngày cho quản đốc/công nhân/Admin nghiệp vụ."]}
       ]
     }
   ]

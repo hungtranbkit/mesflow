@@ -37,7 +37,7 @@ EXPECTED_TOC = [
     ('troubleshooting', 'Xử lý lỗi thường gặp'),
     ('recommended-workflow', 'Quy trình sử dụng MESFlow đề xuất'),
     ('employee-productivity', 'Báo cáo năng suất nhân viên'),
-    ('system-health', 'Sức khỏe hệ thống (dành cho Admin)'),
+    ('system-health', 'Hệ thống (dành cho Super Admin / IT)'),
 ]
 KNOWN_BLOCK_TYPES = {'h3', 'p', 'note', 'example', 'diagram', 'list', 'steps', 'table'}
 
@@ -61,6 +61,12 @@ MENU_PAGE_TO_GUIDE = {
     'equipment': 'equipment',
     'users': 'users-permissions',
     'working-calendar': 'working-calendar',
+    'system-overview': 'system-health',
+    'system-errors': 'system-health',
+    'system-logs-it': 'system-health',
+    'system-services': 'system-health',
+    'system-diagnostics': 'system-health',
+    'system-audit': 'system-health',
 }
 
 
