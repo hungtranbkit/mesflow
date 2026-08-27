@@ -1,23 +1,40 @@
 from flask import Blueprint,g,jsonify,request,session
+from mesflow.core.config import settings
 from mesflow.db.connection import fetch_all,fetch_one
+from mesflow.services import system_audit_service
 from mesflow.services.system_health_service import SystemHealthService
+from mesflow.services.system_operations_service import SERVICE_ALLOWLIST,SystemOperationsService
 from mesflow.services.diagnostic_service import DiagnosticService,LogService
 from mesflow.services.notification_service import NotificationDispatcher
 from mesflow.services.predictive_service import PredictiveService
 from mesflow.services.recurrence_service import RecurrenceService
 from mesflow.services.ai_incident_service import IncidentAIService
-from mesflow.web.auth import login_required
+from mesflow.web.auth import login_required,super_admin_required
 bp=Blueprint('system_health',__name__,url_prefix='/api/system-health')
-def ok():return str(session.get('role') or '').lower() in ('admin','manager','supervisor')
-def admin_only():
- # Section 30/47: technical diagnostics, logs, and channel testing are
- # admin-only -- supervisors get alerts/basic context but not this.
- return str(session.get('role') or '').lower()=='admin'
+# SUPER_ADMIN / IT System Console (task spec): this whole blueprint is
+# technical/infrastructure surface -- health, logs, diagnostics, incident
+# AI analysis, and (below) service control + system audit. It previously
+# allowed admin/manager/supervisor; the spec's explicit objective is that
+# ordinary business roles (including plain ADMIN) must no longer see any
+# of this, so both helpers now require the literal super_admin role. No
+# existing frontend page consumed this blueprint before this change (grep
+# confirmed no static/pages/*.js reference), so this re-gate is not a
+# regression to any working screen.
+def ok():return str(session.get('role') or '').lower()=='super_admin'
+def admin_only():return ok()
 def _alert_or_404(alert_id):
  return fetch_one('SELECT * FROM health_alerts WHERE id=%s',(alert_id,))
 @bp.get('')
 @login_required
-def summary():return (jsonify(ok=False,error='FORBIDDEN'),403) if not ok() else jsonify(ok=True,**SystemHealthService().summary(getattr(g,'trace_id','')))
+def summary():
+ if not ok():return jsonify(ok=False,error='FORBIDDEN'),403
+ from mesflow import __version__
+ # System Overview identity fields (spec section 6/7): environment/server_role
+ # are MESFlow's existing source of truth (mesflow.core.config.settings --
+ # the same fields kiosk_v2/health providers already key behavior off of),
+ # not re-derived or guessed from hostname styling.
+ return jsonify(ok=True,application_version=__version__,environment=settings.environment,
+                server_role=settings.server_role,**SystemHealthService().summary(getattr(g,'trace_id','')))
 @bp.get('/kiosks')
 @login_required
 def kiosks():
@@ -147,3 +164,86 @@ def alert_ai_analysis_regenerate(alert_id):
  result=IncidentAIService().analyze(alert,stage,diagnostics_snapshot=(diag or {}).get('data_json'),recent_incidents=similar,
    requested_by_user_id=session.get('user_id'),force=True)
  return jsonify(ok=True,item=result)
+
+# --- SUPER_ADMIN System Console: System Errors (spec section 9) ---------
+
+@bp.get('/errors')
+@super_admin_required
+def system_errors():
+ # Reuses SystemHealthService.errors() exactly -- the same query that
+ # already feeds summary()['recent_errors'] -- just with a caller-chosen
+ # window/limit instead of the fixed rollup. Deliberately a DIFFERENT
+ # table/query than product NG counts or Session Exceptions (spec section
+ # 8): this only ever reads action_logs ERROR/FAILED rows and kiosk_events
+ # ERROR/CRITICAL rows -- neither table has any notion of NG quantity or
+ # session-exception state, so the three domains cannot leak into each
+ # other here even accidentally.
+ limit=min(max(int(request.args.get('limit',100)),1),500)
+ return jsonify(ok=True,items=SystemHealthService().errors(limit))
+
+# --- SUPER_ADMIN System Console: allow-listed Service Control -----------
+# (spec section 11/12/22-26; SystemOperationsService proxies to Deploy
+# Agent's existing RecoveryOrchestrator -- see that module's docstring)
+
+@bp.get('/services')
+@super_admin_required
+def system_services():
+ return jsonify(ok=True,items=SystemOperationsService().list_services())
+
+@bp.post('/services/<service_id>/restart')
+@super_admin_required
+def system_service_restart(service_id):
+ if service_id not in SERVICE_ALLOWLIST:
+  return jsonify(ok=False,error='UNKNOWN_SERVICE',message='Dịch vụ không nằm trong danh sách cho phép'),404
+ body=request.get_json(silent=True) or {}
+ reason=str(body.get('reason','')).strip()
+ if not reason:
+  return jsonify(ok=False,error='REASON_REQUIRED',message='Vui lòng nhập lý do trước khi khởi động lại dịch vụ'),400
+ is_production=str(settings.environment).strip().lower()=='production'
+ confirmed=bool(body.get('confirm_production'))
+ # Production safety (spec section 26): never infer/default production
+ # approval -- the operator must have explicitly confirmed against the
+ # server's own real environment identity, not a client-supplied guess.
+ if is_production and not confirmed:
+  return jsonify(ok=False,error='PRODUCTION_CONFIRMATION_REQUIRED',environment=settings.environment,
+                message='Thao tác trên PRODUCTION yêu cầu xác nhận rõ ràng'),409
+ correlation_id=str(getattr(g,'trace_id','') or '')
+ result=SystemOperationsService().restart_service(
+   service_id,actor=session.get('username',''),reason=reason,
+   production_approved=is_production and confirmed,correlation_id=correlation_id)
+ system_audit_service.record('RESTART_SERVICE',target=service_id,reason=reason,
+   result=result.get('result','UNKNOWN'),correlation_id=correlation_id,detail=result)
+ return jsonify(ok=result.get('ok',False),item=result)
+
+# --- SUPER_ADMIN System Console: standalone Diagnostics (spec 14) -------
+# (distinct from the existing alert-scoped /alerts/<id>/diagnostics above:
+# this runs a named check on demand, with no alert required.)
+
+DIAGNOSTIC_COMPONENTS={'MESFLOW':'Ứng dụng MESFlow','POSTGRESQL':'Cơ sở dữ liệu','SERVER':'Máy chủ / Docker',
+ 'DEPLOY_AGENT':'Deploy Agent','QA_CENTER':'QA Center','KIOSK_FLEET':'Trạm kiosk'}
+
+@bp.get('/diagnostics')
+@super_admin_required
+def diagnostics_list():
+ return jsonify(ok=True,items=[{'id':k,'label':v} for k,v in DIAGNOSTIC_COMPONENTS.items()])
+
+@bp.post('/diagnostics/<component>')
+@super_admin_required
+def diagnostics_run(component):
+ component=component.upper()
+ if component not in DIAGNOSTIC_COMPONENTS:
+  return jsonify(ok=False,error='UNKNOWN_DIAGNOSTIC',message='Không có mục chẩn đoán này'),404
+ # Read-only by construction -- DiagnosticService._collect() only ever
+ # SELECTs / makes GET calls to Deploy Agent (see that module's docstring:
+ # "no diagnostic path may mutate infrastructure").
+ snap=DiagnosticService().snapshot(component,'DETAIL',correlation_id=str(getattr(g,'trace_id','') or ''),
+   requested_by_user_id=session.get('user_id'))
+ return jsonify(ok=True,item=snap)
+
+# --- SUPER_ADMIN System Console: System Audit (spec section 16) ---------
+
+@bp.get('/audit')
+@super_admin_required
+def system_audit():
+ limit=min(max(int(request.args.get('limit',200)),1),1000)
+ return jsonify(ok=True,items=system_audit_service.list_recent(limit))

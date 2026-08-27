@@ -1,13 +1,27 @@
 import json
 from flask import Blueprint, jsonify, request, session
 from werkzeug.security import check_password_hash
-from mesflow.db.connection import transaction
+from mesflow.db.connection import fetch_one, transaction
 from mesflow.db.repositories.user_repository import UserRepository
 from mesflow.db.repositories.rbac import RBACRepository
 from mesflow.web.auth import login_required, admin_required, permission_required
+from mesflow.services import system_audit_service
 
 bp = Blueprint('users', __name__, url_prefix='/api')
-ROLES = {'admin', 'manager', 'supervisor', 'operator', 'viewer'}
+ROLES = {'admin', 'manager', 'supervisor', 'operator', 'viewer', 'super_admin'}
+
+
+def _acting_role():
+    return str(session.get('role') or '').strip().lower()
+
+
+def _active_super_admin_count(exclude_user_id=None):
+    row = fetch_one(
+        "SELECT COUNT(*) n FROM users WHERE role='super_admin' AND active"
+        + (" AND id!=%s" if exclude_user_id is not None else ""),
+        (exclude_user_id,) if exclude_user_id is not None else (),
+    )
+    return int(row['n'])
 
 
 def _audit(action, entity_id, details):
@@ -49,6 +63,12 @@ def create_user():
         return jsonify(ok=False, message='Tên đăng nhập và tên hiển thị là bắt buộc'), 400
     if role not in ROLES:
         return jsonify(ok=False, message='Vai trò không hợp lệ'), 400
+    # Task spec section 4: only an existing SUPER_ADMIN may grant SUPER_ADMIN.
+    # An ordinary admin otherwise passes 'users.manage' via the blanket
+    # bypass in _has_permission -- this check is not covered by that.
+    if role == 'super_admin' and _acting_role() != 'super_admin':
+        return jsonify(ok=False, error='FORBIDDEN',
+                       message='Chỉ Super Admin mới có thể cấp vai trò Super Admin'), 403
     err = _password_error(password)
     if err:
         return jsonify(ok=False, message=err), 400
@@ -62,6 +82,10 @@ def create_user():
             return jsonify(ok=False, message='Tên đăng nhập đã tồn tại'), 409
         raise
     _audit('USER_CREATED', user_id, {'username': username, 'role': role})
+    if role == 'super_admin':
+        system_audit_service.record('SUPER_ADMIN_GRANTED', target=username,
+                                     reason='new account created with Super Admin role',
+                                     result='SUCCESS')
     return jsonify(ok=True, id=user_id), 201
 
 
@@ -77,10 +101,32 @@ def update_user(user_id):
     display_name = str(b.get('display_name', user['display_name'])).strip()
     if role not in ROLES:
         return jsonify(ok=False, message='Vai trò không hợp lệ'), 400
-    if user_id == session.get('user_id') and (not active or role != 'admin'):
-        return jsonify(ok=False, message='Admin không thể tự khóa hoặc tự hạ quyền tài khoản đang đăng nhập'), 409
+    was_super_admin = str(user['role']).strip().lower() == 'super_admin'
+    becomes_super_admin = role == 'super_admin'
+    # Task spec section 4: only an existing SUPER_ADMIN may grant OR revoke
+    # SUPER_ADMIN -- an ordinary admin must be rejected even though it would
+    # otherwise pass 'users.manage' via the blanket bypass.
+    if (was_super_admin or becomes_super_admin) and _acting_role() != 'super_admin':
+        return jsonify(ok=False, error='FORBIDDEN',
+                       message='Chỉ Super Admin mới có thể thay đổi vai trò Super Admin'), 403
+    if user_id == session.get('user_id') and (
+        (was_super_admin and (not active or not becomes_super_admin))
+        or (not was_super_admin and (not active or role != 'admin'))
+    ):
+        return jsonify(ok=False, message='Không thể tự khóa hoặc tự hạ quyền tài khoản đang đăng nhập'), 409
+    if was_super_admin and (not becomes_super_admin or not active):
+        # Task spec section 4: never let the last usable SUPER_ADMIN account
+        # be demoted/deactivated -- that would lock the installation out of
+        # its own System Console with no recovery path short of a DB edit.
+        if _active_super_admin_count(exclude_user_id=user_id) == 0:
+            return jsonify(ok=False, error='LAST_SUPER_ADMIN',
+                           message='Đây là tài khoản Super Admin duy nhất còn hoạt động; không thể khóa hoặc hạ quyền'), 409
     UserRepository().update_profile(user_id, display_name, role, active)
     _audit('USER_UPDATED', user_id, {'role': role, 'active': active})
+    if was_super_admin != becomes_super_admin:
+        system_audit_service.record(
+            'SUPER_ADMIN_GRANTED' if becomes_super_admin else 'SUPER_ADMIN_REVOKED',
+            target=user['username'], reason=str(b.get('reason', '')), result='SUCCESS')
     return jsonify(ok=True)
 
 
@@ -129,8 +175,8 @@ def list_roles_permissions():
 @permission_required('roles.manage')
 def update_role_permissions(role_code):
     b=request.get_json(silent=True) or {}
-    if str(role_code).lower()=='admin':
-        return jsonify(ok=False,message='Quyền Admin là cố định toàn quyền và không thể hạ'),409
+    if str(role_code).lower() in ('admin','super_admin'):
+        return jsonify(ok=False,message='Quyền Admin/Super Admin là cố định toàn quyền và không thể hạ'),409
     try:
         permissions=RBACRepository().set_role_permissions(role_code,b.get('permissions') or [])
     except KeyError:

@@ -92,6 +92,37 @@ def reset_admin():
     print(f'[SEED] Administrator password reset for {settings.admin_username}; id={user_id}')
 
 
+def seed_super_admin():
+    """Controlled bootstrap for the FIRST SUPER_ADMIN account (task spec
+    section 4: "Do not use a publicly callable API as the bootstrap
+    mechanism"). Same idiom as seed_admin()/seed_default_users() above:
+    opt-in via explicit environment configuration, create-only (an existing
+    username's password/role is never overwritten), safe to run on every
+    boot. Deliberately does NOT run unconditionally like seed_admin() --
+    most installations never need a second, IT-only account, so this only
+    acts when both env vars are actually set.
+
+    To create the first SUPER_ADMIN: set MESFLOW_SUPER_ADMIN_USERNAME and
+    MESFLOW_SUPER_ADMIN_PASSWORD (>=10 chars) for one deploy/boot, then they
+    may be removed -- the account persists in the database like any other.
+    A second SUPER_ADMIN thereafter is granted from the System Console by
+    an existing SUPER_ADMIN (mesflow.web.users), never by re-running this.
+    """
+    username = os.environ.get('MESFLOW_SUPER_ADMIN_USERNAME', '').strip()
+    password = os.environ.get('MESFLOW_SUPER_ADMIN_PASSWORD', '')
+    if not username or not password:
+        print('[SEED] MESFLOW_SUPER_ADMIN_USERNAME/PASSWORD not set; Super Admin bootstrap skipped')
+        return
+    if len(password) < 10:
+        raise RuntimeError('MESFLOW_SUPER_ADMIN_PASSWORD must be at least 10 characters')
+    repo = UserRepository()
+    if repo.get_by_username(username):
+        print(f'[SEED] {username} already exists; Super Admin bootstrap skipped (role/password preserved)')
+        return
+    repo.create(username, 'MESFlow Super Admin', password, 'super_admin', True)
+    print(f'[SEED] Created initial Super Admin account: {username}')
+
+
 def reset_password():
     """Emergency, server-side password reset for an EXISTING user, invoked
     as `python -m mesflow.cli reset-password <username>` (same
@@ -305,6 +336,6 @@ def audit_integrity():
 
 if __name__=='__main__':
     cmd=sys.argv[1] if len(sys.argv)>1 else ''
-    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'reset-admin':reset_admin,'reset-password':reset_password,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive,'reconcile-exceptions':reconcile_exceptions,'reconcile-shift-sessions':reconcile_shift_sessions,'audit-sessions':audit_sessions,'audit-integrity':audit_integrity}
+    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'seed-super-admin':seed_super_admin,'reset-admin':reset_admin,'reset-password':reset_password,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive,'reconcile-exceptions':reconcile_exceptions,'reconcile-shift-sessions':reconcile_shift_sessions,'audit-sessions':audit_sessions,'audit-integrity':audit_integrity}
     if cmd not in funcs: raise SystemExit('unknown command')
     funcs[cmd]()

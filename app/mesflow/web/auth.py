@@ -24,7 +24,13 @@ def _require_valid_session():
 def _has_permission(permission):
     if not session.get('user_id'): return False
     role=str(session.get('role') or '').strip().lower()
-    if role=='admin': return True
+    # SUPER_ADMIN keeps every ordinary Admin capability (task spec section 2:
+    # "SUPER_ADMIN may use normal Admin functionality plus technical System
+    # Console functionality") -- but this bypass only ever covers ordinary
+    # business permission codes. It grants nothing extra for the System
+    # Console itself: those routes use super_admin_required() below, which
+    # checks the literal role and is never satisfied by 'admin'.
+    if role in ('admin','super_admin'): return True
     try:
         from mesflow.db.repositories.rbac import RBACRepository
         return RBACRepository().has_permission(role,permission)
@@ -54,6 +60,22 @@ def login_required(fn):
 
 def admin_required(fn):
     return permission_required('roles.manage')(fn)
+
+def super_admin_required(fn):
+    """Gates the SUPER_ADMIN System Console (task spec section 3/5): every
+    page/API/service action/diagnostic/log/system-error-detail under it.
+    Deliberately does NOT go through _has_permission()/permission_required --
+    those give 'admin' a blanket bypass, which must never apply here. This
+    checks the literal session role only, so an ordinary ADMIN session (or
+    any other role) always gets 403, never a silent pass."""
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        expired=_require_valid_session()
+        if expired is not None: return expired
+        if str(session.get('role') or '').strip().lower()!='super_admin':
+            return jsonify(ok=False,error='FORBIDDEN',message='Chỉ Super Admin mới có quyền truy cập khu vực Hệ thống'),403
+        return fn(*args, **kwargs)
+    return wrapped
 
 # Compatibility layer: existing decorators become permission-aware. If a route
 # is not mapped yet, the legacy role allow-list remains the safety fallback.
