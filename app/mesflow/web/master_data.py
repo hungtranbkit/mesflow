@@ -11,6 +11,7 @@ from mesflow.db.repositories.master_data import (
     ProductionOrderRepository,PartRepository,OperationRepository,TemplateRepository,TemplateTreeRepository,TemplateValidationError)
 from mesflow.db.repositories.production_state import reconcile_production_order
 from mesflow.db.repositories.analytics import AuditRepository
+from mesflow.db.repositories.scheduling import RUNNABLE_STATUSES,RUNNABLE_PO_STATUSES
 from mesflow.core.upload_policy import validate_drawing_upload
 from mesflow.web.errors import api_error_response
 from mesflow.domain.trace import record_event
@@ -681,14 +682,35 @@ def qr_labels():
             if active_only: sql+=' AND COALESCE(e.active,true)=true'
             sql+=' ORDER BY e.employee_no LIMIT %s'; params.append(limit)
         elif kind=='OPERATION':
-            sql="""SELECT o.id,'OPERATION' AS qr_type,o.code,o.name,
+            # An operation is only actually scannable/startable at the kiosk
+            # when BOTH its own status and its parent PO's status are in the
+            # "runnable" sets kiosk_v2.py/execution.py enforce at scan time
+            # (see scheduling.py's operation_wip()/dispatch_state_from_db()
+            # -- the single source of truth reused here, not duplicated, so
+            # this list can never silently drift out of sync with what the
+            # kiosk actually accepts). Real bug reported live: a COMPLETED/
+            # CANCELLED operation, or one whose PO hasn't been Started yet,
+            # still had a printed/printable QR code here -- scanning it at
+            # the kiosk then failed with OPERATION_NOT_WORKABLE, an error
+            # that was entirely avoidable by just not listing it in the
+            # first place. Gated behind active_only (default true, same
+            # flag EMPLOYEE/PART already use) so the full, unfiltered
+            # catalogue is still available on request (e.g. for auditing
+            # already-printed labels), not permanently hidden.
+            runnable_status_ph=','.join(['%s']*len(RUNNABLE_STATUSES))
+            runnable_po_ph=','.join(['%s']*len(RUNNABLE_PO_STATUSES))
+            sql=f"""SELECT o.id,'OPERATION' AS qr_type,o.code,o.name,
                 COALESCE(NULLIF(o.qr,''),'WF|OP|'||o.code) AS qr_payload,
                 po.code AS group_name,p.code||' · '||COALESCE(p.name,'') AS detail,
-                true AS active,po.id AS production_order_id,po.code AS po_code
+                (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})) AS active,
+                po.id AS production_order_id,po.code AS po_code
                 FROM operations o JOIN production_orders po ON po.id=o.production_order_id
                 JOIN parts p ON p.id=o.part_id
                 WHERE (%s='' OR o.code ILIKE %s OR o.name ILIKE %s OR po.code ILIKE %s OR p.code ILIKE %s)"""
-            params=[q,like,like,like,like]
+            params=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)+[q,like,like,like,like]
+            if active_only:
+                sql+=f' AND o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})'
+                params+=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)
             if po_id: sql+=' AND po.id=%s'; params.append(int(po_id))
             sql+=' ORDER BY po.code,p.sort_order,o.sort_order,o.id LIMIT %s'; params.append(limit)
         elif kind=='PART':
