@@ -5,6 +5,14 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 19 * * 0'
+
+concurrency:
+  group: postgres-docker-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
