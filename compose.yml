@@ -39,7 +39,7 @@ services:
     # --no-build and an immutable MESFLOW_IMAGE=image@digest.
     build:
       context: .
-    image: ${MESFLOW_IMAGE:-mesflow-app:71.0.0.72}
+    image: ${MESFLOW_IMAGE:-mesflow-app:71.0.0.74}
     container_name: mesflow-app
     restart: unless-stopped
     env_file:
@@ -47,9 +47,9 @@ services:
         required: false
     environment:
       MESFLOW_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       MESFLOW_SECRET_KEY: ${MESFLOW_SECRET_KEY:?MESFLOW_SECRET_KEY is required}
       MESFLOW_ADMIN_PASSWORD: ${MESFLOW_ADMIN_PASSWORD:?MESFLOW_ADMIN_PASSWORD is required}
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       WORKSHOP_DATABASE_URL: ${WORKSHOP_DATABASE_URL:-${DATABASE_URL}}
       WORKSHOP_COOKIE_SECURE: "1"
       MESFLOW_TRUSTED_PROXY_COUNT: "1"

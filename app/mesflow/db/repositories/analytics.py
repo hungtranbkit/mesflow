@@ -788,16 +788,18 @@ class DashboardRepository:
         JOIN operations o ON o.id=ws.operation_id JOIN production_orders po ON po.id=o.production_order_id
         JOIN parts p ON p.id=o.part_id
         WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
+          AND {reportable_session_sql('ws')}
         ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['range_end'],ctx['range_start'],min(max(limit,1),3000)))
 
     def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None):
         ctx=resolve_shift_context(shift_date,shift_id,shift_code)
-        return fetch_all("""SELECT * FROM (
+        return fetch_all(f"""SELECT * FROM (
           SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,
             e.name actor,o.name subject,'STARTED' status,po.code po_code,o.code operation_code,
             0::integer good_qty,0::integer defect_qty
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
-          JOIN production_orders po ON po.id=o.production_order_id WHERE ws.started_at >= %s AND ws.started_at < %s
+          JOIN production_orders po ON po.id=o.production_order_id
+          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')}
           UNION ALL
           SELECT 'QUANTITY_REPORTED',ws.id::text,COALESCE(ws.ended_at,ws.updated_at),e.name,o.name,
             CASE WHEN ws.status='OPEN' THEN 'QUANTITY_UPDATED' ELSE 'FINISHED' END,po.code,o.code,
@@ -805,6 +807,7 @@ class DashboardRepository:
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
           WHERE COALESCE(ws.ended_at,ws.updated_at) >= %s AND COALESCE(ws.ended_at,ws.updated_at) < %s
+            AND {reportable_session_sql('ws')}
         ) activity ORDER BY activity_at DESC LIMIT %s""",(ctx['range_start'],ctx['range_end'],ctx['range_start'],ctx['range_end'],min(max(limit,1),500)))
 
     def shift_dashboard(self,shift_date:str|None=None,shift_id:int|None=None,limit:int=1000):
@@ -822,14 +825,14 @@ class DashboardRepository:
           'activity':self.shift_activity(shift_date,100,shift_id)}
 
     def recent_activity(self,limit:int=100):
-        return fetch_all("""SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,
+        return fetch_all(f"""SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,
           e.name actor,o.name subject,'STARTED' status,po.code po_code,o.code operation_code,
           0::integer good_qty,0::integer defect_qty
         FROM work_sessions ws
         JOIN employees e ON e.id=ws.employee_id
         JOIN operations o ON o.id=ws.operation_id
         JOIN production_orders po ON po.id=o.production_order_id
-        WHERE ws.started_at IS NOT NULL
+        WHERE ws.started_at IS NOT NULL AND {reportable_session_sql('ws')}
         UNION ALL
         SELECT 'QUANTITY_REPORTED',ws.id::text,COALESCE(ws.ended_at,ws.updated_at),
           e.name,o.name,CASE WHEN ws.status='OPEN' THEN 'QUANTITY_UPDATED' ELSE 'FINISHED' END,
@@ -838,7 +841,8 @@ class DashboardRepository:
         JOIN employees e ON e.id=ws.employee_id
         JOIN operations o ON o.id=ws.operation_id
         JOIN production_orders po ON po.id=o.production_order_id
-        WHERE ws.ended_at IS NOT NULL OR COALESCE(ws.good_qty,0)>0 OR COALESCE(ws.defect_qty,0)>0
+        WHERE (ws.ended_at IS NOT NULL OR COALESCE(ws.good_qty,0)>0 OR COALESCE(ws.defect_qty,0)>0)
+          AND {reportable_session_sql('ws')}
         UNION ALL
         SELECT 'QC',q.id::text,q.updated_at,COALESCE(u.display_name,''),o.name,q.status,
           po.code,o.code,COALESCE(q.good_qty,0),COALESCE(q.defect_qty,0)
@@ -1309,7 +1313,7 @@ class ReportRepository:
         # excluded_from_reports must never count toward an employee's
         # working time/quantity/KPI here -- it stays visible everywhere else
         # (history, audit), just not in this report.
-        conditions=['NOT ws.excluded_from_reports']; params=[]
+        conditions=[reportable_session_sql('ws')]; params=[]
         if employee_id:
             conditions.append('ws.employee_id=%s'); params.append(employee_id)
         if date_from:
