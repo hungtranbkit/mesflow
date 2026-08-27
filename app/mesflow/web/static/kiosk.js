@@ -229,8 +229,8 @@
   function renderFinishConfirmation() {
     const scrap = pendingFinish.defect - pendingFinish.rework;
     const rows = pendingFinish.hasRework
-      ? [['Đạt',pendingFinish.good],['Lỗi tổng',pendingFinish.defect],['Sửa được',pendingFinish.rework],['Phế',scrap]]
-      : [['Đạt',pendingFinish.good],['Lỗi',pendingFinish.defect]];
+      ? [['Đạt',pendingFinish.good],['NG tổng',pendingFinish.defect],['Sửa được',pendingFinish.rework],['Phế',scrap]]
+      : [['Đạt',pendingFinish.good],['NG',pendingFinish.defect]];
     document.getElementById('finish-confirm-summary').innerHTML = rows.map(([label,value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('');
     document.getElementById('finish-submit-error').textContent = '';
     document.getElementById('finish-confirm-ok').hidden = false;
@@ -252,8 +252,8 @@
       await api(`/api/kiosk-web/finish/${openSession.id}`, {method:'POST', body:JSON.stringify({good_qty:good, defect_qty:defect, rework_qty:rework, note:pendingFinish.note, request_id:pendingFinish.requestId})});
       const scrap = defect - rework;
       document.getElementById('finished-summary').textContent = rework > 0
-        ? `Đạt ${good} · Lỗi ${defect} · Sửa được ${rework} · Phế ${scrap}`
-        : `Đạt ${good} · Lỗi ${defect}`;
+        ? `Đạt ${good} · NG ${defect} · Sửa được ${rework} · Phế ${scrap}`
+        : `Đạt ${good} · NG ${defect}`;
       show('finished'); scheduleReset(3000);
     } catch (error) {
       document.getElementById('finish-submit-error').textContent = 'CHƯA GỬI ĐƯỢC SẢN LƯỢNG';

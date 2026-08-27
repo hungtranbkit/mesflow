@@ -725,7 +725,18 @@ class DashboardRepository:
             -- or not) -- for an optional "Đã tham gia trước đó" detail; must
             -- never be the default rendered value.
             jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
-              FILTER (WHERE ds.employee_id IS NOT NULL) all_participants
+              FILTER (WHERE ds.employee_id IS NOT NULL) all_participants,
+            -- Production/Operation overview UI fix: NG (defect) quantity is
+            -- normal production data, never a status condition by itself --
+            -- day_state must never derive from day_defect_qty. The only
+            -- real actionable exception this rollup can see directly is a
+            -- session the shift auto-close job closed without a human ever
+            -- confirming the final numbers (quantity_confirmed=FALSE,
+            -- closed_by_system=TRUE -- the same two columns the Session
+            -- Exceptions inbox already treats as AUTO_CLOSED_UNCONFIRMED /
+            -- ACTION_REQUIRED, reused here rather than re-deriving a second
+            -- exception rule).
+            COUNT(ds.id) FILTER (WHERE ds.closed_by_system AND NOT ds.quantity_confirmed) unconfirmed_count
           FROM operations o LEFT JOIN shift_sessions ds ON ds.operation_id=o.id
           LEFT JOIN employees e ON e.id=ds.employee_id GROUP BY o.id
         ) SELECT po.id po_id,po.code po_code,po.product,po.status po_status,
@@ -736,13 +747,19 @@ class DashboardRepository:
           COALESCE(r.session_count,0) session_count,COALESCE(r.open_session_count,0) open_session_count,
           COALESCE(r.day_good_qty,0) day_good_qty,COALESCE(r.day_defect_qty,0) day_defect_qty,COALESCE(r.day_rework_qty,0) day_rework_qty,
           COALESCE(r.day_work_seconds,0) day_work_seconds,r.active_workers,r.all_participants,r.first_started_at,r.last_started_at,r.last_report_at,
-          CASE WHEN COALESCE(r.open_session_count,0)>0 THEN 'RUNNING'
-            WHEN COALESCE(r.day_defect_qty,0)>0 THEN 'HAS_DEFECT'
+          COALESCE(r.unconfirmed_count,0) unconfirmed_count,
+          -- day_state describes OPERATIONAL/session state only (spec:
+          -- "Status phai mo ta operational/session state only"). A real
+          -- actionable exception (NEEDS_REVIEW) outranks even RUNNING so it
+          -- is never silently hidden behind "someone happens to be working
+          -- on it right now"; NG quantity plays no part in this at all.
+          CASE WHEN COALESCE(r.unconfirmed_count,0)>0 THEN 'NEEDS_REVIEW'
+            WHEN COALESCE(r.open_session_count,0)>0 THEN 'RUNNING'
             WHEN COALESCE(r.session_count,0)>0 THEN 'UPDATED' ELSE 'IDLE' END day_state
         FROM operations o JOIN parts p ON p.id=o.part_id JOIN production_orders po ON po.id=o.production_order_id
         LEFT JOIN rollup r ON r.operation_id=o.id
         WHERE COALESCE(r.session_count,0)>0
-        ORDER BY CASE WHEN COALESCE(r.open_session_count,0)>0 THEN 0 WHEN COALESCE(r.day_defect_qty,0)>0 THEN 1 ELSE 2 END,
+        ORDER BY CASE WHEN COALESCE(r.unconfirmed_count,0)>0 THEN 0 WHEN COALESCE(r.open_session_count,0)>0 THEN 1 ELSE 2 END,
           r.last_report_at DESC NULLS LAST LIMIT %s""",params)
         for row in rows:
             row['active_workers']=_worker_list(row.get('active_workers'))

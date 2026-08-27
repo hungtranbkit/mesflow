@@ -11,7 +11,7 @@ def test_overview_rework_visible():
     repo = text('app/mesflow/db/repositories/analytics.py')
     ui = text('app/mesflow/web/static/pages/overview.js')
     assert 'total_rework_qty' in repo and 'rework_qty' in repo
-    assert 'Lỗi tổng' in ui and 'CHỜ SỬA' in ui and 'Phế' in ui
+    assert 'NG tổng' in ui and 'CHỜ SỬA' in ui and 'Phế' in ui
     assert 'TERMINAL_OPERATION_EQUAL_PART_WEIGHT' in repo and 'remaining_quantity' in ui
 
 

@@ -36,7 +36,7 @@
     if(!r.enabled)return `<div class="mf-state neutral"><b>Không giới hạn đầu vào bằng Material Flow</b><span>Operation này chưa bật liên kết nguồn. WIP/ưu tiên có thể được ước tính từ OP trước hoặc số lượng PO.</span></div>`;
     if(!r.source_operation_id)return `<div class="mf-state warning"><b>Đã bật Material Flow nhưng chưa chọn OP nguồn</b><span>Hãy mở “Sửa cấu hình” và chọn nguồn đầu vào.</span></div>`;
     const pct=r.source_pool_qty>0?Math.min(100,Math.round(Number(r.source_pool_allocated_qty||0)*100/Number(r.source_pool_qty))):0;
-    return `<div class="mf-relation-card"><div class="mf-flow-line"><div><small>NGUỒN</small><b>${E(r.source_code||'—')}</b><span>${E(r.source_name||'')}</span></div><strong>→</strong><div><small>POOL</small><b>${E(kindLabel(r.source_kind))}</b><span>${r.defects_consume_input?'Lỗi của OP đích có tiêu hao đầu vào':'Chỉ hàng đạt tiêu hao đầu vào'}</span></div></div>
+    return `<div class="mf-relation-card"><div class="mf-flow-line"><div><small>NGUỒN</small><b>${E(r.source_code||'—')}</b><span>${E(r.source_name||'')}</span></div><strong>→</strong><div><small>POOL</small><b>${E(kindLabel(r.source_kind))}</b><span>${r.defects_consume_input?'NG của OP đích có tiêu hao đầu vào':'Chỉ hàng đạt tiêu hao đầu vào'}</span></div></div>
       <div class="mf-pool-meter"><i style="width:${pct}%"></i></div>
       <div class="mf-pool-stats"><span><small>Pool tạo ra</small><b>${F(r.source_pool_qty)}</b></span><span><small>Đã cấp toàn bộ</small><b>${F(r.source_pool_allocated_qty)}</b></span><span><small>Còn khả dụng</small><b>${F(r.source_pool_available_qty)}</b></span><span><small>OP này đã nhận</small><b>${F(r.this_operation_consumed_qty)}</b></span></div></div>`;
   }
