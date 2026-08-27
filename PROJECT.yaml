@@ -31,6 +31,14 @@ service:
     url: http://127.0.0.1:${MESFLOW_LOCAL_PORT:-18280}/api/system/ready
     timeout_seconds: 15
 
+ci:
+  # Universal CI/CD Standard V1 (../docs/CI_CD_STANDARD.md section 11):
+  # explicit required CI gates for this project's own workspace CI matrix
+  # job. Additive/optional field -- absence anywhere else in the
+  # workspace falls back to whichever of preflight/test is declared under
+  # commands: below.
+  required: [preflight, test]
+
 commands:
 
   preflight:
