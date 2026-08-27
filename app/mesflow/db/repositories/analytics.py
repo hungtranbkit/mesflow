@@ -1499,10 +1499,16 @@ class ReportRepository:
         JOIN work_sessions ws ON ws.operation_id=o.id JOIN employees e ON e.id=ws.employee_id
         WHERE {' AND '.join(conditions)} GROUP BY o.id,po.id,p.id
         ORDER BY (COUNT(ws.id) FILTER (WHERE ws.status='OPEN')>0) DESC,MAX(COALESCE(ws.updated_at,ws.ended_at,ws.started_at)) DESC,o.id DESC LIMIT %s""",params)
+        part_filter_sql=' WHERE production_order_id=%s' if po_id else ''
+        part_filter_params=(int(po_id),) if po_id else ()
+        operation_filter_conditions=[]; operation_filter_params=[]
+        if po_id: operation_filter_conditions.append('production_order_id=%s'); operation_filter_params.append(int(po_id))
+        if part_id: operation_filter_conditions.append('part_id=%s'); operation_filter_params.append(int(part_id))
+        operation_filter_sql=' WHERE '+' AND '.join(operation_filter_conditions) if operation_filter_conditions else ''
         filters={
           'production_orders':fetch_all("SELECT id,code,product FROM production_orders ORDER BY code"),
-          'parts':fetch_all("SELECT id,production_order_id,code,name FROM parts ORDER BY production_order_id,sort_order,id"),
-          'operations':fetch_all("SELECT id,production_order_id,part_id,code,name FROM operations ORDER BY production_order_id,part_id,sort_order,id"),
+          'parts':fetch_all(f"SELECT id,production_order_id,code,name FROM parts{part_filter_sql} ORDER BY production_order_id,sort_order,id",part_filter_params),
+          'operations':fetch_all(f"SELECT id,production_order_id,part_id,code,name FROM operations{operation_filter_sql} ORDER BY production_order_id,part_id,sort_order,id",operation_filter_params),
           'employees':fetch_all("SELECT id,employee_no,name FROM employees WHERE active=TRUE ORDER BY employee_no")
         }
         return {'items':items,'filters':filters}
