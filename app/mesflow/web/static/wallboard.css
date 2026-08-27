@@ -1,0 +1,152 @@
+/* Kiosk trình chiếu năng suất nhân viên -- dedicated TV/large-display visual
+   language. Deliberately separate from ui.css/kiosk.css: this screen has no
+   sidebar, no admin chrome, and needs to read from several meters away, so
+   type scale and contrast are tuned for 1920x1080 viewed on a wall-mounted
+   TV, not a desk monitor. */
+
+:root{
+  --wb-bg:#0b1220;
+  --wb-panel:#121b2e;
+  --wb-panel-border:#22314d;
+  --wb-text:#eef2ff;
+  --wb-text-dim:#8b98b8;
+  --wb-accent:#3fd0c9;
+  --wb-good:#3ecf8e;
+  --wb-warn:#f5b942;
+  --wb-bad:#f5636b;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--wb-bg)}
+body{
+  font-family:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:var(--wb-text);
+  overflow:hidden; /* a wallboard never scrolls -- paging replaces scrolling */
+}
+
+.wb-shell{
+  height:100vh;
+  width:100vw;
+  display:flex;
+  flex-direction:column;
+  padding:28px 40px 20px;
+  gap:20px;
+}
+
+.wb-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
+.wb-header-title h1{margin:0;font-size:40px;font-weight:800;letter-spacing:.03em}
+.wb-header-title p{margin:6px 0 0;font-size:20px;color:var(--wb-text-dim)}
+.wb-header-meta{display:flex;align-items:center;gap:16px;font-size:18px;color:var(--wb-text-dim)}
+.wb-conn-state{
+  background:rgba(245,99,107,.15);
+  color:var(--wb-bad);
+  border:1px solid rgba(245,99,107,.4);
+  padding:6px 14px;
+  border-radius:999px;
+  font-weight:600;
+  font-size:15px;
+}
+.wb-fullscreen-btn{
+  background:var(--wb-panel);
+  border:1px solid var(--wb-panel-border);
+  color:var(--wb-text);
+  padding:8px 16px;
+  border-radius:8px;
+  font-size:14px;
+  cursor:pointer;
+}
+
+.wb-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.wb-kpi{
+  background:var(--wb-panel);
+  border:1px solid var(--wb-panel-border);
+  border-radius:14px;
+  padding:18px 22px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.wb-kpi small{font-size:16px;color:var(--wb-text-dim);font-weight:600;letter-spacing:.02em}
+.wb-kpi strong{font-size:38px;font-weight:800}
+
+.wb-board{
+  flex:1;
+  min-height:0;
+  background:var(--wb-panel);
+  border:1px solid var(--wb-panel-border);
+  border-radius:16px;
+  padding:8px 0;
+  display:flex;
+  flex-direction:column;
+}
+/* Card grid (no progress bar -- the % text itself is the primary and only
+   visual indicator of standing): 1/2/3 columns, configurable (Settings:
+   "Số cột hiển thị"), each cell an equal-height card so employees_per_page
+   worth of cards always fills .wb-board's actual height without overflow,
+   same guarantee the old flex rows had via flex:1/min-height:0 (see the
+   note this replaces).
+   --productivity-columns is set by wallboard-employee-productivity.js
+   (computeProductivityColumns) on every draw/resize -- AUTO's own
+   thresholds and the explicit-column responsive-safety fallback both live
+   there, in one place, so this rule just consumes the result. The 2 here
+   is only a fallback for the (should-never-happen) case JS hasn't run yet. */
+.wb-list{flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--productivity-columns,2),minmax(0,1fr));grid-auto-rows:1fr;gap:14px 24px;padding:14px 24px;overflow:hidden}
+/* CSS-only defense-in-depth backup to the JS computation above -- forces 1
+   column at narrow widths even if JS failed to set the variable in time. */
+@media(max-width:899px){.wb-list{grid-template-columns:1fr}}
+.wb-card{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:8px;
+  min-height:0;
+  overflow:hidden;
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--wb-panel-border);
+  border-radius:14px;
+  padding:12px 24px;
+}
+.wb-card-top{display:flex;align-items:baseline;gap:14px}
+.wb-card-rank{font-size:18px;font-weight:700;color:var(--wb-text-dim);flex:0 0 auto;font-variant-numeric:tabular-nums}
+.wb-card-name{font-size:24px;font-weight:700;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wb-card-pct{font-size:32px;font-weight:800;text-align:right;font-variant-numeric:tabular-nums;flex:0 0 auto;margin-left:auto}
+.wb-card-pct.good{color:var(--wb-good)}
+.wb-card-pct.warn{color:var(--wb-warn)}
+.wb-card-pct.bad{color:var(--wb-bad)}
+.wb-card-sub{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px;color:var(--wb-text-dim)}
+.wb-card-sub span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.wb-card-band{flex:0 0 auto;padding:2px 12px;border-radius:999px;font-weight:700;font-size:13px}
+.wb-card-band.good{background:rgba(62,207,142,.15);color:var(--wb-good)}
+.wb-card-band.warn{background:rgba(245,185,66,.15);color:var(--wb-warn)}
+.wb-card-band.bad{background:rgba(245,99,107,.15);color:var(--wb-bad)}
+.wb-card-band.neutral{background:rgba(139,152,184,.15);color:var(--wb-text-dim)}
+
+.wb-empty{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  font-size:24px;color:var(--wb-text-dim);text-align:center;padding:40px;
+}
+/* An author display:flex rule always beats the UA [hidden]{display:none}
+   rule at equal specificity regardless of source order -- without this,
+   #wbEmpty keeps claiming its flex:1 share of .wb-board even while
+   `hidden` is true, pushing the real list down and leaving a dead gap
+   above it. (Same class of bug found earlier in kiosk.css.) */
+.wb-empty[hidden]{display:none}
+
+.wb-footer{display:flex;align-items:center;justify-content:flex-end;gap:14px;font-size:15px;color:var(--wb-text-dim)}
+.wb-nav-btn{
+  background:var(--wb-panel);
+  border:1px solid var(--wb-panel-border);
+  color:var(--wb-text);
+  width:32px;height:32px;
+  border-radius:8px;
+  font-size:18px;
+  line-height:1;
+  cursor:pointer;
+}
+.wb-nav-btn[hidden]{display:none}
+
+@media (max-width:1400px){
+  .wb-kpis{grid-template-columns:repeat(2,1fr)}
+  .wb-card-name{font-size:20px}
+  .wb-card-pct{font-size:26px}
+}

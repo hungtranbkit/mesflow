@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Năng suất nhân viên · KIMEX</title>
+  <link rel="stylesheet" href="/static/wallboard.css?v={{ version }}">
+</head>
+<body>
+  <!-- Read-only display board -- no sidebar, no admin controls, no
+  filter inputs. Config is entirely server-side (published from the
+  "Báo cáo năng suất nhân viên" Report screen); this page only ever reads
+  /api/wallboard/employee-productivity (or, in ?preview=1 mode opened from
+  the Report screen, the same authenticated /api/reports/employee-
+  productivity the Report itself uses, with the Report's current unsaved
+  filters -- never the public endpoint). -->
+  <main class="wb-shell" id="wbShell">
+    <header class="wb-header">
+      <div class="wb-header-title">
+        <h1>NĂNG SUẤT NHÂN VIÊN</h1>
+        <p id="wbRange">Đang tải...</p>
+      </div>
+      <div class="wb-header-meta">
+        <span id="wbUpdatedAt"></span>
+        <span id="wbConnState" class="wb-conn-state" hidden></span>
+        <button type="button" id="wbFullscreen" class="wb-fullscreen-btn" hidden>Toàn màn hình</button>
+      </div>
+    </header>
+    <section class="wb-kpis" id="wbKpis"></section>
+    <section class="wb-board" id="wbBoard">
+      <div class="wb-empty" id="wbEmpty" hidden></div>
+      <div class="wb-list" id="wbList"></div>
+    </section>
+    <footer class="wb-footer">
+      <button type="button" id="wbPrev" class="wb-nav-btn" hidden aria-label="Trang trước">‹</button>
+      <span id="wbPageIndicator"></span>
+      <button type="button" id="wbNext" class="wb-nav-btn" hidden aria-label="Trang sau">›</button>
+    </footer>
+  </main>
+  <script src="/static/wallboard-employee-productivity.js?v={{ version }}"></script>
+</body>
+</html>
