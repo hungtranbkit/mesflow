@@ -4,7 +4,7 @@ from datetime import datetime
 from mesflow.core.time_policy import parse_datetime_utc
 from psycopg import sql
 from mesflow.db.connection import transaction, fetch_all
-from .base import BaseRepository, NotFoundError, ConflictError, RepositoryError
+from .base import BaseRepository, NotFoundError, ConflictError, RepositoryError, reportable_session_sql
 from .production_state import reconcile_operation_and_po
 from .dependency_graph import validate_operation_dependencies
 from mesflow.domain.trace import record_event
@@ -59,12 +59,14 @@ class EmployeeRepository(BaseRepository):
         return super().update(entity_id,clean)
 
     def list_with_stats(self,limit=1000,offset=0):
+        # Employees master-data list KPI column -- must not count an
+        # excluded_from_reports session's quantity/session_count.
         query=("SELECT e.*, COALESCE(s.session_count,0) AS session_count, "
                "COALESCE(s.total_good_qty,0) AS total_good_qty "
                "FROM employees e LEFT JOIN ("
                "SELECT employee_id, COUNT(*) AS session_count, "
                "COALESCE(SUM(good_qty),0) AS total_good_qty "
-               "FROM work_sessions GROUP BY employee_id"
+               f"FROM work_sessions WHERE {reportable_session_sql('')} GROUP BY employee_id"
                ") s ON s.employee_id=e.id "
                "ORDER BY e.employee_no,e.id LIMIT %s OFFSET %s")
         return fetch_all(query,(limit,offset))

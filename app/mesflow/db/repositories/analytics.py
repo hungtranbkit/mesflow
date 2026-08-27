@@ -3,7 +3,7 @@ import json
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
 from mesflow.db.connection import transaction, fetch_all, fetch_one
-from .base import NotFoundError, ConflictError
+from .base import NotFoundError, ConflictError, reportable_session_sql
 from mesflow.core.working_calendar import get_working_calendar, get_work_shift, shift_bounds, resolve_shift_context, working_seconds_between,all_shift_working_seconds_between
 from mesflow.core.time_policy import coerce_utc,utc_now,business_date,business_date_start_utc
 from mesflow.db.repositories.scheduling import priority_for_operation,priority_sort_key
@@ -115,7 +115,12 @@ def _worker_list(value):
 
 class DashboardRepository:
     def summary(self):
-        return fetch_one("""SELECT
+        # active_sessions is a dashboard KPI card ("session dang mo") -- an
+        # excluded-but-still-OPEN session (spec: "session mo nhung thuc te
+        # khong lam") must not inflate it. total_good_qty/defect_qty/
+        # rework_qty already come from operations.* (kept correct by
+        # reconcile_operation()), not summed here.
+        return fetch_one(f"""SELECT
           (SELECT COUNT(*) FROM production_orders) po_total,
           (SELECT COUNT(*) FROM production_orders WHERE status IN ('IN_PROGRESS','ACTIVE')) po_active,
           (SELECT COUNT(*) FROM operations) operation_total,
@@ -123,7 +128,14 @@ class DashboardRepository:
           (SELECT COALESCE(SUM(done_qty),0) FROM operations) total_good_qty,
           (SELECT COALESCE(SUM(defect_qty),0) FROM operations) total_defect_qty,
           (SELECT COALESCE(SUM(rework_qty),0) FROM operations) total_rework_qty,
-          (SELECT COUNT(*) FROM work_sessions WHERE status='OPEN') active_sessions,
+          (SELECT COUNT(*) FROM work_sessions WHERE status='OPEN' AND {reportable_session_sql('')}) active_sessions,
+          -- spec section 5: "Dashboard phai co kha nang bao: Co N session
+          -- chua xac nhan so lieu" -- quantity_confirmed=FALSE sessions are
+          -- deliberately NOT excluded from the KPI sums above (good_qty=0
+          -- there is real, counted data until a human corrects it); this is
+          -- purely a visibility signal so nobody mistakes a quiet 0 for a
+          -- confirmed zero.
+          (SELECT COUNT(*) FROM work_sessions WHERE status='CLOSED' AND closed_by_system AND NOT quantity_confirmed AND {reportable_session_sql('')}) unconfirmed_quantity_sessions,
           (SELECT COUNT(*) FROM employees WHERE active=true) active_employees,
           (SELECT COUNT(*) FROM kiosk_status WHERE last_heartbeat_at >= CURRENT_TIMESTAMP-INTERVAL '2 minutes') online_kiosks,
           (SELECT COUNT(*) FROM kiosk_events WHERE status='OPEN' AND severity IN ('ERROR','CRITICAL')) open_critical_events,
@@ -186,7 +198,7 @@ class DashboardRepository:
         LEFT JOIN repair_rollup rr ON rr.production_order_id=po.id
         ORDER BY po.updated_at DESC LIMIT %s""",(min(max(limit,1),500),))
     def operation_overview(self,limit:int=1000):
-        rows=fetch_all("""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_quantity,po.due_date,
+        rows=fetch_all(f"""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_quantity,po.due_date,
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
           o.status operation_status,COALESCE(o.done_qty,0) done_qty,COALESCE(o.defect_qty,0) defect_qty,COALESCE(o.rework_qty,0) rework_qty,
           COALESCE(o.rework_qty,0) repair_pending_quantity,COALESCE(o.repair_cycle_time_seconds_per_unit,0) repair_cycle_time_seconds_per_unit,
@@ -195,7 +207,7 @@ class DashboardRepository:
           STRING_AGG(DISTINCT e.name,', ' ORDER BY e.name) FILTER (WHERE ws.status='OPEN') active_workers,
           MAX(COALESCE(ws.ended_at,ws.updated_at,ws.started_at)) last_activity_at
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
-        JOIN parts p ON p.id=o.part_id LEFT JOIN work_sessions ws ON ws.operation_id=o.id
+        JOIN parts p ON p.id=o.part_id LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         LEFT JOIN employees e ON e.id=ws.employee_id
         GROUP BY po.id,p.id,o.id
         ORDER BY CASE WHEN COUNT(ws.id) FILTER (WHERE ws.status='OPEN')>0 THEN 0
@@ -216,14 +228,17 @@ class DashboardRepository:
           'operations':self.operation_overview(limit),'active_sessions':self.active_sessions(200)}
 
     def active_sessions(self,limit:int=100):
-        rows=fetch_all("""SELECT ws.id,ws.started_at,ws.station_id,ws.device_uuid,
+        # Live "who is working right now" board -- an excluded-but-OPEN
+        # session (spec: "not real work") must not populate it as if real
+        # production were happening.
+        rows=fetch_all(f"""SELECT ws.id,ws.started_at,ws.station_id,ws.device_uuid,
           e.employee_no,e.name employee_name,o.code operation_code,o.name operation_name,o.standard_seconds_per_unit,
           o.done_qty live_good_qty,COALESCE(po.planned_quantity,0) plan_qty,(COALESCE(po.planned_quantity,0)*o.standard_seconds_per_unit) planned_seconds,po.code po_code
         FROM work_sessions ws
         JOIN employees e ON e.id=ws.employee_id
         JOIN operations o ON o.id=ws.operation_id
         JOIN production_orders po ON po.id=o.production_order_id
-        WHERE ws.status='OPEN' ORDER BY ws.started_at LIMIT %s""",(min(max(limit,1),500),))
+        WHERE ws.status='OPEN' AND {reportable_session_sql('ws')} ORDER BY ws.started_at LIMIT %s""",(min(max(limit,1),500),))
         cfg=get_working_calendar(); now=utc_now()
         for row in rows:
             elapsed=all_shift_working_seconds_between(row['started_at'],now)
@@ -238,7 +253,11 @@ class DashboardRepository:
         now=utc_now()
         today=business_date(timezone_name=settings.timezone_name)
 
-        performance=dict(fetch_one("""WITH active_po AS (
+        # today_good_qty/today_defect_qty/sessions_started_today/
+        # sessions_completed_today are direct KPI sums over work_sessions
+        # (not routed through operations.done_qty) -- must honor exclusion.
+        reportable=reportable_session_sql('')
+        performance=dict(fetch_one(f"""WITH active_po AS (
           SELECT po.id,COALESCE(po.planned_quantity,0) planned_quantity,COUNT(o.id) operation_count,
             COALESCE(SUM(o.done_qty),0) done_qty,COALESCE(SUM(o.defect_qty),0) defect_qty
           FROM production_orders po LEFT JOIN operations o ON o.production_order_id=po.id
@@ -248,10 +267,10 @@ class DashboardRepository:
           FROM production_orders
           WHERE status='COMPLETED' AND due_date IS NOT NULL AND updated_at>=%s::date-INTERVAL '30 days'
         ) SELECT
-          (SELECT COALESCE(SUM(good_qty),0) FROM work_sessions WHERE (COALESCE(ended_at,updated_at) AT TIME ZONE %s)::date=%s) today_good_qty,
-          (SELECT COALESCE(SUM(defect_qty),0) FROM work_sessions WHERE (COALESCE(ended_at,updated_at) AT TIME ZONE %s)::date=%s) today_defect_qty,
-          (SELECT COUNT(*) FROM work_sessions WHERE (started_at AT TIME ZONE %s)::date=%s) sessions_started_today,
-          (SELECT COUNT(*) FROM work_sessions WHERE status<>'OPEN' AND (ended_at AT TIME ZONE %s)::date=%s) sessions_completed_today,
+          (SELECT COALESCE(SUM(good_qty),0) FROM work_sessions WHERE (COALESCE(ended_at,updated_at) AT TIME ZONE %s)::date=%s AND {reportable}) today_good_qty,
+          (SELECT COALESCE(SUM(defect_qty),0) FROM work_sessions WHERE (COALESCE(ended_at,updated_at) AT TIME ZONE %s)::date=%s AND {reportable}) today_defect_qty,
+          (SELECT COUNT(*) FROM work_sessions WHERE (started_at AT TIME ZONE %s)::date=%s AND {reportable}) sessions_started_today,
+          (SELECT COUNT(*) FROM work_sessions WHERE status<>'OPEN' AND (ended_at AT TIME ZONE %s)::date=%s AND {reportable}) sessions_completed_today,
           COALESCE((SELECT SUM(planned_quantity*operation_count) FROM active_po),0) active_plan_qty,
           COALESCE((SELECT SUM(done_qty) FROM active_po),0) active_done_qty,
           COALESCE((SELECT SUM(defect_qty) FROM active_po),0) active_defect_qty,
@@ -262,13 +281,13 @@ class DashboardRepository:
         active_plan=float(performance.get('active_plan_qty') or 0)
         performance['active_progress_percent']=round(float(performance.get('active_done_qty') or 0)/active_plan*100,1) if active_plan else 0.0
 
-        daily_output=fetch_all("""SELECT d::date work_date,COALESCE(SUM(ws.good_qty),0) good_qty,COALESCE(SUM(ws.defect_qty),0) defect_qty,COALESCE(SUM(ws.rework_qty),0) rework_qty,
+        daily_output=fetch_all(f"""SELECT d::date work_date,COALESCE(SUM(ws.good_qty),0) good_qty,COALESCE(SUM(ws.defect_qty),0) defect_qty,COALESCE(SUM(ws.rework_qty),0) rework_qty,
           COUNT(ws.id) session_count
         FROM generate_series(%s::date-6,%s::date,INTERVAL '1 day') d
-        LEFT JOIN work_sessions ws ON (COALESCE(ws.ended_at,ws.updated_at) AT TIME ZONE %s)::date=d::date
+        LEFT JOIN work_sessions ws ON (COALESCE(ws.ended_at,ws.updated_at) AT TIME ZONE %s)::date=d::date AND {reportable}
         GROUP BY d ORDER BY d""",(today,today,settings.timezone_name))
 
-        po_health=fetch_all("""WITH op_rollup AS (
+        po_health=fetch_all(f"""WITH op_rollup AS (
           SELECT o.production_order_id,COUNT(*) operation_count,
             COUNT(*) FILTER (WHERE o.status='COMPLETED') completed_operation_count,
             COALESCE(SUM(o.done_qty),0) done_qty,COALESCE(SUM(o.defect_qty),0) defect_qty,COALESCE(SUM(o.rework_qty),0) rework_qty,
@@ -280,7 +299,7 @@ class DashboardRepository:
           SELECT o.production_order_id,COUNT(ws.id) active_sessions,
             STRING_AGG(DISTINCT e.name,', ' ORDER BY e.name) workers
           FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id JOIN employees e ON e.id=ws.employee_id
-          WHERE ws.status='OPEN' GROUP BY o.production_order_id
+          WHERE ws.status='OPEN' AND {reportable_session_sql('ws')} GROUP BY o.production_order_id
         ) SELECT po.id,po.code,po.product,po.status,po.priority,po.due_date,po.planned_start_at,po.planned_end_at,
           po.planned_quantity,COALESCE(r.operation_count,0) operation_count,
           COALESCE(r.completed_operation_count,0) completed_operation_count,COALESCE(r.done_qty,0) done_qty,
@@ -318,7 +337,7 @@ class DashboardRepository:
                 health='PLANNING'; label='Đang chuẩn bị'; reason='PO chưa phát hành sản xuất'
             row['health']=health; row['health_label']=label; row['health_reason']=reason
 
-        po_tree=fetch_all("""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.priority,po.due_date,
+        po_tree=fetch_all(f"""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.priority,po.due_date,
           p.id part_id,p.code part_code,p.name part_name,p.sort_order part_sort,
           o.id operation_id,o.code operation_code,o.name operation_name,o.status operation_status,
           COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,o.sort_order operation_sort,o.standard_seconds_per_unit,
@@ -329,7 +348,7 @@ class DashboardRepository:
         FROM production_orders po
         LEFT JOIN parts p ON p.production_order_id=po.id
         LEFT JOIN operations o ON o.part_id=p.id
-        LEFT JOIN work_sessions ws ON ws.operation_id=o.id
+        LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         LEFT JOIN employees e ON e.id=ws.employee_id
         WHERE po.status IN ('IN_PROGRESS','ACTIVE','PAUSED')
         GROUP BY po.id,p.id,o.id
@@ -338,7 +357,11 @@ class DashboardRepository:
             if row.get('active_since'):
                 row['active_elapsed_seconds']=working_seconds_between(row['active_since'],now,cfg)
 
-        alerts=fetch_all("""WITH active AS (
+        # Live risk alerts derived from OPEN sessions (kiosk offline while
+        # running, session running unusually long): an excluded session
+        # isn't real production, so it must not raise an operational alert
+        # either.
+        alerts=fetch_all(f"""WITH active AS (
           SELECT ws.id session_id,ws.started_at,ws.device_uuid,e.name employee_name,
             po.id po_id,po.code po_code,p.id part_id,p.code part_code,o.id operation_id,o.code operation_code,o.name operation_name,
             EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP-ws.started_at))::bigint elapsed_seconds,
@@ -346,7 +369,7 @@ class DashboardRepository:
           FROM work_sessions ws
           JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN parts p ON p.id=o.part_id JOIN production_orders po ON po.id=o.production_order_id
-          LEFT JOIN kiosk_status ks ON ks.device_uuid=ws.device_uuid WHERE ws.status='OPEN'
+          LEFT JOIN kiosk_status ks ON ks.device_uuid=ws.device_uuid WHERE ws.status='OPEN' AND {reportable_session_sql('ws')}
         ) SELECT * FROM (
           SELECT 'CRITICAL' severity,'KIOSK_OFFLINE' alert_type,po_id,part_id,operation_id,session_id,
             po_code||' · '||operation_code title,'Kiosk mất heartbeat khi session đang chạy: '||employee_name message,started_at occurred_at
@@ -440,7 +463,7 @@ class DashboardRepository:
           'generated_at':fetch_one('SELECT CURRENT_TIMESTAMP generated_at')['generated_at']}
 
     def production_schedule(self,limit:int=200):
-        rows=fetch_all("""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_start_at po_start,po.planned_end_at po_end,po.planned_quantity,
+        rows=fetch_all(f"""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_start_at po_start,po.planned_end_at po_end,po.planned_quantity,
           p.id part_id,p.code part_code,p.name part_name,p.sort_order part_sort,
           o.id operation_id,o.code operation_code,o.name operation_name,o.status operation_status,o.sort_order operation_sort,
           o.predecessor_operation_id,o.dependency_type,o.lag_minutes,o.standard_seconds_per_unit,o.done_qty,o.defect_qty,o.rework_qty,
@@ -452,7 +475,7 @@ class DashboardRepository:
           MIN(ws.started_at) actual_start_at,MAX(ws.ended_at) actual_end_at,COUNT(ws.id) FILTER (WHERE ws.status='OPEN') active_sessions
         FROM production_orders po JOIN parts p ON p.production_order_id=po.id JOIN operations o ON o.part_id=p.id
         LEFT JOIN operations src ON src.id=o.input_source_operation_id
-        LEFT JOIN work_sessions ws ON ws.operation_id=o.id
+        LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
         GROUP BY po.id,p.id,o.id,src.id ORDER BY po.planned_start_at NULLS LAST,po.id,p.sort_order,p.id,o.sort_order,o.id LIMIT %s""",(min(max(limit,1),1000),))
         by_id={r['operation_id']:r for r in rows}
@@ -675,10 +698,13 @@ class DashboardRepository:
             duration_params.extend([right,left])
         duration_sql=' + '.join(duration_parts) if duration_parts else '0'
         params=[shift_end,shift_start,shift_start,shift_end,shift_start,shift_end,shift_start,shift_end,*duration_params,min(max(limit,1),2000)]
+        # shift_sessions feeds day_good_qty/day_defect_qty/day_rework_qty
+        # (KPI) AND open_session_count/active_workers/day_state (health) --
+        # filtering once here at the source covers both.
         rows=fetch_all(f"""WITH shift_sessions AS (
           SELECT ws.*,COALESCE(ws.ended_at,ws.updated_at) report_at
           FROM work_sessions ws
-          WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
+          WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s AND {reportable_session_sql('ws')}
         ), rollup AS (
           SELECT o.id operation_id,MIN(ds.started_at) first_started_at,MAX(ds.started_at) last_started_at,
             MAX(ds.report_at) last_report_at,COUNT(ds.id) session_count,
@@ -812,12 +838,17 @@ class ReportRepository:
         po=fetch_one('SELECT * FROM production_orders WHERE id=%s',(po_id,))
         if not po: raise NotFoundError('production order not found')
         parts=fetch_all('SELECT * FROM parts WHERE production_order_id=%s ORDER BY sort_order,id',(po_id,))
-        operations=fetch_all("""SELECT o.*,e.code equipment_code,e.name equipment_name,
+        # PO Report detail: session_good_qty/session_defect_qty/work_seconds
+        # are a KPI rollup shown next to o.done_qty/o.defect_qty (already
+        # reconcile_operation()-correct) -- an unfiltered raw sum here would
+        # silently diverge from the operation's own authoritative numbers
+        # the moment a session is excluded.
+        operations=fetch_all(f"""SELECT o.*,e.code equipment_code,e.name equipment_name,
           COUNT(ws.id) session_count,COALESCE(SUM(ws.good_qty),0) session_good_qty,
           COALESCE(SUM(ws.defect_qty),0) session_defect_qty,
           COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at))),0)::bigint work_seconds
         FROM operations o LEFT JOIN equipment e ON e.id=o.equipment_id
-        LEFT JOIN work_sessions ws ON ws.operation_id=o.id
+        LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         WHERE o.production_order_id=%s GROUP BY o.id,e.code,e.name ORDER BY o.sort_order,o.id""",(po_id,))
         qc=fetch_all("""SELECT q.*,o.code operation_code,o.name operation_name,u.display_name inspector_name
         FROM qc_inspections q JOIN operations o ON o.id=q.operation_id LEFT JOIN users u ON u.id=q.inspector_user_id
@@ -851,11 +882,18 @@ class ReportRepository:
         if status:
             conditions.append('ws.status=%s'); params.append(status)
         params.append(min(max(limit,1),10000))
+        # The raw per-session list is a drill-down/history surface (like
+        # Session Management's own list) -- keep every session visible, but
+        # expose excluded_from_reports/exclusion_reason so the UI can badge
+        # it, matching spec section 7 ("session vẫn phải tồn tại... UI phải
+        # có badge"). The `users` rollup right below is an unambiguous KPI
+        # aggregate and DOES filter.
         sessions=fetch_all(f"""SELECT ws.id session_id,ws.status,ws.started_at,ws.ended_at,
           COALESCE(ws.ended_at,CURRENT_TIMESTAMP) effective_end_at,
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
           COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
           ws.device_uuid,ws.station_id,s.code station_code,s.name station_name,
+          ws.excluded_from_reports,ws.exclusion_reason,ws.closed_by_system,ws.quantity_confirmed,
           e.id employee_id,e.employee_no employee_code,e.name employee_name,e.department,e.team,e.position,
           o.id operation_id,o.code operation_code,o.name operation_name,o.status operation_status,
           po.id po_id,po.code po_code,po.product,p.id part_id,p.code part_code,p.name part_name
@@ -867,6 +905,7 @@ class ReportRepository:
         LEFT JOIN stations s ON s.id=ws.station_id
         WHERE {' AND '.join(conditions)}
         ORDER BY ws.started_at DESC,ws.id DESC LIMIT %s""",params)
+        reportable_conditions=conditions+[reportable_session_sql('ws')]
         users=fetch_all(f"""SELECT e.id employee_id,e.employee_no employee_code,e.name employee_name,
           e.department,e.team,e.position,COUNT(ws.id) session_count,
           COUNT(*) FILTER (WHERE ws.status='OPEN') open_session_count,
@@ -874,7 +913,7 @@ class ReportRepository:
           COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at))),0)::bigint work_seconds,
           MIN(ws.started_at) first_started_at,MAX(COALESCE(ws.ended_at,ws.updated_at,ws.started_at)) last_activity_at
         FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id
-        WHERE {' AND '.join(conditions)} GROUP BY e.id ORDER BY work_seconds DESC,e.employee_no""",params[:-1])
+        WHERE {' AND '.join(reportable_conditions)} GROUP BY e.id ORDER BY work_seconds DESC,e.employee_no""",params[:-1])
         operations=fetch_all("""SELECT o.id operation_id,o.code operation_code,o.name operation_name,
           po.code po_code,po.product,p.code part_code,p.name part_name
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
@@ -1349,7 +1388,7 @@ class ReportRepository:
                                employee_id:int|None=None,department:str|None=None,
                                team:str|None=None,limit:int=1000):
         from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
-        conditions=['ws.started_at>=%s','ws.started_at<%s']; params=[from_utc,to_utc]
+        conditions=['ws.started_at>=%s','ws.started_at<%s',reportable_session_sql('ws')]; params=[from_utc,to_utc]
         if employee_id: conditions.append('e.id=%s'); params.append(employee_id)
         if department: conditions.append('e.department=%s'); params.append(department)
         if team: conditions.append('e.team=%s'); params.append(team)
@@ -1416,7 +1455,8 @@ class ReportRepository:
             GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
-            o.code operation_code,o.name operation_name,po.code po_code,p.code part_code
+            o.code operation_code,o.name operation_name,po.code po_code,p.code part_code,
+            ws.excluded_from_reports,ws.exclusion_reason
           FROM work_sessions ws
           JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
@@ -1431,7 +1471,11 @@ class ReportRepository:
             item=dict(row)
             pct=item.get('completion_percent')
             item['completion_percent']=round(float(pct),2) if pct is not None else None
-            if item['status']=='CLOSED' and item['completion_percent'] is not None: valid_scores.append(item['completion_percent'])
+            # Row stays visible (history) even when excluded_from_reports --
+            # it just never pulls the personal productivity_percent average,
+            # same rule as employee_productivity()'s own aggregate.
+            if item['status']=='CLOSED' and item['completion_percent'] is not None and not item.get('excluded_from_reports'):
+                valid_scores.append(item['completion_percent'])
             sessions.append(item)
         productivity=round(sum(valid_scores)/len(valid_scores),2) if valid_scores else None
         return {
@@ -1533,7 +1577,7 @@ class ReportRepository:
           COALESCE(SUM(GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)),0)::bigint work_seconds,
           STRING_AGG(DISTINCT e.employee_no || ' · ' || e.name, ', ' ORDER BY e.employee_no || ' · ' || e.name) workers
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
-        JOIN work_sessions ws ON ws.operation_id=o.id JOIN employees e ON e.id=ws.employee_id
+        JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')} JOIN employees e ON e.id=ws.employee_id
         WHERE {' AND '.join(conditions)} GROUP BY o.id,po.id,p.id
         ORDER BY (COUNT(ws.id) FILTER (WHERE ws.status='OPEN')>0) DESC,MAX(COALESCE(ws.updated_at,ws.ended_at,ws.started_at)) DESC,o.id DESC LIMIT %s""",params)
         part_filter_sql=' WHERE production_order_id=%s' if po_id else ''
@@ -1552,7 +1596,7 @@ class ReportRepository:
 
 class KPIRepository:
     def employees(self,date_from:str|None=None,date_to:str|None=None,limit:int=500):
-        conditions=['1=1']; params=[]
+        conditions=[reportable_session_sql('ws')]; params=[]
         if date_from: conditions.append('ws.started_at >= %s::date'); params.append(date_from)
         if date_to: conditions.append("ws.started_at < (%s::date + INTERVAL '1 day')"); params.append(date_to)
         params.append(min(max(limit,1),1000))
@@ -1566,12 +1610,12 @@ class KPIRepository:
         FROM employees e LEFT JOIN work_sessions ws ON ws.employee_id=e.id AND {' AND '.join(conditions)}
         GROUP BY e.id ORDER BY good_qty DESC,e.employee_no LIMIT %s""",params)
     def operations(self,limit:int=500):
-        return fetch_all("""SELECT o.id,o.code,o.name,po.code po_code,po.planned_quantity plan_qty,o.done_qty,o.defect_qty,o.status,
+        return fetch_all(f"""SELECT o.id,o.code,o.name,po.code po_code,po.planned_quantity plan_qty,o.done_qty,o.defect_qty,o.status,
           CASE WHEN po.planned_quantity>0 THEN ROUND(o.done_qty::numeric/po.planned_quantity*100,2) ELSE 0 END completion_percent,
           CASE WHEN o.done_qty+o.defect_qty>0 THEN ROUND(o.done_qty::numeric/(o.done_qty+o.defect_qty)*100,2) ELSE 0 END yield_percent,
           COUNT(ws.id) session_count
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
-        LEFT JOIN work_sessions ws ON ws.operation_id=o.id GROUP BY o.id,po.id
+        LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')} GROUP BY o.id,po.id
         ORDER BY o.updated_at DESC LIMIT %s""",(min(max(limit,1),1000),))
     def snapshot(self,snapshot_date:date|None=None):
         snapshot_date=snapshot_date or business_date(timezone_name=settings.timezone_name)

@@ -7,6 +7,28 @@ class RepositoryError(RuntimeError): pass
 class NotFoundError(RepositoryError): pass
 class ConflictError(RepositoryError): pass
 
+
+def reportable_session_sql(alias: str = 'ws') -> str:
+    """Single source of truth for the "REPORTABLE session" predicate (Session
+    Management upgrade, exclude/restore follow-up audit): every PRODUCTION
+    KPI/report/progress aggregation over work_sessions must filter through
+    this exact fragment, so exclusion semantics can never drift between the
+    dozens of call sites across analytics.py/production_state.py.
+
+    excluded_from_reports is NOT NULL DEFAULT FALSE (migration 0042) -- a
+    plain boolean negation is the correct, schema-accurate predicate; no
+    IS NOT TRUE / COALESCE NULL-handling is needed because the column can
+    never actually be NULL.
+
+    Deliberately NOT used by: history/audit/investigation queries (Session
+    Management's own list/detail, the Business Audit Trail, Production
+    Trace, session/integrity audit tools, referential-integrity delete-
+    guards, kiosk runtime lookups) -- those must keep seeing the true,
+    complete record, excluded sessions included. Pass alias='' for a query
+    with no table alias (e.g. `FROM work_sessions WHERE ...`)."""
+    prefix = f'{alias}.' if alias else ''
+    return f'NOT {prefix}excluded_from_reports'
+
 class BaseRepository:
     table:str=''
     id_column:str='id'
