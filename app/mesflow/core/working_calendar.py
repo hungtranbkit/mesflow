@@ -87,7 +87,16 @@ def resolve_shift_context(shift_date_value: str|date|None, shift_id: int|None=No
         item['start_at']=base+timedelta(minutes=int(iv['start_minute']))
         item['end_at']=base+timedelta(minutes=int(iv['end_minute']))
         intervals.append(item)
-    return {'shift_date':selected,'shift':shift,'range_start':start,'range_end':end,'intervals':intervals}
+    # day_start/day_end are the plain calendar-day boundary (00:00-24:00 of
+    # `selected`, in the shift's own timezone) for "Session theo ngày" list
+    # membership -- distinct from range_start/range_end (the shift's own
+    # anchor_start/anchor_end WORK window), which stay exactly as before for
+    # duration/work_duration_seconds computation. shift_id must only select
+    # which shift's WORK windows are used for time-in-window math, never
+    # exclude an otherwise same-day session from the list (see
+    # test_shift_dashboard.py's day-boundary regression tests).
+    return {'shift_date':selected,'shift':shift,'range_start':start,'range_end':end,
+      'day_start':base,'day_end':base+timedelta(days=1),'intervals':intervals}
 
 def get_working_calendar() -> dict[str,Any]:
     """Compatibility view for older callers; backed by the DAY shift table."""
