@@ -1416,8 +1416,28 @@ class ReportRepository:
     def employee_productivity(self,date_from:str|None=None,date_to:str|None=None,
                                employee_id:int|None=None,department:str|None=None,
                                team:str|None=None,limit:int=1000):
+        # P1 fix (2026-08-28 business-logic audit): this method used to (a)
+        # date-filter on ws.started_at instead of ws.ended_at -- directly
+        # contradicting its own documented business rule ("Date filter is on
+        # ended_at ... a session that starts one day and ends the next files
+        # under the day it ENDED") and misfiling any session crossing
+        # midnight under the wrong business day; (b) never filter
+        # status='CLOSED' in SQL, so an employee whose ONLY session was OPEN
+        # still produced a GROUP BY row (present with a null score, when the
+        # spec requires them to not appear at all) and OPEN sessions leaked
+        # into aggregate sums; (c) compute and return `running_sessions`,
+        # which the report's own docstring explicitly forbids ("does not
+        # care about running sessions ... running_sessions, active_workers,
+        # or any realtime state") -- confirmed live-consumed nowhere except
+        # by tests asserting its ABSENCE; (d) never expose a per-employee
+        # `completed_sessions` total (only the split valid/invalid halves),
+        # while both the Employee Productivity page and the public wallboard
+        # (static/pages/employee-productivity.js,
+        # static/wallboard-employee-productivity.js) already read
+        # `x.completed_sessions` directly -- every employee row rendered
+        # the literal text "undefined session" in production before this fix.
         from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
-        conditions=['ws.started_at>=%s','ws.started_at<%s',reportable_session_sql('ws')]; params=[from_utc,to_utc]
+        conditions=["ws.status='CLOSED'",'ws.ended_at>=%s','ws.ended_at<%s',reportable_session_sql('ws')]; params=[from_utc,to_utc]
         if employee_id: conditions.append('e.id=%s'); params.append(employee_id)
         if department: conditions.append('e.department=%s'); params.append(department)
         if team: conditions.append('e.team=%s'); params.append(team)
@@ -1436,9 +1456,9 @@ class ReportRepository:
           SELECT *,{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent FROM scored
         )
         SELECT employee_id,employee_code,employee_name,department,team,
-          COUNT(*) FILTER (WHERE status='CLOSED' AND completion_percent IS NOT NULL) completed_valid_sessions,
-          COUNT(*) FILTER (WHERE status='CLOSED' AND completion_percent IS NULL) completed_invalid_sessions,
-          COUNT(*) FILTER (WHERE status='OPEN') running_sessions,
+          COUNT(*) completed_sessions,
+          COUNT(*) FILTER (WHERE completion_percent IS NOT NULL) completed_valid_sessions,
+          COUNT(*) FILTER (WHERE completion_percent IS NULL) completed_invalid_sessions,
           AVG(completion_percent) productivity_percent,
           COALESCE(SUM(good_qty),0) good_qty,COALESCE(SUM(defect_qty),0) defect_qty,
           COALESCE(SUM(actual_seconds),0)::bigint worked_seconds
@@ -1455,10 +1475,9 @@ class ReportRepository:
         summary={
             'from':str(start_date),'to':str(end_date),
             'employee_count':len(employees),
-            'completed_sessions':sum(x['completed_valid_sessions']+x['completed_invalid_sessions'] for x in employees),
+            'completed_sessions':sum(x['completed_sessions'] for x in employees),
             'completed_valid_sessions':sum(x['completed_valid_sessions'] for x in employees),
             'completed_invalid_sessions':sum(x['completed_invalid_sessions'] for x in employees),
-            'running_sessions':sum(x['running_sessions'] for x in employees),
             # AVG of employee productivity_percent values (one number per
             # employee who has at least one valid closed session) -- NOT
             # AVG over every session factory-wide. An employee with more
@@ -1490,7 +1509,14 @@ class ReportRepository:
           JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
           JOIN parts p ON p.id=o.part_id
-          WHERE ws.employee_id=%s AND ws.started_at>=%s AND ws.started_at<%s
+          -- P1 fix (2026-08-28): same two bugs as employee_productivity()'s
+          -- own summary query -- date-filtered on started_at (contradicts
+          -- the documented "files under its ended_at date" rule) and never
+          -- excluded OPEN sessions (the detail view must show exactly the
+          -- same completed-sessions-only set the summary counts, per
+          -- test_task_case_employee_a_50_70_running_120_excluded_entirely's
+          -- "the running session never appears in the session list either").
+          WHERE ws.employee_id=%s AND ws.status='CLOSED' AND ws.ended_at>=%s AND ws.ended_at<%s
         )
         SELECT *,{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent FROM scored
         ORDER BY started_at DESC""",(employee_id,from_utc,to_utc))
@@ -1677,6 +1703,19 @@ class WallboardConfigRepository:
     def publish(self, config:dict[str,Any], actor:str):
         cfg = {**self.DEFAULTS, **(config or {})}
         if cfg['date_mode'] not in ('dynamic_mtd','fixed'): raise ValueError('invalid date_mode')
+        # P1 fix (2026-08-28 business-logic audit): neither of these was
+        # ever validated -- a fixed-mode config with no dates, or an
+        # inverted from>to range, was silently accepted and published
+        # straight to the public wallboard (a TV on the shop floor), where
+        # ReportRepository.employee_productivity()'s own date-bounds
+        # resolution would then either fall back to month-to-date (silently
+        # NOT the "fixed" range the admin thought they'd locked in) or
+        # return an empty/nonsensical result for the inverted range -- with
+        # no error ever surfaced to the admin who published it.
+        if cfg['date_mode']=='fixed' and (not cfg.get('from') or not cfg.get('to')):
+            raise ValueError('fixed date_mode requires both from and to')
+        if cfg.get('from') and cfg.get('to') and str(cfg['from'])>str(cfg['to']):
+            raise ValueError('from must not be after to')
         if cfg['sort'] not in self.SORT_CHOICES: raise ValueError('invalid sort')
         cfg['page_size'] = int(cfg['page_size']); cfg['refresh_interval_seconds'] = int(cfg['refresh_interval_seconds'])
         cfg['employees_per_page'] = int(cfg['employees_per_page']); cfg['auto_page_flip_seconds'] = int(cfg['auto_page_flip_seconds'])

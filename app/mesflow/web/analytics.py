@@ -320,6 +320,42 @@ def employee_productivity_wallboard_config_publish():
         return jsonify(ok=True,config=config)
     except Exception as exc: return error(exc)
 
+# P1 fix (2026-08-28 business-logic audit): this route never existed at all
+# -- static/wallboard-employee-productivity.js (the actual shop-floor TV
+# display) has always called fetch('/api/wallboard/employee-productivity'),
+# a 404 in every real deployment, while its config layer just above (get/
+# publish) was fully built and tested. The wallboard was 100% non-
+# functional in production. No new business logic here -- it is a thin,
+# PUBLIC (no login: the TV has no one signed in, same precedent as /kiosk)
+# read-only projection reusing exactly the two things that already existed
+# and were already correct: WallboardConfigRepository (what to show) and
+# ReportRepository.employee_productivity() (the actual numbers, same
+# formula the authenticated Report page uses). Sorting is the one piece of
+# real logic this route owns, since employee_productivity() itself has no
+# `sort` parameter -- the four SORT_CHOICES values are exactly what
+# WallboardConfigRepository.publish() already validates.
+@bp.get('/wallboard/employee-productivity')
+def employee_productivity_wallboard_data():
+    try:
+        config=WallboardConfigRepository().get()
+        report=ReportRepository().employee_productivity(
+            config.get('from'),config.get('to'),config.get('employee_id'),
+            config.get('department'),config.get('team'),limit=5000)
+        employees=report['employees']
+        sort=config.get('sort') or 'productivity_desc'
+        if sort=='name_asc':
+            employees=sorted(employees,key=lambda x:(x['employee_name'] or ''))
+        elif sort=='sessions_desc':
+            employees=sorted(employees,key=lambda x:x['completed_sessions'],reverse=True)
+        elif sort=='productivity_asc':
+            employees=sorted(employees,key=lambda x:(x['productivity_percent'] is None,x['productivity_percent'] if x['productivity_percent'] is not None else 0))
+        # 'productivity_desc' (the default) is already the SQL's own ORDER
+        # BY -- no re-sort needed, and re-sorting here would have to
+        # reimplement its NULLS-LAST tie-break for no benefit.
+        return jsonify(ok=True,configured=config.get('configured',False),config=config,
+            summary=report['summary'],employees=employees)
+    except Exception as exc: return error(exc)
+
 @bp.get('/kpi/employees')
 @login_required
 def employee_kpi():
