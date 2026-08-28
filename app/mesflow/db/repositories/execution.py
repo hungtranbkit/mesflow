@@ -674,6 +674,35 @@ class SupervisorRepository:
                 replay=WorkSessionRepository()._replay(conn,request_id,'SESSION_EDIT')
                 if replay is not None:return replay
             with conn.cursor() as cur:
+                # P1 fix (2026-08-28 business-logic audit): lock the
+                # owning PO(s) FIRST, before the session row -- the same
+                # "PO must be the very first lock any session-mutating
+                # transaction takes, period" invariant every OTHER
+                # session-mutating method here (start/finish/adjust/
+                # exclude/restore/transfer_operation) already follows; see
+                # lock_production_order_for_operation_first()'s own
+                # docstring for the confirmed, previously-fixed deadlock
+                # this ordering exists to prevent. edit_session() was the
+                # one remaining method that locked the session row first,
+                # which is a real deadlock opportunity against a
+                # concurrent finish() on the SAME session: finish() always
+                # locks PO-then-session; a supervisor's edit_session() on
+                # that same session used to lock session-then-PO (via
+                # reconcile_operation_and_po() further down) -- a classic
+                # AB/BA cycle that PostgreSQL's deadlock detector would
+                # abort one side of, failing either a live kiosk FINISH or
+                # a supervisor's correction outright under ordinary
+                # concurrent load. Locks BOTH the current and (if the edit
+                # also reassigns operation_id) the target Operation's PO,
+                # in ascending PO-id order, matching transfer_operation()'s
+                # own established pattern for the same two-PO case.
+                cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
+                if not pre: raise NotFoundError('session not found')
+                op_ids=sorted({int(pre['operation_id']),int(data.get('operation_id') or pre['operation_id'])})
+                cur.execute('SELECT DISTINCT production_order_id FROM operations WHERE id=ANY(%s) ORDER BY production_order_id',(op_ids,))
+                for po_row in cur.fetchall():
+                    cur.execute('SELECT id FROM production_orders WHERE id=%s FOR UPDATE',(po_row['production_order_id'],))
+
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
                 if not old: raise NotFoundError('session not found')
                 # §11 of the 2026-08-28 Session Exception Resolution modal

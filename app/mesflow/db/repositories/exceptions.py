@@ -5,7 +5,7 @@ from typing import Any
 from mesflow.core.config import settings
 from mesflow.core.working_calendar import get_work_shifts, resolve_shift_window_for_datetime
 from mesflow.db.connection import fetch_all, fetch_one, transaction
-from mesflow.db.repositories.base import ConflictError, NotFoundError
+from mesflow.db.repositories.base import ConflictError, NotFoundError, reportable_session_sql
 from mesflow.domain.audit import record_audit
 
 ACTIVE=('OPEN','ACKNOWLEDGED')
@@ -36,28 +36,42 @@ class ExceptionRepository:
         return ids
 
     def detected_conditions(self)->list[dict[str,Any]]:
+        # P1 fix (2026-08-28 business-logic audit): none of these 7 branches
+        # ever consulted excluded_from_reports -- a supervisor explicitly
+        # writing a session off via "Loại khỏi báo cáo" (e.g. a known test/
+        # duplicate scan that will never be finished) had zero effect on
+        # this detector, so a long-open/zero-quantity/etc. EXCLUDED session
+        # kept generating fresh review noise (or even a resurrected
+        # occurrence) forever, contradicting the supervisor's own explicit
+        # "this session's data doesn't count" decision. Reuses the SAME
+        # reportable_session_sql() helper every other KPI/report/progress
+        # aggregation over work_sessions already uses (base.py), rather
+        # than a second hand-rolled predicate.
         past_shift_end_ids=self._session_past_shift_end_ids()
-        rows=fetch_all("""WITH flags AS (
+        rows=fetch_all(f"""WITH flags AS (
           SELECT ws.id session_id,'LONG_OPEN_SESSION' exception_type,'HIGH' severity,
             'Session mở quá lâu' title,'Session đã mở quá 12 giờ và cần được kiểm tra.' message,
             'Kiểm tra Session và xác nhận trạng thái.' recommended_action
           FROM work_sessions ws WHERE ws.status='OPEN' AND ws.started_at<CURRENT_TIMESTAMP-INTERVAL '12 hours'
+            AND {reportable_session_sql('ws')}
           UNION ALL SELECT ws.id,'ZERO_QUANTITY_LONG','MEDIUM','Sản lượng bằng 0',
             'Session kéo dài trên 4 giờ nhưng được đóng với sản lượng bằng 0.','Đối chiếu sản lượng và xác nhận hoặc sửa Session.'
           FROM work_sessions ws WHERE ws.status='CLOSED' AND ws.ended_at-ws.started_at>INTERVAL '4 hours'
-            AND COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)=0
+            AND COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)=0 AND {reportable_session_sql('ws')}
           UNION ALL SELECT ws.id,'MISSING_STATION','LOW','Thiếu thông tin trạm',
             'Session không ghi nhận trạm hoặc kiosk.','Xác nhận nguồn thao tác của Session.'
-          FROM work_sessions ws WHERE ws.station_id IS NULL AND COALESCE(ws.device_uuid,'')=''
+          FROM work_sessions ws WHERE ws.station_id IS NULL AND COALESCE(ws.device_uuid,'')='' AND {reportable_session_sql('ws')}
           UNION ALL SELECT ws.id,'INVALID_DURATION','CRITICAL','Thời gian Session không hợp lệ',
             'Giờ kết thúc trước giờ bắt đầu.','Mở Session, kiểm tra bằng chứng và sửa qua quy trình hiện có.'
-          FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at
+          FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at AND {reportable_session_sql('ws')}
           UNION ALL SELECT ws.id,'OPERATION_COMPLETED_SESSION_OPEN','HIGH','Operation đã hoàn tất nhưng Session còn mở',
             'Operation đã hoàn tất trong khi Session liên quan vẫn OPEN.','Kiểm tra Session trước khi xác nhận trạng thái Operation.'
           FROM work_sessions ws JOIN operations ox ON ox.id=ws.operation_id WHERE ws.status='OPEN' AND ox.status='COMPLETED'
+            AND {reportable_session_sql('ws')}
           UNION ALL SELECT a.id,'EMPLOYEE_SESSION_CONFLICT','CRITICAL','Nhân viên có Session xung đột',
             'Nhân viên có hai Session chồng thời gian.','Kiểm tra cả hai Session và bằng chứng kiosk.'
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
+            AND {reportable_session_sql('a')} AND {reportable_session_sql('b')}
             -- Real bug found live (2026-08-27 Session Exception Management
             -- task): tstzrange() raises "range lower bound must be less
             -- than or equal to range upper bound" for any session whose
@@ -74,7 +88,7 @@ class ExceptionRepository:
           UNION ALL SELECT ws.id,'SESSION_PAST_SHIFT_END','MEDIUM','Session quá giờ kết thúc ca',
             'Session vẫn còn OPEN sau khi ca làm việc đã kết thúc. Hệ thống sẽ tự động đóng ca sau ít phút nếu không có thao tác thủ công.',
             'Kết thúc Session thủ công, hoặc chờ hệ thống tự động đóng ca.'
-          FROM work_sessions ws WHERE ws.status='OPEN' AND ws.id=ANY(%s)
+          FROM work_sessions ws WHERE ws.status='OPEN' AND ws.id=ANY(%s) AND {reportable_session_sql('ws')}
         ) SELECT f.*,ws.employee_id,ws.operation_id,o.production_order_id,o.part_id,
           ws.started_at,ws.ended_at,ws.status session_status,ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
           e.employee_no employee_code,e.name employee_name,po.code po_code,p.code part_code,

@@ -46,6 +46,21 @@ def kiosk_page():
     return render_template('kiosk.html', version=__version__)
 
 
+# P1 fix (2026-08-28 business-logic audit): this route never existed --
+# templates/wallboard_employee_productivity.html + static/wallboard-
+# employee-productivity.js + static/wallboard.css were all fully built
+# (the template's own comment already documents it as reading exactly
+# /api/wallboard/employee-productivity, which itself was ALSO missing
+# until this same audit pass -- see app/mesflow/web/analytics.py), but
+# nothing ever served the page itself at the URL the JS/tests expect. The
+# public employee-productivity wallboard was 100% unreachable in
+# production, not merely broken. PUBLIC (no login) -- same posture as
+# /kiosk above: the TV/kiosk display has no one signed in.
+@bp.get('/kiosk/employee-productivity')
+def employee_productivity_wallboard_page():
+    return render_template('wallboard_employee_productivity.html', version=__version__)
+
+
 @bp.get('/api/kiosk-web/health')
 def kiosk_health():
     return jsonify(ok=True, version=__version__, module='web-kiosk')

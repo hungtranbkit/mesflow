@@ -122,9 +122,23 @@ def reconcile_operation(cur, operation_id: int):
         status = 'COMPLETED'
     elif planned > 0 and good >= planned:
         status = 'COMPLETED'
+    # P1 fix (2026-08-28 business-logic audit): PAUSED must be sticky the
+    # same way IN_PROGRESS already is (see reconcile_production_order()'s
+    # own sticky set below) -- an explicit supervisor pause was being
+    # silently undone by the very next reconcile triggered by ordinary,
+    # legitimate activity (finishing an already-open session, adjusting/
+    # editing/excluding/restoring ANY session under this operation, an
+    # unrelated field edit) the moment `sessions` (real completed history)
+    # was nonzero, which is the normal case for an operation someone
+    # bothered to pause mid-run. Checked AFTER open_sessions/COMPLETED (an
+    # actively-running session or a genuinely finished target still wins
+    # over a stale PAUSED flag) but BEFORE the generic "has history ->
+    # IN_PROGRESS" fallback.
+    elif current == 'PAUSED':
+        status = 'PAUSED'
     elif sessions:
         status = 'IN_PROGRESS'
-    elif current in {'DRAFT', 'PLANNED', 'RELEASED', 'READY', 'PAUSED'}:
+    elif current in {'DRAFT', 'PLANNED', 'RELEASED', 'READY'}:
         status = current
     else:
         status = 'PLANNED'
@@ -159,9 +173,11 @@ def reconcile_production_order(cur, po_id: int):
           COUNT(*) FILTER (WHERE status='COMPLETED') completed_count,
           COUNT(*) FILTER (WHERE status='CANCELLED') cancelled_count,
           COUNT(*) FILTER (WHERE status='IN_PROGRESS') running_count,
+          EXISTS(SELECT 1 FROM operations x JOIN work_sessions ws ON ws.operation_id=x.id
+                 WHERE x.production_order_id=%s AND ws.status='OPEN') has_open_session,
           EXISTS(SELECT 1 FROM work_sessions ws JOIN operations x ON x.id=ws.operation_id
                  WHERE x.production_order_id=%s AND {reportable_session_sql("ws")}) has_history
-        FROM operations WHERE production_order_id=%s''', (po_id, po_id))
+        FROM operations WHERE production_order_id=%s''', (po_id, po_id, po_id))
     facts = cur.fetchone() or {}
     current = str(po.get('status') or 'DRAFT').upper()
     total = int(facts.get('operation_count') or 0)
@@ -170,6 +186,29 @@ def reconcile_production_order(cur, po_id: int):
         status = 'CANCELLED'
     elif total and completed == total:
         status = 'COMPLETED'
+    # P1 fix (2026-08-28 business-logic audit): a GENUINELY open session
+    # anywhere under this PO always forces IN_PROGRESS (matches "can't stay
+    # paused while actively being worked" -- and per lock_startable_
+    # operation()'s own po_status=='IN_PROGRESS' requirement, a NEW session
+    # can never start while paused, so this can only be true here for a
+    # session that was already open at the moment of pause and hasn't
+    # finished yet). Checked via a real EXISTS over work_sessions, not
+    # `running_count` (Operation.status='IN_PROGRESS' is heavily overloaded
+    # -- reconcile_operation() also sets it purely from HISTORICAL closed
+    # sessions with nothing currently open, see its own sticky-IN_PROGRESS
+    # fallback below -- so running_count alone can't distinguish "actively
+    # being worked right now" from "has been worked on before").
+    elif facts.get('has_open_session'):
+        status = 'IN_PROGRESS'
+    # Same PAUSED-not-sticky bug as reconcile_operation() above: with
+    # nothing currently open, an explicit pause must survive an ordinary
+    # reconcile (finishing an already-open session elsewhere under this PO,
+    # excluding/restoring, an unrelated Operation edit -- anything that
+    # calls this function) rather than being silently overwritten back to
+    # IN_PROGRESS by the has_history/sticky-IN_PROGRESS fallback below,
+    # merely because some Operation under it has ever had a closed session.
+    elif current == 'PAUSED':
+        status = 'PAUSED'
     elif int(facts.get('running_count') or 0) or bool(facts.get('has_history')) or current in {'IN_PROGRESS', 'COMPLETED'}:
         status = 'IN_PROGRESS'
     else:
