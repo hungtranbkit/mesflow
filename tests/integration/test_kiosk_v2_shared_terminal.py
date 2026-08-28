@@ -16,6 +16,7 @@ device drives.
 """
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 
@@ -29,6 +30,17 @@ pytestmark = pytest.mark.postgres
 
 def _device_id(suffix: str) -> str:
     return f'V2-SHARED-{suffix}'
+
+
+def _token(suffix: str) -> str:
+    # Deterministic per-suffix plaintext (2026-08-28 P0 auth fix): every
+    # /api/kiosk/v2/events call in this file now needs a real ACTIVE
+    # kiosk_identities row + its token, per _authorize_kiosk_v2_device().
+    # Deriving the token from `suffix` (rather than threading a fixture
+    # value through all 17 existing _send() call sites) lets _send() itself
+    # recompute the same value from `device_id` alone -- zero call-site
+    # changes needed beyond the fixture that provisions the matching row.
+    return f'TEST-KIOSK-TOKEN-{suffix}'
 
 
 @pytest.fixture
@@ -59,6 +71,13 @@ def three_employee_graph(db):
                         (po_id, part_id, f'TEST-OP-SHARED-{label}-{suffix}', f'Docker Test Operation {label}',
                          f'WF|OP|TEST-OP-SHARED-{label}-{suffix}'))
             ids['operations'].append(cur.fetchone()['id'])
+        # P0 auth fix: _apply_event()'s test device must be a real, ACTIVE,
+        # token-bearing kiosk_identities row now -- /events rejects any
+        # device_id that isn't (see _authorize_kiosk_v2_device()).
+        token_hash = hashlib.sha256(_token(suffix).encode()).hexdigest()
+        cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,status,token_hash,last_seen_at)
+                      VALUES(%s,'Docker Test Shared Kiosk','ACTIVE',%s,CURRENT_TIMESTAMP)""",
+                    (_device_id(suffix), token_hash))
     ids['po_id'] = po_id
     ids['part_id'] = part_id
     ids['station_id'] = station_id
@@ -68,6 +87,7 @@ def three_employee_graph(db):
         emp_ids = tuple(ids['employees'])
         cur.execute("DELETE FROM kiosk_v2_events WHERE device_id=%s", (_device_id(suffix),))
         cur.execute("DELETE FROM kiosk_v2_projection WHERE device_id=%s", (_device_id(suffix),))
+        cur.execute("DELETE FROM kiosk_identities WHERE device_uuid=%s", (_device_id(suffix),))
         cur.execute("DELETE FROM work_sessions WHERE employee_id = ANY(%s)", (list(emp_ids),))
         cur.execute("DELETE FROM operations WHERE id = ANY(%s)", (ids['operations'],))
         cur.execute("DELETE FROM parts WHERE id=%s", (part_id,))
@@ -91,7 +111,9 @@ def _event(device_id: str, event_type: str, payload: dict, expected_state_versio
 
 def _send(device_id, event_type, payload, expected_state_version=None):
     body = _event(device_id, event_type, payload, expected_state_version)
-    r = requests.post(f'{BASE_URL}/api/kiosk/v2/events', json=body, timeout=10)
+    suffix = device_id.removeprefix('V2-SHARED-')
+    headers = {'X-Kiosk-Token': _token(suffix)}
+    r = requests.post(f'{BASE_URL}/api/kiosk/v2/events', json=body, headers=headers, timeout=10)
     assert r.status_code == 200, r.text
     return r.json()
 

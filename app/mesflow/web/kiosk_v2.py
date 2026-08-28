@@ -156,6 +156,87 @@ def _device_id_from(body: dict) -> str:
     return str(device.get('device_id') or device.get('hardware_id') or '').strip() or 'unknown'
 
 
+# --- Kiosk v2 device authorization choke point (2026-08-28 P0 fix) --------
+# Real, confirmed-live gap: /events and /state never checked device identity
+# at all -- ANY caller could POST /api/kiosk/v2/events with an arbitrary
+# device_id and drive real START/FINISH/quantity business mutations, and a
+# device an admin had explicitly DISABLED/SUSPENDED via /kiosk-management
+# could keep doing so forever (the kiosk_v2_projection.disabled/.maintenance
+# columns this file's OWN _apply_event() checks are never set TRUE by
+# anything in this codebase -- dead code, not a real gate). bootstrap()/
+# heartbeat() were already fixed for this exact class of bug on 2026-08-26
+# (see their own comments) -- /events/state simply never got the same
+# treatment.
+#
+# Reuses the EXISTING canonical device-identity/token model rather than
+# inventing a second kiosk auth system: kiosk_identities.status (the same
+# table/column _legacy_kiosk_identity() and /kiosk-management already read)
+# + kiosk_identities.token_hash + KioskRepository.verify_token()'s own
+# "device_uuid=%s AND status='ACTIVE'" + hash-match query -- the identical
+# primitive production_client_required() (auth.py) and /api/kiosk/heartbeat
+# (execution.py) already enforce for the legacy business-mutation surface.
+#
+# Deliberately NOT applied to bootstrap()/heartbeat(): those two stay on
+# _legacy_kiosk_identity()'s existing identity+status-only check (no token),
+# which is the documented, intentional pre-token onboarding/telemetry
+# surface a brand-new or not-yet-provisioned device must still be able to
+# reach (to discover config, and to correctly report DISABLED/PENDING/
+# SUSPENDED via that same identity check) -- see that function's own
+# docstring. Requiring a token there would break onboarding, and bootstrap/
+# heartbeat cannot be tricked into a business EFFECT the way /events can,
+# only into telemetry/config discovery, which is deliberately why the
+# "at minimum /events, prefer /state" line in this task's own spec never
+# names bootstrap/heartbeat as needing a token.
+#
+# Token distribution: the plaintext token exists only in the response of
+# POST /api/kiosk-identities/<id>/approve (admin-session-authenticated,
+# @roles_required('admin','manager')) or POST /api/kiosk/bind (requires
+# proof of the CURRENT token to rotate an already-ACTIVE identity, or
+# MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND for a brand-new one) -- both already
+# exist and are already secure. bootstrap() deliberately does NOT hand the
+# token back on every call: bootstrap has no auth of its own (by design, see
+# above), so returning the token there would let anyone who merely knows a
+# device's public, non-secret device_id harvest its token and defeat this
+# entire check. Getting the token from an approve()/bind() response onto
+# the physical device is an out-of-band provisioning step (the same shape
+# as this firmware's existing api-endpoint:/wifi:/expected-env: serial
+# commands) -- see mesflow-kiosk-runtime-v2's companion change.
+def _kiosk_v2_auth_error(status: int, code: str, message: str):
+    return _json_response({'ok': False, 'accepted': False, 'error': {'code': code, 'message': message}}, status=status)
+
+
+def _authorize_kiosk_v2_device(device_id: str):
+    """Returns None if `device_id` is authorized to perform a kiosk v2
+    business-mutating/state-reading request; otherwise returns a ready-to-
+    return Flask response (401/403) that the caller MUST return immediately.
+
+    MUST be called -- and its failure response returned -- before ANY of:
+    the kiosk_v2_events idempotency-cache lookup (§11: a now-revoked device
+    replaying a previously-cached event_id must not get the cached
+    accepted=true), _get_projection() (§12: never implicitly provisions an
+    unauthorized device_id), KioskEventRepository().ingest(),
+    WorkSessionRepository.start()/finish().
+    """
+    if not device_id or device_id == 'unknown':
+        return _kiosk_v2_auth_error(403, 'DEVICE_NOT_ALLOWED', 'Thiết bị không xác định.')
+    identity = fetch_one('SELECT status, token_hash FROM kiosk_identities WHERE device_uuid=%s', (device_id,))
+    if not identity or str(identity.get('status') or '').upper() != 'ACTIVE':
+        status_label = str((identity or {}).get('status') or 'UNREGISTERED').upper()
+        return _kiosk_v2_auth_error(
+            403, 'DEVICE_NOT_ALLOWED',
+            f"Kiosk '{device_id}' đang ở trạng thái {status_label} -- liên hệ quản trị viên qua /kiosk-management.")
+    token = str(request.headers.get('X-Kiosk-Token') or '').strip()
+    if not token:
+        return _kiosk_v2_auth_error(401, 'AUTH_REQUIRED', 'Thiếu kiosk token (X-Kiosk-Token).')
+    if hashlib.sha256(token.encode()).hexdigest() != identity.get('token_hash'):
+        # Covers both "wrong token" and "a real token that belongs to a
+        # DIFFERENT device" in one check: the query above already scoped
+        # token_hash to THIS claimed device_id, so a token issued for some
+        # other (even ACTIVE) device can never match it.
+        return _kiosk_v2_auth_error(403, 'DEVICE_NOT_ALLOWED', 'Kiosk token không hợp lệ.')
+    return None
+
+
 def _get_projection(device_id: str) -> dict:
     row = fetch_one('SELECT * FROM kiosk_v2_projection WHERE device_id=%s', (device_id,))
     if row is None:
@@ -708,6 +789,12 @@ def state():
     device_id = str(request.args.get('device_id') or '').strip()
     if not device_id:
         return jsonify(error={'code': 'PROTOCOL_DECODE_FAILED'}), 400
+    # P0 fix: same choke point as /events (§8 of the task explicitly asks
+    # for the same enforcement on /state, not just "prefer") -- before
+    # _get_projection() can implicitly provision an unauthorized device.
+    auth_error = _authorize_kiosk_v2_device(device_id)
+    if auth_error is not None:
+        return auth_error
     proj = _get_projection(device_id)
     resp = {'device_id': device_id}
     resp.update(_snapshot(proj))
@@ -724,6 +811,16 @@ def events():
         return jsonify(accepted=False, error={'code': 'PROTOCOL_UNSUPPORTED_VERSION'}), 400
 
     device_id = _device_id_from(body)
+    # P0 fix: authorization happens before ANYTHING else touches device_id --
+    # including the idempotency-cache lookup just below (§11: a revoked
+    # device replaying a previously-accepted event_id must not get the
+    # cached accepted=true back) and _get_projection() (§12: never
+    # implicitly provisions an unauthorized device). See
+    # _authorize_kiosk_v2_device()'s own docstring for the full rationale.
+    auth_error = _authorize_kiosk_v2_device(device_id)
+    if auth_error is not None:
+        return auth_error
+
     event = body.get('event') or {}
     context = body.get('context') or {}
     payload = body.get('payload') or {}
@@ -788,6 +885,17 @@ def _store_event(device_id, event_id, payload_hash, device_seq, resp):
                 (device_id, event_id, payload_hash, int(device_seq or 0), json.dumps(_json_safe(resp))))
 
 
+# Deliberately left PUBLIC (2026-08-28 P0 auth review, §15): a UI bundle is
+# TEXT/RECT/LINE render instructions for a screen layout -- no employee,
+# session, quantity, PO, or any other business/PII data ever lives in one
+# (confirmed: kiosk_v2_ui_bundles.content_json is authored/uploaded by an
+# admin, never populated from a business table). It is content-addressed by
+# version/hash, not a secret, and the firmware downloads it before a device
+# is necessarily provisioned at all (bundle mismatch must be recoverable
+# without a working token). Making this a business-mutation P0 finding
+# would be wrong: there is no business effect a caller could ever cause by
+# requesting an arbitrary version here, only a 404 for one that doesn't
+# exist.
 @bp.get('/ui-bundles/<int:version>')
 def ui_bundle(version: int):
     data = _bundle_json_bytes(version)
