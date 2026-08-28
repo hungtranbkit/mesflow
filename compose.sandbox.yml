@@ -1,0 +1,106 @@
+# ProjectFlow Workspace Manager sandbox contract runtime (PROJECT.yaml's
+# `sandbox:` block points here). Fully standalone -- no `extends`/merge
+# with compose.yml (production) or compose.projectflow-local.yml (the
+# fixed, single-instance ProjectFlow-script sandbox those scripts
+# manage) so it can never collide with either.
+#
+# Isolation properties:
+#   - No `name:` here -- Workspace Manager always supplies its own unique
+#     `-p <compose_project>` (wm-<repo>-<owner>-<suffix>), so every
+#     container/network/volume this file creates is namespaced by that
+#     project name automatically, never a fixed name.
+#   - db/uploads/backups/firmware are plain named volumes with no bind
+#     mount to any host path -- Compose scopes each to
+#     ${COMPOSE_PROJECT_NAME}_<name>, so every sandbox instance gets its
+#     own, and `docker compose down -v` (what Workspace Manager's
+#     cleanup runs) removes them completely. Never runtime/,
+#     runtime-projectflow-local/, or anything under /opt.
+#   - `app` is BUILT from this worktree's own Dockerfile/source, the same
+#     pattern compose.test.yml already uses -- deliberately NOT the
+#     pinned release image compose.projectflow-local.yml runs. A sandbox
+#     exists to exercise one Builder Workspace's own branch/commit, not a
+#     frozen release artifact; Compose's per-project image naming means
+#     each sandbox instance builds (and caches) its own image, so a later
+#     commit on the same branch is never silently served from a stale
+#     image tag from a previous sandbox.
+#   - `db` has no host port mapping at all (only reachable from `app` on
+#     the sandbox's private compose network) -- avoids exposing Postgres
+#     needlessly, per the sandbox contract's own port policy.
+#   - `app` is bound to 0.0.0.0, not 127.0.0.1 -- same reasoning
+#     compose.local-test.yml already documents for ESP32/LAN clients:
+#     the HARDWARE profile needs this host genuinely reachable from
+#     other devices on the LAN, and there is only one `app` service
+#     definition shared by every profile (Workspace Manager selects
+#     which *services* come up per profile, not per-profile port
+#     binding), so BACKEND/FULL get the same binding.
+#   - No secret/credential below is a production secret -- same
+#     not-for-prod convention as compose.projectflow-local.yml.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mesflow_sandbox
+      POSTGRES_USER: mesflow_sandbox
+      POSTGRES_PASSWORD: mesflow_sandbox_password
+      TZ: Asia/Ho_Chi_Minh
+      PGTZ: UTC
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesflow_sandbox -d mesflow_sandbox"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      MESFLOW_ENV: sandbox
+      DATABASE_URL: postgresql://mesflow_sandbox:mesflow_sandbox_password@db:5432/mesflow_sandbox
+      WORKSHOP_DATABASE_URL: postgresql://mesflow_sandbox:mesflow_sandbox_password@db:5432/mesflow_sandbox
+      MESFLOW_SECRET_KEY: mesflow-sandbox-secret-key-not-for-prod
+      WORKSHOP_COOKIE_SECURE: "0"
+      MESFLOW_ADMIN_USERNAME: admin
+      MESFLOW_ADMIN_PASSWORD: Sandbox@123456
+      MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
+      MESFLOW_LOCAL_AUTO_LOGIN: "0"
+      MESFLOW_DEPLOYMENT_ID: workspace-manager-sandbox
+      TZ: Asia/Ho_Chi_Minh
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Container port fixed at 8080 (matches Dockerfile's EXPOSE 8080 /
+      # docker-entrypoint.sh waitress bind); host side is
+      # Workspace-Manager-allocated via WM_PORT_APP (PROJECT.yaml
+      # sandbox.ports.app).
+      - "0.0.0.0:${WM_PORT_APP}:8080"
+    volumes:
+      - uploads:/data/uploads
+      - backups:/data/backups
+      - firmware:/data/firmware
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/system/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  db_data:
+  uploads:
+  backups:
+  firmware:

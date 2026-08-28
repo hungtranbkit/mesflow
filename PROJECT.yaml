@@ -22,6 +22,81 @@ version:
 runtime:
   type: docker-compose
 
+# ProjectFlow Workspace Manager sandbox contract (distinct from
+# `deployment.local`/`compose.projectflow-local.yml` below, which is the
+# ProjectFlow-script-driven single-instance local validation sandbox --
+# this block is for Workspace Manager's own on-demand, per-Builder-
+# Workspace/per-Integration sandboxes, one of which may run per agent
+# branch simultaneously). Workspace Manager always launches with its own
+# `-p <compose_project>` (wm-<repo>-<owner>-<suffix>) and allocates real
+# host ports per sandbox.ports below -- nothing here is a fixed
+# port/container name.
+sandbox:
+  runtime: docker-compose
+  compose_file: compose.sandbox.yml
+  default_profile: backend
+  integration_profile: full
+
+  profiles:
+    # DB + MESFlow app -- the minimum needed to log in and exercise any
+    # backend/business-logic change (e.g. a default-password change).
+    backend:
+      services: [db, app]
+    # MESFlow currently ships backend+web UI as one Flask/Jinja service
+    # (see AGENTS.md "Classic UI templates/static JS ... -> mesflow/") --
+    # there is no independent, buildable frontend project yet
+    # (mesflow-web/ has no PROJECT.yaml/build evidence per ../WORKSPACE.yaml),
+    # so FULL is currently identical to BACKEND. Add a `web` service here
+    # if/when mesflow-web/ becomes its own registered, buildable sibling
+    # project -- do not fabricate one now. QA Center is deliberately
+    # excluded: it is a separate, independently-deployed project (its own
+    # PROJECT.yaml/compose) that talks to a *running* mesflow-app over
+    # HTTP, not a component this app's own sandbox needs to bring up to
+    # verify itself.
+    full:
+      services: [db, app]
+    # Same containers as full -- HARDWARE only changes reachability
+    # (LAN-visible app port for a real ESP32/kiosk device on the same
+    # network), not which services run.
+    hardware:
+      extends: full
+      services: []
+      expose_lan: [app]
+
+  ports:
+    app:
+      container: 8080
+      # Dedicated range, distinct from every other fixed MESFlow port on
+      # this host: production 8080 (127.0.0.1 only), ProjectFlow local
+      # sandbox 18280, local-test 8199, QA Center 8095.
+      range: 19000-19099
+    # db intentionally has no entry here -- it gets no host port at all
+    # (reachable only from `app` on the sandbox's private compose
+    # network), per the sandbox port policy (avoid exposing Postgres
+    # unless required).
+
+  health:
+    app:
+      # The same readiness endpoint service.healthcheck above already
+      # uses for the ProjectFlow local sandbox -- real backend+DB
+      # connectivity check (SystemRepository.readiness()), not just "the
+      # container is up".
+      path: /api/system/ready
+
+  seed:
+    # Not a Workspace-Manager-triggered step: docker-entrypoint.sh runs
+    # `seed-admin` / `seed-default-users` / `seed-super-admin`
+    # unconditionally (idempotent) on every container boot, so every
+    # sandbox always has a working admin login (MESFLOW_ADMIN_USERNAME/
+    # PASSWORD above) with no production data cloned in.
+    default: AUTO
+
+  outputs:
+    backend_url:
+      service: app
+    hardware_api_url:
+      service: app
+
 service:
   healthcheck:
     type: http
