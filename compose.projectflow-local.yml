@@ -48,7 +48,7 @@ services:
       MESFLOW_SECRET_KEY: mesflow-projectflow-local-secret-key-not-for-prod
       WORKSHOP_COOKIE_SECURE: "0"
       MESFLOW_ADMIN_USERNAME: admin
-      MESFLOW_ADMIN_PASSWORD: Local@123456
+      MESFLOW_ADMIN_PASSWORD: Admin@123456
       MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
       MESFLOW_LOCAL_AUTO_LOGIN: "0"
       MESFLOW_DEPLOYMENT_ID: projectflow-local-sandbox

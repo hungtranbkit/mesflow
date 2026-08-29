@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements-test.txt
 COPY app ./app
 COPY tests ./tests
 COPY scripts ./scripts
-COPY compose.yml compose.test.yml pytest.ini VERSION.txt release.json USER_GUIDE_VIDEO.md ./
+COPY compose.yml compose.test.yml compose.sandbox.yml compose.projectflow-local.yml pytest.ini VERSION.txt release.json USER_GUIDE_VIDEO.md ./
 COPY Dockerfile Dockerfile.test ./
 COPY tutorial ./tutorial
 # mesflow.__version__ (app/mesflow/__init__.py) reads VERSION.txt as a
