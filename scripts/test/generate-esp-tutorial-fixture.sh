@@ -31,8 +31,27 @@ OUT_DIR="runtime/tutorials/esp-kiosk"
 VIDEOS_DIR="$OUT_DIR/videos"
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo "GENERATE_ESP_TUTORIAL_FIXTURE: ffmpeg not found on PATH -- required to synthesize real, playable test videos (GitHub-hosted ubuntu-latest runners ship it by default)." >&2
-  exit 1
+  # Real finding (GitHub Actions PR #7, run 33222513717): ffmpeg is NOT
+  # actually present on this project's ubuntu-latest runners -- do not
+  # assume it. Install it the same way any other CI setup step would
+  # (apt-get, via the runner's own passwordless sudo); fail loudly, not
+  # silently, if that isn't possible either (e.g. a locked-down host
+  # with neither ffmpeg nor package-install rights).
+  echo "GENERATE_ESP_TUTORIAL_FIXTURE: ffmpeg not found on PATH -- installing it." >&2
+  if command -v apt-get >/dev/null 2>&1; then
+    SUDO=""
+    if [ "$(id -u)" -ne 0 ]; then
+      if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; else
+        echo "GENERATE_ESP_TUTORIAL_FIXTURE: not root and no sudo available -- cannot install ffmpeg." >&2
+        exit 1
+      fi
+    fi
+    $SUDO apt-get update -qq && $SUDO apt-get install -y -qq --no-install-recommends ffmpeg
+  fi
+  if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "GENERATE_ESP_TUTORIAL_FIXTURE: ffmpeg still not on PATH after attempting installation -- required to synthesize real, playable test videos." >&2
+    exit 1
+  fi
 fi
 
 # Never clobber a developer's real, device-captured manifest -- only
