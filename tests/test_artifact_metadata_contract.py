@@ -13,7 +13,6 @@ and test_default_admin_password.py -- assert on the script's own source
 and on PROJECT.yaml, not by actually invoking it."""
 from pathlib import Path
 import re
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "scripts" / "build-release.sh").read_text(encoding="utf-8")
@@ -25,9 +24,12 @@ REQUIRED_METADATA_FIELDS = [
 
 
 def test_project_yaml_artifacts_metadata_points_at_a_path_the_script_writes():
-    data = yaml.safe_load((ROOT / "PROJECT.yaml").read_text(encoding="utf-8"))
-    metadata_rel = data["artifacts"]["metadata"]
-    assert metadata_rel == "../artifacts/latest/mesflow-app.json"
+    # No PyYAML dependency in this repo's requirements -- match the exact
+    # scalar line rather than pulling in a parser just for this assert.
+    project_yaml = (ROOT / "PROJECT.yaml").read_text(encoding="utf-8")
+    m = re.search(r"^\s*metadata:\s*(\S+)\s*$", project_yaml, re.MULTILINE)
+    assert m, "PROJECT.yaml has no artifacts.metadata entry"
+    assert m.group(1) == "../artifacts/latest/mesflow-app.json"
     # The script must write to exactly this path (relative to $ROOT, which
     # is the repo root at runtime) -- not a similarly-named but different
     # location that would leave the declared contract unfulfilled again.
