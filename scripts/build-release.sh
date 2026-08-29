@@ -36,7 +36,8 @@ fi
 
 version="$(tr -d '[:space:]' < VERSION.txt)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION_INVALID"
-image="${MESFLOW_IMAGE_REPOSITORY:-mesflow-app}:$version"
+image_repo="${MESFLOW_IMAGE_REPOSITORY:-mesflow-app}"
+image="${image_repo}:$version"
 dist="$ROOT/../artifacts/releases/$version"
 
 # --- immutable release guard --------------------------------------------
@@ -119,6 +120,7 @@ PY
 )" || die "SCHEMA_REVISION_RESOLUTION_FAILED (multiple Alembic heads or unreadable migrations — see stderr above)"
 [[ -n "$schema_revision" ]] || schema_revision="unknown"
 
+built_at="$(date -Is)"
 tmp="$(mktemp -d)"
 cleanup_all(){ cleanup_build_tag; rm -rf "$tmp"; }
 trap cleanup_all EXIT
@@ -127,7 +129,7 @@ cp VERSION.txt "$root/VERSION.txt"
 cp compose.yml "$root/compose.yml"
 docker save "$image" -o "$root/MESFlow_${version}.tar"
 cat > "$root/release.json" <<JSON
-{"type":"mesflow-image-release","version":"$version","image":"$image","image_digest":"$digest","image_id":"$image_id","source_commit":"$source_commit","built_at":"$(date -Is)","schema_revision":"$schema_revision","requires_migration":false,"distribution":"bundle","bundle":"MESFlow_${version}.tar"}
+{"type":"mesflow-image-release","version":"$version","image":"$image","image_digest":"$digest","image_id":"$image_id","source_commit":"$source_commit","built_at":"$built_at","schema_revision":"$schema_revision","requires_migration":false,"distribution":"bundle","bundle":"MESFlow_${version}.tar"}
 JSON
 cat > "$root/PROMOTION.json" <<JSON
 {"version":"$version","image_digest":"$digest","source_commit":"$source_commit","local":{"status":"NOT_DEPLOYED"},"production_test":{"status":"NOT_DEPLOYED"},"production":{"status":"NOT_DEPLOYED"}}
@@ -149,7 +151,29 @@ with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as z:
 PY
 fi
 sha256sum "$dist/MESFlow_${version}.deploy.zip" > "$dist/MESFlow_${version}.deploy.zip.sha256"
-printf '{"image":"%s","digest":"%s","source_commit":"%s","version":"%s"}\n' "$image" "$digest" "$source_commit" "$version" > "$dist/image-info.json"
+package_filename="MESFlow_${version}.deploy.zip"
+package_sha256="$(awk '{print $1}' "$dist/${package_filename}.sha256")"
+
+# --- ProjectFlow-facing artifact metadata contract -----------------------
+# This is the ONE machine-readable metadata file external tooling (right
+# now: ProjectFlow's DeploymentService, per PROJECT.yaml's
+# artifacts.metadata) reads after a build. Two copies, same schema, same
+# values, written together so they can never drift apart:
+#   - artifacts/releases/<version>/image-info.json -- immutable, frozen by
+#     the same VERSION_ALREADY_RELEASED guard as the rest of this release
+#     (the historical evidence for this exact version, forever).
+#   - artifacts/latest/mesflow-app.json -- a "latest" pointer, but a REAL
+#     one: deliberately (re)written by this build, never a file some other
+#     process was expected to have created ahead of time. A caller that
+#     needs the artifact for one specific, already-known commit should
+#     still cross-check metadata.source_commit against what it expected
+#     (this file can be clobbered by a later, unrelated build finishing
+#     after the caller reads it) rather than trust "latest" blindly.
+metadata_json="$(printf '{"image":"%s","digest":"%s","source_commit":"%s","version":"%s","image_name":"%s","image_tag":"%s","image_digest":"%s","package_filename":"%s","package_sha256":"%s","built_at":"%s"}\n' \
+  "$image" "$digest" "$source_commit" "$version" "$image_repo" "$version" "$digest" "$package_filename" "$package_sha256" "$built_at")"
+printf '%s' "$metadata_json" > "$dist/image-info.json"
+mkdir -p "$ROOT/../artifacts/latest"
+printf '%s' "$metadata_json" > "$ROOT/../artifacts/latest/mesflow-app.json"
 cat > "$dist/BUILD_REPORT.md" <<EOF
 # MESFlow image build
 
