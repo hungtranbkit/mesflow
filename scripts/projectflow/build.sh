@@ -10,12 +10,21 @@ source ./_common.sh
 cd "$PF_ROOT"
 
 echo "===== MESFlow App build (delegates to scripts/build-release.sh) ====="
-./scripts/build-release.sh
-
 version="$(pf_version)"
 release_dir="$PF_ARTIFACTS_DIR/$version"
 release_json="$release_dir/release.json"
-[[ -f "$release_json" ]] || { echo "ERROR: build-release.sh reported success but $release_json is missing" >&2; exit 1; }
+if [[ -f "$release_json" ]]; then
+  # VERSION.txt's release is already frozen (build-release.sh itself
+  # refuses to rebuild it -- RULE 5, never reuse a version's bytes) --
+  # e.g. this project's own build-release.sh was already run directly for
+  # this exact version. Reuse that existing, immutable artifact rather
+  # than failing: this step's job is "make sure a built release for the
+  # current VERSION.txt exists", which is already true.
+  echo "Version $version is already frozen at $release_json -- reusing existing artifact (not rebuilding, per RULE 5)."
+else
+  ./scripts/build-release.sh
+  [[ -f "$release_json" ]] || { echo "ERROR: build-release.sh reported success but $release_json is missing" >&2; exit 1; }
+fi
 
 mkdir -p "$PF_LATEST_META_DIR"
 python3 - "$release_json" "$release_dir" "$PF_LATEST_META" <<'PY'
