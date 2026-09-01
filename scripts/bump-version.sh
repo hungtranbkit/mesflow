@@ -17,6 +17,9 @@
 #   scripts/bump-version.sh 65.8.44.70      # bump to an explicit version
 #   scripts/bump-version.sh --to 65.8.44.70 # same, explicit flag form
 #   scripts/bump-version.sh --if-released   # idempotent "prepare" mode (see below)
+#   scripts/bump-version.sh --no-wait ...   # fail fast (VERSION_PREPARE_BUSY) instead
+#                                            # of blocking if another invocation holds
+#                                            # the lock; may appear anywhere in argv
 #
 # --if-released (idempotent, safe to run on every commit / CI trigger):
 #   - If the version currently in VERSION.txt already has a frozen release
@@ -37,6 +40,27 @@ set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 die(){ echo "ERROR: $*" >&2; exit 1; }
+
+# --- Concurrency guard ------------------------------------------------
+# Two concurrent invocations (e.g. two CI triggers racing on --if-released)
+# must never both read the same "current" version and each independently
+# decide to bump -- serialize the whole read-current/decide/write critical
+# section below with a flock on .bump-version.lock. --no-wait fails fast
+# (VERSION_PREPARE_BUSY) instead of blocking, for callers that would rather
+# report busy than stall.
+NO_WAIT=0
+args=()
+for a in "$@"; do
+  if [[ "$a" == "--no-wait" ]]; then NO_WAIT=1; else args+=("$a"); fi
+done
+set -- "${args[@]}"
+
+exec {LOCK_FD}>"$ROOT/.bump-version.lock"
+if [[ "$NO_WAIT" -eq 1 ]]; then
+  flock -n "$LOCK_FD" || die "VERSION_PREPARE_BUSY: another bump-version.sh invocation holds the lock ($ROOT/.bump-version.lock)"
+else
+  flock "$LOCK_FD"
+fi
 
 [[ -f VERSION.txt ]] || die "VERSION.txt not found in $ROOT"
 current="$(tr -d '[:space:]' < VERSION.txt)"
