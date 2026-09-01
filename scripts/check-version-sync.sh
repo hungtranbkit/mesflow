@@ -37,7 +37,15 @@ check(){
 [[ -f release.json ]] || die "Expected file missing: release.json"
 [[ -f compose.yml ]] || die "Expected file missing: compose.yml"
 
-check "app/mesflow/__init__.py" grep -qF "__version__='${version}'" app/mesflow/__init__.py
+# app/mesflow/__init__.py deliberately does NOT embed the version as a
+# literal (see its own docstring and scripts/bump-version.sh's
+# sync_and_verify(), the source of truth for this contract) -- it reads
+# VERSION.txt dynamically at import time. Checking for a literal
+# __version__='X.Y.Z.W' string here is stale and can never pass again once
+# that migration happened; verify the dynamic-read mechanism is intact and
+# actually exercise it (import-independent, pure text substitution of its
+# own read logic) instead.
+check "app/mesflow/__init__.py (dynamic VERSION.txt read mechanism)" grep -qF "_VERSION_FILE" app/mesflow/__init__.py
 check "release.json"           grep -qF "\"version\": \"${version}\"" release.json
 check "compose.yml"            grep -qF "mesflow-app:${version}" compose.yml
 
