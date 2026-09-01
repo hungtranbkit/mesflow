@@ -18,3 +18,4 @@ New Text Document.txt
 .env.prod-test
 release/
 scripts/production-target.env
+.bump-version.lock
