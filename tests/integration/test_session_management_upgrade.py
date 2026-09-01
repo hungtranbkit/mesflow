@@ -464,14 +464,21 @@ def test_employee_productivity_reports_exclude_excluded_sessions_from_the_averag
         cur.execute('UPDATE operations SET standard_seconds_per_unit=60 WHERE id=%s', (g['operation_id'],))
     sid_a = _closed_session(db, g, datetime(2026, 8, 11, 8, 0, tzinfo=HCM), f'PROD-A-{g["suffix"]}', good=10, defect=0)
     sid_b = _closed_session(db, g, datetime(2026, 8, 11, 9, 0, tzinfo=HCM), f'PROD-B-{g["suffix"]}', good=20, defect=0)
-    report = ReportRepository().employee_productivity(employee_id=g['employee_id'])
+    # Explicit date_from/date_to covering the sessions above -- both report
+    # methods default to the CURRENT calendar month when these are omitted
+    # (_productivity_date_bounds()), so leaving them implicit made this test
+    # a time bomb: it silently started failing on the first run in any month
+    # other than the one it was written in (caught 2026-09-01, the sessions
+    # above fell out of "this month" the moment the month rolled over).
+    date_from, date_to = '2026-08-01', '2026-08-31'
+    report = ReportRepository().employee_productivity(employee_id=g['employee_id'], date_from=date_from, date_to=date_to)
     assert report['summary']['completed_sessions'] == 2
 
     SupervisorRepository().exclude_session(sid_b, {'reason': 'Duplicate'}, user_id=None, actor_username='tester')
-    report = ReportRepository().employee_productivity(employee_id=g['employee_id'])
+    report = ReportRepository().employee_productivity(employee_id=g['employee_id'], date_from=date_from, date_to=date_to)
     assert report['summary']['completed_sessions'] == 1
 
-    detail = ReportRepository().employee_productivity_detail(g['employee_id'])
+    detail = ReportRepository().employee_productivity_detail(g['employee_id'], date_from=date_from, date_to=date_to)
     ids_in_detail = {row['session_id'] for row in detail['sessions']}
     assert {sid_a, sid_b} <= ids_in_detail, 'excluded session must stay visible in the detail drill-down'
     excluded_row = next(row for row in detail['sessions'] if row['session_id'] == sid_b)
