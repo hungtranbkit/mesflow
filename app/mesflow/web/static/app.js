@@ -1009,7 +1009,16 @@ async function renderSessionManagement(){
   // never stack/compete for attention.
   if(!returnContext){
     api('/api/session-exceptions?view=inbox&limit=500').then(d=>{
-      const count=(d.items||[]).length;
+      // Bug found live (2026-09-02): the inbox view is a UNION ALL of
+      // independently-detected exception rules (OPEN_TOO_LONG, ZERO_QTY_LONG,
+      // AUTO_CLOSED_UNCONFIRMED, ...), so one Session that matches two rules
+      // at once (e.g. auto-closed by the shift job AND closed with zero
+      // quantity) legitimately appears as two rows -- (d.items||[]).length
+      // was counting rows, not Sessions, so the banner said "6 session" for
+      // what was really 3 distinct Sessions (matches both the Overview
+      // page's unconfirmed_quantity_sessions count and Trung tâm ngoại lệ's
+      // own per-Session exceptions list). Count distinct session_id instead.
+      const count=new Set((d.items||[]).map(x=>x.session_id)).size;
       if(!count){el('smInboxBanner').innerHTML='';return}
       el('smInboxBanner').innerHTML=`<div class="session-inbox-banner"><div><b>Session cần xử lý</b><span>${count} session đang chờ kiểm tra hoặc bổ sung số liệu.</span></div><button class="btn primary" id="smGoInbox" type="button">Xem ngay</button></div>`;
       el('smGoInbox').onclick=()=>openPage('session-exceptions',document.querySelector('[data-page="session-exceptions"]'));
