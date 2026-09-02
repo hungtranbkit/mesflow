@@ -19,3 +19,4 @@ New Text Document.txt
 release/
 scripts/production-target.env
 .bump-version.lock
+.worktrees/
