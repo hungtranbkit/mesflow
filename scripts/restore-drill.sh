@@ -83,12 +83,27 @@ docker run -d --name "$DRILL_NAME" \
   postgres:17-alpine >/dev/null
 
 echo "=== Waiting for it to accept connections ==="
+# The official postgres image starts TWICE on a fresh container: a
+# temporary internal server (to run initdb/init scripts) that it then
+# deliberately shuts down, followed by the real, final server. A plain
+# pg_isready loop can catch that first, temporary server -- found live:
+# pg_restore then failed with "FATAL: the database system is shutting
+# down" because the container moved into its shutdown-for-restart phase
+# between pg_isready succeeding and pg_restore actually connecting.
+# Waiting for "database system is ready to accept connections" to appear
+# TWICE in the container's own logs is the standard, race-free signal
+# that the final server (not the disposable init one) is up.
 ready=0
-for _ in $(seq 1 30); do
-  if docker exec "$DRILL_NAME" pg_isready -U "$DRILL_USER" -d "$DRILL_DB" >/dev/null 2>&1; then ready=1; break; fi
+for _ in $(seq 1 60); do
+  count="$(docker logs "$DRILL_NAME" 2>&1 | grep -c 'database system is ready to accept connections' || true)"
+  if [[ "$count" -ge 2 ]]; then ready=1; break; fi
   sleep 1
 done
-[[ "$ready" -eq 1 ]] || die "drill Postgres never became ready"
+[[ "$ready" -eq 1 ]] || die "drill Postgres never reached its final ready state (saw ${count:-0}/2 'ready to accept connections' log lines)"
+# Belt-and-suspenders: also confirm it actually accepts a connection right
+# now (the log-count signal alone proves the final server STARTED, this
+# proves it's still up this instant).
+docker exec "$DRILL_NAME" pg_isready -U "$DRILL_USER" -d "$DRILL_DB" >/dev/null 2>&1 || die "drill Postgres logged final startup but pg_isready still fails"
 
 echo "=== Restoring $DUMP into the throwaway DB ==="
 docker cp "$DUMP" "$DRILL_NAME:/tmp/restore.dump"
