@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app /app
 COPY VERSION.txt /app/VERSION.txt
 COPY scripts/docker-entrypoint.sh /usr/local/bin/mesflow-entrypoint
-RUN chmod +x /usr/local/bin/mesflow-entrypoint
+COPY scripts/cleanup-logs.sh /app/scripts/cleanup-logs.sh
+RUN chmod +x /usr/local/bin/mesflow-entrypoint /app/scripts/cleanup-logs.sh
 EXPOSE 8080
 ENTRYPOINT ["mesflow-entrypoint"]
