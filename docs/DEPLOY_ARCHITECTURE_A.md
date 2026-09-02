@@ -9,17 +9,20 @@ Supersedes ad-hoc `docker compose up --build` on target servers.
 |---|---|---|
 | DEV | `dev.mesflow.net` | live, stable |
 | PROD-TEST | `prod.mesflow.net` | live, stable -- full deploy/rollback/FAST-test workflow proven (see below) |
-| PRODUCTION | `mesflow.net` | **FROZEN / TARGET UNCONFIRMED** -- `scripts/deploy.sh production` refuses to run (`PRODUCTION_TARGET_NOT_CONFIGURED`) until a real, verified target host is provided in `scripts/production-target.env` (gitignored, does not exist yet) |
+| PRODUCTION | `mesflow.net` | **Now confirmed to route to `/opt/mesflow`** on this same host -- see "Production origin — 2026-09-02 follow-up" below. `scripts/deploy.sh production` still refuses to run (`PRODUCTION_TARGET_NOT_CONFIGURED`) -- that code-level safety guard was NOT loosened by this update; see the follow-up section for why. |
 
-**Do not claim Production-ready remote deployment.** This dev machine's
-`/opt/mesflow` was mistaken for real Production earlier in this project's
-history -- confirmed wrong (deploying here does not change what
-`mesflow.net` serves publicly). See "Production origin investigation"
-below for the evidence trail and the current best (unconfirmed) lead.
-`/opt/mesflow` remains a legitimate deploy target in its own right -- it's
-the deploy-agent's own LOCAL/PRODUCTION_TEST tier (per that agent's own
-`.env`, which correctly never called it "PRODUCTION") -- just not the
-internet-facing site.
+**Update, 2026-09-02**: the 2026-08-25 conclusion below ("`mesflow.net`
+is a different, unconfirmed remote host") is now **contradicted by
+direct, repeated evidence** and is kept only as a historical record, not
+current fact -- see "Production origin — 2026-09-02 follow-up" at the end
+of this doc before relying on anything in the investigation section
+immediately below. `/opt/mesflow` is the deploy-agent's own LOCAL/
+PRODUCTION_TEST tier (per that agent's own `.env`, which correctly never
+called it "PRODUCTION"), and per explicit user direction this session it
+continues to be operated as PROD-TEST day to day -- `mesflow.net` now
+routing here does not by itself mean every future deploy here should
+skip the real-Production approval gate `scripts/deploy.sh production`
+exists to enforce.
 
 ## Flow
 
@@ -303,3 +306,51 @@ cd /home/dell/workspace/mesflow/mesflow
 ./scripts/deploy-status.sh prodtest
 ROLLBACK_YES=1 ./scripts/deploy-rollback.sh prodtest            # or omit the env var for an interactive prompt
 ```
+
+## Production origin — 2026-09-02 follow-up
+
+The 2026-08-25 investigation above was correct *for that day* — real
+evidence, correctly read. It is no longer current. Something (most likely
+Cloudflare tunnel/DNS work done earlier in the 2026-09-02 session, before
+this note) now routes public `mesflow.net` to `/opt/mesflow` on this same
+host.
+
+**Evidence, this session (2026-09-02), repeated and consistent every
+time**: every one of several deploys to `/opt/mesflow` this session
+(`71.0.0.207` through `71.0.0.210`) was immediately followed by
+`curl https://mesflow.net/api/system/version`, and separately by a real
+Playwright browser session — actual login (`POST /api/auth/login`, real
+credentials, real `200`), actual page navigation, actual screenshot —
+against `https://mesflow.net` itself. Both consistently reflected the
+exact version just deployed, every single time, across 4 separate
+deploys. This is the same "different instance would show a stale
+version" signal the 2026-08-25 investigation used, now pointing the
+other way.
+
+**User confirmation**: the user explicitly stated mid-session that
+`mesflow.net` currently routes to what they consider the PROD-TEST tier
+("mesflow.net đang trỏ vào prod test"), and on being asked directly,
+confirmed this documentation update ("xác nhận đúng, cập nhật doc luôn
+đi", 2026-09-02).
+
+**What this does and does not change**:
+- Does: correct this doc's factual claim about where `mesflow.net`
+  currently routes — it is `/opt/mesflow` on this host, not an unconfirmed
+  remote.
+- Does **not**: change `scripts/deploy_lib.sh`'s `production` target
+  refusal, or claim `/opt/mesflow` should now be treated as the final,
+  human-approval-gated real-Production target that `scripts/deploy.sh
+  production` was built for. The user's own framing keeps calling this
+  tier "prod test" day to day. Loosening that code-level safety guard —
+  the one that exists specifically to prevent "the exact mistake that
+  caused the earlier incident" (its own comment) — is a separate decision
+  from correcting this doc, and was not asked for here. If a future
+  session wants `scripts/deploy.sh production` to target `/opt/mesflow`
+  for real, that needs its own explicit, separate confirmation and a real
+  `scripts/production-target.env`, not an inference from this note.
+- Cloudflare tunnel config was not re-audited as part of this specific
+  doc update (out of scope for a documentation correction) — if the exact
+  ingress rule that now serves bare `mesflow.net` matters for a future
+  investigation, re-run the same read-only checks the 2026-08-25
+  investigation used (all 4 tunnel connectors' configs, including
+  timestamped backups).
