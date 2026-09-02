@@ -44,12 +44,48 @@ if shutil.which('docker') is None or shutil.which('git') is None:
     pytest.skip('requires a docker CLI (with daemon access) and git CLI on PATH -- run from the host, not the sandboxed tests image',
                 allow_module_level=True)
 
+def _current_tree_migration_head(repo_root: Path) -> str:
+    """The tip revision of app/migrations/versions/ in the CURRENT working
+    tree -- i.e. whatever `images['new']` (built from REPO_ROOT, always
+    "now") actually migrates to. Computed the same way Alembic itself
+    finds a branch's head: the one revision id that no other revision
+    lists as its down_revision. Real bug this replaces (found live,
+    2026-09-02): NEW_MIGRATION_HEAD used to be a hardcoded literal
+    ('0041_job_health_last_success') that was correct only the day this
+    test was written -- three migrations (0042, 0043) landed since without
+    anyone updating it, so this test failed on real, unrelated migration
+    additions from that day forward. images['new'] already tracks "now"
+    dynamically; the expected value must too, or this regression's only
+    job (catch a REAL migration-aware-rollback break) gets lost in
+    routine-migration noise.
+    """
+    # Not anchored to line-start: this repo's migration files are NOT
+    # consistently formatted -- most declare `revision =`/`down_revision =`
+    # as their own top-level lines, but several (e.g. 0032-0036) pack
+    # `revision='x';down_revision='y';branch_labels=None;depends_on=None`
+    # onto one semicolon-joined line, which a `^`-anchored, MULTILINE
+    # regex misses entirely (found live: it silently dropped those files'
+    # down_revision, making 6 real, applied migrations look like orphan
+    # heads instead of one true tip).
+    versions_dir = repo_root / 'app' / 'migrations' / 'versions'
+    revisions: dict[str, str | None] = {}
+    for path in versions_dir.glob('*.py'):
+        text = path.read_text(encoding='utf-8')
+        rev = re.search(r'(?<![\w.])revision\s*=\s*["\']([^"\']+)["\']', text)
+        down = re.search(r'(?<![\w.])down_revision\s*=\s*["\']([^"\']+)["\']', text)
+        if rev:
+            revisions[rev.group(1)] = down.group(1) if down else None
+    tips = set(revisions) - {down for down in revisions.values() if down}
+    assert len(tips) == 1, f'expected exactly one migration head, found {tips!r}'
+    return next(iter(tips))
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OLD_COMMIT = 'c8d13c2'  # last committed release: 71.0.0.67, migration head 0039_kiosk_v2_protocol
 OLD_VERSION = '71.0.0.67'
 OLD_MIGRATION_HEAD = '0039_kiosk_v2_protocol'
 NEW_VERSION = '71.0.0.68'
-NEW_MIGRATION_HEAD = '0041_job_health_last_success'
+NEW_MIGRATION_HEAD = _current_tree_migration_head(REPO_ROOT)
 
 
 def _run(cmd, **kwargs):
