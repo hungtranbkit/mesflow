@@ -4,6 +4,7 @@ cd /app
 python -m mesflow.cli wait-db
 alembic upgrade head
 python -m mesflow.cli verify-schema
+python -m mesflow.cli seed-rbac
 python -m mesflow.cli seed-admin
 python -m mesflow.cli seed-default-users
 python -m mesflow.cli seed-super-admin

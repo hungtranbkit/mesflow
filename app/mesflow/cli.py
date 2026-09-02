@@ -123,6 +123,24 @@ def seed_super_admin():
     print(f'[SEED] Created initial Super Admin account: {username}')
 
 
+def seed_rbac():
+    """Idempotently (re)apply the canonical rbac_roles/rbac_permissions/
+    rbac_role_permissions seed data on every boot -- see
+    RBACRepository.seed()'s own docstring for the real 2026-09-02 incident
+    this closes (local DEV's RBAC tables were found completely empty;
+    every user, including admin, silently had permissions:[]). Unlike
+    Alembic migrations 0025/0028/0029/0037/0043 (which only ever run their
+    INSERTs the ONE time each revision is first applied), this runs
+    unconditionally every boot, the same way seed_admin()/
+    seed_default_users()/seed_super_admin() above already do for users --
+    pure ON CONFLICT DO NOTHING, so it self-heals this exact class of data
+    loss the next time the container starts, whatever the cause.
+    """
+    from mesflow.db.repositories.rbac import RBACRepository
+    RBACRepository().seed()
+    print('[SEED] RBAC roles/permissions verified/reseeded')
+
+
 def reset_password():
     """Emergency, server-side password reset for an EXISTING user, invoked
     as `python -m mesflow.cli reset-password <username>` (same
@@ -336,6 +354,6 @@ def audit_integrity():
 
 if __name__=='__main__':
     cmd=sys.argv[1] if len(sys.argv)>1 else ''
-    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'seed-super-admin':seed_super_admin,'reset-admin':reset_admin,'reset-password':reset_password,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive,'reconcile-exceptions':reconcile_exceptions,'reconcile-shift-sessions':reconcile_shift_sessions,'audit-sessions':audit_sessions,'audit-integrity':audit_integrity}
+    funcs={'wait-db':wait_db,'seed-admin':seed_admin,'seed-default-users':seed_default_users,'seed-super-admin':seed_super_admin,'seed-rbac':seed_rbac,'reset-admin':reset_admin,'reset-password':reset_password,'verify-schema':verify_schema,'record-deployment':record_deployment,'run-predictive':run_predictive,'reconcile-exceptions':reconcile_exceptions,'reconcile-shift-sessions':reconcile_shift_sessions,'audit-sessions':audit_sessions,'audit-integrity':audit_integrity}
     if cmd not in funcs: raise SystemExit('unknown command')
     funcs[cmd]()
