@@ -110,19 +110,35 @@ for item in "${MODULES[@]}"; do
     npx playwright test tests/e2e/tutorial-detailed.spec.js --config=playwright.tutorial-detailed.config.js
   }
 
-  if ! run_module; then
-    echo "[WARN] $module failed. Retrying once with fresh browser..."
-    rm -rf test-results/tutorial-detailed
-    if ! run_module; then
-      echo "[FAIL] $module failed twice; continuing with remaining videos."
-      FAILED+=("$module")
-      continue
-    fi
-  fi
-
+  # Retry/discard is decided by whether a video file actually exists, NOT
+  # by run_module's exit code. The recording itself (Playwright records
+  # unconditionally while the test runs) succeeds independently of the
+  # tutorial's own soft QA-bug reporting (tutorial-detailed.spec.js's
+  # note() logs a non-fatal bug -- TARGET_NOT_VISIBLE, a narration overlay
+  # covering a now-larger element, a stale selector on one step -- and
+  # keeps going; only the final `expect.soft(bugs).toHaveLength(0)` turns
+  # that into a non-zero exit). Found live 2026-09-03 running this exact
+  # script against a deliberately richer, more realistic dataset (16
+  # employees, 85 sessions) than these narration selectors were tuned
+  # against: roughly half the modules hit at least one such soft bug, so
+  # exit-code-gated retry/discard was throwing away a real, complete
+  # recording every time -- both attempts, since `rm -rf
+  # test-results/tutorial-detailed` before the retry deleted the first
+  # attempt's video before ever checking for it, and a second soft-failing
+  # attempt then got discarded by `continue` without ever being looked at
+  # either. A demo/tutorial dataset with this much real content is exactly
+  # the case this script exists to record -- soft narration-positioning
+  # noise on a big dataset must not cost the video.
+  run_module || true
   video="$(find test-results/tutorial-detailed -type f -name '*.webm' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
   if [[ -z "$video" ]]; then
-    echo "[FAIL] Không tìm thấy video cho $module; continuing."
+    echo "[WARN] $module: no video from first attempt. Retrying once with fresh browser..."
+    rm -rf test-results/tutorial-detailed
+    run_module || true
+    video="$(find test-results/tutorial-detailed -type f -name '*.webm' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+  fi
+  if [[ -z "$video" ]]; then
+    echo "[FAIL] $module: không tìm thấy video sau khi thử lại; continuing with remaining videos."
     FAILED+=("$module")
     continue
   fi
