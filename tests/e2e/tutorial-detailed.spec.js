@@ -236,8 +236,15 @@ async function login(page){
   }
   // The batch runner authenticates once and shares storageState across all modules.
   // This avoids repeatedly hitting the production login rate limiter.
-  const me=await page.request.get('/api/auth/me');
-  if(!me.ok()){
+  // page.request (not a real page fetch) doesn't get the Secure-cookie
+  // trustworthy-origin treatment a real browser network call does, so it
+  // would report the just-injected cookie as unauthenticated every single
+  // time against a plain http:// target -- defeating this exact caching
+  // and forcing every module to hit the login rate limiter again. An
+  // in-page fetch() goes through the real browser network stack instead
+  // (same fix as tutorial-auth-state.js, root-caused together 2026-09-03).
+  const meOk=await page.evaluate(()=>fetch('/api/auth/me',{credentials:'same-origin'}).then(r=>r.ok).catch(()=>false));
+  if(!meOk){
     const user=process.env.MESFLOW_TUTORIAL_USERNAME||'admin';
     const password=process.env.MESFLOW_TUTORIAL_PASSWORD||'';
     // This narration/recording spec needs a real credential (cookie, auth

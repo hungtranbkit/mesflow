@@ -9,23 +9,43 @@ const fs = require('fs');
   if(!password) throw new Error('Thiếu MESFLOW_TUTORIAL_PASSWORD');
 
   const browser=await chromium.launch({headless:true});
-  const context=await browser.newContext({baseURL});
-  const req=context.request;
+  // A real page navigation is required for the login itself: the backend
+  // sets the session cookie Secure (see WORKSHOP_COOKIE_SECURE), and only
+  // the browser's own network stack treats 127.0.0.1/localhost as a
+  // potentially-trustworthy origin for that Secure cookie over a plain
+  // http:// target -- any local/demo recording target, not just
+  // production over HTTPS. The verification step below deliberately does
+  // NOT use context.request or page.request: both are Playwright's
+  // separate, lighter API-request client, which does not get that
+  // trustworthy-origin treatment either -- the cookie was captured but
+  // silently never sent back on that client's own follow-up request,
+  // reproduced live 2026-09-03 even from a real page-based login. An
+  // in-page fetch() (page.evaluate) goes through the real browser
+  // network stack instead, the same one the login form's own fetch() and
+  // every subsequent openPage() XHR already relies on all through the
+  // actual video recording.
+  const page=await browser.newPage({baseURL});
 
   let last='';
   for(let attempt=1;attempt<=8;attempt++){
-    const r=await req.post('/api/auth/login',{data:{username,password}});
-    const text=await r.text();
-    last=`HTTP ${r.status()} ${text.slice(0,300)}`;
-    if(r.ok()){
-      const me=await req.get('/api/auth/me');
-      if(!me.ok()) throw new Error(`Login thành công nhưng /api/auth/me lỗi HTTP ${me.status()}`);
-      await context.storageState({path:out});
+    await page.goto('/login');
+    await page.fill('#username',username);
+    await page.fill('#password',password);
+    const [response]=await Promise.all([
+      page.waitForResponse(r=>r.url().includes('/api/auth/login'),{timeout:15000}),
+      page.click('button[type="submit"]'),
+    ]);
+    const text=await response.text().catch(()=>'');
+    last=`HTTP ${response.status()} ${text.slice(0,300)}`;
+    if(response.ok()){
+      const meOk=await page.evaluate(()=>fetch('/api/auth/me',{credentials:'same-origin'}).then(r=>r.ok).catch(()=>false));
+      if(!meOk) throw new Error('Login thành công nhưng /api/auth/me lỗi (fetch trong trang thất bại)');
+      await page.context().storageState({path:out});
       console.log(`[AUTH] Đăng nhập một lần thành công; đã lưu phiên dùng chung: ${out}`);
       await browser.close();
       return;
     }
-    if(r.status()===429){
+    if(response.status()===429){
       const waitMs=Math.min(60000,5000*attempt);
       console.log(`[AUTH] Hệ thống giới hạn đăng nhập tạm thời; chờ ${Math.round(waitMs/1000)} giây rồi thử lại (${attempt}/8).`);
       await new Promise(r=>setTimeout(r,waitMs));
