@@ -31,7 +31,16 @@
 #    name that is NOT actually the currently-attached one (i.e. any
 #    "<hash>_<name>" temp-named leftover, or the real name itself if it's
 #    sitting in a dead/Created-but-never-started state) -- these are, by
-#    construction, never the live service.
+#    construction, never the live service. `docker rm -f` returning success
+#    does NOT mean the removal is actually visible yet (found live,
+#    2026-09-03, running this exact script: `docker rm -f` on a stray
+#    returned 0, but `docker compose up -d` immediately after still hit
+#    "removal of container ... is already in progress" and tore down the
+#    REAL mesflow-app without managing to recreate it -- a genuine outage,
+#    not merely a conflict, caused by this script's own preflight not
+#    actually being synchronous) -- so each removal below is followed by
+#    polling `docker ps -a` until the container is truly gone before
+#    moving on, not just trusting rm's exit code.
 # 2) `docker compose up -d --no-deps <service>` -- no --force-recreate.
 #    Compose's own config-hash change detection already recreates a
 #    service whose image changed; --force-recreate adds no correctness
@@ -55,11 +64,25 @@ EXPECTED_IMAGE="${4:-}"
 
 cd "$DIR"
 
+wait_gone() {
+  # Block until `docker inspect` genuinely can't find $1 (up to ~20s) --
+  # `docker rm -f` returning 0 is not sufficient proof by itself, see the
+  # incident this guards against in this script's own top comment.
+  target="$1"; n=0
+  while [ "$n" -lt 20 ]; do
+    docker inspect "$target" >/dev/null 2>&1 || return 0
+    n=$((n + 1))
+    sleep 1
+  done
+  echo "WARNING: $target still visible ~20s after rm -f; proceeding anyway" >&2
+}
+
 echo "== preflight: stray containers matching '$NAME' =="
 docker ps -a --format '{{.Names}}\t{{.ID}}\t{{.Status}}' | grep -E "(^|_)${NAME}(\$|_)" || echo "(none)"
 for cid in $(docker ps -a --format '{{.Names}} {{.ID}}' | awk -v n="$NAME" '$1 != n && index($1, n) { print $2 }'); do
   echo "removing stray container $cid"
   docker rm -f "$cid" 2>&1 || true
+  wait_gone "$cid"
 done
 # The real name itself, if present but not actually running (a previous
 # attempt got as far as "Created" and no further):
@@ -67,6 +90,7 @@ state="$(docker inspect "$NAME" --format '{{.State.Status}}' 2>/dev/null || echo
 if [ "$state" != "absent" ] && [ "$state" != "running" ]; then
   echo "removing non-running '$NAME' (state=$state) before recreate"
   docker rm -f "$NAME" 2>&1 || true
+  wait_gone "$NAME"
 fi
 
 echo "== docker compose up -d --no-deps $NAME (no --force-recreate) =="
