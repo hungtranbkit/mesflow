@@ -60,12 +60,24 @@ def _find_employee_session_overlap(cur, employee_id:int, started_at, ended_at=No
         exclude_sql=' AND ws.id<>%s'
         params.append(exclude_session_id)
     params.extend([started_at,ended_at])
+    # GREATEST(...,lower_bound) guard on both sides: same fix as
+    # db/repositories/exceptions.py's reconcile() query (2026-08-27) --
+    # tstzrange() raises "range lower bound must be less than or equal to
+    # range upper bound" for any (started_at, ended_at) pair where
+    # ended_at < started_at. On the DB side that's a pre-existing malformed
+    # session (its own dedicated INVALID_TIME check flags it -- this query
+    # shouldn't crash on it while looking for overlaps of a *different*
+    # session). On the caller side (started_at/ended_at params), an admin
+    # correcting a session with an accidentally-swapped start/end would
+    # otherwise get a raw DB exception here instead of a clean conflict
+    # check. Found live 2026-09-03 -- this copy of the pattern hadn't been
+    # fixed when the other one was.
     cur.execute(f"""SELECT ws.id,ws.status,ws.started_at,ws.ended_at,o.code operation_code,o.name operation_name
         FROM work_sessions ws LEFT JOIN operations o ON o.id=ws.operation_id
         WHERE ws.employee_id=%s {exclude_sql}
-          AND tstzrange(ws.started_at,COALESCE(ws.ended_at,'infinity'::timestamptz),'[)')
-              && tstzrange(%s::timestamptz,COALESCE(%s::timestamptz,'infinity'::timestamptz),'[)')
-        ORDER BY ws.started_at LIMIT 1""",params)
+          AND tstzrange(ws.started_at,GREATEST(COALESCE(ws.ended_at,'infinity'::timestamptz),ws.started_at),'[)')
+              && tstzrange(%s::timestamptz,GREATEST(COALESCE(%s::timestamptz,'infinity'::timestamptz),%s::timestamptz),'[)')
+        ORDER BY ws.started_at LIMIT 1""",params+[started_at])
     return cur.fetchone()
 
 def _raise_overlap(conflict):

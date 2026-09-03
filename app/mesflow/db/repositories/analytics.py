@@ -986,8 +986,16 @@ class ReportRepository:
                 AND EXTRACT(EPOCH FROM (COALESCE(b.ended_at,CURRENT_TIMESTAMP)-b.started_at))<300)
             ) secondary_evidence
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
-           AND tstzrange(a.started_at,COALESCE(a.ended_at,'infinity'::timestamptz),'[)')
-               && tstzrange(b.started_at,COALESCE(b.ended_at,'infinity'::timestamptz),'[)')
+           -- GREATEST(...,started_at) guard: same fix as
+           -- db/repositories/exceptions.py's reconcile() query (2026-08-27)
+           -- -- tstzrange() raises "range lower bound must be less than or
+           -- equal to range upper bound" for any session whose
+           -- ended_at < started_at, which used to take down this entire
+           -- query rather than leave that one malformed session to its own
+           -- INVALID_TIME/INVALID_DURATION check. Found live 2026-09-03 --
+           -- this copy of the pattern hadn't been fixed when the other one was.
+           AND tstzrange(a.started_at,GREATEST(COALESCE(a.ended_at,'infinity'::timestamptz),a.started_at),'[)')
+               && tstzrange(b.started_at,GREATEST(COALESCE(b.ended_at,'infinity'::timestamptz),b.started_at),'[)')
         ), flags AS (
           -- secondary_evidence for OPEN_TOO_LONG: the employee has since started
           -- other work, i.e. they moved on and likely just forgot to close this

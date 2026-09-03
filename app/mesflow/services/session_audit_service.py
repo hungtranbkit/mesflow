@@ -60,8 +60,17 @@ def audit() -> dict[str, list[dict[str, Any]]]:
                a.started_at started_at_a, a.ended_at ended_at_a, b.started_at started_at_b, b.ended_at ended_at_b
         FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id>a.id
           JOIN employees e ON e.id=a.employee_id
-        WHERE tstzrange(a.started_at,COALESCE(a.ended_at,'infinity'::timestamptz),'[)')
-          && tstzrange(b.started_at,COALESCE(b.ended_at,'infinity'::timestamptz),'[)')
+        -- GREATEST(...,started_at) guard: same fix as
+        -- db/repositories/exceptions.py's reconcile() query (2026-08-27) --
+        -- tstzrange() raises "range lower bound must be less than or equal
+        -- to range upper bound" for any session whose ended_at < started_at
+        -- (the exact case IMPOSSIBLE_DURATION below catches separately),
+        -- which used to take down this entire audit query rather than just
+        -- leaving that one malformed session to the dedicated check. Found
+        -- live 2026-09-03 -- this copy of the pattern hadn't been fixed
+        -- when the other one was.
+        WHERE tstzrange(a.started_at,GREATEST(COALESCE(a.ended_at,'infinity'::timestamptz),a.started_at),'[)')
+          && tstzrange(b.started_at,GREATEST(COALESCE(b.ended_at,'infinity'::timestamptz),b.started_at),'[)')
         ORDER BY a.employee_id,a.started_at""")
 
     result['IMPOSSIBLE_DURATION'] = fetch_all("""
