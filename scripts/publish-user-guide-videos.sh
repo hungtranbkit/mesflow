@@ -26,14 +26,15 @@ TITLES[06_session_exceptions]="Phiên làm việc bất thường"; CATS[06_sess
 TITLES[07_employees_qr]="Nhân viên & QR"; CATS[07_employees_qr]="Danh mục"; DESCS[07_employees_qr]="Quản lý nhân viên, mã QR và in tem."
 TITLES[08_kiosk_admin]="Quản lý trạm thao tác"; CATS[08_kiosk_admin]="Kiosk"; DESCS[08_kiosk_admin]="Heartbeat, firmware, offline queue và timeline thiết bị."
 TITLES[09_kiosk_operator]="Trạm thao tác cho công nhân"; CATS[09_kiosk_operator]="Kiosk"; DESCS[09_kiosk_operator]="Quét thẻ, Operation, nhập đạt/lỗi/sửa được và xác nhận."
-TITLES[10_working_calendar]="Lịch làm việc"; CATS[10_working_calendar]="Hệ thống"; DESCS[10_working_calendar]="Ca làm, khoảng nghỉ và ảnh hưởng tới thời gian."
-TITLES[11_users_permissions]="Người dùng & phân quyền"; CATS[11_users_permissions]="Hệ thống"; DESCS[11_users_permissions]="Role, quyền xem tab và quyền thao tác API."
-TITLES[12_system_logs]="Nhật ký hệ thống"; CATS[12_system_logs]="Hệ thống"; DESCS[12_system_logs]="Action Log, Error Trace và cách truy vết sự cố."
-TITLES[13_common_cases]="Tình huống & lưu ý"; CATS[13_common_cases]="Xử lý sự cố"; DESCS[13_common_cases]="Session bất thường, lỗi chất lượng, kiosk offline và cách xử lý."
+TITLES[10_employee_productivity]="Năng suất nhân viên"; CATS[10_employee_productivity]="Theo dõi"; DESCS[10_employee_productivity]="Năng suất trung bình, sản lượng, thời gian làm việc theo từng nhân viên và trình chiếu tại xưởng."
+TITLES[11_working_calendar]="Lịch làm việc"; CATS[11_working_calendar]="Hệ thống"; DESCS[11_working_calendar]="Ca làm, khoảng nghỉ và ảnh hưởng tới thời gian."
+TITLES[12_users_permissions]="Người dùng & phân quyền"; CATS[12_users_permissions]="Hệ thống"; DESCS[12_users_permissions]="Role, quyền xem tab và quyền thao tác API."
+TITLES[13_system_logs]="Nhật ký hệ thống"; CATS[13_system_logs]="Hệ thống"; DESCS[13_system_logs]="Action Log, Error Trace và cách truy vết sự cố."
+TITLES[14_common_cases]="Tình huống & lưu ý"; CATS[14_common_cases]="Xử lý sự cố"; DESCS[14_common_cases]="Session bất thường, lỗi chất lượng, kiosk offline và cách xử lý."
 
 items_json=""
 first=1
-for key in 00_overview 01_dashboard 02_production_order 03_template 04_material_flow 05_session 06_session_exceptions 07_employees_qr 08_kiosk_admin 09_kiosk_operator 10_working_calendar 11_users_permissions 12_system_logs 13_common_cases; do
+for key in 00_overview 01_dashboard 02_production_order 03_template 04_material_flow 05_session 06_session_exceptions 07_employees_qr 08_kiosk_admin 09_kiosk_operator 10_employee_productivity 11_working_calendar 12_users_permissions 13_system_logs 14_common_cases; do
   src=""
   for candidate in "$SRC/${key}_voice.mp4" "$SRC/${key}.mp4" "$SRC/${key}.webm"; do
     [[ -f "$candidate" ]] && { src="$candidate"; break; }

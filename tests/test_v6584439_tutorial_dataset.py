@@ -35,8 +35,35 @@ def test_common_cases_video_and_publish():
  runner=(R/"scripts/make-user-guide-video.sh").read_text()
  pub=(R/"scripts/publish-user-guide-videos.sh").read_text()
  assert "commonCases:" in spec
- assert "13_common_cases:commonCases" in runner
- assert "13_common_cases" in pub
+ assert "14_common_cases:commonCases" in runner
+ assert "14_common_cases" in pub
+
+def test_employee_productivity_video_registered():
+ # 2026-09-03: the Employee Productivity report/wallboard is a real, existing
+ # feature (app/mesflow/web/static/pages/employee-productivity.js) that had
+ # no tutorial-video chapter yet. Same registration contract as every other
+ # module: a tour function in tutorial-detailed.spec.js, an entry in the
+ # runner's MODULES array, and a title/category/description in the publisher.
+ spec=(R/"tests/e2e/tutorial-detailed.spec.js").read_text()
+ runner=(R/"scripts/make-user-guide-video.sh").read_text()
+ pub=(R/"scripts/publish-user-guide-videos.sh").read_text()
+ assert "employeeProductivity:" in spec
+ assert "#epKpis" in spec and "#epTableHost" in spec
+ assert "10_employee_productivity:employeeProductivity" in runner
+ assert "10_employee_productivity" in pub
+
+def test_demo_dataset_reaches_requested_scale():
+ # 2026-09-03: extended TUT39 in place (additive only, same PREFIX/PO_CODE/
+ # employee codes the tours and other tests already hardcode) to reach the
+ # volume a real demo recording needs: 2-3 PO, 5-10 Part, 20+ Operation,
+ # 12-20 employees, session history spread across multiple real past days
+ # rather than only the last few hours.
+ s=(R/"app/mesflow/tutorial_data.py").read_text()
+ for code in ["TUT-PO-GUIDE-39","TUT-PO-GUIDE-40","TUT-PO-GUIDE-41"]:
+  assert code in s
+ assert 'employees[no]=int(row["id"])' in s
+ assert s.count('"TUT-E1') >= 6  # TUT-E11..TUT-E16 all present alongside the original TUT-E01..06
+ assert "day_offset in range(1,11)" in s  # 10 days of session history, not just hours
 
 def test_seed_not_default():
  s=(R/"scripts/make-user-guide-video.sh").read_text()

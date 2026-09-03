@@ -81,10 +81,11 @@ MODULES=(
   "07_employees_qr:employees"
   "08_kiosk_admin:kioskAdmin"
   "09_kiosk_operator:kioskUser"
-  "10_working_calendar:calendar"
-  "11_users_permissions:users"
-  "12_system_logs:logs"
-  "13_common_cases:commonCases"
+  "10_employee_productivity:employeeProductivity"
+  "11_working_calendar:calendar"
+  "12_users_permissions:users"
+  "13_system_logs:logs"
+  "14_common_cases:commonCases"
 )
 
 FAILED=()

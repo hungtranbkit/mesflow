@@ -446,6 +446,29 @@ const tours = {
 
     await card(page,'Khi mất mạng','Trạm có thể lưu tạm thao tác và đồng bộ lại khi kết nối trở lại. Nếu có xung đột, quản lý kiểm tra tại màn hình Quản lý trạm thao tác trước khi yêu cầu nhập lại.',LONG_WAIT);
   },
+  employeeProductivity: async page=>{
+    await open(page,'employee-productivity');
+    await card(page,'Báo cáo năng suất nhân viên','Màn hình này tổng hợp năng suất từng nhân viên từ chính các phiên làm việc đã kết thúc — không phải số liệu nhập tay riêng. Video đi qua bộ lọc, bảng năng suất, xem chi tiết theo ngày/Operation và màn hình trình chiếu tại xưởng.');
+    await note(page,'#epFrom, #epTo','Chọn khoảng ngày','Năng suất được tính trên các Session đã kết thúc trong khoảng ngày này. Đổi khoảng ngày để so sánh nhiều ngày hoặc nhiều ca khác nhau.',{action:'Chọn từ ngày và đến ngày cần xem.',expected:'Bảng năng suất và KPI cập nhật đúng theo đúng khoảng ngày đã chọn.'});
+    await note(page,'#epDept','Lọc theo bộ phận','Khi xưởng có nhiều bộ phận/tổ, lọc theo bộ phận giúp so sánh trong cùng nhóm thay vì trộn lẫn toàn nhà máy.');
+    await note(page,'#epKpis','Chỉ số tổng hợp','Bốn chỉ số: số nhân viên có dữ liệu, tổng Session đã kết thúc, năng suất trung bình và tổng sản lượng đạt trong khoảng ngày đã chọn — dùng để nắm nhanh bức tranh chung trước khi đi vào từng người.',{action:'Đọc lần lượt 4 chỉ số.',expected:'Biết được quy mô dữ liệu (bao nhiêu người, bao nhiêu Session) trước khi đánh giá năng suất trung bình.'});
+    await note(page,'#epTableHost','Năng suất theo từng nhân viên','Mỗi dòng là một nhân viên: số Session đã kết thúc, năng suất trung bình (thực tế so với định mức), sản lượng đạt/lỗi và tổng thời gian làm việc thực tế. Nhấn tiêu đề cột để sắp xếp; nhấn một dòng để xem chi tiết theo từng Operation.',{action:'Sắp xếp theo năng suất trung bình để tìm người cao/thấp nhất, sau đó bấm vào một dòng.',expected:'Phân biệt được Session hợp lệ dùng để tính năng suất với Session không đủ dữ liệu, và biết mở được chi tiết từng người.'});
+    const opened=await page.evaluate(()=>{
+      const row=document.querySelector('.ep-row');
+      if(!row)return false;
+      row.click();
+      return true;
+    });
+    if(opened){
+      await expect(page.locator('.ep-detail-modal')).toBeVisible({timeout:10000});
+      await pause(page,800);
+      await note(page,'.ep-detail-modal','Chi tiết theo ngày và Operation','Xem đúng nhân viên đã làm Operation nào, của PO/Part nào, ngày nào, thời gian bắt đầu/kết thúc, số đạt/lỗi và Completion % của từng Session — đây là dữ liệu gốc dùng để tính ra chỉ số năng suất trung bình ở bảng trước.',{action:'Đối chiếu vài dòng chi tiết với chỉ số năng suất trung bình đã thấy.',expected:'Hiểu năng suất trung bình được cộng dồn từ chính các Session thực tế, không phải số ước lượng.'});
+      await page.evaluate(()=>document.getElementById('epdClose')?.click());
+      await pause(page,500);
+    }
+    await note(page,'#epWbPanel','Trình chiếu năng suất tại xưởng (wallboard)','Cùng dữ liệu năng suất có thể trình chiếu dạng bảng lớn trên màn hình/TV tại xưởng cho công nhân tự theo dõi, với tùy chọn sắp xếp, số cột, tự động chuyển trang và tự động làm mới.',{action:'Xem qua các tùy chọn hiển thị rồi bấm Preview để hình dung màn hình thực tế trên Kiosk.',expected:'Biết cách công khai minh bạch năng suất tại xưởng mà không cần thao tác thủ công mỗi ca.'});
+    await card(page,'Lưu ý khi đọc năng suất','Năng suất trung bình chỉ tính trên Session hợp lệ (có đủ thời gian và định mức để so sánh); Session thiếu dữ liệu được đếm riêng, không kéo méo chỉ số trung bình. Khi thấy năng suất bất thường, nên đối chiếu chi tiết theo Operation trước khi kết luận.',LONG_WAIT);
+  },
   calendar: async page=>{
     await open(page,'working-calendar');
     await card(page,'Lịch làm việc','Ca làm và khoảng nghỉ ảnh hưởng trực tiếp tới thời gian thực tế, KPI và tiến độ.');

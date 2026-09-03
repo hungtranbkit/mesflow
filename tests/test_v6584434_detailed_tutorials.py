@@ -11,15 +11,18 @@ def test_release_sync():
 
 def test_detailed_video_modules_present():
     spec=(ROOT/"tests"/"e2e"/"tutorial-detailed.spec.js").read_text()
-    for name in ["overview","dashboard","po","templates","material","sessions","exceptions","employees","kioskAdmin","kioskUser","calendar","users","logs"]:
+    for name in ["overview","dashboard","po","templates","material","sessions","exceptions","employees","kioskAdmin","kioskUser","employeeProductivity","calendar","users","logs"]:
         assert f"  {name}:" in spec
 
 def test_linux_runner_uses_writable_home_workspace():
     sh=(ROOT/"scripts"/"make-user-guide-video.sh").read_text()
     assert '$HOME/.mesflow-video' in sh
     assert '$HOME/mesflow-user-guide' in sh
-    assert "13_system_logs" not in sh
-    assert "12_system_logs:logs" in sh
+    # 2026-09-03: 10_employee_productivity inserted after kioskUser, shifting
+    # calendar/users/logs/commonCases up by one slot (10-13 -> 11-14).
+    assert "14_system_logs" not in sh
+    assert "13_system_logs:logs" in sh
+    assert "10_employee_productivity:employeeProductivity" in sh
 
 def test_kiosk_video_only_touches_dedicated_tutorial_fixtures():
     """Was test_kiosk_video_is_non_mutating: originally asserted the kiosk

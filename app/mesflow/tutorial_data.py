@@ -353,15 +353,192 @@ def seed():
                  '{}','{"error":"CONFLICT"}','{"tutorial":true}','Tutorial synthetic trace only','127.0.0.1','MESFlow Tutorial',
                  TRUE,'Đã xử lý trong video đào tạo')""",(DEVICE,))
 
+            # ------------------------------------------------------------------
+            # Demo-scale extension (2026-09-03): everything above this point is
+            # the original curated TUT39 fixture -- untouched, same codes, same
+            # values, because tests and tutorial-detailed.spec.js hardcode
+            # references to it (TUT-E06, TUT39-CUT, PO_CODE...). Everything
+            # below is purely additive: more employees, two more Production
+            # Orders (their own templates/parts/operations, still under the
+            # 'TUT-' prefix so the existing cleanup wildcards already catch
+            # them), and session history spread across real past days instead
+            # of only the last few hours -- so Dashboard/employee-productivity
+            # trends have more than a single point in time to show, matching
+            # the scale a real demo/tutorial recording needs (2-3 PO, 5-10
+            # Part, 20+ Operation, 12-20 employees).
+            # ------------------------------------------------------------------
+            for no,name,pos in [
+                ("TUT-E07","Đỗ Thị Hoa — Demo","Công nhân tiện"),
+                ("TUT-E08","Bùi Văn Khang — Demo","Công nhân phay"),
+                ("TUT-E09","Ngô Thị Lan — Demo","Công nhân nhiệt luyện"),
+                ("TUT-E10","Đặng Văn Minh — Demo","Công nhân mài"),
+                ("TUT-E11","Vũ Thị Nga — Demo","QC"),
+                ("TUT-E12","Trịnh Văn Long — Demo","Công nhân lắp ráp"),
+                ("TUT-E13","Lý Thị Phương — Demo","Công nhân đóng gói"),
+                ("TUT-E14","Phan Văn Quang — Demo","Tổ trưởng ca A"),
+                ("TUT-E15","Hồ Thị Kim — Demo","Tổ trưởng ca B"),
+                ("TUT-E16","Đinh Văn Sơn — Demo","Công nhân dự phòng"),
+            ]:
+                row=_one(cur,"""INSERT INTO employees(employee_no,name,department,position,employment_status,active,qr)
+                    VALUES(%s,%s,'Xưởng Demo',%s,'Đang làm',TRUE,%s) RETURNING id""",
+                    (no,name,pos,f"WF|EMP|{no}"))
+                employees[no]=int(row["id"])
+
+            for code,name in [("TUT-ST-TURN","Trạm Tiện Demo"),("TUT-ST-HEAT","Trạm Nhiệt luyện Demo"),("TUT-ST-ASSY","Trạm Lắp ráp Demo")]:
+                row=_one(cur,"""INSERT INTO stations(code,name,workshop,production_line,active)
+                    VALUES(%s,%s,'Xưởng đào tạo','Line Tutorial',TRUE) RETURNING id""",(code,name))
+                stations[code]=int(row["id"])
+
+            # Second Production Order: its own template/parts/operations, product
+            # "Khung kim loại" (metal frame) -- CUT -> BEND -> WELD -> GRIND chain
+            # on one Part, DRILL -> ASSEMBLE on a second.
+            po2_ops_spec=[
+                ("TUT-PART-C","Khung chính",[
+                    ("TUT40-CUT","Cắt phôi khung",20,"IN_PROGRESS"),
+                    ("TUT40-BEND","Uốn khung",35,"IN_PROGRESS"),
+                    ("TUT40-WELD","Hàn khung",60,"IN_PROGRESS"),
+                    ("TUT40-GRIND","Mài bavia",15,"PLANNED"),
+                ]),
+                ("TUT-PART-D","Chân đế",[
+                    ("TUT40-DRILL","Khoan lỗ chân đế",22,"IN_PROGRESS"),
+                    ("TUT40-ASSEMBLE","Lắp ráp chân đế",40,"PLANNED"),
+                ]),
+            ]
+            # Third Production Order: product "Trục bánh răng" (gear shaft) --
+            # a longer, more realistic chain: TURN -> MILL -> HEAT -> GRIND on
+            # the shaft, its own gear-cutting Part, then a final assembly Part.
+            po3_ops_spec=[
+                ("TUT-PART-E","Trục chính",[
+                    ("TUT41-TURN","Tiện trục",45,"IN_PROGRESS"),
+                    ("TUT41-MILL","Phay rãnh then",38,"IN_PROGRESS"),
+                    ("TUT41-HEAT","Nhiệt luyện",90,"PLANNED"),
+                    ("TUT41-GRIND2","Mài tinh",50,"PLANNED"),
+                ]),
+                ("TUT-PART-F","Bánh răng",[
+                    ("TUT41-GEAR-CUT","Cắt răng",60,"IN_PROGRESS"),
+                    ("TUT41-GEAR-QC","Kiểm tra biên dạng răng",25,"PLANNED"),
+                ]),
+                ("TUT-PART-G","Lắp cụm",[
+                    ("TUT41-ASSEMBLE2","Lắp cụm trục — bánh răng",35,"PLANNED"),
+                    ("TUT41-PACK2","Đóng gói thành phẩm",20,"PLANNED"),
+                    ("TUT41-QC-FINAL","QC cuối",15,"PLANNED"),
+                ]),
+            ]
+
+            def make_po(po_code,template_code,product,version,parts_spec,planned_qty):
+                t=_one(cur,"""INSERT INTO templates(code,name,product,version,active,source_workbook)
+                    VALUES(%s,%s,%s,%s,TRUE,'TUTORIAL_DATASET') RETURNING id""",
+                    (template_code,f"Tutorial — {product}",product,version))
+                tid=int(t["id"])
+                po=_one(cur,"""INSERT INTO production_orders(code,product,planned_quantity,status,priority,due_date,notes,
+                        planned_start_at,planned_end_at,source_template_id,source_template_code,source_template_version)
+                    VALUES(%s,%s,%s,'IN_PROGRESS','NORMAL',CURRENT_DATE+3,
+                        'TUT39: dữ liệu mô phỏng cho video hướng dẫn (demo mở rộng)',
+                        CURRENT_TIMESTAMP-INTERVAL '9 days',CURRENT_TIMESTAMP+INTERVAL '5 days',
+                        %s,%s,%s) RETURNING id""",
+                    (po_code,product,planned_qty,tid,template_code,version))
+                poid=int(po["id"])
+                new_ops={}
+                for sortp,(part_code,part_name,ops) in enumerate(parts_spec,1):
+                    tp=int(_one(cur,"""INSERT INTO template_parts(template_id,code,name,sort_order)
+                        VALUES(%s,%s,%s,%s) RETURNING id""",(tid,part_code,part_name,sortp))["id"])
+                    partid=int(_one(cur,"""INSERT INTO parts(production_order_id,code,name,sort_order,active)
+                        VALUES(%s,%s,%s,%s,TRUE) RETURNING id""",(poid,part_code,part_name,sortp))["id"])
+                    prev_op_code=None  # material-flow chain only within a Part's own sequence
+                    for sorto,(op_code,op_name,sec,status) in enumerate(ops,1):
+                        cur.execute("""INSERT INTO template_operations(template_id,part_id,code,name,sort_order,
+                            standard_seconds_per_unit,repair_cycle_time_seconds_per_unit)
+                            VALUES(%s,%s,%s,%s,%s,%s,12)""",(tid,tp,op_code,op_name,sorto,sec))
+                        row=_one(cur,"""INSERT INTO operations(production_order_id,part_id,code,name,done_qty,defect_qty,rework_qty,
+                            status,sort_order,qr,standard_seconds_per_unit,repair_cycle_time_seconds_per_unit,
+                            planned_start_at,planned_end_at)
+                            VALUES(%s,%s,%s,%s,0,0,0,%s,%s,%s,%s,12,
+                            CURRENT_TIMESTAMP-INTERVAL '9 days',CURRENT_TIMESTAMP+INTERVAL '5 days') RETURNING id""",
+                            (poid,partid,op_code,op_name,status,sorto,f"WF|OP|{op_code}",sec))
+                        new_ops[op_code]=int(row["id"])
+                        if prev_op_code and status=="IN_PROGRESS":
+                            cur.execute("""UPDATE operations SET input_flow_enabled=TRUE,input_source_operation_id=%s,
+                                input_source_kind='GOOD',defects_consume_input=TRUE WHERE id=%s""",
+                                (new_ops[prev_op_code],new_ops[op_code]))
+                        prev_op_code=op_code
+                return poid,new_ops
+
+            _,po2_ops=make_po("TUT-PO-GUIDE-40","TUT-GUIDE-40","Khung kim loại","1.0",po2_ops_spec,150)
+            _,po3_ops=make_po("TUT-PO-GUIDE-41","TUT-GUIDE-41","Trục bánh răng","1.0",po3_ops_spec,80)
+            operations.update(po2_ops); operations.update(po3_ops)
+
+            # Session history across real past days (not just the last few
+            # hours) so Dashboard/employee-productivity trends and per-day
+            # drill-down have more than a single snapshot to show. Only
+            # IN_PROGRESS operations get historical activity -- PLANNED ones
+            # realistically have no sessions yet, same convention as PO1.
+            active_ops=[op[0] for spec in (po2_ops_spec,po3_ops_spec) for _part_code,_part_name,ops in spec
+                        for op in ops if op[3]=="IN_PROGRESS"]
+            active_ops+=["TUT39-CUT","TUT39-BEND","TUT39-WELD","TUT39-QC"]
+            # Every historical session needs a real station -- leaving station_id
+            # NULL (like the intentional MISSING_STATION example above) would
+            # falsely flag every single one of these as that same exception.
+            op_station={
+                "TUT39-CUT":"TUT-ST-CUT","TUT39-BEND":"TUT-ST-BEND","TUT39-WELD":"TUT-ST-WELD","TUT39-QC":"TUT-ST-CUT",
+                "TUT40-CUT":"TUT-ST-CUT","TUT40-BEND":"TUT-ST-BEND","TUT40-WELD":"TUT-ST-WELD","TUT40-DRILL":"TUT-ST-CUT",
+                "TUT41-TURN":"TUT-ST-TURN","TUT41-MILL":"TUT-ST-TURN","TUT41-GEAR-CUT":"TUT-ST-TURN",
+            }
+            all_employee_codes=list(employees.keys())
+            hist_rng=__import__("random").Random(39)
+            hist_count=0
+            for day_offset in range(1,11):  # yesterday .. 10 days ago
+                sessions_today=hist_rng.randint(6,10)
+                for _n in range(sessions_today):
+                    hist_count+=1
+                    key=f"HIST-{day_offset}-{hist_count}"
+                    emp=hist_rng.choice(all_employee_codes)
+                    op_code=hist_rng.choice(active_ops)
+                    if op_code not in operations:
+                        continue
+                    station_id=stations[op_station.get(op_code,"TUT-ST-CUT")]
+                    start_h=hist_rng.randint(6,15)
+                    dur_min=hist_rng.randint(25,95)
+                    good=hist_rng.randint(8,40)
+                    defect=hist_rng.randint(0,4)
+                    rework=min(defect,hist_rng.randint(0,2))
+                    start_expr=f"(CURRENT_DATE-INTERVAL '{day_offset} days')+INTERVAL '{start_h} hours'"
+                    end_expr=f"({start_expr})+INTERVAL '{dur_min} minutes'"
+                    row=_one(cur,f"""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,status,
+                        started_at,ended_at,good_qty,defect_qty,rework_qty,note,start_request_id,finish_request_id)
+                        VALUES(%s,%s,%s,%s,{'CLOSED'!r},{start_expr},{end_expr},%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        (employees[emp],operations[op_code],station_id,DEVICE,good,defect,rework,
+                         f"TUT39:HIST day-{day_offset}: dữ liệu demo nhiều ngày",
+                         f"TUT39-{key}-START",f"TUT39-{key}-FIN"))
+                    sessions[key]=int(row["id"])
+
+            # Aggregate PO2/PO3 operation quantities from their own sessions only
+            # (PO1's operations keep their original hand-curated values above --
+            # deliberately not a strict session sum, used verbatim by the
+            # existing tour narration, so left untouched).
+            cur.execute("""UPDATE operations o SET
+                    done_qty=COALESCE(s.good,0),defect_qty=COALESCE(s.defect,0),rework_qty=COALESCE(s.rework,0)
+                FROM (
+                    SELECT operation_id,SUM(good_qty) good,SUM(defect_qty) defect,SUM(rework_qty) rework
+                    FROM work_sessions
+                    WHERE operation_id IN (
+                        SELECT id FROM operations WHERE production_order_id IN (
+                            SELECT id FROM production_orders WHERE code IN ('TUT-PO-GUIDE-40','TUT-PO-GUIDE-41'))
+                    )
+                    GROUP BY operation_id
+                ) s
+                WHERE o.id=s.operation_id""")
+
             result={
                 "ok":True,"prefix":"TUT39","production_order":PO_CODE,"template":TEMPLATE_CODE,
                 "employees":len(employees),"stations":len(stations),"operations":len(operations),
                 "sessions":len(sessions),"kiosk":DEVICE,
+                "production_orders":["TUT-PO-GUIDE-39","TUT-PO-GUIDE-40","TUT-PO-GUIDE-41"],
                 "scenarios":[
                     "normal_good_defect_rework","zero_qty_long","missing_station","overlap",
                     "invalid_time","open_too_long","exception_in_progress","exception_resolved",
                     "exception_ignored","kiosk_degraded","offline_queue","offline_conflict",
-                    "qc_completed","qc_open","session_adjustment","penalty","system_error_log"
+                    "qc_completed","qc_open","session_adjustment","penalty","system_error_log",
+                    "multi_po_multi_day_history"
                 ]
             }
             print(json.dumps(result,ensure_ascii=False,indent=2))
