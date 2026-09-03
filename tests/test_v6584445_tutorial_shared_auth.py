@@ -26,7 +26,14 @@ def test_tour_reuses_existing_session():
 
 def test_auth_helper_retries_429():
  s=(R/"tests/e2e/tutorial-auth-state.js").read_text()
- assert "r.status()===429" in s
+ # 2026-09-03: rewritten to log in via a real page instead of the lighter
+ # context.request client (that client doesn't get the Secure-cookie
+ # trustworthy-origin treatment a real browser network call does, so the
+ # /api/auth/me verification silently failed every time against a plain
+ # http:// target -- found live running this exact script). The login
+ # response variable is now named `response` (from page.waitForResponse),
+ # not `r`; same retry/backoff/storageState contract otherwise.
+ assert "response.status()===429" in s
  assert "attempt<=8" in s
  assert "storageState" in s
 
