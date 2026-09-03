@@ -1495,6 +1495,14 @@ class ReportRepository:
             # about sessions within one employee; across employees this
             # summary card is explicitly an average of employees).
             'avg_employee_productivity_percent':round(sum(with_score)/len(with_score),2) if with_score else None,
+            # Bug fix (2026-09-04, reported live on mesflow.net's "Tổng sản
+            # lượng đạt" KPI card always showing 0): the frontend
+            # (static/pages/employee-productivity.js) reads
+            # summary.total_good_qty/total_defect_qty, but this dict never
+            # computed either field -- always `undefined||0`, unconditionally,
+            # regardless of data. Not a rare edge case; every render hit it.
+            'total_good_qty':sum(x['good_qty'] for x in employees),
+            'total_defect_qty':sum(x['defect_qty'] for x in employees),
             'top_employee':{'employee_id':top['employee_id'],'employee_code':top['employee_code'],
                 'employee_name':top['employee_name'],'productivity_percent':top['productivity_percent'],
                 'completed_valid_sessions':top['completed_valid_sessions']} if top else None,

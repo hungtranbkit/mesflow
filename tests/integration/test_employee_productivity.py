@@ -165,6 +165,13 @@ def test_employee_c_completed_80_plus_running_excluded_from_average(db, api, see
     row = _one(body, g['employee_id'])
     assert row['completed_sessions'] == 1
     assert row['productivity_percent'] == 80.0  # the running session must not pull this off 80%
+    # Bug fix (2026-09-04): summary.total_good_qty/total_defect_qty used to
+    # be entirely absent from this dict, so the "Tổng sản lượng đạt" KPI
+    # card always rendered 0 regardless of data (frontend `||0` fallback on
+    # an undefined field). Only the CLOSED session's 8 good/0 defect count
+    # -- the OPEN session's good_qty=4 must not leak in either.
+    assert body['summary']['total_good_qty'] == 8
+    assert body['summary']['total_defect_qty'] == 0
 
 
 def test_employee_d_missing_denominator_not_zero_not_crash(db, api, seeded_factory):
