@@ -1461,3 +1461,47 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
 .sc-log-pre,.sc-diag-json{max-height:60vh;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-word}
 .sc-prod-banner{padding:10px 14px;border-radius:var(--radius-panel,10px);background:#fdecec;color:#9b2525;border:1px solid #f3c8c8;font-size:13px;margin-bottom:2px}
 @media(max-width:520px){.sc-kv-grid{grid-template-columns:1fr 1fr;padding:10px}}
+
+/* Canonical checkbox/radio normalization -- 2026-09-03 stability audit.
+   Root cause: several `<scope> input{width:100%;...}` shorthand rules across
+   this file (e.g. .template-old-op-row input, .modal input, .equipment-form
+   input) style every <input> regardless of type, since they were written for
+   text/number/select fields. A checkbox or radio nested under one of these
+   scopes silently inherits that width/height/padding too, producing
+   inconsistent, oversized boxes that vary with surrounding layout (confirmed
+   live: the "Giới hạn đầu vào" checkbox in the Template old-editor rendered
+   at 31x36px while its sibling "NG tiêu hao đầu vào" checkbox rendered at
+   13x36px -- identical markup, same leaking rule, different flex/grid
+   context). The same leak also hits the Excel-import radio buttons (.modal
+   input) and the generic reset-password "must change password" checkbox
+   (plain .modal, no page-specific override).
+   Rather than patch every leak site -- several already carry one-off
+   `width:auto` / `!important` overrides that don't agree with each other
+   (.po-op-modal .form-check input, .template-old-check input,
+   .session-cross-part-confirm input, .rbac-table input) -- this single rule
+   is the shared source of truth for every checkbox/radio in the app and
+   uses !important on box-model properties so it always wins over any such
+   scoped `input{width:...}` shorthand, present or future, without relying on
+   selector specificity or file order. The older scoped overrides above are
+   now redundant (values agree or get superseded) and are left in place
+   rather than removed, to keep this fix minimal. */
+input[type="checkbox"],input[type="radio"]{
+  width:16px!important;height:16px!important;
+  min-width:16px!important;min-height:16px!important;
+  margin:0!important;padding:0!important;
+  flex:none!important;
+  accent-color:var(--action-primary,#23658b);
+  cursor:pointer;
+  vertical-align:middle;
+}
+input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;opacity:.6}
+
+/* .form-check itself had the exact same "shared, not scoped" gap: it was
+   only ever defined per-modal (.po-op-modal .form-check,
+   .system-user-modal .form-check), both with identical
+   `display:flex;align-items:center;gap:8px`. Any other screen using the
+   same .form-check/.form-check-label markup (e.g. the plain reset-password
+   modal) had no layout for it at all, so the checkbox and its label text
+   sat with no gap. One shared base rule, same as above. */
+.form-check{display:flex;align-items:center;gap:8px}
+.form-check-label{cursor:pointer}
