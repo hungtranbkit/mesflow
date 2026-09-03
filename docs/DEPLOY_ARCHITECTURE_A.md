@@ -9,7 +9,7 @@ Supersedes ad-hoc `docker compose up --build` on target servers.
 |---|---|---|
 | DEV | `dev.mesflow.net` | live, stable |
 | PROD-TEST | `prod.mesflow.net` | live, stable -- full deploy/rollback/FAST-test workflow proven (see below) |
-| PRODUCTION | `mesflow.net` | **Now confirmed to route to `/opt/mesflow`** on this same host -- see "Production origin — 2026-09-02 follow-up" below. `scripts/deploy.sh production` still refuses to run (`PRODUCTION_TARGET_NOT_CONFIGURED`) -- that code-level safety guard was NOT loosened by this update; see the follow-up section for why. |
+| PRODUCTION | `mesflow.net` | **2026-09-04: the 2026-09-02 "routes to `/opt/mesflow`" conclusion is disproven by a deterministic canary test** -- public `mesflow.net` is a genuinely different remote instance again. See "Production origin — 2026-09-04 follow-up" below before relying on anything above. `scripts/deploy.sh production` still refuses to run (`PRODUCTION_TARGET_NOT_CONFIGURED`) and that remains correct. |
 
 **Update, 2026-09-02**: the 2026-08-25 conclusion below ("`mesflow.net`
 is a different, unconfirmed remote host") is now **contradicted by
@@ -354,3 +354,77 @@ confirmed this documentation update ("xác nhận đúng, cập nhật doc luôn
   investigation, re-run the same read-only checks the 2026-08-25
   investigation used (all 4 tunnel connectors' configs, including
   timestamped backups).
+
+## Production origin — 2026-09-04 follow-up
+
+The 2026-09-02 conclusion above ("`mesflow.net` routes to `/opt/mesflow`
+on this host") is **disproven** by a deterministic canary test run this
+session, not just a version-string mismatch like 2026-08-25's original
+finding.
+
+**Trigger**: a user screenshot of the real `mesflow.net` "Video hướng
+dẫn" tab showed 13 tutorial videos; this host's `/opt/mesflow` tutorial
+directory (believed to be what `mesflow.net` serves, per the 2026-09-02
+note) was, before this session touched it, running a *14*-video set
+(`generated_at 2026-08-21`, `mesflow_version 71.0.0.46`) — already a
+mismatch in count, prompting the recheck below.
+
+**Canary test** (deterministic, not probabilistic): this session
+created a directory, `_backup_20260904_old-14ch/`, directly on this
+host's `/opt/mesflow/runtime/tutorials/` (the bind-mounted host path
+behind `mesflow-app`'s `/data/tutorials:ro` mount) — a path that could
+not possibly exist anywhere else, since nothing else on Earth had
+written it. An authenticated request to
+`https://mesflow.net/tutorials/_backup_20260904_old-14ch/manifest.json`
+immediately after creating it returned **404 `NOT_FOUND`**. If public
+`mesflow.net` were this host, that request would have returned the file
+verbatim (the route just does a `send_from_directory` off
+`MESFLOW_TUTORIAL_DIR`, no allowlist beyond "must exist under the
+tutorial root"). It did not. **Public `mesflow.net` is not this host.**
+
+**Corroborating, independent evidence**: `https://mesflow.net/api/tutorials`
+(authenticated) returned a *third*, distinct 13-item manifest — different
+video count, different per-chapter durations, and missing
+`09_kiosk_operator` entirely — matching neither this host's pre-session
+14-video set nor the 15-video set this session published here. Three
+distinct tutorial manifests across what should be one "production"
+concept is itself strong evidence of three distinct filesystems/hosts.
+
+**Why `/api/system/version` matched anyway**: that endpoint returns only
+code-derived fields (`architecture`, `database_backend`, `phase`,
+`version`) — nothing host- or container-identifying. Any two hosts
+running the same Docker image report byte-identical JSON there. The
+2026-09-02 investigation's core evidence (repeated version-match after
+deploying here) only proves *the same code version reached both places*
+— plausible if a separate, legitimate channel (`mesflow-deploy-agent`,
+confirmed still running and still "what actually deploys real Production
+today" per the 2026-08-25 section above) keeps the real remote Production
+host in version lockstep with this one. It does not prove they are the
+same host, and per this session's canary test, they are not.
+
+**Current best lead, unchanged from 2026-08-25, still unconfirmed**:
+`~/.ssh/config` still has `Host prod` / `Host mesflow-prod` →
+`ssh-prod.mesflow.net`, user `kimex`, via `cloudflared access ssh`
+(Cloudflare Access). Not attempted beyond this read-only config check —
+per this doc's own standing rule, guessing or bypassing Access is out of
+scope for an automated session.
+
+**Practical effect on this doc**: revert to treating "where `mesflow.net`
+really routes" as **unconfirmed** again, exactly as 2026-08-25 concluded.
+The 2026-09-02 note's correction was made in good faith on real but
+insufficient evidence (version-string matching); this note supersedes it
+with a stronger, deterministic test. `scripts/deploy.sh production`'s
+refusal to run without a real `scripts/production-target.env` remains
+exactly the right behavior — this incident is a direct demonstration of
+why that guard exists.
+
+**What this does NOT mean**: the tutorial-video work done against
+`/opt/mesflow` on this host earlier today was not wasted or wrong to do
+— `/opt/mesflow` is a real, user-operated tier (day-to-day called
+"prod test" per the user's own framing, 2026-09-02), now correctly
+carrying the full 15-chapter set. It is simply not what the user's
+screenshot was showing. Getting the same content onto the real public
+`mesflow.net` requires either real credentials for the `kimex@
+ssh-prod.mesflow.net` lead (or another host the user identifies) or the
+user performing the final copy themselves from the artifact this session
+staged.
