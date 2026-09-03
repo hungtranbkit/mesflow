@@ -41,7 +41,10 @@ def test_publish_contract():
  assert "runtime/tutorials" in s
  assert "manifest.json" in s
  assert "09_kiosk_operator" in s
- assert "11_users_permissions" in s
+ # 2026-09-03: 10_employee_productivity inserted after kioskUser, shifting
+ # users_permissions/system_logs/common_cases up by one slot (11-13 -> 12-14).
+ assert "10_employee_productivity" in s
+ assert "12_users_permissions" in s
 
 def test_setup_uses_pipx_not_break_system_python():
  s=(R/"scripts/setup-tutorial-audio-ubuntu.sh").read_text()

@@ -9,9 +9,13 @@ def test_narration_all_modules():
  p=R/"tutorial/narration"
  # A 14th module (13_common_cases.txt) was added after this test was
  # written -- a real, deliberate content expansion, not drift to paper
- # over. The real invariant this test cares about (every module has
+ # over. 2026-09-03: a 15th (10_employee_productivity.txt) was added the
+ # same way, shifting working_calendar/users_permissions/system_logs/
+ # common_cases up one slot to keep filenames matching the renumbered
+ # video modules (add-tutorial-voice.sh pairs narration to video by exact
+ # filename). The real invariant this test cares about (every module has
  # substantial narration text) still holds for all of them.
- assert len(list(p.glob("*.txt")))==14
+ assert len(list(p.glob("*.txt")))==15
  for f in p.glob("*.txt"): assert len(f.read_text().strip())>80
 def test_audio_pipeline():
  s=(R/"scripts/add-tutorial-voice.sh").read_text()

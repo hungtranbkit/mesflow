@@ -1,0 +1,11 @@
+Video này giới thiệu màn hình Báo cáo năng suất nhân viên. Đây là số liệu tổng hợp trực tiếp từ các phiên làm việc đã kết thúc, không phải số nhập tay riêng.
+
+Trước tiên, chọn khoảng từ ngày đến ngày cần xem. Năng suất chỉ được tính trên các phiên làm việc kết thúc trong đúng khoảng ngày này, nên đổi khoảng ngày là cách nhanh nhất để so sánh nhiều ngày hoặc nhiều ca khác nhau. Nếu xưởng có nhiều bộ phận, có thể lọc thêm theo bộ phận để so sánh trong cùng nhóm thay vì trộn lẫn toàn nhà máy.
+
+Bốn chỉ số phía trên cho biết bức tranh chung trước khi đi vào từng người: số nhân viên có dữ liệu, tổng số phiên làm việc đã kết thúc, năng suất trung bình và tổng sản lượng đạt trong khoảng ngày đã chọn.
+
+Bảng bên dưới liệt kê từng nhân viên với số phiên đã kết thúc, năng suất trung bình so với định mức, sản lượng đạt và lỗi, cùng tổng thời gian làm việc thực tế. Nhấn vào tiêu đề cột để sắp xếp, ví dụ theo năng suất trung bình để tìm nhanh người cao nhất hoặc thấp nhất.
+
+Nhấn vào một dòng để xem chi tiết: từng phiên làm việc theo ngày, thuộc lệnh sản xuất và công đoạn nào, thời gian bắt đầu, kết thúc, số đạt, số lỗi. Đây chính là dữ liệu gốc dùng để cộng dồn ra năng suất trung bình ở bảng trước, nên khi thấy con số bất thường, nên mở chi tiết trước khi kết luận.
+
+Cùng dữ liệu này còn có thể trình chiếu dạng bảng lớn trên màn hình tại xưởng, để công nhân tự theo dõi năng suất theo ngày mà không cần ai thao tác thủ công mỗi ca.
