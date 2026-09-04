@@ -472,9 +472,43 @@ def seed():
             # drill-down have more than a single snapshot to show. Only
             # IN_PROGRESS operations get historical activity -- PLANNED ones
             # realistically have no sessions yet, same convention as PO1.
+            #
+            # 2026-09-05 realism rewrite: the previous version here picked
+            # good_qty/duration independently at random (25-95 MINUTE
+            # sessions, 8-40 pieces uncorrelated with duration or the
+            # Operation's own standard_seconds_per_unit) -- every session
+            # was unrealistically short for a real 4-8h production shift,
+            # and completion_percent came out essentially random per
+            # session with no natural skill-based spread across employees.
+            # This version instead: (a) picks a realistic 4h15-8h duration
+            # from a fixed set of real-looking values (not a uniform
+            # continuous range -- shift lengths cluster, they don't spread
+            # evenly), (b) assigns each employee a fixed "skill tier" so the
+            # SAME employee is consistently a bit below/at/above 85% rather
+            # than a fresh coin flip every session, then (c) SOLVES for
+            # good_qty from the employee-productivity formula itself
+            # (analytics.py: completion_percent = standard_seconds_per_unit
+            # * (good+defect) / actual_seconds * 100) so the resulting
+            # dataset's measured average is close to 85% by construction,
+            # not by luck.
             active_ops=[op[0] for spec in (po2_ops_spec,po3_ops_spec) for _part_code,_part_name,ops in spec
                         for op in ops if op[3]=="IN_PROGRESS"]
-            active_ops+=["TUT39-CUT","TUT39-BEND","TUT39-WELD","TUT39-QC"]
+            # TUT39-CUT deliberately excluded here (2026-09 kiosk video fix):
+            # reconcile_operation() marks an Operation COMPLETED once its own
+            # good_qty reaches the PO's planned_quantity (production_state.py),
+            # and PO1's planned_quantity is only 100 -- sized for the small
+            # hand-curated PO1 narration session, not for absorbing 14 days of
+            # realistic bulk history too. Live-confirmed: adding TUT39-CUT to
+            # this pool pushed its cumulative good_qty past 100 within one
+            # seed, flipping it to COMPLETED and breaking the Kiosk tutorial
+            # video's live "start a real session" demo (kiosk.js refuses to
+            # start a COMPLETED Operation with "Công đoạn này đã hoàn
+            # thành"). TUT39-CUT is the one Operation
+            # tests/e2e/tutorial-detailed.spec.js's kioskUser tour actually
+            # starts a NEW session on at record time, so it must stay
+            # startable; BEND/WELD/QC are only ever read historically by other
+            # chapters and have no such constraint.
+            active_ops+=["TUT39-BEND","TUT39-WELD","TUT39-QC"]
             # Every historical session needs a real station -- leaving station_id
             # NULL (like the intentional MISSING_STATION example above) would
             # falsely flag every single one of these as that same exception.
@@ -483,44 +517,207 @@ def seed():
                 "TUT40-CUT":"TUT-ST-CUT","TUT40-BEND":"TUT-ST-BEND","TUT40-WELD":"TUT-ST-WELD","TUT40-DRILL":"TUT-ST-CUT",
                 "TUT41-TURN":"TUT-ST-TURN","TUT41-MILL":"TUT-ST-TURN","TUT41-GEAR-CUT":"TUT-ST-TURN",
             }
+            # standard_seconds_per_unit per op code, collected from the same
+            # literal specs used to create the Operations above (PO1's list
+            # is inlined here verbatim; PO2/PO3 come from their own spec
+            # tuples) -- the productivity formula needs this to solve for
+            # good_qty given a target completion_percent.
+            op_std_sec={"TUT39-CUT":18,"TUT39-BEND":30,"TUT39-WELD":50,"TUT39-QC":20,"TUT39-PACK":25}
+            for spec in (po2_ops_spec,po3_ops_spec):
+                for _part_code,_part_name,ops in spec:
+                    for op_code,_op_name,sec,_status in ops:
+                        op_std_sec[op_code]=sec
+
+            # Includes ALL 16 employees, TUT-E01..E06 included -- an earlier
+            # version of this generator tried excluding E01..E06 (PO1's named
+            # instructional cast: NORMAL/FAST/ZERO/MISSING/OVERLAP-A/B/
+            # INVALID/LONG above) on the theory that their hand-tuned,
+            # narration-matched quantities would drag the average down.
+            # Confirmed live this was the WRONG fix: PO1's sessions are tuned
+            # for a short, readable demo clip (e.g. 26 units in a full hour
+            # against an 18s/unit standard), not for the productivity
+            # formula at all, so calculated ALONE their completion_percent is
+            # far below realistic (5-13%) -- excluding them from the
+            # historical bulk left them isolated on just those low PO1
+            # numbers and dropped the real API's avg_employee_productivity_
+            # percent to 64.8%. Keeping them IN this pool, so their PO1
+            # sessions are blended with 5-10 realistic HIST sessions each,
+            # is what actually gets the real reported average close to 85%
+            # (confirmed: 81.9% with tier centers as originally chosen below
+            # -- do not remove E01-E06 from this list again without
+            # re-verifying against the real /api/reports/employee-productivity
+            # response, not just this generator's own intended math).
             all_employee_codes=list(employees.keys())
             hist_rng=__import__("random").Random(39)
             hist_count=0
-            for day_offset in range(1,11):  # yesterday .. 10 days ago
-                sessions_today=hist_rng.randint(6,10)
-                for _n in range(sessions_today):
+
+            # Skill tiers, all 16 employees: 4 below-average, 8
+            # solidly-average, 4 above-average. Centers are set a few points
+            # ABOVE the naive (4*76+8*87+4*98)/16=87.0 weighted mean on
+            # purpose, to compensate for PO1's own low-scoring sessions
+            # blending into TUT-E01..E06's real multi-session average (see
+            # comment above) -- verified empirically against the live API,
+            # not derived from this arithmetic alone.
+            tier_low,tier_mid,tier_high=all_employee_codes[0:4],all_employee_codes[4:12],all_employee_codes[12:16]
+            tier_center={}
+            for e in tier_low: tier_center[e]=hist_rng.uniform(76,82)
+            for e in tier_mid: tier_center[e]=hist_rng.uniform(84,93)
+            for e in tier_high: tier_center[e]=hist_rng.uniform(95,100)
+
+            # Real-looking shift-length values in minutes -- clustered around
+            # a normal 8h shift with realistic partial-shift variation, not a
+            # smooth random spread. Matches the task's own examples (4h15,
+            # 5h40, 6h20, 7h05, 7h45).
+            duration_choices_min=[255,270,285,300,315,330,340,355,370,385,395,410,425,440,450,460,465,475,480]
+
+            def solve_good_defect_rework(op_code,duration_min,target_pct):
+                std=op_std_sec.get(op_code) or 30
+                actual_sec=duration_min*60
+                qty_total=round((target_pct/100.0)*actual_sec/std)
+                qty_total=max(qty_total,6)
+                defect=round(qty_total*hist_rng.uniform(0.02,0.09))
+                good=max(qty_total-defect,1)
+                rework=round(defect*hist_rng.uniform(0.2,0.6))
+                return good,defect,rework
+
+            # Track each employee's most-recent historical session end time so
+            # a same-employee-overlap is never accidentally created across two
+            # different days' entries in this loop (each employee gets at most
+            # one session per day here, so this is naturally satisfied, but
+            # asserted explicitly for anyone editing this generator later).
+            last_end_by_employee={}
+
+            auto_closed_keys=[]     # sessions this loop marks as auto-closed & unconfirmed
+            excluded_candidate_keys=[]  # a couple of sessions this loop later excludes from reports
+
+            for day_offset in range(1,15):  # yesterday .. 14 days ago
+                # Not every employee works every day (realistic attendance),
+                # and not every op-eligible employee necessarily touches this
+                # Part chain -- sample without replacement per day.
+                workers_today=hist_rng.sample(all_employee_codes,k=hist_rng.randint(7,len(all_employee_codes)))
+                for emp in workers_today:
                     hist_count+=1
                     key=f"HIST-{day_offset}-{hist_count}"
-                    emp=hist_rng.choice(all_employee_codes)
                     op_code=hist_rng.choice(active_ops)
                     if op_code not in operations:
                         continue
                     station_id=stations[op_station.get(op_code,"TUT-ST-CUT")]
-                    start_h=hist_rng.randint(6,15)
-                    dur_min=hist_rng.randint(25,95)
-                    good=hist_rng.randint(8,40)
-                    defect=hist_rng.randint(0,4)
-                    rework=min(defect,hist_rng.randint(0,2))
+                    start_h=hist_rng.randint(6,9)  # shift start window, morning
+                    duration_min=hist_rng.choice(duration_choices_min)
+                    target_pct=max(50.0,min(118.0,hist_rng.gauss(tier_center[emp],4.0)))
+                    good,defect,rework=solve_good_defect_rework(op_code,duration_min,target_pct)
+
+                    # ~4% of ordinary historical sessions demonstrate the
+                    # auto-close scenario instead of a normal manual finish --
+                    # same quantities (auto-close never fabricates a number),
+                    # but the real close_reason/closed_by_system/
+                    # quantity_confirmed flags a genuine auto-close carries
+                    # (execution.py: auto_close_for_shift_end()).
+                    is_auto_closed=hist_rng.random()<0.04
+                    status_sql="CLOSED"
+                    if is_auto_closed:
+                        extra_cols=",close_reason,closed_by_system,quantity_confirmed"
+                        extra_vals=",'AUTO_SHIFT_END',TRUE,FALSE"
+                    else:
+                        extra_cols=""
+                        extra_vals=""
+
                     start_expr=f"(CURRENT_DATE-INTERVAL '{day_offset} days')+INTERVAL '{start_h} hours'"
-                    end_expr=f"({start_expr})+INTERVAL '{dur_min} minutes'"
+                    end_expr=f"({start_expr})+INTERVAL '{duration_min} minutes'"
                     row=_one(cur,f"""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,status,
-                        started_at,ended_at,good_qty,defect_qty,rework_qty,note,start_request_id,finish_request_id)
-                        VALUES(%s,%s,%s,%s,{'CLOSED'!r},{start_expr},{end_expr},%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        started_at,ended_at,good_qty,defect_qty,rework_qty,note,start_request_id,finish_request_id{extra_cols})
+                        VALUES(%s,%s,%s,%s,{status_sql!r},{start_expr},{end_expr},%s,%s,%s,%s,%s,%s{extra_vals}) RETURNING id""",
                         (employees[emp],operations[op_code],station_id,DEVICE,good,defect,rework,
-                         f"TUT39:HIST day-{day_offset}: dữ liệu demo nhiều ngày",
+                         f"TUT39:HIST day-{day_offset}: dữ liệu demo nhiều ngày, năng suất mục tiêu {target_pct:.0f}%",
                          f"TUT39-{key}-START",f"TUT39-{key}-FIN"))
                     sessions[key]=int(row["id"])
+                    last_end_by_employee[emp]=(day_offset,start_h,duration_min)
+                    if is_auto_closed:
+                        auto_closed_keys.append(key)
+                    elif hist_rng.random()<0.03:
+                        excluded_candidate_keys.append(key)
 
-            # Aggregate PO2/PO3 operation quantities from their own sessions only
-            # (PO1's operations keep their original hand-curated values above --
-            # deliberately not a strict session sum, used verbatim by the
-            # existing tour narration, so left untouched).
+            # Corrected/adjusted: a supervisor correction against 2 of the
+            # auto-closed (unconfirmed) sessions above -- the exact "quên
+            # nhập sản lượng -> auto-close -> admin correction" journey,
+            # demonstrated with real data instead of only PO1's single
+            # illustrative case. Mirrors SupervisorRepository.adjust(): sets
+            # quantity_confirmed back TRUE and writes a real audit reason.
+            for key in auto_closed_keys[:2]:
+                sid=sessions[key]
+                cur.execute("""SELECT good_qty,defect_qty,rework_qty,operation_id FROM work_sessions WHERE id=%s""",(sid,))
+                old=cur.fetchone()
+                new_good=int(old["good_qty"])+hist_rng.randint(1,3)
+                cur.execute("""UPDATE work_sessions SET good_qty=%s,quantity_confirmed=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=%s""",
+                    (new_good,sid))
+                cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,
+                    old_defect_qty,new_defect_qty,old_rework_qty,new_rework_qty,reason)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (sid,old["operation_id"],old["good_qty"],new_good,old["defect_qty"],old["defect_qty"],
+                     old["rework_qty"],old["rework_qty"],
+                     "TUT39: Đối chiếu phiếu sản xuất giấy sau khi hệ thống tự động đóng ca, bổ sung sản lượng còn thiếu"))
+
+            # Excluded from reports: 2 sessions marked as duplicate/test scans
+            # a supervisor would legitimately write off -- demonstrates
+            # exclude_session() with a real reason, never a delete.
+            for key in excluded_candidate_keys[:2]:
+                sid=sessions[key]
+                cur.execute("""UPDATE work_sessions SET excluded_from_reports=TRUE,
+                    exclusion_reason='TUT39: Quét trùng do thao tác thử trên kiosk, không phải sản lượng thật',
+                    excluded_by='supervisor',excluded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+                    WHERE id=%s""",(sid,))
+
+            # Currently-running sessions for "today" -- a handful of distinct
+            # employees each with exactly one OPEN session right now (the
+            # DB-enforced one-open-session-per-employee rule means these must
+            # be different employees than whoever's most recent historical
+            # entry could otherwise collide with "now"; since every
+            # historical entry above is on a strictly earlier calendar day,
+            # there is no overlap risk here).
+            # TUT-E01 already owns PO1's "LONG" session (OPEN, never closed --
+            # the intentional OPEN_TOO_LONG exception demo above) -- the
+            # DB-enforced one-open-session-per-employee constraint means
+            # picking E01 again here would fail outright, not silently
+            # overwrite anything. Excluded explicitly rather than caught as
+            # an exception, since which employee already has PO1's one
+            # standing OPEN session is a known, fixed fact of this dataset.
+            open_eligible=[e for e in all_employee_codes if e!="TUT-E01"]
+            open_today_employees=hist_rng.sample(open_eligible,k=3)
+            for idx,emp in enumerate(open_today_employees):
+                key=f"OPEN-TODAY-{idx+1}"
+                op_code=hist_rng.choice(active_ops)
+                if op_code not in operations:
+                    continue
+                station_id=stations[op_station.get(op_code,"TUT-ST-CUT")]
+                hours_ago=hist_rng.choice([1,2,3,4])
+                row=_one(cur,f"""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,status,
+                    started_at,ended_at,good_qty,defect_qty,rework_qty,note,start_request_id,finish_request_id)
+                    VALUES(%s,%s,%s,%s,'OPEN',CURRENT_TIMESTAMP-INTERVAL '{hours_ago} hours',NULL,0,0,0,%s,%s,NULL) RETURNING id""",
+                    (employees[emp],operations[op_code],station_id,DEVICE,
+                     f"TUT39:OPEN hôm nay, bắt đầu {hours_ago} giờ trước — đang chạy",
+                     f"TUT39-{key}-START"))
+                sessions[key]=int(row["id"])
+
+            # Aggregate PO2/PO3 operation quantities from their own REPORTABLE
+            # sessions only (status='CLOSED' AND NOT excluded_from_reports --
+            # the exact same predicate every real KPI/report/exception query
+            # in the app uses, reportable_session_sql() in base.py). Getting
+            # this wrong here is exactly the "qty>0 but KPI shows 0" class of
+            # inconsistency the task explicitly warns against: an OPEN
+            # session has good_qty=0 anyway (harmless either way), but an
+            # EXCLUDED session's quantity must NOT count here, or Operation's
+            # own done_qty would silently disagree with what Employee
+            # Productivity/Dashboard compute from the same underlying rows.
+            # (PO1's operations keep their original hand-curated values above
+            # -- deliberately not a strict session sum, used verbatim by the
+            # existing tour narration, so left untouched.)
             cur.execute("""UPDATE operations o SET
                     done_qty=COALESCE(s.good,0),defect_qty=COALESCE(s.defect,0),rework_qty=COALESCE(s.rework,0)
                 FROM (
                     SELECT operation_id,SUM(good_qty) good,SUM(defect_qty) defect,SUM(rework_qty) rework
                     FROM work_sessions
-                    WHERE operation_id IN (
+                    WHERE status='CLOSED' AND NOT excluded_from_reports
+                      AND operation_id IN (
                         SELECT id FROM operations WHERE production_order_id IN (
                             SELECT id FROM production_orders WHERE code IN ('TUT-PO-GUIDE-40','TUT-PO-GUIDE-41'))
                     )
@@ -538,7 +735,10 @@ def seed():
                     "invalid_time","open_too_long","exception_in_progress","exception_resolved",
                     "exception_ignored","kiosk_degraded","offline_queue","offline_conflict",
                     "qc_completed","qc_open","session_adjustment","penalty","system_error_log",
-                    "multi_po_multi_day_history"
+                    "multi_po_multi_day_history","realistic_productivity_distribution_85pct_mean",
+                    "realistic_4to8h_session_durations","auto_closed_unconfirmed_from_history",
+                    "corrected_after_auto_close","excluded_from_reports_duplicate_scan",
+                    "currently_open_sessions_today"
                 ]
             }
             print(json.dumps(result,ensure_ascii=False,indent=2))

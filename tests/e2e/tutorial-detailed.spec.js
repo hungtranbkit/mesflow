@@ -141,7 +141,14 @@ async function note(page, selector, title, explanation, detail={}){
     const r=target.getBoundingClientRect(),style=getComputedStyle(target),panel=document.getElementById('__tutorialPanel'),pr=panel?.getBoundingClientRect();
     const x=Math.max(0,Math.min(innerWidth-1,r.left+r.width/2)),y=Math.max(0,Math.min(innerHeight-1,r.top+r.height/2)),center=document.elementFromPoint(x,y);
     const clips=['hidden','clip'].includes(style.overflow)||['hidden','clip'].includes(style.overflowX)||['hidden','clip'].includes(style.overflowY);
-    return {exists:true,visible:r.width>0&&r.height>0&&style.display!=='none'&&style.visibility!=='hidden'&&style.opacity!=='0',outside_viewport:r.bottom<=0||r.right<=0||r.top>=innerHeight||r.left>=innerWidth,clipped:r.width<innerWidth&&r.height<innerHeight&&(r.left<0||r.top<0||r.right>innerWidth||r.bottom>innerHeight),covered:!!center&&!target.contains(center)&&center!==target&&!panel?.contains(center),text_overflow:clips&&(target.scrollWidth>target.clientWidth+2||target.scrollHeight>target.clientHeight+2),blocking_dialog:[...document.querySelectorAll('[role="dialog"],dialog,[aria-modal="true"]')].some(el=>el!==panel&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0),tutorial_overlay_covers_target:!!(pr&&!(pr.right<r.left||pr.left>r.right||pr.bottom<r.top||pr.top>r.bottom)),rect:{x:r.x,y:r.y,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}};
+    return {exists:true,visible:r.width>0&&r.height>0&&style.display!=='none'&&style.visibility!=='hidden'&&style.opacity!=='0',outside_viewport:r.bottom<=0||r.right<=0||r.top>=innerHeight||r.left>=innerWidth,clipped:r.width<innerWidth&&r.height<innerHeight&&(r.left<0||r.top<0||r.right>innerWidth||r.bottom>innerHeight),covered:!!center&&!target.contains(center)&&center!==target&&!panel?.contains(center),text_overflow:clips&&(target.scrollWidth>target.clientWidth+2||target.scrollHeight>target.clientHeight+2),// A dialog/drawer that legitimately CONTAINS the very target being
+      // narrated (e.g. SessionDetailDrawer's role="dialog" aria-modal="true"
+      // panel, opened on purpose to show a badge inside it) is not "blocking"
+      // anything -- it's the intended screen. Only an dialog OUTSIDE the
+      // target counts as a real blocker (2026-09 multi-employee/session
+      // scenario tour work: every note() call inside an open drawer false-
+      // positived here until this exclusion was added).
+      blocking_dialog:[...document.querySelectorAll('[role="dialog"],dialog,[aria-modal="true"]')].some(el=>el!==panel&&!el.contains(target)&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0),tutorial_overlay_covers_target:!!(pr&&!(pr.right<r.left||pr.left>r.right||pr.bottom<r.top||pr.top>r.bottom)),rect:{x:r.x,y:r.y,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}};
   });
   const c=qaRuntime.lastCursor,browser={console_errors:qaRuntime.consoleErrors.slice(c.console),page_errors:qaRuntime.pageErrors.slice(c.page),failed_requests:qaRuntime.failedRequests.slice(c.request),unexpected_responses:qaRuntime.unexpectedResponses.slice(c.response)};
   qaRuntime.lastCursor={console:qaRuntime.consoleErrors.length,page:qaRuntime.pageErrors.length,request:qaRuntime.failedRequests.length,response:qaRuntime.unexpectedResponses.length};
@@ -210,16 +217,76 @@ async function closeKioskDemo(page){
   await expect(page.locator('#demo-panel')).not.toHaveClass(/open/);
 }
 
-async function selectTutorialDemoData(page){
-  await page.evaluate(()=>{
-    const emp=[...document.querySelectorAll('#demo-employee option')].find(x=>x.textContent.includes('TUT-E06'));
-    const op=[...document.querySelectorAll('#demo-operation option')].find(x=>x.textContent.includes('TUT39-CUT'));
+async function selectTutorialDemoData(page,employeeSubstr='TUT-E06',operationSubstr='TUT39-CUT'){
+  // Parameterized (2026-09 multi-employee kiosk demo) so the SAME helper
+  // that already drives the primary employee's full walkthrough can also
+  // drive a second/third employee's abbreviated cycle later in the same
+  // tour, proving one kiosk serves a sequence of different workers --
+  // defaults unchanged so every pre-existing call site keeps behaving
+  // exactly as before.
+  await page.evaluate(({employeeSubstr,operationSubstr})=>{
+    const emp=[...document.querySelectorAll('#demo-employee option')].find(x=>x.textContent.includes(employeeSubstr));
+    const op=[...document.querySelectorAll('#demo-operation option')].find(x=>x.textContent.includes(operationSubstr));
     if(!emp||!op)throw new Error('TUTORIAL_KIOSK_FIXTURE_MISSING');
     const employee=document.querySelector('#demo-employee'),operation=document.querySelector('#demo-operation');
     employee.value=emp.value;operation.value=op.value;
     employee.dispatchEvent(new Event('change',{bubbles:true}));
     operation.dispatchEvent(new Event('change',{bubbles:true}));
-  });
+  },{employeeSubstr,operationSubstr});
+}
+
+async function kioskQuickCycle(page,employeeSubstr,operationSubstr,goodQty){
+  // Abbreviated start->finish for ONE employee, no error-case detours and
+  // no per-screen narration card (the primary walkthrough already covers
+  // every screen in full) -- used to demonstrate that the SAME physical
+  // kiosk correctly serves employee after employee in sequence, each
+  // scan resolving to THAT employee's own session (REQ-KIOSK-003 in
+  // docs/MESFLOW_MASTER_REQUIREMENTS.md), never a leftover from before.
+  const pre=await page.request.post('/api/kiosk-web/scan',{data:{qr:`WF|EMP|${employeeSubstr}`}});
+  if(pre.ok()){
+    const body=await pre.json();
+    if(body.open_session?.id){
+      await page.request.post(`/api/kiosk-web/finish/${body.open_session.id}`,{data:{
+        good_qty:0,defect_qty:0,rework_qty:0,
+        note:'TUT44: dọn phiên tutorial còn mở trước khi quay (multi-employee demo)',
+        request_id:`TUT44-CLEAN-${employeeSubstr}-${Date.now()}`
+      }});
+    }
+  }
+  await openKioskDemo(page);
+  await selectTutorialDemoData(page,employeeSubstr,operationSubstr);
+  await clickStep(page,page.locator('#demo-scan-employee'));
+  await pause(page,500);
+  await closeKioskDemo(page);
+  await expect(page.locator('#screen-operation')).toHaveClass(/active/);
+
+  await openKioskDemo(page);
+  await selectTutorialDemoData(page,employeeSubstr,operationSubstr);
+  await clickStep(page,page.locator('#demo-scan-operation'));
+  await pause(page,500);
+  await closeKioskDemo(page);
+  await expect(page.locator('#screen-started')).toHaveClass(/active/);
+
+  await openKioskDemo(page);
+  await selectTutorialDemoData(page,employeeSubstr,operationSubstr);
+  await clickStep(page,page.locator('#demo-scan-employee'));
+  await pause(page,500);
+  await closeKioskDemo(page);
+  await expect(page.locator('#screen-quantity-good')).toHaveClass(/active/);
+
+  await typeStep(page,page.locator('#good-qty'),String(goodQty));
+  await clickStep(page,page.locator('#good-next'));
+  await expect(page.locator('#screen-quantity-defect')).toHaveClass(/active/);
+  // defect_qty=0 here deliberately -- kiosk.js's nextDefect() skips
+  // #screen-ask-rework entirely and goes straight to #screen-finish-confirm
+  // when there is no defect to ask a rework question about (real behavior,
+  // confirmed live 2026-09: this helper originally assumed ask-rework always
+  // shows, which only holds when defect_qty>0, e.g. the primary E06 walkthrough).
+  await typeStep(page,page.locator('#defect-qty'),'0');
+  await clickStep(page,page.locator('#defect-next'));
+  await expect(page.locator('#screen-finish-confirm')).toHaveClass(/active/);
+  await clickStep(page,page.locator('#finish-confirm-ok'));
+  await expect(page.locator('#screen-finished')).toHaveClass(/active/);
 }
 
 async function login(page){
@@ -316,9 +383,69 @@ const tours = {
   sessions: async page=>{
     await open(page,'session-management');
     await card(page,'Quản lý phiên làm việc','Phiên làm việc là khoảng thời gian một nhân viên thực hiện một công đoạn. Đây là dữ liệu nền để tính thời gian, sản lượng và truy vết.');
-    await note(page,'.toolbar','Tìm và lọc phiên làm việc','Lọc theo trạng thái đang mở hoặc đã đóng, nhân viên, lệnh sản xuất hoặc công đoạn để kiểm tra nhanh.');
-    await note(page,'.session-accordion, .session-row, .panel','Chi tiết phiên làm việc','Xem thời điểm bắt đầu, kết thúc, nhân viên, lệnh sản xuất, chi tiết, công đoạn, trạm, thiết bị và sản lượng.');
-    await note(page,'.session-detail-grid','Sản lượng','MESFlow tách Đạt, Lỗi, Lỗi sửa được và Phế. Không nên gộp các số này khi phân tích chất lượng.');
+    // Selector thật của trang này (app.js renderSessionManagement/drawSessions,
+    // 2026-09 audit): filter bar dùng MFUI.filterBar -> class thật là
+    // .ui-filter-bar, KHÔNG PHẢI .toolbar; danh sách Session là
+    // .session-accordion-item (không có .session-accordion/.session-row/.panel
+    // nào cả) -- 3 selector cũ trỏ vào DOM không còn tồn tại, phát hiện được
+    // nhờ đúng cơ chế TUTORIAL_SELECTOR_NOT_FOUND của note() khi verify lại
+    // module này, không phải suy đoán.
+    await note(page,'.ui-filter-bar','Tìm và lọc phiên làm việc','Lọc theo trạng thái đang mở hoặc đã đóng, nhân viên, lệnh sản xuất hoặc công đoạn để kiểm tra nhanh.');
+    await note(page,'.session-accordion-item','Danh sách phiên làm việc','Mỗi dòng gồm nhân viên, công đoạn, thời điểm bắt đầu/kết thúc và sản lượng tóm tắt. Bấm vào một dòng để mở chi tiết đầy đủ.');
+
+    // Mở chi tiết một Session thật (SessionDetailDrawer, cùng cơ chế nút
+    // "Chi tiết" thật trên UI dùng, không phải chỉ gọi API nền) để xem đúng
+    // .kv-grid có tách Đạt/Lỗi/Sửa được/Phế -- đồng thời đây là nơi 3 badge
+    // Tự động kết thúc/Chưa xác nhận số liệu/Đã loại khỏi báo cáo hiển thị
+    // (session-detail.js sessionCoreFieldRows, hàng "Trạng thái").
+    const wsData=await page.request.get('/api/work-sessions');
+    const items=wsData.ok()?((await wsData.json()).items||[]):[];
+    const anyClosed=items.find(x=>String(x.note||'').startsWith('TUT39')&&x.status==='CLOSED');
+    if(anyClosed){
+      await page.evaluate(id=>window.SessionDetailDrawer.open(id),anyClosed.id);
+      await note(page,'.kv-grid','Sản lượng','MESFlow tách Đạt, Lỗi, Lỗi sửa được và Phế. Không nên gộp các số này khi phân tích chất lượng.');
+      await page.evaluate(()=>document.querySelector('[data-ui-close]')?.click());
+      await pause(page,400);
+    }
+
+    // Tình huống thật: nhân viên quên kết thúc phiên, hệ thống tự động
+    // đóng ca (execution.py auto_close_for_shift_end -- không phải màn
+    // hình riêng, đây chính là dữ liệu sinh ra từ tutorial_data.py) và
+    // đánh dấu "chưa xác nhận số liệu". Video mở đúng drawer thật để thấy
+    // badge, rồi gọi đúng API /supervisor/sessions/<id>/adjust mà nút "Lưu
+    // và tính lại" trên UI dùng -- không sửa thẳng DB -- để lần xác nhận
+    // này có thật trong lịch sử điều chỉnh.
+    const unconfirmed=items.find(x=>String(x.note||'').startsWith('TUT39')&&x.closed_by_system&&x.quantity_confirmed===false);
+    if(unconfirmed){
+      await page.evaluate(id=>window.SessionDetailDrawer.open(id),unconfirmed.id);
+      await note(page,'.kv-grid .badge.warning','Quên kết thúc ca — hệ thống tự đóng',`Session #${unconfirmed.id}: nhân viên không thao tác kết thúc, hệ thống tự động đóng khi hết ca và đánh dấu "Chưa xác nhận số liệu". Đây không phải lỗi hệ thống — số liệu vẫn được giữ nguyên, chỉ chờ người có thẩm quyền đối chiếu và xác nhận.`);
+      await page.evaluate(()=>document.querySelector('[data-ui-close]')?.click());
+      await pause(page,300);
+
+      const correctedGood=Number(unconfirmed.good_qty||0)+2;
+      await page.request.post(`/api/supervisor/sessions/${unconfirmed.id}/adjust`,{data:{
+        good_qty:correctedGood,defect_qty:unconfirmed.defect_qty||0,rework_qty:unconfirmed.rework_qty||0,
+        reason:'TUT44: đối chiếu phiếu sản xuất giấy, xác nhận và bổ sung sản lượng sau khi hệ thống tự đóng ca',
+        request_id:`TUT44-ADJUST-${unconfirmed.id}-${Date.now()}`
+      }});
+      await page.evaluate(id=>window.SessionDetailDrawer.open(id),unconfirmed.id);
+      await note(page,'.ui-drawer-body','Sau khi quản lý xác nhận',`Sản lượng đạt được cập nhật thành ${correctedGood}, "Chưa xác nhận số liệu" biến mất khỏi trạng thái, và MESFlow lưu lại lý do trong lịch sử điều chỉnh của Session — không âm thầm sửa số.`);
+      await page.evaluate(()=>document.querySelector('[data-ui-close]')?.click());
+      await pause(page,300);
+    }
+
+    // Tình huống thật thứ hai: quét trùng/thao tác thử trên kiosk. Thay vì
+    // xóa, MESFlow giữ nguyên Session và chỉ đánh dấu loại khỏi báo cáo kèm
+    // lý do -- dữ liệu vẫn truy vết được, chỉ không tính vào KPI/báo cáo
+    // (xem reportable_session_sql() dùng chung cho mọi tổng hợp).
+    const excluded=items.find(x=>String(x.note||'').startsWith('TUT39')&&x.excluded_from_reports);
+    if(excluded){
+      await page.evaluate(id=>window.SessionDetailDrawer.open(id),excluded.id);
+      await note(page,'.kv-grid .badge.excluded','Quét trùng — loại khỏi báo cáo, không xóa dữ liệu',`Session #${excluded.id} bị đánh dấu "${excluded.exclusion_reason||'Đã loại khỏi báo cáo'}". Session vẫn còn nguyên trong hệ thống để truy vết, chỉ không được tính vào năng suất và báo cáo sản lượng.`);
+      await page.evaluate(()=>document.querySelector('[data-ui-close]')?.click());
+      await pause(page,300);
+    }
+
     await card(page,'Khi nào sửa phiên làm việc?','Chỉ sửa khi có bằng chứng dữ liệu sai hoặc phiên làm việc bị quên kết thúc. Việc sửa cần quyền phù hợp và nên có nhật ký truy vết.',LONG_WAIT);
   },
   exceptions: async page=>{
@@ -450,6 +577,17 @@ const tours = {
     await clickStep(page,page.locator('#finish-confirm-ok'));
     await expect(page.locator('#screen-finished')).toHaveClass(/active/);
     await note(page,'#screen-finished','13. Hoàn tất','Khi thấy “Đã ghi nhận”, MESFlow đã kết thúc phiên làm việc và lưu sản lượng.',{voice_text:'Đã ghi nhận. Phiên làm việc kết thúc và sản lượng đã được lưu.'});
+
+    // 14. Một trạm phục vụ nhiều nhân viên tuần tự -- không phải 1 trạm =
+    // 1 nhân viên cố định. Cùng trạm vừa dùng cho TUT-E06 ở trên, giờ
+    // chuyển sang TUT-E07 rồi TUT-E08: mỗi lượt quét thẻ đều mở đúng
+    // phiên làm việc của người đang quét, không dính dữ liệu người trước.
+    await card(page,'14. Một trạm dùng cho nhiều nhân viên','Trạm không gắn cố định với một người. Cùng một trạm này, video tiếp tục cho hai nhân viên khác lần lượt quét thẻ và làm việc, để thấy trạm luôn nhận đúng người đang quét.',LONG_WAIT);
+    await kioskQuickCycle(page,'TUT-E07','TUT39-CUT',15);
+    await note(page,'#screen-finished','14a. Nhân viên thứ hai','Đỗ Thị Hoa quét thẻ, trạm mở đúng phiên làm việc của Hoa và ghi nhận sản lượng riêng, tách biệt hoàn toàn với phiên của nhân viên trước.');
+
+    await kioskQuickCycle(page,'TUT-E08','TUT39-CUT',9);
+    await note(page,'#screen-finished','14b. Nhân viên thứ ba','Bùi Văn Khang tiếp tục quét trên cùng trạm này. Trạm phục vụ tuần tự từng người, mỗi lượt là một phiên làm việc độc lập.');
 
     await card(page,'Khi mất mạng','Trạm có thể lưu tạm thao tác và đồng bộ lại khi kết nối trở lại. Nếu có xung đột, quản lý kiểm tra tại màn hình Quản lý trạm thao tác trước khi yêu cầu nhập lại.',LONG_WAIT);
   },

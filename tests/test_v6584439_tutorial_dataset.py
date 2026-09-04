@@ -63,9 +63,27 @@ def test_demo_dataset_reaches_requested_scale():
   assert code in s
  assert 'employees[no]=int(row["id"])' in s
  assert s.count('"TUT-E1') >= 6  # TUT-E11..TUT-E16 all present alongside the original TUT-E01..06
- assert "day_offset in range(1,11)" in s  # 10 days of session history, not just hours
+ assert "day_offset in range(1,15)" in s  # 14 days of session history, not just hours
 
 def test_seed_not_default():
  s=(R/"scripts/make-user-guide-video.sh").read_text()
  assert 'MESFLOW_TUTORIAL_SEED_DATA:-0' in s
  assert "prepare-tutorial-data.sh" in s
+
+def test_historical_pool_excludes_the_kiosk_demo_operation():
+ # Real bug found live (2026-09-04, video-rebuild QA pass): TUT39-CUT is the
+ # ONE Operation tests/e2e/tutorial-detailed.spec.js's kioskUser tour starts
+ # a genuine NEW session on while recording. production_state.py's
+ # reconcile_operation() marks an Operation COMPLETED once its own good_qty
+ # reaches the PO's planned_quantity (PO1's is only 100, sized for the tiny
+ # hand-curated narration session) -- adding TUT39-CUT to the realistic
+ # multi-day historical-bulk pool pushed its cumulative good_qty past 100
+ # within one seed, so kiosk.js's live /api/kiosk-web/start rejected the
+ # video's own recording with "Công đoạn này đã hoàn thành". TUT39-CUT must
+ # stay out of that pool; BEND/WELD/QC are read-only elsewhere and are fine.
+ s=(R/"app/mesflow/tutorial_data.py").read_text()
+ m=__import__("re").search(r'active_ops\+=\[([^\]]*)\]', s)
+ assert m, "active_ops+=[...] pool not found -- did the historical generator get restructured?"
+ pool=m.group(1)
+ assert "TUT39-CUT" not in pool, "TUT39-CUT must stay out of the historical bulk pool (breaks the live kiosk demo video)"
+ assert "TUT39-BEND" in pool and "TUT39-WELD" in pool and "TUT39-QC" in pool
