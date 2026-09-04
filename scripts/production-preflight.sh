@@ -17,6 +17,7 @@ if [[ -f .env ]]; then
   readv(){ grep -E "^$1=" .env | tail -1 | cut -d= -f2- || true; }
   [[ "$(readv MESFLOW_ENV)" == "production" ]] && ok "MESFLOW_ENV=production" || bad "MESFLOW_ENV must be production"
   [[ "$(readv MESFLOW_TEST_AUTO_LOGIN)" =~ ^(0|false|False)?$ ]] && ok "test auto-login disabled" || bad "MESFLOW_TEST_AUTO_LOGIN must be 0"
+  [[ "$(readv MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION)" =~ ^(0|false|False)?$ ]] && ok "auto-login production-override disabled" || bad "MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION must be 0"
   [[ "$(readv MESFLOW_LOCAL_AUTO_LOGIN)" =~ ^(0|false|False)?$ ]] && ok "local auto-login disabled" || bad "MESFLOW_LOCAL_AUTO_LOGIN must be 0"
   [[ "$(readv MESFLOW_INTERNAL_QA_AUTO_LOGIN)" =~ ^(0|false|False)?$ ]] && ok "QA auto-login disabled" || bad "MESFLOW_INTERNAL_QA_AUTO_LOGIN must be 0"
   [[ "$(readv MESFLOW_ENABLE_FORCE_DELETE_PO)" =~ ^(0|false|False)?$ ]] && ok "force-delete disabled" || bad "MESFLOW_ENABLE_FORCE_DELETE_PO must be 0"

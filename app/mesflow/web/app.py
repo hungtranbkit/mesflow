@@ -45,6 +45,30 @@ def _is_direct_internal_qa_request():
     return host in {"mesflow-app","mesflow","mesflow-demo-app"} and not forwarded_proto
 
 
+# AUTOLOGIN task (2026-09-04): the 5 real, non-super_admin RBAC roles this
+# app actually has -- see RBACRepository / MEMORY "MESFlow RBAC has 6 real
+# roles". super_admin is deliberately excluded from quick persona-switching:
+# it is the IT System Console's own separate, higher-privilege role and
+# quick-switching into it is out of scope for "test RBAC nhanh" of the
+# ordinary 5-role matrix.
+_AUTOLOGIN_PERSONAS=('admin','manager','supervisor','operator','viewer')
+
+
+def _auto_login_allowed():
+    """Whether /api/auth/test-auto-login may act at all, independent of
+    settings.test_auto_login itself (callers still check that separately).
+
+    Non-production is always allowed. A MESFLOW_ENV=production deployment
+    (compose.yml hardcodes this on every tier that shares it, prodtest and
+    demo included) additionally requires the explicit
+    settings.test_auto_login_allow_production opt-in -- see its own
+    docstring in core/config.py. This function must never consult
+    settings.server_role (see that field's own docstring: security-gated
+    behavior is keyed off MESFLOW_ENV only, never inferred from the
+    human-facing server_role label)."""
+    return settings.environment!="production" or settings.test_auto_login_allow_production
+
+
 class LocalhostAwareSessionInterface(SecureCookieSessionInterface):
     def get_cookie_secure(self, app):
         # Production public traffic remains Secure. Password-authenticated QA
@@ -68,6 +92,27 @@ def create_app():
         JSON_SORT_KEYS=False,
         TRAP_HTTP_EXCEPTIONS=False,
     )
+    # AUTOLOGIN task (2026-09-04): loud, boot-time visibility into this
+    # exact risk -- a per-request 403 is easy to miss in a log stream; a
+    # startup warning is not. Fires only when settings.test_auto_login is
+    # actually on and environment=="production" (the only combination
+    # requirement #2 cares about); silent otherwise.
+    if settings.test_auto_login and settings.environment=="production":
+        if settings.test_auto_login_allow_production:
+            app.logger.warning(
+                "SECURITY: MESFLOW_TEST_AUTO_LOGIN is ACTIVE on a MESFLOW_ENV=production "
+                "deployment because MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1 is explicitly "
+                "set. Confirm this is NOT the real live-business mesflow.net production system."
+            )
+        else:
+            app.logger.warning(
+                "MESFLOW_TEST_AUTO_LOGIN=1 is set but MESFLOW_ENV=production and "
+                "MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION is not -- auto-login stays "
+                "force-disabled (fail-closed). If this is real production, unset "
+                "MESFLOW_TEST_AUTO_LOGIN. If this is prodtest/demo intentionally running "
+                "MESFLOW_ENV=production, set MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1 to "
+                "actually enable it."
+            )
     app.register_blueprint(master_data_bp)
     app.register_blueprint(execution_bp)
     app.register_blueprint(analytics_bp)
@@ -207,13 +252,21 @@ def create_app():
     def login_page():
         if session_policy.validate_and_touch() is None:
             return redirect(url_for('app_page'))
+        # AUTOLOGIN task (2026-09-04): ?noauto=1 is the explicit override
+        # requirement #5 asks for -- without it, a deliberate logout
+        # (app.js redirects to /login?noauto=1) would otherwise land back on
+        # an auto-login page that instantly re-authenticates, making the
+        # logged-out state and manual/different-persona login impossible to
+        # actually reach while the flag is on.
+        manual=request.args.get('noauto') in ('1','true')
         return render_template(
             'login.html',
             version=__version__,
             next_url=request.args.get('next') or '/app',
             test_auto_login=(
-                settings.environment != "production"
+                not manual
                 and settings.test_auto_login
+                and _auto_login_allowed()
             ),
         )
 
@@ -342,11 +395,28 @@ def create_app():
 
     @app.post('/api/auth/test-auto-login')
     def test_auto_login():
-        if settings.environment == "production":
+        if not _auto_login_allowed():
+            app.logger.warning(
+                "Auto-login attempted on a MESFLOW_ENV=production deployment without "
+                "MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1 -- refusing (fail-closed)."
+            )
             return jsonify(ok=False,error='AUTO_LOGIN_DISABLED_PRODUCTION'),403
         if not settings.test_auto_login:
             return jsonify(ok=False,error='AUTO_LOGIN_DISABLED'),403
-        u=UserRepository().get_by_username(settings.test_auto_login_username)
+        # AUTOLOGIN task (2026-09-04): optional quick persona switch for RBAC
+        # testing (requirement #4) -- non-production only (same guard as
+        # above), fixed allowlist only (never an arbitrary username), still
+        # goes through the exact same server-side session_policy.start_session
+        # bootstrap as the default path below, no separate code path/bypass.
+        persona=(request.get_json(silent=True) or {}).get('persona') or request.args.get('persona')
+        if persona:
+            persona=str(persona).strip().lower()
+            if persona not in _AUTOLOGIN_PERSONAS:
+                return jsonify(ok=False,error='AUTO_LOGIN_INVALID_PERSONA',allowed=list(_AUTOLOGIN_PERSONAS)),400
+            username=persona
+        else:
+            username=settings.test_auto_login_username
+        u=UserRepository().get_by_username(username)
         if not u or not u['active']:
             return jsonify(ok=False,error='AUTO_LOGIN_USER_NOT_FOUND',message='Không tìm thấy tài khoản auto-login đang hoạt động.'),503
         session_policy.start_session(u['id'],u['username'],u['role'])

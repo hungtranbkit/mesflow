@@ -31,6 +31,17 @@ class Settings:
     timezone_name: str = os.environ.get("MESFLOW_TIMEZONE", "Asia/Ho_Chi_Minh")
     test_auto_login: bool = _bool("MESFLOW_TEST_AUTO_LOGIN", "0")
     test_auto_login_username: str = os.environ.get("MESFLOW_TEST_AUTO_LOGIN_USERNAME", "admin")
+    # 2026-09-04 AUTOLOGIN task: compose.yml hardcodes MESFLOW_ENV=production
+    # on every tier that shares it (prodtest, demo -- see docs), so the
+    # plain "environment != production" check above never actually allows
+    # auto-login there even with MESFLOW_TEST_AUTO_LOGIN=1. This mirrors
+    # tutorial_data.py's MESFLOW_TUTORIAL_DATA_ALLOW_PRODUCTION pattern: an
+    # explicit, feature-scoped, default-off second opt-in required ONLY when
+    # environment=="production" -- never inferred from server_role (see its
+    # own docstring above for why), never satisfied by MESFLOW_TEST_AUTO_LOGIN
+    # alone. A real live-production box that never sets this stays refused
+    # regardless of MESFLOW_TEST_AUTO_LOGIN.
+    test_auto_login_allow_production: bool = _bool("MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION", "0")
     local_auto_login: bool = _bool("MESFLOW_LOCAL_AUTO_LOGIN", "0")
     internal_qa_auto_login: bool = _bool("MESFLOW_INTERNAL_QA_AUTO_LOGIN", "0")
     internal_http_session: bool = _bool("MESFLOW_INTERNAL_HTTP_SESSION", "1")
