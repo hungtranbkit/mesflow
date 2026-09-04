@@ -594,6 +594,24 @@ const tours = {
   employeeProductivity: async page=>{
     await open(page,'employee-productivity');
     await card(page,'Báo cáo năng suất nhân viên','Màn hình này tổng hợp năng suất từng nhân viên từ chính các phiên làm việc đã kết thúc — không phải số liệu nhập tay riêng. Video đi qua bộ lọc, bảng năng suất, xem chi tiết theo ngày/Operation và màn hình trình chiếu tại xưởng.');
+    // Mặc định trang là "đầu tháng -> hôm nay" (epMonthStartHcm/epTodayHcm),
+    // bao gồm CẢ HÔM NAY -- đúng ngày các chapter Kiosk (09/14) vừa quét thật
+    // một vài phiên rất ngắn (vài giây/phút trong tutorial=1) với sản lượng
+    // thật, nên completion_percent của riêng các phiên đó cực cao dù không
+    // sai logic. Chọn rõ khoảng 14 ngày lịch sử thực tế (không gồm hôm nay)
+    // để video này luôn hiển thị đúng phân phối năng suất thực tế đã build
+    // (~85% trung bình), không lẫn số liệu phiên demo kiosk vừa quay.
+    await page.evaluate(()=>{
+      const fmt=d=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
+      const now=new Date();
+      const from=fmt(new Date(now.getTime()-14*86400000));
+      const to=fmt(new Date(now.getTime()-1*86400000));
+      const fromEl=document.getElementById('epFrom'),toEl=document.getElementById('epTo');
+      fromEl.value=from;toEl.value=to;
+      fromEl.dispatchEvent(new Event('change',{bubbles:true}));
+      toEl.dispatchEvent(new Event('change',{bubbles:true}));
+    });
+    await pause(page,900);
     await note(page,'#epFrom, #epTo','Chọn khoảng ngày','Năng suất được tính trên các Session đã kết thúc trong khoảng ngày này. Đổi khoảng ngày để so sánh nhiều ngày hoặc nhiều ca khác nhau.',{action:'Chọn từ ngày và đến ngày cần xem.',expected:'Bảng năng suất và KPI cập nhật đúng theo đúng khoảng ngày đã chọn.'});
     await note(page,'#epDept','Lọc theo bộ phận','Khi xưởng có nhiều bộ phận/tổ, lọc theo bộ phận giúp so sánh trong cùng nhóm thay vì trộn lẫn toàn nhà máy.');
     await note(page,'#epKpis','Chỉ số tổng hợp','Bốn chỉ số: số nhân viên có dữ liệu, tổng Session đã kết thúc, năng suất trung bình và tổng sản lượng đạt trong khoảng ngày đã chọn — dùng để nắm nhanh bức tranh chung trước khi đi vào từng người.',{action:'Đọc lần lượt 4 chỉ số.',expected:'Biết được quy mô dữ liệu (bao nhiêu người, bao nhiêu Session) trước khi đánh giá năng suất trung bình.'});
