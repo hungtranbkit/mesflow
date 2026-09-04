@@ -51,6 +51,13 @@ services:
       MESFLOW_ADMIN_PASSWORD: Admin@123456
       MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
       MESFLOW_LOCAL_AUTO_LOGIN: "0"
+      # Default off, same as everywhere else -- set MESFLOW_TEST_AUTO_LOGIN=1
+      # in the shell before `docker compose -f compose.projectflow-local.yml
+      # up` to test the autologin feature against this sandbox (MESFLOW_ENV
+      # is already `local`, non-production, so no ALLOW_PRODUCTION override
+      # is needed here).
+      MESFLOW_TEST_AUTO_LOGIN: ${MESFLOW_TEST_AUTO_LOGIN:-0}
+      MESFLOW_TEST_AUTO_LOGIN_USERNAME: ${MESFLOW_TEST_AUTO_LOGIN_USERNAME:-admin}
       MESFLOW_DEPLOYMENT_ID: projectflow-local-sandbox
       TZ: Asia/Ho_Chi_Minh
     depends_on:
