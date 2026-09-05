@@ -58,11 +58,6 @@ async function renderEmployeeProductivity() {
         <p id="epWbState" class="wallboard-state">Đang tải trạng thái...</p>
         <div class="wallboard-config">
           <fieldset class="wallboard-group">
-            <legend>Khoảng thời gian</legend>
-            <label class="wallboard-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động dùng đầu tháng → hôm nay</span></label>
-            <p class="wallboard-group-hint">Khi tắt, Kiosk dùng đúng khoảng "Từ ngày" / "Đến ngày" đang chọn ở bộ lọc phía trên.</p>
-          </fieldset>
-          <fieldset class="wallboard-group wallboard-group-display">
             <legend>Cấu hình hiển thị</legend>
             <div class="wallboard-field-grid">
               <label><span>Sắp xếp</span><select id="epWbSort">
@@ -79,16 +74,22 @@ async function renderEmployeeProductivity() {
                 <option value="auto" selected>Tự động</option>
                 <option value="1">1 cột</option><option value="2">2 cột</option><option value="3">3 cột</option>
               </select></label>
+            </div>
+          </fieldset>
+          <fieldset class="wallboard-group wallboard-group-auto">
+            <legend>Tự động hóa</legend>
+            <div class="wallboard-toggle-row">
+              <label class="wallboard-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động dùng đầu tháng → hôm nay</span></label>
+              <label class="wallboard-toggle"><input type="checkbox" id="epWbAutoFlip" checked> <span>Tự động chuyển trang</span></label>
+            </div>
+            <div class="wallboard-field-grid">
               <label><span>Thời gian mỗi trang</span><select id="epWbFlipSeconds">
                 <option value="5">5 giây</option><option value="10" selected>10 giây</option>
                 <option value="15">15 giây</option><option value="30">30 giây</option>
               </select></label>
               <label><span>Làm mới dữ liệu (giây)</span><input type="number" id="epWbRefresh" min="5" max="300" value="20"></label>
             </div>
-          </fieldset>
-          <fieldset class="wallboard-group">
-            <legend>Tự động hóa</legend>
-            <label class="wallboard-toggle"><input type="checkbox" id="epWbAutoFlip" checked> <span>Tự động chuyển trang</span></label>
+            <p class="wallboard-group-hint">Khi tắt "Tự động dùng đầu tháng → hôm nay", Kiosk dùng đúng khoảng "Từ ngày" / "Đến ngày" đang chọn ở bộ lọc phía trên.</p>
           </fieldset>
         </div>
         <div class="wallboard-actions">

@@ -1447,19 +1447,25 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
    redesigned 2026-09 (was one flat flex-wrap row mixing 2 checkboxes, 4
    selects, 1 number input and 2 buttons with no grouping -- see
    reports/ for the audit that found this). Now 3 explicit groups
-   (Khoảng thời gian / Cấu hình hiển thị / Tự động hóa) plus a separate
-   actions row, so a checkbox never sits between two unrelated selects
-   and the primary CTA gets its own row instead of trailing the last
-   select. */
+   (Cấu hình hiển thị / Tự động hóa) plus a separate actions row, so a
+   checkbox never sits between two unrelated selects and the primary
+   CTA gets its own row instead of trailing the last select.
+   2026-09 regroup: "Tự động hóa" now holds BOTH toggles (auto date
+   range, auto page-flip) side by side at the same baseline plus their
+   2 dependent fields (thời gian mỗi trang, làm mới dữ liệu) --
+   "Cấu hình hiển thị" is left with only the 3 pure display fields
+   (sắp xếp/số nhân viên mỗi trang/số cột), matching the mental model
+   "what does it look like" vs. "what does it do automatically". */
 .wallboard-panel .content-panel-body{padding:14px 16px;font-size:13px;color:var(--text-secondary)}
 .wallboard-panel .wallboard-hint{margin:2px 0 0;font-style:italic;color:var(--text-tertiary,var(--text-secondary))}
 .wallboard-state{margin:0 0 14px;padding:8px 12px;background:var(--surface-subtle);border:1px solid var(--border-subtle);border-radius:var(--radius-control);line-height:1.6;font-size:12.5px}
-.wallboard-config{display:grid;grid-template-columns:minmax(200px,1fr) minmax(340px,2.2fr) minmax(180px,1fr);gap:14px;align-items:start;margin-bottom:16px}
+.wallboard-config{display:grid;grid-template-columns:minmax(260px,1fr) minmax(340px,1.6fr);gap:14px;align-items:start;margin-bottom:16px}
 .wallboard-group{margin:0;padding:11px 13px 13px;border:1px solid var(--border-subtle);border-radius:var(--radius-control);min-width:0}
 .wallboard-group legend{padding:0 5px;margin-left:-5px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary)}
-.wallboard-group-hint{margin:6px 0 0;font-size:11.5px;line-height:1.5;color:var(--text-secondary)}
+.wallboard-group-hint{margin:8px 0 0;font-size:11.5px;line-height:1.5;color:var(--text-secondary)}
 .wallboard-field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px 12px}
 .wallboard-field-grid label{display:grid;gap:4px;min-width:0;color:var(--text-secondary);font-size:11px;font-weight:700}
+.wallboard-toggle-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border-subtle)}
 .wallboard-toggle{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:12.5px;font-weight:650;color:var(--text-primary);min-height:var(--control-height)}
 .wallboard-actions{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border-subtle)}
 .wallboard-actions-hint{margin:0;max-width:56ch;font-size:11.5px;line-height:1.6;color:var(--text-secondary)}
@@ -1467,8 +1473,7 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
 .wallboard-actions-buttons{display:flex;gap:8px;flex-shrink:0}
 .wallboard-config .btn,.wallboard-config input,.wallboard-config select,
 .wallboard-actions-buttons .btn{height:var(--control-height)!important;min-height:var(--control-height)!important}
-@media(max-width:1180px){.wallboard-config{grid-template-columns:1fr 1fr}.wallboard-group-display{grid-column:1/-1}}
-@media(max-width:720px){.wallboard-config{grid-template-columns:1fr}.wallboard-actions{flex-direction:column;align-items:stretch}.wallboard-actions-buttons{justify-content:stretch}.wallboard-actions-buttons .btn{flex:1}.wallboard-actions-hint{max-width:none}}
+@media(max-width:720px){.wallboard-config{grid-template-columns:1fr}.wallboard-toggle-row{flex-direction:column;align-items:flex-start;gap:8px}.wallboard-actions{flex-direction:column;align-items:stretch}.wallboard-actions-buttons{justify-content:stretch}.wallboard-actions-buttons .btn{flex:1}.wallboard-actions-hint{max-width:none}}
 .content-panel-body:has(>.table-wrap){padding:0}
 .content-panel-body>.table-wrap{border:0;border-radius:0}
 .content-panel-body>.table-wrap table th:first-child,.content-panel-body>.table-wrap table td:first-child{padding-left:16px}
