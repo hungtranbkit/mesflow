@@ -82,10 +82,21 @@ async function note(page, selector, title, explanation, detail={}){
     if(!target)return false;
     const initial=target.getBoundingClientRect();
     if(initial.width*initial.height>innerWidth*innerHeight*.55){
-      const child=[...target.querySelectorAll('.quantity-summary,h1,h2,.screen-copy,.status-card')].find(el=>{
-        const r=el.getBoundingClientRect(),cs=getComputedStyle(el);
-        return r.width>0&&r.height>0&&cs.display!=='none'&&cs.visibility!=='hidden';
-      });
+      const fits=el=>{const r=el.getBoundingClientRect(),cs=getComputedStyle(el);return r.width>0&&r.height>0&&r.width*r.height<=innerWidth*innerHeight*.55&&cs.display!=='none'&&cs.visibility!=='hidden'};
+      let child=[...target.querySelectorAll('.quantity-summary,h1,h2,.screen-copy,.status-card')].find(fits);
+      if(!child){
+        // Generic fallback (2026-09 QC bug triage: dashboard #sessionTimeline,
+        // employees table, #kmList, system-logs table all reported
+        // TUTORIAL_OVERLAY_COVERS_TARGET because the highlighted element was
+        // a full unpaginated list/table taller than the viewport -- no fixed
+        // on-screen panel position can ever avoid overlapping a rect that
+        // spans past both the top and bottom of the screen. Rather than
+        // hardcode one row-class per page, narrow to the first visible
+        // "item" descendant (table row, list item or card article) so the
+        // highlight -- and the panel placement search below -- stay inside
+        // one viewport, whatever page this selector points at.
+        child=[...target.querySelectorAll('tr, li, article')].find(fits);
+      }
       if(child)target=child;
     }
     target.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
@@ -376,9 +387,21 @@ const tours = {
   material: async page=>{
     await open(page,'production-schedule');
     await card(page,'Tiến trình & Dòng vật tư','Màn hình này dùng để theo dõi luồng qua các công đoạn và xem công đoạn nào đang chặn công đoạn sau.');
-    await note(page,'.toolbar','Lọc theo PO','Khi có nhiều PO, lọc đúng PO để tránh đọc nhầm tiến trình.');
-    await note(page,'.panel, .material-flow, .schedule','Dòng công đoạn','Đọc từ công đoạn đầu tới cuối: đã làm, đang làm, còn lại và quan hệ phụ thuộc.');
-    await note(page,'.op-dual-progress, .op-progress-line','Thời gian so với sản phẩm','Sản phẩm thấp nhưng thời gian cao là dấu hiệu cần chú ý; sản phẩm cao và thời gian hợp lý cho thấy công đoạn đang theo kế hoạch.');
+    // Selector thật (app.js renderProductionSchedule, 2026-09 QC audit): filter
+    // bar dùng MFUI.filterBar -> .ui-filter-bar, KHÔNG PHẢI .toolbar; danh sách
+    // PO/Operation là #scheduleBody .gantt-wrap (không có .material-flow/
+    // .schedule nào cả); mỗi Operation nằm trong .gantt-row nhưng CSS đặt
+    // .gantt-row{display:contents} -- theo spec, phần tử display:contents
+    // luôn có getBoundingClientRect() = 0x0 (không tự vẽ box, chỉ con của nó
+    // vẽ), nên .gantt-row KHÔNG BAO GIỜ dùng được làm target; phải trỏ vào
+    // .gantt-label (con thật, có box, chứa đúng "x% · done/planned SP") --
+    // ban đầu thử .gantt-row gây TARGET_NOT_VISIBLE/OUTSIDE_VIEWPORT quyết
+    // định (rect 0x0), không phải lỗi timing, xác nhận lại bằng CSS thật
+    // trước khi chọn .gantt-label. .op-dual-progress/.op-progress-line cũ
+    // chỉ tồn tại ở Dashboard, không có ở trang này.
+    await note(page,'.ui-filter-bar','Lọc theo PO','Khi có nhiều PO, lọc đúng PO để tránh đọc nhầm tiến trình.');
+    await note(page,'.gantt-wrap','Dòng công đoạn','Đọc từ công đoạn đầu tới cuối: đã làm, đang làm, còn lại và quan hệ phụ thuộc.');
+    await note(page,'.gantt-label','Thời gian so với sản phẩm','Sản phẩm thấp nhưng thời gian cao là dấu hiệu cần chú ý; sản phẩm cao và thời gian hợp lý cho thấy công đoạn đang theo kế hoạch.');
   },
   sessions: async page=>{
     await open(page,'session-management');
@@ -451,8 +474,11 @@ const tours = {
   exceptions: async page=>{
     await open(page,'session-exceptions');
     await card(page,'Phiên làm việc bất thường','Dữ liệu hướng dẫn tạo sẵn các trường hợp: phiên mở quá lâu, phiên dài nhưng sản lượng bằng không, thiếu trạm, chồng thời gian và thời gian không hợp lệ.');
-    await note(page,'.panel, .exception-card, table','Danh sách ngoại lệ','Đọc mức độ nghiêm trọng, lỗi hoặc cảnh báo; sau đó xem nhân viên, phiên làm việc, công đoạn và nguyên nhân.');
-    await note(page,'.toolbar','Bộ lọc trạng thái xử lý','Có thể lọc: mới phát hiện, đang xử lý, đã xử lý và bỏ qua để quản lý danh sách cần kiểm tra.');
+    // Selector thật (exception-center.js, 2026-09 QC audit): mỗi ngoại lệ là
+    // .ec-card trong #ecList (không có .exception-card/.panel/table nào cả);
+    // filter bar là .ui-filter-bar (MFUI.filterBar), không phải .toolbar.
+    await note(page,'#ecList .ec-card','Danh sách ngoại lệ','Đọc mức độ nghiêm trọng, lỗi hoặc cảnh báo; sau đó xem nhân viên, phiên làm việc, công đoạn và nguyên nhân.');
+    await note(page,'.ui-filter-bar','Bộ lọc trạng thái xử lý','Có thể lọc: mới phát hiện, đang xử lý, đã xử lý và bỏ qua để quản lý danh sách cần kiểm tra.');
     const data=await page.request.get('/api/session-exceptions?limit=100');
     if(data.ok()){
       const body=await data.json();
@@ -478,11 +504,15 @@ const tours = {
   employees: async page=>{
     await open(page,'employees');
     await card(page,'Nhân viên','Quản lý danh sách người thao tác MESFlow, mã nhân viên và QR/thẻ dùng tại kiosk.');
-    await note(page,'.toolbar','Tìm nhân viên','Dùng mã hoặc tên để xác nhận đúng người trước khi sửa.');
-    await note(page,'.panel, table','Danh sách','Kiểm tra mã, tên, trạng thái hoạt động và thông tin liên quan.');
+    // Selector thật (app.js renderEmployees/qr-print.js, 2026-09 QC audit):
+    // cả 2 trang đều dùng MFUI.filterBar -> .ui-filter-bar, không phải
+    // .toolbar; danh sách nhân viên là <table> thật trong #employeeList,
+    // không có .panel nào trên trang này (đã bỏ alt selector chết).
+    await note(page,'.ui-filter-bar','Tìm nhân viên','Dùng mã hoặc tên để xác nhận đúng người trước khi sửa.');
+    await note(page,'table','Danh sách','Kiểm tra mã, tên, trạng thái hoạt động và thông tin liên quan.');
     await open(page,'qr-print');
     await card(page,'Trung tâm QR','Sau khi dữ liệu nhân viên/Operation đúng, dùng màn hình QR để lọc và in mã phục vụ thao tác ngoài xưởng.');
-    await note(page,'.toolbar','Lọc trước khi in','Chỉ chọn đúng nhóm cần in để tránh nhầm QR giữa PO/Operation/nhân viên.');
+    await note(page,'.ui-filter-bar','Lọc trước khi in','Chỉ chọn đúng nhóm cần in để tránh nhầm QR giữa PO/Operation/nhân viên.');
   },
   kioskAdmin: async page=>{
     await open(page,'kiosk-management');
@@ -702,8 +732,11 @@ const tours = {
   logs: async page=>{
     await open(page,'system-logs');
     await card(page,'Nhật ký hệ thống','Dùng khi điều tra lỗi hoặc truy vết thao tác: Nhật ký thao tác cho biết ai làm gì; phần chi tiết lỗi giúp tìm nguyên nhân theo mã truy vết.');
-    await note(page,'.toolbar','Tìm kiếm','Dataset tutorial có cả trace thành công và trace lỗi đã xử lý để minh họa cách tìm nguyên nhân.');
-    await note(page,'.panel, table','Chi tiết nhật ký','Đối chiếu nhật ký với phiên làm việc, lệnh sản xuất và trạm trước khi chỉnh dữ liệu.');
+    // Selector thật (system-logs.js, 2026-09 QC audit): filter bar là
+    // .ui-filter-bar (MFUI.filterBar), không phải .toolbar; không có .panel
+    // nào trên trang này (đã bỏ alt selector chết) -- chỉ còn <table> thật.
+    await note(page,'.ui-filter-bar','Tìm kiếm','Dataset tutorial có cả trace thành công và trace lỗi đã xử lý để minh họa cách tìm nguyên nhân.');
+    await note(page,'table','Chi tiết nhật ký','Đối chiếu nhật ký với phiên làm việc, lệnh sản xuất và trạm trước khi chỉnh dữ liệu.');
   },
   commonCases: async page=>{
     await card(page,'Các tình huống cần lưu ý','Video này tổng hợp các trường hợp dễ gặp ngoài xưởng bằng dữ liệu TUT39. Mục tiêu là biết nhìn dấu hiệu ở đâu và xử lý theo thứ tự nào.',LONG_WAIT);
