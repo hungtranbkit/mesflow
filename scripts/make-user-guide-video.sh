@@ -24,7 +24,19 @@ curl -fsS "$BASE_URL/api/system/version" >/dev/null || {
   exit 1
 }
 
-rm -rf "$WORKSPACE"
+# Root cause of a real, live-reproduced "manifest says 15, publish sees
+# 19/duplicate-numbered" incident (2026-09-05): $WORKSPACE was always
+# wiped before a run, but $OUT (where recorded .webm/.mp4 and the final
+# voiced .mp4 land) never was -- a stale run's files (here, four files
+# from 2026-08-11 using the numbering scheme that predated
+# employeeProductivity's insertion at slot 10) sat in $OUT/ and
+# $OUT/final/ indefinitely and got swept into publish alongside a fresh
+# run's correctly-numbered 15, corrupting the manifest with 19 items and
+# two different chapters sharing the same slot number. Clean $OUT the
+# same way $WORKSPACE always was, so a fresh run can never inherit a
+# previous run's leftover files regardless of how old they are or what
+# numbering scheme they used.
+rm -rf "$WORKSPACE" "$OUT"
 mkdir -p "$WORKSPACE/tests/e2e" "$OUT"
 
 # Keep production /opt/mesflow read-only. Copy only tutorial runtime files to user workspace.
