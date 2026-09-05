@@ -52,34 +52,54 @@ async function renderEmployeeProductivity() {
     bảng bên dưới cho tới khi bấm "Trình chiếu trên Kiosk"). -->
     <section class="content-panel wallboard-panel" id="epWbPanel">
       <div class="content-panel-head">
-        <div><h3>Trình chiếu Kiosk</h3><p id="epWbState">Đang tải trạng thái...</p><p class="wallboard-hint">TV 1080p: nên dùng 24–30 nhân viên, 3 cột.</p></div>
-        <div class="content-panel-actions">
-          <label class="wallboard-dynamic-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động: đầu tháng → hôm nay</span></label>
-          <label><span>Sắp xếp trên Kiosk</span><select id="epWbSort">
-            <option value="productivity_desc">Năng suất giảm dần</option>
-            <option value="productivity_asc">Năng suất tăng dần</option>
-            <option value="name_asc">Tên A→Z</option>
-            <option value="sessions_desc">Số session giảm dần</option>
-          </select></label>
-          <label><span>Số nhân viên mỗi trang</span><select id="epWbEmployeesPerPage">
-            <option value="10">10</option><option value="12">12</option><option value="16">16</option>
-            <option value="20" selected>20</option><option value="24">24</option><option value="30">30</option>
-          </select></label>
-          <label><span>Số cột hiển thị</span><select id="epWbColumns">
-            <option value="auto" selected>Tự động</option>
-            <option value="1">1 cột</option><option value="2">2 cột</option><option value="3">3 cột</option>
-          </select></label>
-          <label class="wallboard-dynamic-toggle"><input type="checkbox" id="epWbAutoFlip" checked> <span>Tự động chuyển trang</span></label>
-          <label><span>Thời gian chuyển trang</span><select id="epWbFlipSeconds">
-            <option value="5">5 giây</option><option value="10" selected>10 giây</option>
-            <option value="15">15 giây</option><option value="30">30 giây</option>
-          </select></label>
-          <label><span>Làm mới mỗi (giây)</span><input type="number" id="epWbRefresh" min="5" max="300" value="20" style="width:72px"></label>
-          <button class="btn" id="epWbPreview" type="button">Preview màn trình chiếu</button>
-          <button class="btn primary" id="epWbPublish" type="button">Trình chiếu trên Kiosk</button>
-        </div>
+        <div><h3>Trình chiếu Kiosk</h3><p class="wallboard-hint">TV 1080p: nên dùng 24–30 nhân viên, 3 cột.</p></div>
       </div>
-      <div class="content-panel-body" id="epWbBody"></div>
+      <div class="content-panel-body">
+        <p id="epWbState" class="wallboard-state">Đang tải trạng thái...</p>
+        <div class="wallboard-config">
+          <fieldset class="wallboard-group">
+            <legend>Khoảng thời gian</legend>
+            <label class="wallboard-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động dùng đầu tháng → hôm nay</span></label>
+            <p class="wallboard-group-hint">Khi tắt, Kiosk dùng đúng khoảng "Từ ngày" / "Đến ngày" đang chọn ở bộ lọc phía trên.</p>
+          </fieldset>
+          <fieldset class="wallboard-group wallboard-group-display">
+            <legend>Cấu hình hiển thị</legend>
+            <div class="wallboard-field-grid">
+              <label><span>Sắp xếp</span><select id="epWbSort">
+                <option value="productivity_desc">Năng suất giảm dần</option>
+                <option value="productivity_asc">Năng suất tăng dần</option>
+                <option value="name_asc">Tên A→Z</option>
+                <option value="sessions_desc">Số session giảm dần</option>
+              </select></label>
+              <label><span>Số nhân viên / trang</span><select id="epWbEmployeesPerPage">
+                <option value="10">10</option><option value="12">12</option><option value="16">16</option>
+                <option value="20" selected>20</option><option value="24">24</option><option value="30">30</option>
+              </select></label>
+              <label><span>Số cột</span><select id="epWbColumns">
+                <option value="auto" selected>Tự động</option>
+                <option value="1">1 cột</option><option value="2">2 cột</option><option value="3">3 cột</option>
+              </select></label>
+              <label><span>Thời gian mỗi trang</span><select id="epWbFlipSeconds">
+                <option value="5">5 giây</option><option value="10" selected>10 giây</option>
+                <option value="15">15 giây</option><option value="30">30 giây</option>
+              </select></label>
+              <label><span>Làm mới dữ liệu (giây)</span><input type="number" id="epWbRefresh" min="5" max="300" value="20"></label>
+            </div>
+          </fieldset>
+          <fieldset class="wallboard-group">
+            <legend>Tự động hóa</legend>
+            <label class="wallboard-toggle"><input type="checkbox" id="epWbAutoFlip" checked> <span>Tự động chuyển trang</span></label>
+          </fieldset>
+        </div>
+        <div class="wallboard-actions">
+          <p class="wallboard-actions-hint"><b>Xem trước</b>: mở thử ở tab mới bằng cấu hình đang chỉnh, không lưu lại. <b>Trình chiếu trên Kiosk</b>: áp dụng ngay cho màn hình Kiosk thật tại xưởng.</p>
+          <div class="wallboard-actions-buttons">
+            <button class="btn" id="epWbPreview" type="button">Xem trước</button>
+            <button class="btn primary" id="epWbPublish" type="button">Trình chiếu trên Kiosk</button>
+          </div>
+        </div>
+        <div id="epWbBody"></div>
+      </div>
     </section>
     <section class="content-panel"><div class="content-panel-head"><div><h3>Năng suất theo nhân viên</h3><p id="epRangeLabel"></p></div></div><div class="content-panel-body" id="epTableHost">Đang tải...</div></section>
   </div>`;

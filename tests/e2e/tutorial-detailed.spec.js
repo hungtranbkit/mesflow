@@ -629,7 +629,61 @@ const tours = {
       await page.evaluate(()=>document.getElementById('epdClose')?.click());
       await pause(page,500);
     }
-    await note(page,'#epWbPanel','Trình chiếu năng suất tại xưởng (wallboard)','Cùng dữ liệu năng suất có thể trình chiếu dạng bảng lớn trên màn hình/TV tại xưởng cho công nhân tự theo dõi, với tùy chọn sắp xếp, số cột, tự động chuyển trang và tự động làm mới.',{action:'Xem qua các tùy chọn hiển thị rồi bấm Preview để hình dung màn hình thực tế trên Kiosk.',expected:'Biết cách công khai minh bạch năng suất tại xưởng mà không cần thao tác thủ công mỗi ca.'});
+    await note(page,'.wallboard-group','Cấu hình trình chiếu Kiosk','3 nhóm tách riêng: khoảng thời gian, cấu hình hiển thị (sắp xếp, số nhân viên/trang, số cột, thời gian mỗi trang, làm mới dữ liệu) và tự động hóa (tự động chuyển trang).',{action:'Xem qua từng nhóm cấu hình.',expected:'Biết chỗ chỉnh từng phần thay vì một hàng cài đặt dồn lại.'});
+    await note(page,'.wallboard-actions','Xem trước và Trình chiếu trên Kiosk là 2 việc khác nhau','“Xem trước” chỉ mở thử màn hình bằng cấu hình đang chỉnh, KHÔNG lưu lại — dùng để kiểm tra trước khi công khai. “Trình chiếu trên Kiosk” mới thực sự lưu cấu hình và là màn hình công khai, không cần đăng nhập, mà TV tại xưởng sẽ hiển thị liên tục.',{action:'Phân biệt rõ 2 nút trước khi bấm Trình chiếu trên Kiosk.',expected:'Không nhầm việc xem thử với việc công khai năng suất thật lên Kiosk.'});
+
+    // Minh họa "Xem trước" bằng điều hướng trực tiếp tới đúng URL nút này mở
+    // (thay vì bấm và bắt tab mới) -- vì Playwright ghi video theo browser
+    // context, một tab popup sẽ tạo thêm 1 file video riêng và có thể bị
+    // pipeline nhầm là bản ghi chính (xem make-user-guide-video.sh, chọn
+    // .webm mới nhất). Điều hướng cùng 1 trang giữ video liền mạch, đúng
+    // đúng tham số nút "Xem trước" thật sự dùng (wbQueryFromCurrentFilters()
+    // trong employee-productivity.js).
+    const previewUrl=await page.evaluate(()=>{
+      const q=new URLSearchParams();
+      q.set('preview','1');
+      q.set('from',document.getElementById('epFrom').value);
+      q.set('to',document.getElementById('epTo').value);
+      const dept=document.getElementById('epDept').value; if(dept)q.set('department',dept);
+      q.set('sort',document.getElementById('epWbSort').value);
+      q.set('employees_per_page',document.getElementById('epWbEmployeesPerPage').value||'20');
+      q.set('columns',document.getElementById('epWbColumns').value||'auto');
+      q.set('auto_page_flip',document.getElementById('epWbAutoFlip').checked?'1':'0');
+      q.set('auto_page_flip_seconds',document.getElementById('epWbFlipSeconds').value||'10');
+      q.set('refresh',document.getElementById('epWbRefresh').value||'20');
+      return `/kiosk/employee-productivity?${q.toString()}`;
+    });
+    await page.goto(previewUrl);
+    await expect(page.locator('#wbList .wb-card').first()).toBeVisible({timeout:10000});
+    await pause(page,600);
+    await card(page,'Đây là màn XEM TRƯỚC','Dùng đúng dữ liệu và cấu hình đang chỉnh ở trang quản trị, nhưng chưa lưu -- đóng tab này thì Kiosk thật không đổi gì.',STEP_WAIT);
+    await note(page,'#wbKpis','4 chỉ số lớn, dễ đọc từ xa','Cùng 4 chỉ số đã thấy ở trang quản trị, phóng to cho phù hợp xem trên TV.');
+    await note(page,'#wbList .wb-card','Bảng xếp hạng dạng thẻ lớn','Mỗi thẻ là một nhân viên: hạng, tên và % năng suất theo màu (xanh/vàng/đỏ) -- nhìn được ngay từ xa, không cần lại gần đọc bảng.',{action:'Quan sát thứ hạng và màu sắc theo mức năng suất.',expected:'Phân biệt được nhân viên năng suất cao/thấp chỉ bằng màu sắc.'});
+
+    // Quay lại trang quản trị, bấm THẬT nút "Trình chiếu trên Kiosk" (khác
+    // với minh họa "Xem trước" ở trên -- đây là hành động lưu cấu hình
+    // thật), rồi mở đúng URL công khai (không có ?preview=1) để chứng minh
+    // đây là màn hình thật TV tại xưởng sẽ thấy, không cần đăng nhập.
+    await page.goto('/app?page=employee-productivity');
+    await expect(page.locator('#epWbPanel')).toBeVisible({timeout:10000});
+    await pause(page,500);
+    await note(page,'#epWbPublish','Bấm "Trình chiếu trên Kiosk" để công khai thật','Khác với "Xem trước" ở bước trước, nút này lưu cấu hình thật và làm nó công khai ngay trên Kiosk.',{action:'Bấm nút để lưu cấu hình và công khai lên Kiosk.',expected:'Trạng thái phía trên đổi từ "Chưa public" sang "Đang public" kèm đúng cấu hình vừa chọn.'});
+    await Promise.all([
+      page.waitForResponse(r=>r.url().includes('/api/reports/employee-productivity/wallboard-config')&&r.request().method()==='POST'),
+      page.click('#epWbPublish'),
+    ]);
+    await page.waitForFunction(()=>document.getElementById('epWbState')?.textContent?.startsWith('Đang public'),{timeout:10000});
+    await pause(page,600);
+    await page.goto('/kiosk/employee-productivity');
+    // #wbEmpty precedes #wbList in the DOM (wallboard_employee_productivity.html),
+    // so a combined "wb-card, wbEmpty" locator's .first() always resolves to
+    // #wbEmpty regardless of which one is actually visible -- wait on the
+    // real success signal (a rendered card) directly instead.
+    await expect(page.locator('#wbList .wb-card').first()).toBeVisible({timeout:10000});
+    await pause(page,600);
+    await card(page,'Đây là màn TRÌNH CHIẾU THẬT','URL này không có ?preview, không cần đăng nhập -- chính là màn hình TV tại xưởng sẽ hiển thị liên tục, tự làm mới và tự chuyển trang theo đúng cấu hình vừa lưu.',LONG_WAIT);
+    await page.goto('/app?page=employee-productivity');
+    await expect(page.locator('#epWbPanel')).toBeVisible({timeout:10000});
     await card(page,'Lưu ý khi đọc năng suất','Năng suất trung bình chỉ tính trên Session hợp lệ (có đủ thời gian và định mức để so sánh); Session thiếu dữ liệu được đếm riêng, không kéo méo chỉ số trung bình. Khi thấy năng suất bất thường, nên đối chiếu chi tiết theo Operation trước khi kết luận.',LONG_WAIT);
   },
   calendar: async page=>{
