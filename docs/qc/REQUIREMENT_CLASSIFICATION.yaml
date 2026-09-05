@@ -1,0 +1,203 @@
+# REQUIREMENT_CLASSIFICATION.yaml — every section of
+# docs/MESFLOW_MASTER_REQUIREMENTS.md (and its Vietnamese twin,
+# MESFLOW_MASTER_REQUIREMENTS_VI.md, same section numbers) classified.
+# META/DESCRIPTION/GLOSSARY sections are ALWAYS generate_testcase=false —
+# a QC agent must never try to turn prose/definitions into a testcase.
+
+categories: [META, DESCRIPTION, GLOSSARY, DATA_MODEL, RBAC, STATE_MACHINE,
+  BUSINESS_RULE, EXECUTABLE_WORKFLOW, API_SPEC, BACKGROUND_JOB,
+  REPORT_FORMULA, TEST_HELPER]
+
+sections:
+  - section: "§0 / mục 0"
+    title: "How to use this document"
+    category: META
+    generate_testcase: false
+
+  - section: "§1.1 / mục 1.1"
+    title: "What MESFlow is"
+    category: DESCRIPTION
+    generate_testcase: false
+
+  - section: "§1.2 / mục 1.2"
+    title: "Actors and roles"
+    category: RBAC
+    generate_testcase: false
+    note: enumerates the 6 roles; the TESTABLE grant matrix is §3, not here
+
+  - section: "§1.3 / mục 1.3"
+    title: "Data hierarchy"
+    category: DATA_MODEL
+    generate_testcase: false
+    note: structural diagram; testable field constraints live in §4
+
+  - section: "§1.4 / mục 1.4"
+    title: "Glossary"
+    category: GLOSSARY
+    generate_testcase: false
+
+  - section: "§2 / mục 2"
+    title: "Module inventory & navigation map"
+    category: RBAC
+    generate_testcase: true
+    note: "nav-visibility-per-role IS testable (REQ-UI-004-class cases) —
+      see docs/qc/APPLICATION_MAP.yaml for the source-verified version of
+      this table (found 2 real discrepancies vs. this section — see
+      REQUIREMENT_CODE_GAPS.md)"
+
+  - section: "§3 / mục 3"
+    title: "Role/Permission matrix"
+    category: RBAC
+    generate_testcase: true
+    maps_to: docs/qc/RBAC_MAP.yaml
+
+  - section: "§4 / mục 4"
+    title: "Domain entities — field definitions and relationships"
+    category: DATA_MODEL
+    generate_testcase: true
+    note: "constraint-level facts (uniqueness scope, NOT NULL, enum
+      membership, derived fields) are directly testable; the schema
+      listing itself is reference, not a testcase"
+
+  - section: "§5 / mục 5"
+    title: "State machines"
+    category: STATE_MACHINE
+    generate_testcase: true
+    maps_to: docs/qc/STATE_MACHINES.yaml
+
+  - section: "§6 / mục 6"
+    title: "Session lifecycle — full detail"
+    category: EXECUTABLE_WORKFLOW
+    generate_testcase: true
+
+  - section: "§7 / mục 7"
+    title: "Kiosk workflow — end-to-end, every branch"
+    category: EXECUTABLE_WORKFLOW
+    generate_testcase: true
+
+  - section: "§8 / mục 8"
+    title: "Productivity/KPI formulas"
+    category: REPORT_FORMULA
+    generate_testcase: true
+    maps_to: docs/qc/BUSINESS_RULES.yaml employee_productivity_formula
+
+  - section: "§9 / mục 9"
+    title: "Exception rules"
+    category: BUSINESS_RULE
+    generate_testcase: true
+    maps_to: docs/qc/BUSINESS_RULES.yaml exception_detection_conditions
+
+  - section: "§10 / mục 10"
+    title: "Import/export schema and validation"
+    category: BUSINESS_RULE
+    generate_testcase: true
+
+  - section: "§11 / mục 11"
+    title: "Error catalog / standard error behavior"
+    category: API_SPEC
+    generate_testcase: true
+    note: exact error bodies to assert against — used as the ORACLE
+      reference for every negative-case testcase, not itself a source of
+      new cases
+
+  - section: "§12 (env matrix table) / mục 12 (bảng)"
+    title: "Environment matrix"
+    category: META
+    generate_testcase: false
+    note: reference table for docs/qc/SAFETY.yaml's classification
+      procedure, not itself testable
+
+  - section: "§12.1-12.2 / mục 12.1-12.2"
+    title: "Autologin + persona quick-switch spec"
+    category: TEST_HELPER
+    generate_testcase: true
+    note: "this describes a TEST FACILITY, but the facility's own guard
+      logic (production override requirement, persona allowlist) is
+      itself a real, testable business rule — see BR-903/904/905 in
+      docs/qc/BUSINESS_RULES.yaml"
+
+  - section: "§13 / mục 13"
+    title: "QC test-data personas and sample datasets"
+    category: TEST_HELPER
+    generate_testcase: false
+    note: fixture DATA to use inside other testcases (see
+      docs/qc/TEST_DATA.yaml), not itself a behavior to test
+
+  - section: "§14 / mục 14"
+    title: "Non-functional acceptance criteria (NFR)"
+    category: BUSINESS_RULE
+    generate_testcase: true
+    maps_to: docs/qc/BUSINESS_RULES.yaml nfr_rules
+
+  - section: "§15 (Part B) / mục 15 (Phần B)"
+    title: "Functional requirements (REQ-*)"
+    category: EXECUTABLE_WORKFLOW
+    generate_testcase: true
+    maps_to: docs/qc/MESFLOW_QC_EXECUTABLE_REQUIREMENTS.md (curated subset;
+      not every REQ-* has a 1:1 block there — see that file's own coverage
+      summary for which features got how many)
+
+  - section: "§16 (Part C) / mục 16 (Phần C)"
+    title: "Business rules (BR-*)"
+    category: BUSINESS_RULE
+    generate_testcase: true
+    maps_to: docs/qc/BUSINESS_RULES.yaml rules
+
+  - section: "§17 (Part D) / mục 17 (Phần D)"
+    title: "UI/UX acceptance requirements (REQ-UI-*)"
+    category: EXECUTABLE_WORKFLOW
+    generate_testcase: true
+    note: ui-executor-only requirements — see docs/qc/EXECUTOR_MAP.yaml
+      selection_rules for when ui is mandatory vs. api-preferred
+
+  - section: "§18 (Part E) / mục 18 (Phần E)"
+    title: "End-to-end user journeys (JOURNEY-*)"
+    category: EXECUTABLE_WORKFLOW
+    generate_testcase: true
+    note: multi-step scenarios; several already reflected directly in
+      docs/qc/MESFLOW_QC_EXECUTABLE_REQUIREMENTS.md
+      (QC-EXEC-KIOSKV2-001 = JOURNEY-002, REQ-SHIFT-002 = JOURNEY-003, etc.)
+
+  - section: "§19 (Part F) / mục 19 (Phần F)"
+    title: "Traceability matrix (requirement -> existing automated test)"
+    category: META
+    generate_testcase: false
+    note: describes EXISTING coverage, not new behavior to test
+
+  - section: "§20 (Part G) / mục 20 (Phần G)"
+    title: "QC test-case generation guidance"
+    category: TEST_HELPER
+    generate_testcase: false
+    note: meta-instructions for HOW to generate cases, superseded for this
+      package's purposes by docs/qc/INDEX.md's reading order and this
+      file's own classification
+
+  - section: "§21 (Part H) / mục 21 (Phần H)"
+    title: "Known gaps / open questions (SPEC-GAP-*, OPEN-QUESTION-*)"
+    category: META
+    generate_testcase: false
+    note: "MUST NEVER be treated as spec'd behavior — a QC agent hitting a
+      SPEC-GAP should generate a case that RECORDS actual behavior, never
+      one that asserts a guessed expectation (per the master doc's own
+      §20.4 instruction)"
+
+  - section: "§22 / mục 22 (VI only)"
+    title: "Vietnamese testcase schema"
+    category: TEST_HELPER
+    generate_testcase: false
+    note: output format specification, not itself a behavior to test
+
+sections_absolutely_excluded_from_test_generation:
+  - "§0 / mục 0 (META)"
+  - "§1.1 / mục 1.1 (DESCRIPTION)"
+  - "§1.4 / mục 1.4 (GLOSSARY)"
+  - "§13 / mục 13 (TEST_HELPER — fixture data, not behavior)"
+  - "§19 / mục 19 (META — existing-coverage description)"
+  - "§20 / mục 20 (TEST_HELPER — meta-instructions)"
+  - "§21 / mục 21 (META — explicitly non-spec'd by the master doc's own design)"
+  - "§22 / mục 22 (TEST_HELPER — output schema)"
+
+count_summary:
+  total_sections_classified: 24
+  generate_testcase_true: 16
+  generate_testcase_false: 8

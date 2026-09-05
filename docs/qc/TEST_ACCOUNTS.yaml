@@ -1,0 +1,81 @@
+# TEST_ACCOUNTS.yaml — SCHEMA and roles only. No real passwords here.
+# See RBAC_MAP.yaml for the permission model these accounts exercise, and
+# SAFETY.yaml for which classes of target test_auto_login may be used on.
+
+login_methods:
+  real_password:
+    endpoint: POST /api/auth/login
+    body_schema: {username: string, password: string}
+    credential_source: environment secret on the TARGET server
+      (MESFLOW_ADMIN_USERNAME / MESFLOW_ADMIN_PASSWORD or a per-account
+      password set via POST /api/users/<id>/reset-password) — NEVER
+      hardcode a password into a testcase or into this file; reference it
+      as "the target's own configured secret."
+    known_issue: >
+      A target's live DB password hash can drift from its
+      MESFLOW_ADMIN_PASSWORD env var if the account was reset by hand at
+      some point (observed live on PRODTEST 2026-09-05: env-var password
+      returned INVALID_CREDENTIALS). Do not assume the env var is current
+      — confirm with a live login attempt before building a test plan
+      around it, and fall back to test_auto_login or a freshly-issued
+      reset-password call if the env var is stale.
+  test_auto_login:
+    endpoint: POST /api/auth/test-auto-login
+    body_schema: {persona: "one of admin|manager|supervisor|operator|viewer"}
+    guard: MESFLOW_TEST_AUTO_LOGIN=1 on the target; additionally
+      MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1 if that target's
+      MESFLOW_ENV=production
+    safety: see SAFETY.yaml — verify per-target whether this is even
+      enabled before relying on it; never attempt to enable it on an
+      unclassified/production-class target.
+    username_resolution: persona value resolves to the account whose
+      username literally equals the persona name (admin/manager/
+      supervisor/operator/viewer) — every real deployment seeds exactly
+      one such canonical account per role.
+
+personas_by_role:
+  - role: admin
+    username: admin
+    use_for: full-access baseline; any REQ whose Role says "admin"
+  - role: manager
+    username: manager
+    use_for: broadest business-config testing
+  - role: supervisor
+    username: supervisor
+    use_for: floor-operations testing (sessions, exceptions, kiosk)
+  - role: operator
+    username: operator
+    use_for: view-only-in-admin-app boundary testing
+  - role: viewer
+    username: viewer
+    use_for: read-only boundary testing
+  - role: super_admin
+    username: unknown — NOT reachable via test_auto_login persona
+      (deliberately excluded from the allowlist). A super_admin test
+      session must come from a real password login against a real
+      super_admin account whose existence/credential is out of this
+      package's scope — verify per-target, do not assume one exists.
+
+device_auth_not_a_user_account:
+  kiosk_v1: no auth at all (browser-facing, unauthenticated device flow) —
+    see EXECUTOR_MAP.yaml kiosk_v1_browser
+  kiosk_v2: per-device token (X-Kiosk-Token header or bootstrap-issued
+    token), not a role-bearing user session — see
+    app/mesflow/web/auth.py:production_client_required
+
+session_lifetime_for_planning:
+  idle_timeout_minutes: 60
+  absolute_ceiling_hours: 12
+  kiosk_idle_timeout_minutes: 15
+  implication: a long-running QC test session (e.g. an overnight or
+    multi-hour suite) must re-authenticate rather than assume a session
+    survives past these windows.
+
+password_change_endpoint:
+  self_service: POST /auth/change-password {current_password, new_password}
+    — always acts on the caller's own account, never a user_id parameter
+  admin_reset: POST /api/users/<id>/reset-password (users.manage permission)
+  password_strength_policy: UNKNOWN — not confirmed in source at audit
+    time (carried from docs/MESFLOW_MASTER_REQUIREMENTS.md SPEC-GAP-010).
+    Test with an intentionally weak password and RECORD actual behavior;
+    do not assert a specific policy exists.

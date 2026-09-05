@@ -1,0 +1,89 @@
+# EXECUTOR_MAP.yaml — how each feature should actually be exercised. Not
+# every testcase belongs in a browser: kiosk_v2 has no UI at all, background
+# jobs have no request to click, and RBAC grant-table no-ops are pure API.
+# `executor` here is authoritative; FEATURE_MAP.yaml's `surface` field
+# describes what the feature IS (ui/api/background), this file describes
+# what a test SHOULD drive it with, which is not always the same thing
+# (e.g. kiosk_v1 IS a ui+api feature, but most of its business-rule cases
+# are faster and just as valid driven via api).
+
+executor_types:
+  ui: Playwright browser automation against the real rendered page
+  api: direct HTTP call (requests/httpx/Playwright's request context)
+    against the Flask app, no browser
+  background_job: invoke the job's CLI entrypoint or manual-trigger API
+    directly (see BACKGROUND_JOBS.yaml) rather than a browser or a
+    business API call
+  deterministic: pure computation/assertion against already-seeded data,
+    no new request at all (e.g. re-deriving a formula's expected value)
+
+selection_rules:
+  - rule: "If a feature's ONLY surface is a background job (no HTTP
+      endpoint a human calls to trigger it directly), executor = background_job."
+    applies_to: [shift_auto_close, exception_reconciliation, log_retention]
+  - rule: "If a feature has no browser UI at all (device-token auth,
+      machine-to-machine protocol), executor = api even though it is a
+      'critical' feature."
+    applies_to: [kiosk_v2_device]
+  - rule: "If a feature is UI-only in nature (navigation, RBAC nav-hiding,
+      layout/responsive, modal-does-not-autoclose), executor = ui — an API
+      call cannot observe DOM state."
+    applies_to_pattern: any REQ-UI-* class requirement, RBAC nav-visibility
+      cases
+  - rule: "If a feature's business rule is fully expressed at the API layer
+      and the UI is just a thin form over it, prefer executor = api for
+      the bulk of positive/negative/boundary cases, and reserve executor =
+      ui for exactly one end-to-end happy-path case per feature (proves the
+      form actually calls the right endpoint) plus any UI-specific
+      requirement (REQ-UI-*)."
+    applies_to: [production_order, template, employee, equipment,
+      work_session_lifecycle, session_exceptions_legacy, working_calendar,
+      qc_inspection, notifications, penalty_ticket]
+  - rule: "If a feature is a report/formula, executor = deterministic for
+      the math cases (compute-and-compare) and api for the
+      empty-state/date-filter/RBAC cases; executor = ui only for the one
+      case proving the rendered numbers match the API."
+    applies_to: [employee_productivity_report, kiosk_wallboard, kpi_legacy_views]
+  - rule: "Never force a background_job-only feature through ui — there is
+      nothing to click; and never force kiosk_v2 through ui — it has no
+      browser surface to drive."
+
+per_feature_executor:
+  auth_login: {primary: api, secondary: ui, oracle: api_response}
+  rbac_admin: {primary: api, secondary: null, oracle: "api_response + db_read_readonly"}
+  dashboard_overview: {primary: ui, secondary: api, oracle: ui_state}
+  dashboard_daily: {primary: ui, secondary: api, oracle: ui_state}
+  production_order: {primary: api, secondary: ui, oracle: api_response}
+  template: {primary: api, secondary: ui, oracle: api_response}
+  part_operation_generic: {primary: api, secondary: null, oracle: api_response}
+  employee: {primary: api, secondary: ui, oracle: api_response}
+  equipment: {primary: api, secondary: ui, oracle: api_response}
+  station_salesorder_generic: {primary: api, secondary: null, oracle: api_response}
+  work_session_lifecycle: {primary: api, secondary: ui, oracle: "api_response + db_read_readonly"}
+  session_management_ui: {primary: ui, secondary: api, oracle: ui_state}
+  kiosk_v1_browser: {primary: api, secondary: ui, oracle: api_response}
+  kiosk_v2_device: {primary: api, secondary: null, oracle: api_response}
+  kiosk_management_ui: {primary: ui, secondary: api, oracle: ui_state}
+  kiosk_wallboard: {primary: deterministic, secondary: ui, oracle: deterministic_computation}
+  employee_productivity_report: {primary: deterministic, secondary: api, oracle: deterministic_computation}
+  exception_center: {primary: api, secondary: background_job, oracle: "api_response + background_job_effect"}
+  session_exceptions_legacy: {primary: api, secondary: ui, oracle: api_response}
+  production_schedule: {primary: ui, secondary: api, oracle: ui_state}
+  production_trace: {primary: ui, secondary: null, oracle: ui_state}
+  business_audit: {primary: ui, secondary: api, oracle: ui_state}
+  working_calendar: {primary: api, secondary: ui, oracle: api_response}
+  shift_auto_close: {primary: background_job, secondary: null, oracle: background_job_effect}
+  exception_reconciliation: {primary: background_job, secondary: null, oracle: background_job_effect}
+  log_retention: {primary: background_job, secondary: api, oracle: background_job_effect}
+  system_logs_app: {primary: api, secondary: ui, oracle: api_response}
+  system_console: {primary: api, secondary: ui, oracle: "api_response (RBAC boundary is the priority case)"}
+  tutorials: {primary: api, secondary: ui, oracle: "api_response + ui_state"}
+  qr_print: {primary: ui, secondary: api, oracle: ui_state}
+  import_export_excel: {primary: api, secondary: null, oracle: api_response}
+  qc_inspection: {primary: api, secondary: null, oracle: api_response}
+  notifications: {primary: api, secondary: null, oracle: api_response}
+  penalty_ticket: {primary: api, secondary: null, oracle: api_response}
+  esp_ota: {primary: api, secondary: ui, oracle: api_response}
+  kpi_legacy_views: {primary: api, secondary: ui, oracle: api_response}
+  monitoring_admin: {primary: api, secondary: ui, oracle: api_response}
+  system_health_alerts: {primary: api, secondary: ui, oracle: api_response}

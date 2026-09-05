@@ -1,0 +1,158 @@
+# APPLICATION_MAP.yaml — MESFlow's admin app is a SINGLE-PAGE app with 30
+# distinct views swapped into #content by openPage(id) — it is NOT one
+# screen. Source of truth: app/mesflow/web/static/app.js (menu[] array,
+# PAGE_PERMISSION, SUPER_ADMIN_PAGES, canOpenPage, the openPage() if-chain
+# that dispatches to each render*() function) + app/mesflow/web/templates/app.html.
+# Routing note: there is no per-page URL router — openPage() swaps
+# #content's innerHTML; only a `?page=` query param and a `?session=`
+# deep link (Session Detail drawer) exist. Browser Back is unsafe for
+# in-app navigation; every in-app "Back" goes through
+# app/mesflow/web/static/core/nav.js's AppNav helper instead.
+
+shell:
+  route: GET /app (login_required; renders app.html shell once, JS drives
+    everything else)
+  sidebar_source: app/mesflow/web/static/app.js `menu` array
+  page_switch_function: >
+    openPage(id, btn) in app/mesflow/web/static/app.js for the original
+    ~30 page ids; SEVERAL newer pages (production-trace,
+    employee-productivity, and likely others under static/pages/) extend
+    it via a monkey-patch chain instead of editing app.js's own
+    if-chain — each such file captures the CURRENT global openPage into a
+    local const, reassigns `openPage` to a new function that checks its
+    own id first then delegates to the captured original. Load order in
+    app.html therefore matters for which page id resolves to which
+    handler — do not assume app.js's own if-chain is the complete
+    picture; grep static/pages/*.js for `const openPageWithout` to find
+    every extension.
+  permission_gate_function: canOpenPage(page) — app/mesflow/web/static/app.js
+  page_state_persistence: sessionStorage key `mesflow.navigation.v71`
+    (filters/scroll/active-tab per page) via
+    app/mesflow/web/static/core/nav.js
+
+nav_exposed_views:
+  # Present in the `menu` array — visible in the sidebar for a role that
+  # has the listed permission (or, for the "Hệ thống" group, is literally
+  # super_admin). Group column matches the sidebar section header.
+  - {group: "(top-level)", page: overview, label_vi: "Tổng quan sản xuất",
+     permission: overview.view, renders: renderOverview}
+  - {group: "(top-level)", page: dashboard, label_vi: "Dashboard theo ngày",
+     permission: dashboard.view, renders: renderDashboard}
+  - {group: "Kế hoạch", page: production-orders, label_vi: "Production Order",
+     permission: po.view, renders: renderProductionOrders}
+  - {group: "Kế hoạch", page: templates, label_vi: "Template",
+     permission: template.view, renders: renderTemplates}
+  - {group: "Điều hành", page: session-management, label_vi: "Quản lý Session",
+     permission: session.view, renders: renderSessionManagement}
+  - {group: "Điều hành", page: session-exceptions, label_vi: "Trung tâm ngoại lệ",
+     permission: exceptions.view, renders: renderSessionExceptions}
+  - {group: "Điều hành", page: production-trace, label_vi: "Production Trace",
+     permission: session.view, renders: renderProductionTrace,
+     mount_mechanism: "monkey-patch chain, NOT the static if-chain in
+       app.js's own body — pages/production-trace.js captures the
+       previous global openPage, adds its own `if(id==='production-trace')`
+       branch, then delegates. Confirmed working pattern (see
+       pages/employee-productivity.js's own comment citing this file as
+       the precedent), not a bug."}
+  - {group: "Điều hành", page: business-audit, label_vi: "Nhật ký nghiệp vụ",
+     permission: business_audit.view, renders: renderBusinessAudit}
+  - {group: "Điều hành", page: production-schedule, label_vi: "Gantt & Material Flow",
+     permission: material_flow.view, renders: renderProductionSchedule}
+  - {group: "Điều hành", page: kiosk-management, label_vi: "Trạm kiosk",
+     permission: kiosk.view, renders: renderKioskManagement}
+  - {group: "Điều hành", page: employee-productivity, label_vi: "Báo cáo năng suất nhân viên",
+     permission: session.view, renders: renderEmployeeProductivity,
+     mount_mechanism: "same monkey-patch chain as production-trace above,
+       see pages/employee-productivity.js"}
+  - {group: "Điều hành", page: system-logs, label_vi: "Nhật ký ứng dụng",
+     permission: logs.view, renders: renderSystemLogs}
+  - {group: "Danh mục", page: employees, label_vi: "Nhân viên",
+     permission: employees.view, renders: renderEmployees}
+  - {group: "Danh mục", page: qr-print, label_vi: "Danh sách QR Code",
+     permission: qr.view, renders: renderQrPrintCenter}
+  - {group: "Danh mục", page: equipment, label_vi: "Thiết bị",
+     permission: equipment.view, renders: renderEquipment}
+  - {group: "Quản trị", page: users, label_vi: "Người dùng",
+     permission: users.view, renders: renderUsers}
+  - {group: "Quản trị", page: working-calendar, label_vi: "Lịch làm việc",
+     permission: calendar.view, renders: renderWorkingCalendar}
+  - {group: "Hệ thống (super_admin only)", page: system-overview,
+     label_vi: "Tổng quan hệ thống", permission: "(role check only)",
+     renders: renderSystemOverview}
+  - {group: "Hệ thống (super_admin only)", page: system-errors,
+     label_vi: "Lỗi hệ thống", permission: "(role check only)",
+     renders: renderSystemErrors}
+  - {group: "Hệ thống (super_admin only)", page: system-logs-it,
+     label_vi: "Nhật ký", permission: "(role check only)",
+     renders: renderSystemLogsIT}
+  - {group: "Hệ thống (super_admin only)", page: system-services,
+     label_vi: "Dịch vụ", permission: "(role check only)",
+     renders: renderSystemServices}
+  - {group: "Hệ thống (super_admin only)", page: system-diagnostics,
+     label_vi: "Chẩn đoán", permission: "(role check only)",
+     renders: renderSystemDiagnostics}
+  - {group: "Hệ thống (super_admin only)", page: system-audit,
+     label_vi: "Nhật ký quản trị", permission: "(role check only)",
+     renders: renderSystemAudit}
+  - {group: "(top-level)", page: tutorials, label_vi: "Hướng dẫn",
+     permission: "(login_required only)", renders: renderTutorials}
+
+reachable_but_not_nav_exposed:
+  # Real page ids handled by openPage()'s if-chain with NO sidebar entry
+  # in `menu` — reachable only via a direct openPage('<id>') call from
+  # elsewhere in the code (drill-down link), or currently dead/unused.
+  # REQUIREMENT_CODE_GAPS.md flags these as undocumented in the master
+  # requirement doc.
+  - {page: sessions, renders: "renderSimple('Work Sessions', '/api/work-sessions')",
+     likely_reached_from: unknown drill-down — not confirmed in this pass}
+  - {page: qc, renders: "renderSimple('QC Inspections', '/api/qc/inspections')"}
+  - {page: kiosk-events, renders: "renderSimple('Kiosk Events', '/api/kiosk-events')",
+     note: "renders against /api/kiosk-events but no such route was found
+       in the route inventory (API_MAP.yaml) — likely a stale/dead
+       reference; the real kiosk event log lives at GET /api/kiosk/events.
+       Flagged in REQUIREMENT_CODE_GAPS.md."}
+  - {page: notifications, renders: "renderSimple('Thông báo', '/api/notifications')"}
+  - {page: audit, renders: "renderSimple('Audit Logs', '/api/audit-logs')"}
+  - {page: kpi-employees, renders: "renderSimple('KPI nhân viên', '/api/kpi/employees')"}
+  - {page: kpi-operations, renders: "renderSimple('KPI Operation', '/api/kpi/operations')"}
+  - {page: monitoring, renders: renderMonitoring}
+  - {page: esp-ota, renders: renderEspOta,
+     note: "has its own full permission family (ota.* in RBAC_MAP.yaml)
+       and a real feature (esp_ota in FEATURE_MAP.yaml) despite no
+       sidebar entry — reachable via a direct link, likely from
+       kiosk-management. Verify entry point live before writing a UI
+       navigation testcase."}
+  - {page: stations, via: "resources['stations'] generic renderResource(id)"}
+  - {page: sales-orders, via: "resources['sales-orders'] generic renderResource(id)"}
+
+reachable_by_direct_action_not_nav_click:
+  # From docs/MESFLOW_MASTER_REQUIREMENTS.md §2, consistent with this
+  # audit's own reading of app.js's modal/drawer helper functions.
+  - PO detail/edit modal (from production-orders page)
+  - Template tree editor (from templates page)
+  - Session Detail drawer (from session-management page; also reachable
+    via `?session=<id>` deep link per nav.js's comment)
+  - Exception detail drawer (from session-exceptions page)
+  - User edit modal (from users page)
+  - Employee edit/create modal (from employees page)
+  - Working-calendar shift/interval editor (from working-calendar page)
+
+non_admin_app_surfaces:
+  - route: GET /login
+    auth: public
+    note: "?noauto=1 always forces the real password form even when
+      MESFLOW_TEST_AUTO_LOGIN=1 — see TEST_ACCOUNTS.yaml known_issue."
+  - route: GET /kiosk
+    auth: none (Kiosk v1 browser UI, own auth model — see FEATURE_MAP.yaml
+      kiosk_v1_browser)
+  - route: GET /kiosk/employee-productivity
+    auth: none (public wallboard page)
+  - route: POST /api/kiosk/v2/* (kiosk_v2.py)
+    auth: per-device token; no browser UI of its own
+  - route: GET /admin, /admin/
+    auth: >
+      session-checked inside the function body, not via a decorator —
+      redirects to /login?next=<path> if the session is invalid, else
+      redirects to /app. Functionally equivalent to login_required, just
+      implemented as a manual check — legacy alias for /app, not a
+      separate protected surface.

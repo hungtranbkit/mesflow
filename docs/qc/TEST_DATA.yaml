@@ -1,0 +1,122 @@
+# TEST_DATA.yaml — entity prerequisites, factories, dependencies, cleanup.
+# Two SEPARATE prefix namespaces exist on purpose — never mix them:
+#   TUT-      : the tutorial/demo dataset (app/mesflow/tutorial_data.py) —
+#               owned by the tutorial-video pipeline, NOT by QC test runs.
+#   QC_TEST_  : reserved for this QC package's own generated fixtures.
+# A QC run must never clean up TUT- data, and the tutorial pipeline's
+# cleanup() must never be relied on to clean up QC_TEST_ data.
+
+existing_factory_TUT_namespace:
+  entrypoint: python -m mesflow.tutorial_data seed|status|cleanup
+  guard: MESFLOW_TUTORIAL_DATA_ALLOW_PRODUCTION=1 required whenever the
+    target's MESFLOW_ENV=production (true on DEV/DEMO/PRODTEST alike per
+    their compose defaults — see SAFETY.yaml's classification warning)
+  idempotency: seed() always runs cleanup() first, matched by the `TUT-`
+    prefix wildcard — safe to re-run, never duplicates
+  determinism: fixed random seed Random(39) inside tutorial_data.py — the
+    generated dataset's shape (employee count, session count, scenario
+    mix) is reproducible run-to-run on the same code version, so a
+    deterministic-oracle test CAN hardcode expectations against a freshly
+    reseeded TUT- dataset, but should still prefer re-deriving from the
+    live seed() response JSON (it echoes scenario tags/counts) over a
+    hardcoded number that could shift if tutorial_data.py's generator changes.
+  scale_at_audit: >
+    16 employees, 3 production orders (TUT-PO-GUIDE-39/40/41), 20
+    operations, ~164 work sessions, 24 scenario tags (see
+    reports/TUTORIAL_VIDEO_PIPELINE_RECOVERY_20260905.md for the full
+    list and live-verified productivity stats — 85.44% mean, 64.63-95.91%
+    range, 5.3-7.0h avg session duration)
+  use_for: tutorial-video-pipeline verification ONLY, or as read-only
+    reference data for a QC test that specifically wants "a realistic,
+    already-populated production dataset" and does not need to control
+    its own exact fixture shape.
+  do_not: use TUT- data for a QC test that needs deterministic, isolated
+    fixtures the test itself fully controls — create QC_TEST_-prefixed
+    data instead (see below), since TUT- data can be reseeded/wiped by an
+    unrelated tutorial-pipeline run at any time.
+
+qc_test_namespace_QC_TEST:
+  status: >
+    Reserved by this package; no dedicated factory script exists yet in
+    the repo — a QC agent creating fixtures must follow 3 rules.
+  rules:
+    - >
+      Prefix every created entity's natural-language identifier field
+      (employee_no, PO code, template code, station code, equipment code)
+      with `QC_TEST_` followed by a run-scoped suffix (e.g.
+      QC_TEST_20260905_143000_EMP01) so cleanup can target it exactly and
+      so it never collides with TUT- or real business codes.
+    - >
+      Create entities through the real API (POST /api/production-orders
+      via template instantiate, POST /api/employees, etc.) — never via a
+      direct DB write, to keep the fixture subject to the same
+      validation the feature under test enforces.
+    - >
+      Record every created entity's id in the test run's own teardown
+      list, do not rely on a wildcard sweep unless one is written and
+      verified first (mirroring tutorial_data.py's own cleanup() pattern).
+  future_work: >
+    A QC_TEST_ factory script mirroring
+    app/mesflow/tutorial_data.py's seed()/cleanup()/status() shape would
+    remove the need for the 3rd rule's manual bookkeeping — not built in
+    this pass (would be new tooling, out of this audit's "no new
+    business feature" scope; flagged here as a recommendation, not implemented).
+
+entity_prerequisite_chain:
+  # Mirrors the real hierarchy in docs/MESFLOW_MASTER_REQUIREMENTS.md §1.3
+  - entity: template
+    requires: nothing (root)
+    created_by: POST /api/templates (generic resource) or
+      POST /api/templates/import-workbook
+  - entity: production_order
+    requires: an existing, validated template (>=1 Part/Operation)
+    created_by: POST /api/templates/<id>/instantiate — NEVER
+      POST /api/production-orders directly (that is refused by design,
+      see BUSINESS_RULES.yaml po_creation_via_template_only)
+  - entity: part
+    requires: production_order (created together via instantiate, or
+      individually via POST /api/parts with production_order_id)
+  - entity: operation
+    requires: part (created together via instantiate, or individually via
+      POST /api/operations with part_id)
+    optional_dependency: predecessor_operation_id (pure order) and/or
+      input_source_operation_id (material-flow — requires the source
+      Operation to have had >=1 session started before this one can start)
+  - entity: employee
+    requires: nothing (root); must be active=true (derived from
+      employment_status != "Đã nghỉ") to be usable in a session
+    created_by: POST /api/employees
+  - entity: station
+    requires: nothing (root, optional on a session)
+    created_by: POST /api/stations (generic resource, not nav-exposed)
+  - entity: work_session
+    requires: employee (active) + operation (whose PO is IN_PROGRESS) +
+      station (optional)
+    created_by: POST /work-sessions/start, Kiosk v1
+      (POST /api/kiosk-web/start), or Kiosk v2 OP-scan event
+    precondition_detail: see STATE_MACHINES.yaml work_session.transitions
+  - entity: exception_record
+    requires: nothing created directly — always system-detected from an
+      existing work_session/operation meeting one of the 7 conditions in
+      BUSINESS_RULES.yaml
+  - entity: user (RBAC account)
+    requires: nothing (root)
+    created_by: POST /api/users (users.manage)
+
+cleanup:
+  TUT_namespace: python -m mesflow.tutorial_data cleanup (idempotent,
+    matches TUT- prefix wildcard)
+  QC_TEST_namespace: no wildcard sweep exists yet (see future_work above)
+    — a QC run must delete/restore what it created via the same APIs it
+    used to create them (DELETE endpoints, or exclude+reason for sessions
+    that cannot be hard-deleted once they carry history — see
+    BUSINESS_RULES.yaml history_guard_* rules).
+  never_delete: any entity NOT prefixed TUT- or QC_TEST_ — treat as real
+    business data regardless of how "obviously a test row" it looks.
+
+reset_between_runs: >
+  There is no single "reset the whole DB" script in scope for QC use —
+  scripts/prepare-tutorial-data.sh wraps tutorial_data.py for the
+  TUT- namespace only. A QC run needing a clean slate should scope its own
+  QC_TEST_ fixtures narrowly enough that cleanup is tractable per-run,
+  rather than assuming a global reset is available.

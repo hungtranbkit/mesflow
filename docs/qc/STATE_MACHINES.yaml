@@ -1,0 +1,206 @@
+# STATE_MACHINES.yaml — every entity with a real lifecycle: states,
+# transitions, guards. Source-grounded via app/mesflow/db/repositories/
+# execution.py (status computation, session lifecycle) and
+# app/mesflow/services/shift_session_service.py (auto-close),
+# app/mesflow/web/kiosk_v2.py (device state machine). Full prose detail
+# lives in docs/MESFLOW_MASTER_REQUIREMENTS.md §5-§7 — this file is the
+# structured, testable summary; do not re-derive from the master doc's
+# prose without checking source for anything you plan to assert strictly.
+
+work_session:
+  entity: work_sessions
+  status_field: status
+  states: [OPEN, CLOSED]
+  note: no other value ever exists (DB CHECK-level enum in practice)
+  transitions:
+    - from: [none]
+      to: OPEN
+      trigger: start() — POST /work-sessions/start or Kiosk v2 OP-scan
+        while WAIT_OPERATION
+      guards:
+        - "employee.active == true"
+        - "PO of target Operation is IN_PROGRESS"
+        - "if Operation.input_flow_enabled, source Operation has >=1 session ever started"
+        - "employee has no other OPEN session (DB unique index on (employee_id) WHERE status='OPEN')"
+        - "no time-overlap with employee's other sessions"
+      source: app/mesflow/db/repositories/execution.py (start path)
+    - from: OPEN
+      to: CLOSED
+      trigger: finish() — POST /work-sessions/<id>/finish, Kiosk v2
+        QUANTITY_SUBMITTED, or POST /session/group/finish (atomic batch)
+      side_effects: {close_reason: "", closed_by_system: false,
+        quantity_confirmed: true}
+      guards: [rework_qty <= defect_qty, session currently OPEN,
+        material/input-flow availability, no time-overlap]
+      source: app/mesflow/db/repositories/execution.py (finish path)
+    - from: OPEN
+      to: CLOSED
+      trigger: auto-close — scheduled job shift_session_reconciliation
+        (see BACKGROUND_JOBS.yaml), only past shift end + grace
+      side_effects: {close_reason: "AUTO_SHIFT_END", closed_by_system: true,
+        quantity_confirmed: false, shift_boundary_used_at: <shift end ts>}
+      guards: [MESFLOW_SHIFT_AUTO_CLOSE_ENABLED=1,
+        MESFLOW_SHIFT_AUTO_CLOSE_DRY_RUN=0 (both required; rollout-safe
+        defaults are 0/1 — a fresh env does NOT auto-close by default)]
+      concurrency: per-session advisory lock; a session no longer OPEN when
+        the lock is acquired is a safe no-op, not an error/double-close
+      source: app/mesflow/services/shift_session_service.py
+    - from: [CLOSED]
+      to: [none]
+      trigger: NONE EXISTS
+      note: >
+        No "reopen a CLOSED session" code path was found anywhere. A
+        testcase asserting reopen behavior is testing a feature that does
+        not exist — treat as SPEC-GAP-004 (carried from master doc), not a
+        target for test generation.
+  orthogonal_flags:
+    quantity_confirmed:
+      type: boolean
+      default_on_manual_finish: true
+      set_false_by: [auto-close only]
+      set_true_by: [any manual finish, adjust(), edit_session()]
+    excluded_from_reports:
+      type: boolean
+      default: false
+      set_by: [POST .../exclude (true, requires reason), POST .../restore
+        (false, requires reason)]
+      effect: removed from every KPI/report/exception-detection aggregate;
+        row/status/history untouched, never deleted
+  other_transitions_not_state_changes:
+    - name: transfer-operation
+      trigger: POST /supervisor/sessions/<id>/transfer-operation
+      effect: reassigns operation_id; both old and new Operation's computed
+        status recompute
+    - name: adjust
+      trigger: POST /supervisor/sessions/<id>/adjust
+      effect: corrects good/defect/rework with mandatory reason; always
+        sets quantity_confirmed=true regardless of prior value
+    - name: full edit
+      trigger: PATCH /supervisor/sessions/<id>
+      effect: optimistic concurrency via expected_updated_at (stale ->
+        refused, never silently overwritten)
+
+operation:
+  entity: operations
+  status_field: status
+  states: [DRAFT, PLANNED, RELEASED, READY, IN_PROGRESS, PAUSED, COMPLETED, CANCELLED]
+  computation: fully derived — recalculated after every relevant session
+    change; only CANCELLED is set by a direct user action
+  evaluation_order_first_match_wins:
+    - {if: "status == CANCELLED", then: CANCELLED, note: sticky forever}
+    - {if: "any session OPEN", then: IN_PROGRESS}
+    - {if: "status == COMPLETED AND 0 reportable sessions left", then: COMPLETED,
+       note: stays even if all history later excluded}
+    - {if: "plan_qty > 0 AND good_qty >= plan_qty", then: COMPLETED}
+    - {if: "status == PAUSED", then: PAUSED, note: sticky, survives
+       unrelated-activity reconcile churn}
+    - {if: ">=1 reportable session exists", then: IN_PROGRESS}
+    - {if: "status in (DRAFT,PLANNED,RELEASED,READY)", then: unchanged}
+    - {else: PLANNED}
+  explicit_action:
+    trigger: POST /operations/<id>/cancel -> CANCELLED
+    refused_if: [already COMPLETED (use rework flow instead), has any OPEN session]
+  source: >
+    app/mesflow/db/repositories/execution.py / production_state
+    reconciliation (cited by commit 1076803's message as
+    production_state.py, rule good>=planned)
+
+production_order:
+  entity: production_orders
+  status_field: status
+  states: [DRAFT, PLANNED, RELEASED, IN_PROGRESS, PAUSED, COMPLETED, CANCELLED]
+  only_code_enforced_transition:
+    trigger: POST /production-orders/<id>/start
+    guards: [">=1 Operation exists", "status not in (COMPLETED, CANCELLED)"]
+    idempotent: true — already-IN_PROGRESS returns success with
+      already_started:true, not an error
+    to: IN_PROGRESS
+  other_status_changes: >
+    Generic PATCH /production-orders/<id> validates enum membership only —
+    NO further transition graph is enforced in code (e.g. a direct
+    PLANNED -> COMPLETED PATCH is not blocked). Do not assert a stricter
+    graph exists (SPEC-GAP-002, carried from master doc) without testing
+    the live behavior first.
+
+exception_record:
+  entity: exception_records ("Trung tâm ngoại lệ" / Exception Center — the
+    PRIMARY exception system; do not confuse with session_exception_review below)
+  status_field: status
+  states: [OPEN, ACKNOWLEDGED, RESOLVED, AUTO_IGNORED, MANUAL_IGNORED]
+  active_states: [OPEN, ACKNOWLEDGED]
+  transitions:
+    - {from: "[detected, fresh fingerprint]", to: OPEN, trigger: detection
+       (background reconciliation, see FEATURE_MAP.yaml exception_detection)}
+    - {from: OPEN, to: ACKNOWLEDGED, trigger: "POST /exceptions/<id>/acknowledge"}
+    - {from: [OPEN, ACKNOWLEDGED], to: RESOLVED, trigger: "POST /exceptions/<id>/resolve"}
+    - {from: [OPEN, ACKNOWLEDGED], to: MANUAL_IGNORED, trigger: "POST /exceptions/<id>/ignore"}
+    - {from: "[system, condition]", to: AUTO_IGNORED, trigger: unknown —
+       exact condition not traced to source (SPEC-GAP-005, carried)}
+  concurrency: every transition requires the caller to pass expected_version
+    (row_version); mismatch -> refused, not silently applied
+  uniqueness: fingerprint unique WHILE status IN (OPEN, ACKNOWLEDGED) only —
+    a resolved/ignored condition recurring creates a NEW record (new
+    occurrence_no), never revives the old one
+  detection_conditions: see BUSINESS_RULES.yaml exception_detection_* rules
+
+session_exception_review:
+  entity: session_exception_reviews (LEGACY, "Session Exceptions" tab on
+    Session Management — a SEPARATE, older system from exception_records
+    above; different codes/fingerprints, do not conflate)
+  status_field: workflow_status
+  states: [NEW, IN_PROGRESS, RESOLVED, IGNORED]
+  transitions:
+    - {from: NEW, to: IN_PROGRESS, trigger: "PATCH /session-exceptions/workflow"}
+    - {from: IN_PROGRESS, to: RESOLVED, trigger: "PATCH /session-exceptions/workflow"}
+    - {from: [NEW, IN_PROGRESS], to: IGNORED, trigger: "PATCH /session-exceptions/workflow"}
+  note: >
+    CHECK-constraint-only enum (4 values); no further code-enforced
+    ordering confirmed beyond the constraint — whether NEW->RESOLVED
+    (skipping IN_PROGRESS) is blocked is untested; record actual behavior,
+    do not assume.
+
+kiosk_v2_device:
+  entity: per-device server-side "projection" (short-lived UI state,
+    separate from the durable work_sessions state above)
+  states: [WAIT_EMPLOYEE, WAIT_OPERATION, QUANTITY_INPUT, SESSION_ACTIVE, DEVICE_DISABLED, MAINTENANCE]
+  states_note: "SESSION_ACTIVE is legacy-reachable only, not part of the normal flow"
+  source: app/mesflow/web/kiosk_v2.py
+  transitions:
+    - {from: WAIT_EMPLOYEE, event: "SCAN(kind=EMP), no open session", to: WAIT_OPERATION}
+    - {from: WAIT_EMPLOYEE, event: "SCAN(kind=EMP), HAS open session", to: QUANTITY_INPUT,
+       note: direct — skips confirmation screen}
+    - {from: WAIT_EMPLOYEE, event: "SCAN(kind=OP)", to: REJECTED,
+       error: STATE_INVALID_TRANSITION}
+    - {from: WAIT_OPERATION, event: "SCAN(kind=OP), PO IN_PROGRESS", to: WAIT_EMPLOYEE,
+       side_effect: "real work_session created server-side (see
+       work_session.transitions start), device resets immediately for next worker"}
+    - {from: WAIT_OPERATION, event: "SCAN(kind=OP), PO not IN_PROGRESS", to: REJECTED,
+       error: OPERATION_NOT_WORKABLE}
+    - {from: WAIT_OPERATION, event: "SCAN(kind=EMP)", to: REJECTED,
+       error: STATE_INVALID_TRANSITION}
+    - {from: SESSION_ACTIVE, event: FINISH_REQUESTED, to: QUANTITY_INPUT,
+       note: "confirmed in app/mesflow/web/kiosk_v2.py — any OTHER state rejects with STATE_INVALID_TRANSITION, 'Không có phiên đang hoạt động'; this is the legacy/debug-input compatibility path, not part of the normal WAIT_EMPLOYEE->WAIT_OPERATION->QUANTITY_INPUT flow (which reaches QUANTITY_INPUT directly via a repeat EMP-scan instead, per the WAIT_EMPLOYEE transitions above)"}
+    - {from: QUANTITY_INPUT, event: QUANTITY_SUBMITTED, to: WAIT_EMPLOYEE,
+       note: "confirmed in app/mesflow/web/kiosk_v2.py — session finish() is called (see work_session.transitions), then the device projection resets to WAIT_EMPLOYEE in the same call"}
+    - {from: any, event: CANCEL_REQUESTED, to: WAIT_EMPLOYEE}
+    - {from: [DEVICE_DISABLED, MAINTENANCE], event: any, to: REJECTED,
+       error: DEVICE_NOT_ALLOWED, note: hard block regardless of event type}
+  idempotency: keyed by (device_id, event_id) — duplicated/replayed offline
+    events never double-apply
+  multi_employee_proof: >
+    REQ-KIOSK-003 / commit 1076803's kioskQuickCycle(): device resets to
+    WAIT_EMPLOYEE after each employee's OP-scan, so a following employee's
+    EMP-scan resolves fresh against THEM, never a leftover from the
+    previous worker still holding an OPEN session on the same device —
+    this is the exact case the multi-employee tutorial chapter demonstrates.
+
+employee:
+  entity: employees
+  computed_field: active
+  rule: "active = (employment_status != 'Đã nghỉ')"
+  note: NOT independently settable — submitting active:false directly while
+    employment_status stays "Đang làm" still resolves active=true (the
+    derived rule wins). A real, testable trap (REQ-EMP-001 boundary).
+  effect_on_sessions: inactive employee cannot start() a NEW session
+    (checked before any Operation-side check); an EXISTING open session for
+    an employee who just became inactive is NOT auto-closed by this check.

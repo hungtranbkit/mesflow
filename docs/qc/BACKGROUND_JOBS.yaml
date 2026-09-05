@@ -1,0 +1,123 @@
+# BACKGROUND_JOBS.yaml — everything that changes state without a direct
+# user click. Source: app/mesflow/cli.py (command bodies) +
+# scripts/install-reconcile-cron.sh / scripts/install-log-retention-cron.sh
+# (actual host-cron schedule + invocation) + scripts/deploy.sh (installs
+# both crons on every deploy, verifies presence via
+# scripts/verify-scheduler-cron.sh).
+
+jobs:
+  - id: exception_reconciliation
+    command: python -m mesflow.cli reconcile-exceptions
+    schedule: "*/5 * * * *"   # every 5 minutes, host crontab
+    installed_by: scripts/install-reconcile-cron.sh (via scripts/deploy.sh
+      on every deploy)
+    invocation_wrapper: "docker compose exec -T <app_service> python -m
+      mesflow.cli reconcile-exceptions >> runtime/exception-reconcile.log 2>&1"
+    input: none (scans exception_records + reportable work_sessions/operations)
+    side_effect: inserts new exception_records rows (status=OPEN) for any
+      of the 7 detection conditions (see BUSINESS_RULES.yaml
+      exception_detection_*) not already active for that fingerprint
+    idempotent: true — detection keyed by fingerprint, re-running never
+      duplicates an active record
+    also_runs_as: side effect of GET /api/exceptions (kept for interactive
+      UI freshness — see app/mesflow/web/exceptions.py) — the cron is the
+      REAL, UI-independent path so detection still happens with nobody
+      viewing the Exception Center (matters most right after shift
+      auto-close, e.g. a 3am close nobody sees until next shift)
+    verify:
+      log_file: runtime/exception-reconcile.log (on the deploy target, not
+        in the repo)
+      log_line_format: "[RECONCILE] exception_reconciliation: N new
+        exception(s) detected"
+      db_check: "SELECT count(*) FROM exception_records WHERE detected_at >
+        now() - interval '5 minutes'"
+    test_environment_support: >
+      Not directly invocable as a single HTTP call — test via (a) the
+      job's own CLI entrypoint inside a test container, or (b) triggering
+      GET /api/exceptions after seeding a triggering condition (uses the
+      inline reconciliation path, same detection logic).
+    source: app/mesflow/cli.py:reconcile_exceptions,
+      app/mesflow/services/exception_service.py:ExceptionDetectionService
+
+  - id: shift_session_reconciliation
+    command: python -m mesflow.cli reconcile-shift-sessions
+    schedule: "* * * * *"   # every minute, host crontab
+    installed_by: scripts/install-reconcile-cron.sh (same script as above,
+      installs both crons together)
+    invocation_wrapper: "docker compose exec -T <app_service> python -m
+      mesflow.cli reconcile-shift-sessions >> runtime/shift-reconcile.log 2>&1"
+    input: none (finds every OPEN work_session past its own shift's end +
+      grace period)
+    side_effect: auto-closes matching sessions — see
+      STATE_MACHINES.yaml work_session auto-close transition for the exact
+      field changes (close_reason, closed_by_system, quantity_confirmed)
+    rollout_safety_flags:
+      MESFLOW_SHIFT_AUTO_CLOSE_ENABLED: "default 0 — a fresh/new
+        environment does NOT auto-close real sessions until explicitly set to 1"
+      MESFLOW_SHIFT_AUTO_CLOSE_DRY_RUN: "default 1 — logs what WOULD close
+        without writing, until explicitly set to 0"
+      cli_override: "--dry-run / --live flags on the command line always
+        win over the environment defaults (lets a human force one real run,
+        or force one dry inspection, without touching env vars)"
+    concurrency: per-session advisory lock; a session already closed by the
+      time the lock is acquired (manual finish won the race, or a faster
+      concurrent run got there first) is a documented no-op
+    verify:
+      log_file: runtime/shift-reconcile.log
+      db_check: "SELECT count(*) FROM work_sessions WHERE close_reason =
+        'AUTO_SHIFT_END' AND updated_at > now() - interval '1 minute'"
+    test_environment_support: >
+      Same as exception_reconciliation — invoke the CLI entrypoint directly
+      in a test container with a fixture session whose shift end has
+      already passed, or fast-forward the fixture's clock if the harness
+      supports it.
+    source: app/mesflow/cli.py:reconcile_shift_sessions,
+      app/mesflow/services/shift_session_service.py:ShiftSessionReconciliationService
+
+  - id: log_retention
+    command: /app/scripts/cleanup-logs.sh run
+    schedule: "17 2 * * *"   # 02:17 daily, host crontab
+    installed_by: scripts/install-log-retention-cron.sh (via scripts/deploy.sh)
+    invocation_wrapper: "docker compose exec -T <app_service>
+      /app/scripts/cleanup-logs.sh run >> runtime/log-retention.log 2>&1"
+    input: retention windows from env (MESFLOW_LOG_RETENTION_*_DAYS —
+      success/resolved-error/unresolved-error/security/slow/
+      error-trace-resolved/error-trace-unresolved, plus batch size)
+    side_effect: deletes/archives old action-log and error-trace rows past
+      their category's retention window
+    manual_equivalent: "GET /api/system/log-retention/preview (admin_required,
+      dry preview), POST /api/system/log-retention/run (admin_required,
+      manual trigger), GET /api/system/log-retention/runs (history)"
+    test_environment_support: run the manual API endpoints above against a
+      test-seeded log table rather than waiting for the cron; never rely
+      on wall-clock timing in an automated test.
+    source: scripts/cleanup-logs.sh, app/mesflow/web/action_logging.py
+
+manual_diagnostic_commands_not_scheduled:
+  # These exist as CLI/API entry points but are NOT installed as cron jobs
+  # by scripts/deploy.sh — confirmed by grepping every scripts/install-*
+  # cron installer for their names and finding none. Do not assume they
+  # run automatically; they are on-demand only unless a target's own
+  # crontab has been hand-configured outside this repo's tooling (verify
+  # per-target if a testcase depends on periodic execution).
+  - id: run_predictive
+    command: python -m mesflow.cli run-predictive
+    feeds: GET /api/system-health/predictions (super_admin, System Console)
+    source: app/mesflow/cli.py:run_predictive
+  - id: audit_sessions
+    command: python -m mesflow.cli audit-sessions
+    purpose: pre-flight inspection tool referenced by
+      scripts/install-reconcile-cron.sh's own rollout-safety note ("run
+      this first, inspect a dry-run cycle, THEN flip
+      MESFLOW_SHIFT_AUTO_CLOSE_ENABLED")
+    source: app/mesflow/cli.py:audit_sessions
+  - id: audit_integrity
+    command: python -m mesflow.cli audit-integrity
+    source: app/mesflow/cli.py:audit_integrity
+
+client_side_polling_not_a_background_job: >
+  app/mesflow/web/static/app.js's dashboard view re-fetches
+  /api/dashboard/* on a 10-second setInterval while that page is open —
+  this is browser-side polling driven by a page being visible, not a
+  server background job; do not confuse it with the 3 cron jobs above when
+  writing an oracle that needs "eventually consistent" timing.

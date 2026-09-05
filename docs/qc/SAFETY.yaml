@@ -1,0 +1,113 @@
+# SAFETY.yaml — what a QC agent is allowed to DO on each kind of target.
+# Read this before running any QC action, not just before a "production"
+# one — the classification of the target you're pointed at is not always
+# obvious (see the mesflow.net note below).
+
+classification_procedure: >
+  Never assume a target's class from its domain name or from MESFLOW_ENV
+  alone (MESFLOW_ENV=production is the compose default for DEV/DEMO/
+  PRODTEST alike — it means "hardened cookie mode", NOT "this is the real
+  business system"; see docs/MESFLOW_MASTER_REQUIREMENTS.md §12's
+  explicit warning). Classify a target by checking, in order:
+    1. GET /api/system/ready -> server_role field (DEV / PRODUCTION_TEST /
+       unset-or-other)
+    2. Whether MESFLOW_TEST_AUTO_LOGIN is enabled there (a real production
+       system must NEVER have this on — if it's on, the target is at most
+       PRODTEST-class)
+    3. Whether you or your task owner can independently confirm the host/
+       container identity (docker inspect, deploy manifest digest match) —
+       a domain name alone is not proof. Confirmed real incident (2026-09-05):
+       the public `mesflow.net` domain returned a server_role/commit that
+       matched NO container reachable from the audit host — do not trust a
+       domain-to-backend assumption without this kind of independent check.
+
+classes:
+  local_dev:
+    matches: server_role == "DEV", or a sandbox explicitly started for this
+      QC run (e.g. an isolated docker-compose stack), MESFLOW_ENV in
+      (local, test)
+    permitted: [read, navigate, safe_search, write, destructive_write
+      (within seeded QC_TEST_/TUT- prefixed data only — see TEST_DATA.yaml),
+      test_auto_login, background_job manual trigger]
+    forbidden: [touching any non-prefixed / pre-existing business data
+      without an explicit test-data contract]
+
+  demo:
+    matches: server_role unset/None but MESFLOW_TEST_AUTO_LOGIN=1 AND
+      MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1 both present, a
+      dedicated non-public container (e.g. 127.0.0.1:8081, not reachable
+      from the public internet)
+    permitted: same as local_dev — this is an internal, disposable
+      environment; TUT-/QC_TEST_-prefixed writes are expected and cleaned
+      up idempotently
+    forbidden: [payment/email/sms integrations if ever added — treat as
+      forbidden by default on ANY non-local class until explicitly
+      confirmed sandboxed]
+
+  prodtest:
+    matches: server_role == "PRODUCTION_TEST"
+    permitted: [read, navigate, safe_search, write, destructive_write
+      (QC_TEST_/TUT- prefixed only), test_auto_login IF explicitly enabled
+      there (verify per-target, do not assume), background_job manual
+      trigger for verification]
+    forbidden: [config changes outside a QC run's own prefixed test data,
+      firmware/OTA actions against real device fleets, service restarts
+      via the System Console unless the task is explicitly about System
+      Console verification and a human has authorized it]
+    note: this is the public-facing pre-prod tutorial/QA target
+      (prod.mesflow.net at audit time) — real external users may view its
+      published tutorial videos; do not leave it in a broken state after a
+      QC run (a video-generation or dataset run belongs on demo first,
+      promoted here only after its own QA gate passes).
+
+  production:
+    matches: any target where server_role/identity cannot be positively
+      confirmed as one of the 3 classes above, OR where it can be
+      positively confirmed to be a real live business system serving real
+      users' real data.
+    permitted: [read, navigate, safe_search]
+    forbidden_by_default: [destructive_write, test_auto_login,
+      payment_action, email_action, sms_action, config_change,
+      service_restart, firmware_deploy, any write outside a narrowly
+      scoped, explicitly human-authorized exception recorded in the task's
+      own instructions for that specific run]
+    override_procedure: >
+      A production-class action is permitted ONLY when the human operator
+      explicitly authorizes that specific action for that specific run —
+      general task language like "continue" or "proceed" does NOT count as
+      this authorization for a production-class target. When in doubt,
+      treat the target as production-class and ask.
+    known_unidentified_target: >
+      The public `mesflow.net` domain is UNCLASSIFIED at audit time
+      (2026-09-05) — its backend does not match any locally-reachable
+      container's identity. Treat it as production-class (read-only) until
+      someone with infrastructure access resolves its real identity.
+
+action_definitions:
+  read: GET requests, viewing pages, reading logs/reports
+  navigate: clicking through the UI without submitting a form that mutates
+    state
+  safe_search: filtering/searching/sorting existing data (no mutation)
+  write: creating/updating records that are clearly QC-owned test data
+    (QC_TEST_/TUT- prefixed)
+  destructive_write: delete, force-delete, exclude, auto-close trigger,
+    any action described in docs/qc/BUSINESS_RULES.yaml or
+    STATE_MACHINES.yaml as irreversible or affecting aggregate reports
+  test_auto_login: POST /api/auth/test-auto-login (see RBAC_MAP.yaml)
+  background_job manual trigger: invoking a BACKGROUND_JOBS.yaml job's CLI
+    command directly instead of waiting for its cron schedule
+
+cleanup_requirement: >
+  Every write this package's Executors make must be reversible or
+  QC_TEST_-prefixed so scripts/validate_qc_package.py's or a future QC
+  run's cleanup step can remove it without touching real business data —
+  see TEST_DATA.yaml's cleanup section.
+
+never: >
+  - Never git push --force on any shared branch.
+  - Never `git add -A` blindly — review staging before every commit.
+  - Never delete real production data.
+  - Never run a QC action against an unclassified target as anything other
+    than production-class (read-only).
+  - Never fabricate a PASS to reduce a BLOCKED/unknown_mapping count —
+    report the true number and why.

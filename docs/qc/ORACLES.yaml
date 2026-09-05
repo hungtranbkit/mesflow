@@ -1,0 +1,100 @@
+# ORACLES.yaml — how to decide PASS/FAIL for a given feature/action. A
+# toast/success message alone is NEVER sufficient when the action is
+# supposed to persist business state — always pair it with a state check.
+
+principles:
+  - A UI success toast is a NECESSARY but not SUFFICIENT oracle for any
+    write that is supposed to persist — always follow with a
+    read-back (API or DB) that confirms the actual field changed.
+  - Prefer the API response body over scraping rendered UI text when both
+    are available — the API is the contract; UI text can be
+    reworded without being a real regression.
+  - For read-only screens, the UI's rendered numbers must equal the same
+    numbers as the API endpoint that page calls (see FEATURE_MAP.yaml
+    api_endpoints per feature) — a UI-only check without an API
+    cross-check can miss a rendering bug that happens to look plausible.
+  - For anything with a formula (see BUSINESS_RULES.yaml /
+    REPORT_FORMULA-classified sections), compute the expected value
+    independently from the same input rows the oracle reads, never from
+    a previously-observed UI number.
+
+oracle_types:
+  ui_state:
+    what: a specific DOM assertion (element visible/enabled/disabled,
+      text content, class present) via Playwright
+    when_sufficient: >
+      UI-only requirements (REQ-UI-* class), navigation/visibility
+      checks, RBAC nav-hiding checks (REQ-UI-004-equivalent — item
+      absent, not disabled)
+    when_insufficient: alone, for anything that also writes business state
+      — pair with api_response or db_read
+
+  api_response:
+    what: HTTP status code + exact body shape/field values from the
+      endpoint the action called
+    when_sufficient: any endpoint documented in API_MAP.yaml with a known
+      response schema; error-code assertions (exact error string, not
+      just "not 200")
+    reference: docs/MESFLOW_MASTER_REQUIREMENTS.md §11 (error catalog) /
+      MESFLOW_MASTER_REQUIREMENTS_VI.md mục 11 for exact expected error
+      bodies
+
+  db_read_readonly:
+    what: a read-only SQL query (never a write) against the target's own
+      database, used to confirm a row's actual persisted state when the
+      API's own read-back is ambiguous or when testing something the API
+      deliberately doesn't expose (e.g. DB-level unique constraints)
+    when_to_use: >
+      - Confirming a DB-enforced constraint fired (e.g.
+        work_sessions(employee_id) WHERE status='OPEN' unique index) by
+        attempting to bypass app-level validation, not just observing the
+        app's own error message.
+      - Confirming an audit row exists in the same transaction as its
+        triggering action (NFR-003-equivalent).
+    caution: read-only only — never let an oracle itself become a write
+      path; see SAFETY.yaml.
+
+  background_job_effect:
+    what: re-run the job's manual-trigger equivalent (see
+      BACKGROUND_JOBS.yaml) or query the affected table directly, rather
+      than waiting on the cron's real schedule
+    when_to_use: any BACKGROUND_JOBS.yaml-classified feature (exception
+      detection, shift auto-close, log retention)
+    anti_pattern: sleeping until a cron's next scheduled minute — slow,
+      flaky, and couples the test to wall-clock time; always prefer the
+      job's own CLI/API manual-trigger path in a test environment.
+
+  deterministic_computation:
+    what: compute the expected value in the test itself from the same raw
+      inputs the feature reads (e.g. re-derive productivity_percent from
+      seeded good_qty/defect_qty/standard_seconds_per_unit/duration using
+      the exact formula in BUSINESS_RULES.yaml), then compare
+    when_to_use: any REPORT_FORMULA-classified section (Employee
+      Productivity KPI, wallboard) — never hardcode an "expected 85%"
+      without deriving it from the actual seeded data for that specific
+      test run, since seeded data can legitimately vary run to run unless
+      pinned by a fixed random seed (tutorial_data.py uses Random(39) —
+      see TEST_DATA.yaml).
+
+per_feature_default_oracle:
+  # A feature not listed here uses api_response by default; see
+  # FEATURE_MAP.yaml's own `oracle` field per feature for the authoritative
+  # per-feature choice — this table is a fallback/quick-reference only.
+  auth: api_response (login/me/logout response shape + session cookie presence)
+  rbac_admin: api_response + db_read_readonly (grant table no-op case)
+  work_session_lifecycle: api_response + db_read_readonly (unique-index /
+    audit-row cases)
+  kiosk_v2: api_response (event response + device-state field) — never
+    ui_state alone, since Kiosk v2 has no browser UI of its own
+  kiosk_v1: ui_state + api_response (it IS a browser UI, backed by the same
+    session-lifecycle API)
+  employee_productivity_report: deterministic_computation + api_response
+  exception_center: api_response + background_job_effect (detection) +
+    db_read_readonly (row_version/optimistic-concurrency cases)
+  shift_auto_close: background_job_effect + db_read_readonly
+  tutorials: api_response (manifest item count/shape) + ui_state (video
+    element readyState/duration, per the historical
+    PRODTEST_TUTORIAL_VIDEO_FIX_20260904.md verification method) — do NOT
+    rely on a static file-count check alone, since a stale/duplicate
+    numbering bug (see reports/TUTORIAL_VIDEO_PIPELINE_RECOVERY_20260905.md)
+    can produce a plausible-looking file count that is still wrong.

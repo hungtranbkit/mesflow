@@ -1,0 +1,323 @@
+# API_MAP.yaml — endpoint -> feature -> roles -> surface. Extracted
+# programmatically from every @bp.<method>/@app.<method> decorator across
+# app/mesflow/web/*.py (183 routes total at audit time) and cross-checked
+# against each route's own decorator stack.
+#
+# IMPORTANT caveat on the `roles` column: a route with no
+# login_required/roles_required/permission_required/admin_required/
+# super_admin_required DECORATOR is not necessarily unauthenticated — many
+# such routes call `session_policy.validate_and_touch()` MANUALLY inside
+# the function body instead (confirmed for GET /api/tutorials,
+# GET /tutorials/<filename>, GET /app, GET /admin, GET /api/auth/me among
+# others). `roles: none_decorator` below means exactly that — "no
+# decorator found", NOT "confirmed unauthenticated". Only the entries
+# explicitly marked `roles: public_confirmed` below were verified by
+# reading the function body for an actual auth check (or its absence).
+# Never assume `none_decorator` means public without checking the body.
+
+surface_legend:
+  ui: called from a render*() function in app/mesflow/web/static/{app.js,pages/*.js}
+  api_only: no UI caller found in this pass (internal/integration/legacy use)
+  device: Kiosk v1/v2 device-facing, not a user-role surface
+  background: invoked by a cron job (see BACKGROUND_JOBS.yaml), not a
+    direct user/UI call
+
+by_feature:
+  auth_login:
+    - {method: POST, path: /api/auth/login, roles: public_confirmed
+       (establishes the identity later checks run against), surface: ui}
+    - {method: POST, path: /api/auth/logout, roles: public_confirmed
+       (callable with or without a session), surface: ui}
+    - {method: GET,  path: /api/auth/me, roles: public_confirmed
+       (session-checked in body, returns 401 if none), surface: ui}
+    - {method: POST, path: /api/auth/test-auto-login, roles: public_confirmed
+       (guarded by MESFLOW_TEST_AUTO_LOGIN env, not by role), surface: ui}
+    - {method: POST, path: /api/auth/change-password, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /login, roles: public_confirmed, surface: ui}
+    - {method: GET,  path: /app, roles: public_confirmed (session-checked
+       in body, redirects to /login if invalid), surface: ui}
+    - {method: GET,  path: "/admin, /admin/", roles: public_confirmed
+       (session-checked in body; legacy alias for /app), surface: ui}
+
+  rbac_admin:
+    - {method: GET,  path: /api/users, roles: "permission_required(users.view)", surface: ui}
+    - {method: POST, path: /api/users, roles: "permission_required(users.manage)", surface: ui}
+    - {method: PATCH, path: /api/users/<id>, roles: "permission_required(users.manage)", surface: ui}
+    - {method: POST, path: /api/users/<id>/reset-password, roles: "permission_required(users.manage)", surface: ui}
+    - {method: GET,  path: /api/roles, roles: "permission_required(users.view)", surface: ui}
+    - {method: PUT,  path: /api/roles/<role_code>/permissions, roles: "permission_required(roles.manage)", surface: ui}
+
+  dashboard_overview:
+    - {method: GET, path: /api/dashboard/overview, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/dashboard/summary, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/dashboard/production-orders, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/dashboard/recent-activity, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/dashboard/control-tower, roles: any_authenticated, surface: ui}
+
+  dashboard_daily:
+    - {method: GET, path: /api/dashboard/active-sessions, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/dashboard/daily-progress, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/dashboard/daily-sessions, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/dashboard/shift, roles: any_authenticated, surface: ui}
+
+  production_order:
+    - {method: GET,  path: "/api/production-orders (generic resource)", roles: "po.view (generic prefix rule)", surface: ui}
+    - {method: POST, path: "/api/production-orders (generic resource)", roles: literal_admin_manager
+       (route decorator; REFUSED in practice unless via instantiate — see
+       BUSINESS_RULES.yaml po_creation_via_template_only), surface: api_only}
+    - {method: PATCH, path: "/api/production-orders/<id> (generic resource)", roles: "po.edit (generic prefix rule)", surface: ui}
+    - {method: DELETE, path: "/api/production-orders/<id> (generic resource)", roles: "po.edit (generic prefix rule)", surface: ui}
+    - {method: DELETE, path: /api/production-orders/<id>/force, roles: "admin ONLY (explicit carve-out, see RBAC_MAP.yaml)", surface: ui}
+    - {method: POST, path: /api/production-orders/<id>/start, roles: "admin,manager,supervisor (explicit carve-out)", surface: ui}
+    - {method: GET,  path: /api/production-orders/<id>/trace, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/reports/production-orders/<po_id>, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/production-state/reconcile, roles: literal_admin_manager, surface: api_only}
+
+  template:
+    - {method: GET,  path: "/api/templates (generic resource)", roles: "template.view (generic prefix)", surface: ui}
+    - {method: GET,  path: /api/templates/<id>/tree, roles: any_authenticated, surface: ui}
+    - {method: PUT,  path: /api/templates/<id>/tree, roles: literal_admin_manager, surface: ui}
+    - {method: GET,  path: /api/templates/<id>/validate, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/templates/available-for-po, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/templates/<id>/instantiate, roles: literal_admin_manager, surface: ui}
+    - {method: POST, path: /api/templates/demo/seed, roles: "admin ONLY (explicit carve-out)", surface: ui}
+    - {method: DELETE, path: /api/templates/demo, roles: "admin ONLY (explicit carve-out)", surface: ui}
+    - {method: GET,  path: /api/templates/<id>/export-workbook, roles: "admin,manager,VIEWER (explicit carve-out)", surface: ui}
+    - {method: POST, path: /api/templates/import-workbook, roles: literal_admin_manager, surface: ui}
+    - {method: POST, path: /api/template-parts/upload-drawing, roles: literal_admin_manager, surface: ui}
+
+  part_operation_generic:
+    - {method: "GET/POST/PATCH/DELETE", path: "/api/parts (generic resource)", roles: literal_admin_manager (write), surface: api_only}
+    - {method: "GET/POST/PATCH/DELETE", path: "/api/operations (generic resource)", roles: literal_admin_manager (write), surface: api_only}
+    - {method: GET,  path: /api/operations/<id>/trace, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/operations/<id>/material-flow, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/operations/<id>/cancel, roles: "admin,manager,supervisor", surface: ui}
+    - {method: GET,  path: /api/operations/export.xlsx, roles: literal_admin_manager, surface: ui}
+    - {method: POST, path: /api/operations/import, roles: literal_admin_manager, surface: ui}
+    - {method: GET,  path: "/api/<kind>/<id>/quantity-history", roles: any_authenticated, surface: ui}
+
+  employee:
+    - {method: "GET/POST/PATCH/DELETE", path: "/api/employees (generic resource)", roles: "employees.edit (write) / employees.view (read), generic prefix", surface: ui}
+    - {method: GET,  path: /api/qr-labels, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/qr-image, roles: any_authenticated, surface: ui}
+
+  equipment:
+    - {method: "GET/POST/PATCH/DELETE", path: "/api/equipment (generic resource)", roles: "equipment.edit (write) / equipment.view (read), generic prefix", surface: ui}
+
+  station_salesorder_generic:
+    - {method: "GET/POST/PATCH/DELETE", path: "/api/stations (generic resource)", roles: literal_admin_manager (write), surface: api_only}
+    - {method: "GET/POST/PATCH/DELETE", path: "/api/sales-orders (generic resource)", roles: literal_admin_manager (write), surface: api_only}
+
+  work_session_lifecycle:
+    - {method: POST, path: /api/work-sessions/start, roles: "session OR kiosk-device-token", surface: ui}
+    - {method: POST, path: /api/work-sessions/<id>/finish, roles: "session OR kiosk-device-token", surface: ui}
+    - {method: GET,  path: /api/work-sessions, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/session/group/start, roles: public_confirmed
+       (legacy alias — verify auth handling inline before assuming open), surface: api_only}
+    - {method: POST, path: /api/session/group/finish, roles: public_confirmed
+       (same caveat as group/start), surface: api_only}
+    - {method: PATCH, path: /api/supervisor/sessions/<id>, roles: "admin,manager,supervisor", surface: ui}
+    - {method: POST, path: /api/supervisor/sessions/<id>/adjust, roles: "admin,manager,supervisor", surface: ui}
+    - {method: POST, path: /api/supervisor/sessions/<id>/exclude, roles: "admin,manager,supervisor", surface: ui}
+    - {method: POST, path: /api/supervisor/sessions/<id>/restore, roles: "admin,manager,supervisor", surface: ui}
+    - {method: POST, path: /api/supervisor/sessions/<id>/transfer-operation, roles: "admin,manager,supervisor", surface: ui}
+    - {method: GET,  path: /api/sessions/<id>/trace, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/sessions/<id>/context, roles: any_authenticated, surface: ui}
+
+  session_management_ui:
+    - {method: GET, path: /api/session-management, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/session-management/<id>, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/session-management/operations, roles: any_authenticated, surface: ui}
+
+  kiosk_v1_browser:
+    - {method: POST, path: /api/kiosk-web/scan, roles: none (unauthenticated device flow, by design), surface: device}
+    - {method: POST, path: /api/kiosk-web/start, roles: none, surface: device}
+    - {method: POST, path: /api/kiosk-web/finish/<session_id>, roles: none, surface: device}
+    - {method: GET,  path: /api/kiosk-web/demo-data, roles: none, surface: device}
+    - {method: GET,  path: /api/kiosk-web/health, roles: none, surface: device}
+    - {method: POST, path: /api/kiosk-web/heartbeat, roles: none, surface: device}
+    - {method: GET,  path: /kiosk, roles: none, surface: ui}
+
+  kiosk_v2_device:
+    - {method: POST, path: /api/kiosk/v2/bootstrap, roles: none (device provisioning), surface: device}
+    - {method: POST, path: /api/kiosk/v2/events, roles: "device token", surface: device}
+    - {method: GET,  path: /api/kiosk/v2/health, roles: none, surface: device}
+    - {method: POST, path: /api/kiosk/v2/heartbeat, roles: "device token", surface: device}
+    - {method: GET,  path: /api/kiosk/v2/state, roles: "device token", surface: device}
+    - {method: GET,  path: /api/kiosk/v2/ui-bundles/<version>, roles: none, surface: device}
+    - {method: POST, path: "/api/kiosk/register, /api/kiosk/bind, /api/kiosk/connect",
+       roles: "legacy kiosk provisioning, verify auth before assuming open", surface: device}
+    - {method: POST, path: "/api/kiosk/heartbeat, /api/kiosk/offline-sync,
+       /api/kiosk/reconcile, /api/kiosk/offline-snapshot, /api/station/heartbeat,
+       /api/station/events/sync", roles: "legacy/offline-sync surface,
+       verify auth before assuming open", surface: device}
+    - {method: POST, path: /api/kiosk/events, roles: none (ingest), surface: device}
+    - {method: GET,  path: /api/kiosk/events, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/kiosk/events/<id>/resolve, roles: "admin,manager,supervisor", surface: ui}
+
+  kiosk_management_ui:
+    - {method: GET,  path: /api/kiosk-management/overview, roles: literal_admin_manager, surface: ui}
+    - {method: GET,  path: "/api/kiosk-management/<device_uuid>/events", roles: literal_admin_manager, surface: ui}
+    - {method: GET,  path: /api/kiosk-management/generation, roles: literal_admin_manager, surface: ui}
+    - {method: POST, path: /api/kiosk-management/generation/bump, roles: admin_only, surface: ui}
+    - {method: POST, path: "/api/kiosk-management/<identity_id>/status", roles: literal_admin_manager, surface: ui}
+    - {method: POST, path: /api/kiosk-identities/<id>/approve, roles: literal_admin_manager, surface: ui}
+    - {method: GET,  path: /api/internal/kiosks, roles: public_confirmed
+       (verify — "internal" naming suggests service-to-service, not user-facing), surface: api_only}
+    - {method: GET,  path: "/api/internal/kiosks/<device_uuid>/ota-readiness", roles: public_confirmed (same caveat), surface: api_only}
+    - {method: GET,  path: /api/system-health/kiosks, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: "/api/system-health/kiosks/<device_uuid>", roles: any_authenticated, surface: ui}
+
+  kiosk_wallboard:
+    - {method: GET, path: /api/wallboard/employee-productivity, roles: none (deliberately public — shop-floor display), surface: ui}
+    - {method: GET, path: /kiosk/employee-productivity, roles: none, surface: ui}
+
+  employee_productivity_report:
+    - {method: GET, path: /api/reports/employee-productivity, roles: any_authenticated
+       (via session.view), surface: ui}
+    - {method: GET, path: "/api/reports/employee-productivity/<employee_id>", roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/reports/employee-productivity/wallboard-config, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/reports/employee-productivity/wallboard-config, roles: literal_admin_manager, surface: ui}
+    - {method: GET, path: /api/reports/employee-performance, roles: any_authenticated,
+       surface: ui, note: "distinct endpoint from employee-productivity — not
+       documented in the master requirement doc at all; verify what
+       differentiates it before assuming it's a duplicate/legacy alias
+       (flagged in REQUIREMENT_CODE_GAPS.md)"}
+    - {method: GET, path: /api/reports/operation-sessions, roles: any_authenticated, surface: ui}
+    - {method: GET, path: "/api/reports/operations/<operation_id>", roles: any_authenticated, surface: ui}
+
+  exception_center:
+    - {method: GET,  path: /api/exceptions, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/exceptions/<id>, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/exceptions/<id>/history, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/exceptions/<id>/acknowledge, roles: "admin,manager,supervisor", surface: ui}
+    - {method: POST, path: /api/exceptions/<id>/resolve, roles: "admin,manager,supervisor", surface: ui}
+    - {method: POST, path: /api/exceptions/<id>/ignore, roles: "admin,manager,supervisor", surface: ui}
+
+  session_exceptions_legacy:
+    - {method: GET,  path: /api/session-exceptions, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: "/api/session-exceptions/<id>/resolution-context", roles: any_authenticated, surface: ui}
+    - {method: POST, path: "/api/session-exceptions/<id>/correct-session", roles: "admin,manager,supervisor", surface: ui}
+    - {method: PATCH, path: /api/session-exceptions/workflow, roles: "admin,manager,supervisor", surface: ui}
+
+  production_schedule:
+    - {method: GET, path: /api/production-schedule, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/production-control, roles: any_authenticated,
+       surface: ui, note: "distinct endpoint, not documented in the master
+       requirement doc — verify its relationship to production-schedule
+       before assuming it's the same feature (flagged in
+       REQUIREMENT_CODE_GAPS.md)"}
+
+  business_audit:
+    - {method: GET, path: /api/audit-logs, roles: "permission_required(business_audit.view)", surface: ui}
+
+  working_calendar:
+    - {method: GET,  path: /api/settings/work-shifts, roles: any_authenticated, surface: ui}
+    - {method: PUT,  path: /api/settings/work-shifts, roles: literal_admin_manager, surface: ui}
+    - {method: GET,  path: /api/settings/working-calendar, roles: any_authenticated, surface: ui}
+    - {method: PATCH, path: /api/settings/working-calendar, roles: literal_admin_manager, surface: ui}
+
+  system_logs_app:
+    - {method: GET,  path: /api/system/action-logs, roles: admin_required, surface: ui}
+    - {method: GET,  path: "/api/system/action-logs/<id>", roles: admin_required, surface: ui}
+    - {method: POST, path: "/api/system/action-logs/<id>/resolve", roles: admin_required, surface: ui}
+    - {method: GET,  path: /api/system/action-logs/stats, roles: admin_required, surface: ui}
+    - {method: GET,  path: /api/system/error-traces, roles: admin_required, surface: ui}
+    - {method: GET,  path: "/api/system/error-traces/<id>", roles: admin_required, surface: ui}
+    - {method: POST, path: "/api/system/error-traces/<id>/resolve", roles: admin_required, surface: ui}
+    - {method: GET,  path: /api/system/error-traces/stats, roles: admin_required, surface: ui}
+    - {method: GET,  path: /api/system/auth-health, roles: admin_required, surface: ui}
+    - {method: GET,  path: /api/system/log-retention/preview, roles: admin_required, surface: ui}
+    - {method: POST, path: /api/system/log-retention/run, roles: admin_required, surface: ui}
+    - {method: GET,  path: /api/system/log-retention/runs, roles: admin_required, surface: ui}
+    - {method: GET,  path: /api/system/monitoring, roles: admin_required, surface: ui}
+
+  system_console:
+    - {method: GET,  path: /api/system-health/errors, roles: super_admin_only, surface: ui}
+    - {method: GET,  path: /api/system-health/services, roles: super_admin_only, surface: ui}
+    - {method: POST, path: "/api/system-health/services/<id>/restart", roles: super_admin_only, surface: ui}
+    - {method: GET,  path: /api/system-health/diagnostics, roles: super_admin_only, surface: ui}
+    - {method: POST, path: "/api/system-health/diagnostics/<component>", roles: super_admin_only, surface: ui}
+    - {method: GET,  path: /api/system-health/audit, roles: super_admin_only, surface: ui}
+
+  system_health_alerts:
+    - {method: GET,  path: "/api/system-health/alerts/<id>/ai-analysis", roles: any_authenticated
+       (NOT super_admin-gated despite living under system-health — verify
+       this is intentional before assuming parity with the 6 super_admin routes), surface: ui}
+    - {method: POST, path: "/api/system-health/alerts/<id>/ai-analysis/regenerate", roles: any_authenticated, surface: ui}
+    - {method: GET,  path: "/api/system-health/alerts/<id>/diagnostics", roles: any_authenticated, surface: ui}
+    - {method: POST, path: "/api/system-health/alerts/<id>/diagnostics", roles: any_authenticated, surface: ui}
+    - {method: GET,  path: "/api/system-health/alerts/<id>/notifications", roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/system-health/history, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: "/api/system-health/metrics/<metric>/trend", roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/system-health/notification-channels, roles: any_authenticated, surface: ui}
+    - {method: POST, path: "/api/system-health/notification-channels/<channel>/test", roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/system-health/predictions, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/system-health/recurring-incidents, roles: any_authenticated, surface: ui}
+    - {method: GET,  path: /api/system-health/logs, roles: any_authenticated, surface: ui}
+
+  tutorials:
+    - {method: GET, path: /api/tutorials, roles: public_confirmed (login_required
+       in body, 401 without session), surface: ui}
+    - {method: GET, path: "/tutorials/<filename>", roles: public_confirmed
+       (login_required in body + path-containment check), surface: ui}
+    - {method: GET, path: "/esp-kiosk-tutorial/videos/<filename>", roles: unknown, surface: ui}
+    - {method: GET, path: /api/esp-kiosk-tutorial, roles: unknown, surface: ui}
+
+  qr_print:
+    - {method: GET, path: /api/qr-labels, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/qr-image, roles: any_authenticated, surface: ui}
+
+  qc_inspection:
+    - {method: GET,  path: /api/qc/inspections, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/qc/inspections, roles: "admin,manager,supervisor", surface: ui}
+    - {method: POST, path: "/api/qc/inspections/<id>/complete", roles: "admin,manager,supervisor", surface: ui}
+
+  notifications:
+    - {method: GET,  path: /api/notifications, roles: any_authenticated, surface: ui}
+    - {method: POST, path: "/api/notifications/<id>/read", roles: any_authenticated, surface: ui}
+
+  penalty_ticket:
+    - {method: POST, path: /api/supervisor/penalties, roles: "admin,manager,supervisor", surface: ui}
+
+  kpi_legacy_views:
+    - {method: GET, path: /api/kpi/employees, roles: any_authenticated, surface: ui}
+    - {method: GET, path: /api/kpi/operations, roles: any_authenticated, surface: ui}
+    - {method: POST, path: /api/kpi/snapshots, roles: literal_admin_manager, surface: api_only}
+
+  monitoring_admin:
+    - {method: GET, path: /api/system/monitoring, roles: admin_required, surface: ui}
+
+infra_and_cross_cutting_not_a_single_feature:
+  - {method: GET, path: /api/system/ready, roles: public_confirmed, surface: api_only,
+     note: "deploy-pipeline health contract, see BUSINESS_RULES.yaml NFR-006/007"}
+  - {method: GET, path: /api/system/health, roles: public_confirmed, surface: api_only,
+     note: "distinct from /api/system/ready — verify the exact difference
+     (readiness vs. liveness?) before writing a testcase that assumes
+     parity between the two"}
+  - {method: GET, path: /api/system/version, roles: public_confirmed, surface: api_only}
+  - {method: GET, path: /api/system/ui-routes, roles: public_confirmed, surface: api_only}
+  - {method: GET, path: "/api/analytics/health, /api/execution/health,
+     /api/master/health", roles: public_confirmed, surface: api_only,
+     note: per-module health probes, distinct from /api/system/ready}
+  - {method: GET, path: /api/lookup, roles: public_confirmed, surface: api_only,
+     note: "legacy_lookup — verify current callers before assuming still used"}
+  - {method: GET, path: "/uploads/<filename>", roles: unknown, surface: ui}
+
+undocumented_dead_reference:
+  - path: /api/kiosk-events
+    note: "app.js's openPage('kiosk-events') branch calls
+      renderSimple('Kiosk Events', '/api/kiosk-events') but NO route named
+      exactly /api/kiosk-events exists in the 183-route inventory — the
+      real kiosk event log route is GET /api/kiosk/events (note the slash
+      vs hyphen). Likely a stale reference; flagged in
+      REQUIREMENT_CODE_GAPS.md, not fixed here (UI-only page not in scope
+      of the tutorial-pipeline bug-fix budget)."
+
+route_count_reconciliation:
+  total_routes_extracted: 183
+  verified_by: scripts/validate_qc_package.py (route-coverage check —
+    diffs every real @bp./@app. route decorator in app/mesflow/web/*.py
+    against every path literal appearing in this file)
+  unmapped: 0   # verified 2026-09-05; re-run the validator after any
+                # route is added/removed/renamed in app/mesflow/web/*.py

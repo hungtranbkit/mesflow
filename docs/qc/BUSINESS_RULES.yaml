@@ -1,0 +1,305 @@
+# BUSINESS_RULES.yaml — atomic, verifiable rules only. Each rule states a
+# condition and its expected system behavior, names the feature it belongs
+# to, and the executor best suited to check it. IDs match
+# docs/MESFLOW_MASTER_REQUIREMENTS.md's BR-*/NFR-* where a direct
+# equivalent exists (kept stable on purpose); new rules found only in
+# source during this audit get a QC-* id instead.
+
+rules:
+  - id: BR-001
+    feature: rbac_admin
+    rule: "role in (admin) bypasses the permission table for ordinary
+      business permissions — always allowed."
+    executor: api
+    expected: "any /api/<business-permission-gated> call by admin succeeds
+      regardless of the grant table's own admin row."
+
+  - id: BR-002
+    feature: system_console
+    rule: "super_admin inherits admin's business bypass, but System
+      Console access requires the literal role string — never satisfied
+      by admin."
+    executor: api
+    expected: "admin session on any of the 6 System Console routes -> 403;
+      super_admin session -> 200."
+
+  - id: BR-003
+    feature: work_session_lifecycle
+    rule: "an employee may have at most one OPEN work session at any time
+      — DB-enforced unique index, not app-level only."
+    executor: api
+    expected: "second start() for the same employee while the first is
+      still OPEN -> 409, zero new rows."
+
+  - id: BR-004
+    feature: work_session_lifecycle
+    rule: "a downstream Operation with input_flow_enabled cannot start()
+      until its input-source Operation has had >=1 session STARTED (not
+      necessarily finished)."
+    executor: api
+    expected: "start() on the downstream Operation before the source has
+      any session -> 409 naming the source Operation's code."
+
+  - id: BR-005
+    feature: work_session_lifecycle
+    rule: "qty=0 on finish is never rejected; if the session was open >4h,
+      it is flagged ZERO_QUANTITY_LONG (exceptions), not blocked."
+    executor: api
+    expected: "finish(good=0,defect=0) on a >4h-open session -> 200, later
+      appears as an exception_records row with exception_type=ZERO_QUANTITY_LONG."
+
+  - id: BR-006
+    feature: work_session_lifecycle
+    rule: "rework_qty can never exceed defect_qty — enforced on both
+      finish and adjust."
+    executor: api
+    expected: "rework_qty = defect_qty -> 200; rework_qty = defect_qty+1
+      -> 400/ValueError on both finish and adjust."
+
+  - id: BR-007
+    feature: work_session_lifecycle
+    rule: "a CLOSED session is never deleted, even when excluded from
+      reports — exclude only stops it counting toward aggregates."
+    executor: db_read_readonly
+    expected: "after exclude(), the row still exists with status
+      unchanged; only excluded_from_reports flips."
+
+  - id: BR-008
+    feature: shift_auto_close
+    rule: "auto-close is a distinct lifecycle from manual finish,
+      distinguishable via close_reason/closed_by_system, firing a
+      different domain event (SESSION_AUTO_CLOSED, not SESSION_FINISHED)."
+    executor: background_job
+
+  - id: BR-009
+    feature: shift_auto_close
+    rule: "an auto-closed session has quantity_confirmed=false until a
+      human correction; any correction always sets it back true."
+    executor: "background_job + api"
+
+  - id: BR-010
+    feature: work_session_lifecycle
+    rule: "excluded_from_reports affects ONLY aggregation; status and
+      history/audit presence are untouched."
+    executor: db_read_readonly
+
+  - id: BR-011
+    feature: work_session_lifecycle
+    rule: "a target Operation cannot consume more of a kind (GOOD/REWORK
+      per input_source_kind) than source.produced minus
+      already_allocated_elsewhere."
+    executor: api
+    expected: "finish() that would over-consume the source's output ->
+      409 naming the exact quantity still available."
+
+  - id: BR-012
+    feature: work_session_lifecycle
+    rule: "predecessor (time/order) and input-source (quantity) are two
+      independent Operation relationships; an Operation can be both, in
+      which case only the stricter input-source rule applies."
+    executor: deterministic
+
+  - id: BR-013
+    feature: work_session_lifecycle
+    rule: "full-session edit supports optimistic concurrency via
+      expected_updated_at — a stale edit is refused, never silently
+      overwritten."
+    executor: api
+    expected: "PATCH with a stale expected_updated_at -> conflict, no
+      change applied."
+
+  - id: BR-014
+    feature: production_order
+    rule: "PO/Part deletion is refused whenever any descendant Operation
+      has real production history, naming the specific kind(s) found."
+    executor: api
+
+  - id: BR-015
+    feature: exception_center
+    rule: "an exception_records fingerprint is unique WHILE active; the
+      same condition recurring after a prior instance was
+      resolved/ignored creates a fresh record, never revives the old one."
+    executor: db_read_readonly
+
+  - id: BR-016
+    feature: dashboard_daily
+    rule: "a stale, superseded UI request must never overwrite a more
+      recent one's rendered result (client-side request-race protection)."
+    executor: ui
+
+  - id: BR-017
+    feature: working_calendar
+    rule: "timezone/shift math is always shift-relative-minutes against
+      the site timezone, never naive wall-clock subtraction."
+    executor: deterministic
+
+  - id: BR-018
+    feature: employee_productivity_report
+    rule: "KPI/report/exception-detection queries share ONE predicate
+      (status='CLOSED' AND NOT excluded_from_reports) rather than each
+      hand-rolling their own."
+    executor: deterministic
+
+  - id: BR-901
+    feature: auth_login
+    rule: "every login attempt (success or failure) writes an audit-trail
+      row; the submitted password is never logged in any form, regardless
+      of outcome."
+    executor: db_read_readonly
+
+  - id: BR-902
+    feature: auth_login
+    rule: "a deliberate logout never bounces straight back into an
+      authenticated session even with autologin on — the app's own
+      logout always appends ?noauto=1."
+    executor: ui
+    real_incident: "the tutorial video pipeline itself did NOT do this
+      when navigating to /login for a fresh scripted login (not a logout
+      loop, but the same root symptom) — fixed 2026-09-05, see
+      reports/TUTORIAL_VIDEO_PIPELINE_RECOVERY_20260905.md bug #2."
+
+  - id: BR-903
+    feature: auth_login
+    rule: "autologin requires MESFLOW_ENV != production, OR both that
+      failing AND MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1 explicitly —
+      never satisfied by the base flag alone on a production-flagged env."
+    executor: api
+
+  - id: BR-904
+    feature: auth_login
+    rule: "persona quick-switch resolves to a username LITERALLY equal to
+      the persona name, from a fixed 5-value allowlist — never
+      super_admin."
+    executor: api
+
+  - id: BR-905
+    feature: auth_login
+    rule: "a rejected autologin attempt reaches the audit/log stream as a
+      security warning, both at boot (if configured riskily) and per
+      refused attempt."
+    executor: db_read_readonly
+
+  - id: QC-001
+    feature: production_order
+    rule: "a PO can ONLY be created via template instantiation — direct
+      POST /api/production-orders is refused outright."
+    executor: api
+    expected: 'POST /api/production-orders directly -> ValueError,
+      "Production Order phải được tạo từ Template để sao chép Part và
+      Operation"'
+    source: app/mesflow/web/master_data.py (create_resource special-case
+      for resource=='production-orders')
+
+  - id: QC-002
+    feature: rbac_admin
+    rule: "editing role=admin's permission set via PUT
+      /api/roles/admin/permissions is accepted but has no effect — server
+      re-forces the full permission set on the same call."
+    executor: api
+    source: app/mesflow/web/auth.py:_has_permission (admin bypass) +
+      RBAC_MAP.yaml enforcement_rules.admin_bypass
+
+  - id: QC-003
+    feature: system_console
+    rule: "the generic path-prefix permission mapper
+      (_permission_for_request) has 4 explicit carve-outs where the
+      literal roles_required(...) list on the route wins instead of the
+      generic prefix rule."
+    executor: api
+    source: RBAC_MAP.yaml enforcement_rules.explicit_carve_outs (full list)
+
+exception_detection_conditions:
+  # The 7 conditions app/mesflow/services/exception_service.py's
+  # ExceptionDetectionService checks on every exception_reconciliation run
+  # (see BACKGROUND_JOBS.yaml). Each excludes any session with
+  # excluded_from_reports=true from ever triggering.
+  conditions:
+    - {type: LONG_OPEN_SESSION, severity: HIGH, condition: "status is OPEN and started_at more than 12h ago"}
+    - {type: ZERO_QUANTITY_LONG, severity: MEDIUM, condition: "status is CLOSED, duration over 4h, good_qty plus defect_qty is 0"}
+    - {type: MISSING_STATION, severity: LOW, condition: "station_id is null and device_uuid is empty"}
+    - {type: INVALID_DURATION, severity: CRITICAL, condition: "ended_at is set and ended_at is before started_at"}
+    - {type: OPERATION_COMPLETED_SESSION_OPEN, severity: HIGH, condition: "session OPEN while its Operation status is COMPLETED"}
+    - {type: EMPLOYEE_SESSION_CONFLICT, severity: CRITICAL, condition: "two sessions, same employee, overlapping time ranges"}
+    - {type: SESSION_PAST_SHIFT_END, severity: MEDIUM, condition: "session OPEN, started_at shift end plus grace already passed, shift boundary applies"}
+  fingerprint_formula: "exception_type + SESSION + session_id, colon-joined"
+
+employee_productivity_formula:
+  feature: employee_productivity_report
+  population_filter: "status='CLOSED' AND ended_at IS NOT NULL AND
+    excluded_from_reports=false"
+  date_filter_field: ended_at (business date, site timezone), NOT started_at
+  per_session_completion_percent: >
+    expected_seconds = standard_seconds_per_unit * (good_qty + defect_qty);
+    actual_seconds = ended_at - started_at (epoch seconds);
+    completion_percent = expected_seconds / actual_seconds * 100
+  edge_cases:
+    - {condition: "standard_seconds_per_unit=0 OR actual_seconds=0",
+       result: "completion_percent = NULL, never 0 — UI shows 'Không đủ dữ liệu'"}
+    - {condition: "session finished faster than standard time",
+       result: "no upper clamp — can legitimately show >100%, included
+         as-is in every downstream average"}
+  per_employee_average: "AVG(completion_percent) over sessions where it
+    IS NOT NULL; NULL-completion sessions counted separately as
+    completed_invalid_sessions, never averaged in as 0"
+  cross_employee_summary_average: "average OF each employee's own
+    already-computed productivity_percent — every employee counts
+    equally regardless of session count; NOT a session-weighted global average"
+  zero_valid_sessions_employee: "does not appear in the report at all —
+    never a 0% row"
+  live_verified_2026-09-05:
+    mean: 85.44
+    median: 86.75
+    min: 64.63
+    max: 95.91
+    n_employees: 16
+    completed_sessions: 158
+    source: reports/TUTORIAL_VIDEO_PIPELINE_RECOVERY_20260905.md
+      (GET /api/reports/employee-productivity against the freshly reseeded
+      DEMO dataset)
+
+nfr_rules:
+  - id: NFR-001
+    feature: work_session_lifecycle
+    rule: "retrying an identical idempotency-keyed request (same
+      request_id) returns the exact original response body with
+      idempotent_replay:true, creating zero additional rows."
+    executor: api
+  - id: NFR-002
+    feature: work_session_lifecycle
+    rule: "two concurrent start()/finish()/adjust() calls touching
+      Operations under the SAME PO never deadlock — the PO row lock is
+      always acquired first, in a fixed order."
+    executor: api (concurrency/load test)
+  - id: NFR-003
+    feature: work_session_lifecycle
+    rule: "a state change and its audit-log row are always committed in
+      the same transaction."
+    executor: db_read_readonly
+  - id: NFR-004
+    feature: auth_login
+    rule: "session cookies are HttpOnly + SameSite=Lax always; Secure on
+      every response except localhost/trusted-internal HTTP."
+    executor: api (response header inspection)
+  - id: NFR-005
+    feature: rbac_admin
+    rule: "a permission check that cannot complete (RBAC data
+      unavailable) returns deny, never allow."
+    executor: api
+  - id: NFR-006
+    feature: infra_and_cross_cutting_not_a_single_feature
+    rule: "GET /api/system/ready responds within the deploy pipeline's
+      own health-check window (18 x 10s = 180s from container start) with
+      ok:true before a deploy is considered successful."
+    executor: api
+    source: scripts/deploy.sh (health check loop)
+  - id: NFR-010
+    feature: "(cross-cutting UI)"
+    rule: "primary supported desktop viewport is exactly 1366x768;
+      additional automated-coverage viewports: 1920x1080, 390x844."
+    executor: ui
+
+count_summary:
+  total_rules: 24  # BR-001..018, BR-901..905
+  qc_discovered_rules: 3   # QC-001..003
+  exception_conditions: 7
+  nfr_rules_included: 6   # subset most directly testable; full 10 in master doc

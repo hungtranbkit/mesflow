@@ -1,0 +1,152 @@
+# QC_PROJECT.yaml — entry point for any QC/QA agent working on MESFlow.
+# Read this file first, then follow docs/qc/INDEX.md's reading order.
+# Every path/command/value below is taken from the real project as of the
+# commit noted in `repository.head_commit_at_audit`. Anything not directly
+# observed is marked `unknown` with a one-line reason — never guessed.
+
+project:
+  name: MESFlow
+  description: >
+    Production-execution and monitoring system for a mechanical workshop
+    (Production Order -> Part -> Operation -> Work Session -> QC/adjustment),
+    with a Kiosk v1 (browser) and Kiosk v2 (ESP32 hardware) shop-floor
+    front end, an Employee Productivity KPI report/wallboard, an Exception
+    Center, and a Super Admin System Console.
+  language_ui: vi-VN  # every user-facing label/error/toast is Vietnamese
+  primary_stack: Flask (Jinja templates) + vanilla JS SPA-in-one-page + PostgreSQL
+  repo_root: /home/dell/workspace/mesflow/mesflow
+  audited_by: Claude Sonnet 5 (QC project-package standardization pass)
+  audited_at: "2026-09-05"
+
+runtime:
+  app_entrypoint: app/mesflow/web/app.py (create_app / route registration)
+  version_source_of_truth: VERSION.txt (read at import time by app/mesflow/__init__.py)
+  version_at_audit: "71.0.0.222"
+  health_endpoint: GET /api/system/ready   # unauthenticated, see API_MAP.yaml
+  version_endpoint: GET /api/system/version # unauthenticated
+  db: PostgreSQL (SQLAlchemy 2.0 core + raw fetch helpers in app/mesflow/db/connection.py)
+  migrations: "alembic (head at audit time: 0043_super_admin_role)"
+  background_jobs: see docs/qc/BACKGROUND_JOBS.yaml
+  environments: see docs/qc/SAFETY.yaml — DEV / DEMO / PRODTEST are all reachable
+    from the host this audit ran on; a public `mesflow.net` domain exists but
+    its real backend could NOT be identified from this host (commit/server_role
+    mismatch against every locally-reachable container, confirmed live
+    2026-09-05) — never assume it maps to any container listed here.
+
+repository:
+  vcs: git
+  layout: >
+    /home/dell/workspace/mesflow is a multi-project workspace repo (reports/,
+    docs/operations/, cross-project tooling). /home/dell/workspace/mesflow/mesflow
+    is a SEPARATE, independent git repository (not a submodule) holding the
+    actual MESFlow application source — this QC package lives inside that
+    inner repo (docs/qc/, QC_PROJECT.yaml at its root).
+  branch_policy: >
+    Mandatory per mesflow/AGENTS.md: one agent -> one branch
+    (agent/<agent>/<task>) -> one dedicated git worktree under .worktrees/.
+    Never commit non-trivial changes directly on `main`.
+  head_commit_at_audit: 1c7b84f (main, 2026-09-05)
+  test_suite:
+    python: pytest (tests/*.py, tests/integration/*.py) — ~850+ cases per
+      the most recent full-suite run referenced in commit 1076803's message
+      (849 passed / 0 failed / 15 skipped, skips = missing local
+      ffmpeg/node/docker CLI in that sandboxed run, not app defects)
+    browser_e2e: Playwright (tests/e2e/*.spec.js), config files
+      playwright.config.js (general) and playwright.tutorial-detailed.config.js
+      (tutorial video/tour recording — different concerns, do not conflate)
+    how_to_run_python: >
+      "python3 -m pytest tests/ -q" (needs a live Postgres — see
+      tests/conftest.py for fixture wiring; unknown here whether a
+      docker-compose test stack is auto-started — verify locally before
+      assuming)
+    how_to_run_e2e: >
+      "npx playwright test --config=playwright.config.js" (needs a
+      running app instance + MESFLOW_TEST_AUTO_LOGIN or real credentials
+      — see docs/qc/TEST_ACCOUNTS.yaml)
+
+auth:
+  session_cookie: HttpOnly, SameSite=Lax, Secure except localhost/trusted-internal
+  login: POST /api/auth/login {username,password} -> session cookie
+  logout: POST /api/auth/logout
+  whoami: GET /api/auth/me
+  test_auto_login:
+    endpoint: POST /api/auth/test-auto-login
+    enabled_by: "MESFLOW_TEST_AUTO_LOGIN=1 (env var on the TARGET server)"
+    production_override_required: >
+      MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1 (only when
+      MESFLOW_ENV=production on that target)
+    personas: >
+      admin, manager, supervisor, operator, viewer (never super_admin —
+      deliberately excluded from the persona allowlist)
+    real_incident: >
+      Navigating a real browser to plain /login on a target with
+      autologin ON races the page's own auto-submit JS and can break a
+      script that expects to fill the username/password fields by hand
+      (fixed 2026-09-05, tests/e2e/tutorial-auth-state.js — commit
+      943067d); always use /login?noauto=1 when a script needs the real
+      password form.
+    see: docs/qc/TEST_ACCOUNTS.yaml, docs/qc/SAFETY.yaml
+
+requirements:
+  master_en: mesflow/docs/MESFLOW_MASTER_REQUIREMENTS.md (English, source of
+    truth for exact field/formula/error-message wording — written from direct
+    source reading, versioned 71.0.0.221)
+  master_vi: mesflow/docs/MESFLOW_MASTER_REQUIREMENTS_VI.md (Vietnamese
+    adaptation, same IDs, for a QC agent that only reads Vietnamese)
+  qc_executable: docs/qc/MESFLOW_QC_EXECUTABLE_REQUIREMENTS.md — the SUBSET
+    of the master requirement, restated as directly test-generatable REQ
+    blocks (ID/Feature/Role/Preconditions/Action/Expected Result/Executor/
+    Priority/Safety/Source Reference). Generate tests from THIS file, not
+    the master doc directly — the master doc is reference material.
+  classification: docs/qc/REQUIREMENT_CLASSIFICATION.yaml — every section of
+    the master doc classified into META/DESCRIPTION/GLOSSARY/DATA_MODEL/
+    RBAC/STATE_MACHINE/BUSINESS_RULE/EXECUTABLE_WORKFLOW/API_SPEC/
+    BACKGROUND_JOB/REPORT_FORMULA/TEST_HELPER, with generate_testcase
+    true/false per section.
+  known_gaps: docs/qc/REQUIREMENT_CODE_GAPS.md — confirmed mismatches
+    between the master requirement doc and the real running code.
+
+test_data:
+  factory: app/mesflow/tutorial_data.py (python -m mesflow.tutorial_data
+    seed|status|cleanup) — prefix-namespaced (TUT-/TUT39-...), idempotent
+    (cleanup() always runs before seed()), guarded by
+    MESFLOW_TUTORIAL_DATA_ALLOW_PRODUCTION=1 when MESFLOW_ENV=production.
+  qc_prefix_convention: this package additionally reserves the QC_TEST_
+    prefix (see docs/qc/TEST_DATA.yaml) for QC-agent-generated fixtures,
+    kept deliberately separate from the TUT- tutorial/demo fixture so a QC
+    run's cleanup can never touch tutorial/demo data and vice versa.
+  see: docs/qc/TEST_DATA.yaml
+
+safety:
+  see: >
+    docs/qc/SAFETY.yaml — read before running ANY QC action. Summary —
+    production-classified targets are read/navigate/safe-search ONLY by
+    default; no destructive write, no test-auto-login, no
+    payment/email/sms/config-change action is permitted there without an
+    explicit, separately recorded human override.
+
+discovery:
+  application_map: docs/qc/APPLICATION_MAP.yaml
+  feature_map: docs/qc/FEATURE_MAP.yaml
+  rbac_map: docs/qc/RBAC_MAP.yaml
+  state_machines: docs/qc/STATE_MACHINES.yaml
+  api_map: docs/qc/API_MAP.yaml
+  background_jobs: docs/qc/BACKGROUND_JOBS.yaml
+  business_rules: docs/qc/BUSINESS_RULES.yaml
+  executor_map: docs/qc/EXECUTOR_MAP.yaml
+  oracles: docs/qc/ORACLES.yaml
+  validator: scripts/validate_qc_package.py (run this after any edit to
+    docs/qc/* — must exit 0 before the package is considered consistent)
+
+unknowns:
+  - item: real backend behind the public `mesflow.net` domain
+    reason: commit/server_role reported by that domain does not match any
+      container reachable from the audit host (see runtime.environments note
+      above); resolving this needs infrastructure access this audit didn't have.
+  - item: whether a docker-compose test stack auto-starts for `pytest`
+    reason: not traced in this pass — tests/conftest.py wiring exists but its
+      exact bootstrap (external Postgres vs. fixture-managed) wasn't walked
+      line-by-line; verify before assuming CI parity.
+  - item: password-strength policy for self-service/admin-created accounts
+    reason: carried over from docs/MESFLOW_MASTER_REQUIREMENTS.md SPEC-GAP-010,
+      unresolved at audit time.

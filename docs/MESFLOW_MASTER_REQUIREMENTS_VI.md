@@ -55,6 +55,24 @@ liệu — một khi đã gán, ID không bao giờ được dùng lại cho m�
 khác, kể cả khi yêu cầu đó sau này bị loại bỏ (sẽ đánh dấu
 `DEPRECATED` tại chỗ, không xóa và cấp lại số).
 
+**Đính chính (2026-09-05, đã xác minh với mã nguồn)**: mọi path
+**Kích hoạt bởi** cho một API nghiệp vụ ở Phần B (ví dụ `GET
+/reports/employee-productivity`, `POST /work-sessions/start`, `POST
+/production-orders/<id>/start`) đều **thiếu tiền tố `/api` thật** —
+xác nhận trực tiếp qua `url_prefix='/api'` của mọi Blueprint nghiệp vụ
+trong `app/mesflow/web/*.py` (analytics.py, execution.py,
+master_data.py, exceptions.py, trace.py, users.py, và nhiều file khác
+đều khai báo). **Path thật gọi được luôn có thêm `/api` ở đầu** so với
+những gì Phần B hiển thị, trừ các trường hợp sau vốn đã đúng như đã
+viết (không có tiền tố `/api`): các route trang (`/login`, `/app`,
+`/kiosk`, `/dashboard`, `/tutorials/<filename>`), và bất kỳ path nào đã
+hiển thị bắt đầu bằng `/api/` (một số route Kiosk v2 dạng
+`/api/kiosk/v2/*` đã viết đúng sẵn). Lượt này không sửa từng chỗ một
+trên toàn bộ 161 dạng path thiếu tiền tố (rủi ro sửa hàng loạt gây lỗi
+mới nhanh hơn sửa lỗi cũ); xem `mesflow/docs/qc/API_MAP.yaml` để có
+path chính xác, đã xác minh từ mã nguồn cho toàn bộ 183 route thật, và
+`mesflow/docs/qc/REQUIREMENT_CODE_GAPS.md` để có phát hiện đầy đủ.
+
 ---
 
 # PHẦN A — Đặc Tả Tham Chiếu

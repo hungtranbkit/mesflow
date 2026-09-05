@@ -1,0 +1,135 @@
+# RBAC_MAP.yaml — roles, permissions, and enforcement, grounded in real
+# source. Grant-table content verified byte-for-byte against
+# app/mesflow/db/repositories/rbac.py's SEED_ROLE_PERMISSIONS at audit time;
+# do not hand-edit this file without re-diffing against that source.
+
+source_of_truth:
+  seed_data: app/mesflow/db/repositories/rbac.py (SEED_ROLES, SEED_PERMISSIONS,
+    SEED_ROLE_PERMISSIONS — inserted via RBACRepository().seed(), idempotent
+    ON CONFLICT DO NOTHING, re-verified every boot)
+  server_enforcement: app/mesflow/web/auth.py
+    (permission_required/login_required/admin_required/super_admin_required/
+    roles_required/_permission_for_request/production_client_required)
+  client_hiding: app/mesflow/web/static/app.js (PAGE_PERMISSION, hasPermission,
+    isSuperAdmin, SUPER_ADMIN_PAGES, canOpenPage) — defense in depth only;
+    the server-side gate is authoritative, client hiding is UI polish.
+
+roles:
+  - code: super_admin
+    name_vi: Super Admin / IT
+    notes: >
+      Inherits admin's ordinary-business-permission bypass (see
+      enforcement_rules.admin_bypass) PLUS exclusive access to the System
+      Console (enforcement_rules.system_console_gate). Never reachable via
+      the test-auto-login persona allowlist.
+  - code: admin
+    name_vi: Quản trị viên
+    notes: bypasses the permission table entirely for ordinary business
+      permissions (enforcement_rules.admin_bypass); still 403s on System
+      Console routes (super_admin_required checks the literal role string).
+  - code: manager
+    name_vi: Quản lý
+    notes: broadest role actually driven by the grant table (no bypass)
+  - code: supervisor
+    name_vi: Quản đốc
+  - code: operator
+    name_vi: Vận hành
+    notes: view-only in the admin app; real work happens via Kiosk
+      (device/token auth, not this role's permissions)
+  - code: viewer
+    name_vi: Chỉ xem
+  - none_others: >
+      Exactly these 6 — a seed username/persona like "maintenance" or
+      "kiosk01" is always one of the 6 above, never a 7th role.
+
+enforcement_rules:
+  admin_bypass:
+    rule: "role in ('admin','super_admin') => every ordinary business
+      permission check returns True immediately, regardless of the grant
+      table."
+    source: app/mesflow/web/auth.py:_has_permission
+    consequence: >
+      PUT /api/roles/admin/permissions is accepted (200) but has NO
+      EFFECT — server re-forces admin's grant set back to full on the
+      same call. Testable — submit a reduced permission set for
+      role=admin, re-GET /api/roles, expect the full set unchanged.
+  system_console_gate:
+    rule: "6 System Console pages/APIs check the LITERAL session role
+      string == 'super_admin', never satisfied by 'admin' even though admin
+      has the bypass above."
+    source: app/mesflow/web/auth.py:super_admin_required,
+      app/mesflow/web/static/app.js:isSuperAdmin/SUPER_ADMIN_PAGES
+    pages_gated: [system-overview, system-errors, system-logs-it,
+      system-services, system-diagnostics, system-audit]
+    negative_case_priority: P0 — most security-sensitive boundary in the
+      system (an admin session must get 403 here, never a silent pass).
+  fail_closed:
+    rule: "permission lookup error (RBAC metadata unreachable) => deny
+      (False), never allow."
+    source: app/mesflow/web/auth.py:_has_permission (except-clause)
+  generic_prefix_mapping:
+    rule: >
+      roles_required(*roles) first computes a permission from the request
+      path/method via _permission_for_request()'s prefix table; if a
+      permission is found, ONLY that permission gate applies (the literal
+      *roles allow-list passed to the decorator is bypassed entirely) —
+      unless the path matches one of 4 explicit carve-outs below, in which
+      case the literal allow-list on that route's own decorator is what
+      actually governs.
+    source: app/mesflow/web/auth.py:_permission_for_request, roles_required
+    prefix_table: |
+      /api/users            -> users.manage (write) / users.view (read)
+      /api/roles            -> roles.manage
+      /api/action-logs      -> logs.manage (write) / logs.view (read)
+      /api/error-traces     -> logs.manage (write) / logs.view (read)
+      /api/employees        -> employees.edit (write) / employees.view (read)
+      /api/equipment        -> equipment.edit (write) / equipment.view (read)
+      /api/templates        -> template.edit (write) / template.view (read)
+      /api/production-orders -> po.edit (write) / po.view (read)
+      /api/session-management -> session.edit (write) / session.view (read)
+      /api/supervisor/sessions -> session.edit
+      /api/session-exceptions -> exceptions.resolve (write) / exceptions.view (read)
+      /api/material-flow     -> material_flow.edit (write) / material_flow.view (read)
+      /api/kiosks            -> kiosk.manage (write) / kiosk.view (read)
+      /api/settings/work-shifts -> calendar.edit (write) / calendar.view (read)
+    explicit_carve_outs: >
+      These 4 route shapes are excluded from the generic prefix table above
+      (return '' from _permission_for_request) so their OWN
+      roles_required(...) literal list governs instead — each is a
+      previously-real, confirmed effective-access bug the carve-out exists
+      to prevent from recurring:
+      - DELETE /api/production-orders/<id>/force -> admin ONLY (generic
+        po.edit rule would wrongly widen this to +manager)
+      - POST /api/production-orders/<id>/start -> admin+manager+supervisor
+        (generic po.edit rule would wrongly narrow out supervisor)
+      - POST /api/templates/demo/seed, DELETE /api/templates/demo -> admin
+        ONLY (generic template.edit rule would wrongly widen to +manager)
+      - GET /api/templates/<id>/export-workbook -> admin+manager+viewer
+        (generic template.view rule would wrongly exclude viewer)
+
+grant_matrix_source: >
+  Verbatim in mesflow/docs/MESFLOW_MASTER_REQUIREMENTS.md §3.2 and
+  MESFLOW_MASTER_REQUIREMENTS_VI.md mục 3.2 — cross-checked against
+  app/mesflow/db/repositories/rbac.py's SEED_ROLE_PERMISSIONS tuple at
+  audit time (byte-for-byte match on every (role, permission) pair present
+  at that time). Do not duplicate the full 40x5 matrix here; read it there.
+
+permission_catalog_size: 40   # SEED_PERMISSIONS length at audit time
+role_count: 6
+
+test_personas:
+  mechanism: "POST /api/auth/test-auto-login with body {persona: <role>}"
+  allowed_values: [admin, manager, supervisor, operator, viewer]
+  excluded_deliberately: [super_admin]
+  username_convention: persona value == username exactly (every real
+    deployment seeds one canonical account per role named after the role)
+  see: docs/qc/TEST_ACCOUNTS.yaml, docs/qc/SAFETY.yaml (never usable
+    against a target classified `production`)
+
+session_timing:
+  idle_timeout_minutes: 60
+  absolute_ceiling_hours: 12
+  kiosk_idle_timeout_minutes: 15
+  source: mesflow/docs/MESFLOW_MASTER_REQUIREMENTS.md §3.5 (unverified
+    against a config constant in this pass — carried over, flag if a
+    testcase needs the exact env var name)

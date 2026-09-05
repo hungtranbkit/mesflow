@@ -44,6 +44,25 @@ document — once assigned, an ID is never reused for a different
 requirement, even if the requirement is later deprecated (it would be
 marked `DEPRECATED` in place, not deleted and reassigned).
 
+**Correction (2026-09-05, verified against source)**: every **Trigger**
+path shown in Part B for a business API (e.g. `GET
+/reports/employee-productivity`, `POST /work-sessions/start`, `POST
+/production-orders/<id>/start`) is missing its real, shared `/api`
+prefix — confirmed directly against every business Blueprint's
+`url_prefix='/api'` in `app/mesflow/web/*.py` (analytics.py, execution.py,
+master_data.py, exceptions.py, trace.py, users.py, and more all declare
+it). The **real, callable path always has `/api` prepended** to what
+Part B shows, with these exceptions that are already correct as written
+(no `/api` prefix exists on these): page routes (`/login`, `/app`,
+`/kiosk`, `/dashboard`, `/tutorials/<filename>`), and any path already
+shown starting with `/api/` (Kiosk v2's `/api/kiosk/v2/*` and a few others
+were already written correctly). This was not corrected path-by-path
+across every occurrence in this pass (161 distinct bare forms — a bulk
+edit risked introducing new errors faster than it fixed old ones); see
+`mesflow/docs/qc/API_MAP.yaml` for the complete, source-verified,
+already-correct path for every one of the 183 real routes, and
+`mesflow/docs/qc/REQUIREMENT_CODE_GAPS.md` for the full finding.
+
 ---
 
 # PART A — Reference Specs

@@ -1,0 +1,284 @@
+# FEATURE_MAP.yaml — testable feature/behavior catalog. Every feature has
+# a stable id (referenced by API_MAP.yaml, EXECUTOR_MAP.yaml,
+# BUSINESS_RULES.yaml, and REQ blocks in MESFLOW_QC_EXECUTABLE_REQUIREMENTS.md).
+# surface: ui | api | background | deterministic (a feature can list more
+# than one). criticality: critical | high | medium | low (business impact
+# of a regression, not a statement about test priority — see each REQ's
+# own Priority field for that).
+
+features:
+  - id: auth_login
+    name_vi: Xác thực & session
+    surface: [ui, api]
+    criticality: critical
+    application_map_pages: [login]
+    note: real password login, logout, session check, test-auto-login,
+      persona quick-switch
+
+  - id: rbac_admin
+    name_vi: Người dùng & phân quyền
+    surface: [ui, api]
+    criticality: critical
+    application_map_pages: [users]
+
+  - id: dashboard_overview
+    name_vi: Tổng quan sản xuất
+    surface: [ui, api]
+    criticality: high
+    application_map_pages: [overview]
+
+  - id: dashboard_daily
+    name_vi: Dashboard theo ngày
+    surface: [ui, api]
+    criticality: high
+    application_map_pages: [dashboard]
+
+  - id: production_order
+    name_vi: Production Order
+    surface: [ui, api]
+    criticality: critical
+    application_map_pages: [production-orders]
+
+  - id: template
+    name_vi: Template / quy trình
+    surface: [ui, api]
+    criticality: critical
+    application_map_pages: [templates]
+
+  - id: part_operation_generic
+    name_vi: Part & Operation (CRUD trực tiếp, ngoài luồng template)
+    surface: [api]
+    criticality: medium
+    application_map_pages: []
+    note: generic /api/parts, /api/operations resource CRUD (see
+      resources{} in app.js); primary path is still template instantiate
+
+  - id: employee
+    name_vi: Nhân viên & QR
+    surface: [ui, api]
+    criticality: high
+    application_map_pages: [employees, qr-print]
+
+  - id: equipment
+    name_vi: Thiết bị
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [equipment]
+
+  - id: station_salesorder_generic
+    name_vi: Trạm / Sales Order (generic resource, không có nav)
+    surface: [api]
+    criticality: low
+    application_map_pages: [stations, sales-orders]
+
+  - id: work_session_lifecycle
+    name_vi: Vòng đời Phiên làm việc
+    surface: [api]
+    criticality: critical
+    application_map_pages: [session-management]
+    note: start/finish/batch-finish/adjust/edit/transfer-operation/
+      exclude/restore — the atomic unit of production data
+
+  - id: session_management_ui
+    name_vi: Màn hình Quản lý Session
+    surface: [ui]
+    criticality: critical
+    application_map_pages: [session-management]
+
+  - id: kiosk_v1_browser
+    name_vi: Kiosk v1 (trình duyệt)
+    surface: [ui, api]
+    criticality: high
+    application_map_pages: ["/kiosk"]
+
+  - id: kiosk_v2_device
+    name_vi: Kiosk v2 (thiết bị ESP32)
+    surface: [api]
+    criticality: critical
+    application_map_pages: []
+    note: no browser UI; device-token auth, event-sourced projection —
+      see STATE_MACHINES.yaml kiosk_v2_device
+
+  - id: kiosk_management_ui
+    name_vi: Quản lý trạm kiosk
+    surface: [ui, api]
+    criticality: high
+    application_map_pages: [kiosk-management]
+
+  - id: kiosk_wallboard
+    name_vi: Kiosk wallboard năng suất nhân viên
+    surface: [ui, api, deterministic]
+    criticality: medium
+    application_map_pages: ["/kiosk/employee-productivity"]
+    note: unauthenticated by design; must never diverge from
+      employee_productivity_report's numbers for the same range
+
+  - id: employee_productivity_report
+    name_vi: Báo cáo năng suất nhân viên
+    surface: [ui, api, deterministic]
+    criticality: critical
+    application_map_pages: [employee-productivity]
+    note: this is the REQUIRED "Năng suất nhân viên" tutorial chapter
+      subject; formula in BUSINESS_RULES.yaml
+
+  - id: exception_center
+    name_vi: Trung tâm ngoại lệ
+    surface: [ui, api, background]
+    criticality: critical
+    application_map_pages: [session-exceptions]
+    note: primary exception system (exception_records) — see
+      STATE_MACHINES.yaml; detection runs via exception_reconciliation job
+
+  - id: session_exceptions_legacy
+    name_vi: Session Exceptions (hệ cũ)
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [session-management]
+    note: session_exception_reviews table, still live on Session
+      Management, SEPARATE from exception_center — do not conflate codes
+
+  - id: production_schedule
+    name_vi: Gantt & Material Flow
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [production-schedule]
+
+  - id: production_trace
+    name_vi: Production Trace
+    surface: [ui]
+    criticality: medium
+    application_map_pages: [production-trace]
+
+  - id: business_audit
+    name_vi: Nhật ký nghiệp vụ
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [business-audit]
+
+  - id: working_calendar
+    name_vi: Lịch làm việc / ca
+    surface: [ui, api]
+    criticality: high
+    application_map_pages: [working-calendar]
+
+  - id: shift_auto_close
+    name_vi: Tự động đóng ca (auto-close)
+    surface: [background]
+    criticality: critical
+    application_map_pages: []
+    note: required tutorial error-scenario ("quên nhập sản lượng / vượt
+      giờ ca"); see BACKGROUND_JOBS.yaml
+
+  - id: exception_reconciliation
+    name_vi: Job phát hiện ngoại lệ
+    surface: [background]
+    criticality: critical
+    application_map_pages: []
+
+  - id: log_retention
+    name_vi: Job dọn log theo hạn lưu trữ
+    surface: [background, api]
+    criticality: low
+    application_map_pages: []
+
+  - id: system_logs_app
+    name_vi: Nhật ký ứng dụng (action log / error trace, admin)
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [system-logs]
+    note: gated by roles.manage (admin_required), narrower than
+      manager's own logs.view-driven screen — see RBAC_MAP.yaml
+
+  - id: system_console
+    name_vi: System Console (Super Admin)
+    surface: [ui, api]
+    criticality: critical
+    application_map_pages: [system-overview, system-errors,
+      system-logs-it, system-services, system-diagnostics, system-audit]
+    note: most security-sensitive RBAC boundary in the system — admin
+      must 403 here despite admin's blanket bypass elsewhere
+
+  - id: system_health_alerts
+    name_vi: System Health — alert/chẩn đoán/dự đoán/kênh thông báo
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [system-overview, system-diagnostics]
+    note: NOT documented at all in docs/MESFLOW_MASTER_REQUIREMENTS.md —
+      newly catalogued in this audit (alert AI-analysis, per-alert
+      diagnostics, notification-channel test, recurring-incidents,
+      predictions, metric trend). Flagged in REQUIREMENT_CODE_GAPS.md.
+
+  - id: tutorials
+    name_vi: Hướng dẫn (video + văn bản)
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [tutorials]
+    note: see reports/TUTORIAL_VIDEO_PIPELINE_RECOVERY_20260905.md for the
+      2 real pipeline bugs found/fixed 2026-09-05 and the durable-mount
+      fix pattern; 15-chapter consistency enforced by
+      tests/test_tutorial_chapter_count_consistency.py
+
+  - id: qr_print
+    name_vi: Danh sách QR Code (in hàng loạt)
+    surface: [ui, api]
+    criticality: low
+    application_map_pages: [qr-print]
+
+  - id: import_export_excel
+    name_vi: Import/Export Excel Template & Operation
+    surface: [api]
+    criticality: medium
+    application_map_pages: [templates]
+    note: entry point is a button inside the templates page; the
+      validation rule set itself (§10 of the master doc) has no dedicated
+      pytest file at audit time (SPEC-GAP-009, carried)
+
+  - id: qc_inspection
+    name_vi: QC Inspection
+    surface: [api]
+    criticality: medium
+    application_map_pages: [qc]
+    note: reachable page id exists (renderSimple) but no dedicated,
+      richer UI found — primarily an API-level feature
+
+  - id: notifications
+    name_vi: Thông báo
+    surface: [api]
+    criticality: low
+    application_map_pages: [notifications]
+
+  - id: penalty_ticket
+    name_vi: Phiếu phạt (penalty ticket)
+    surface: [api]
+    criticality: low
+    application_map_pages: []
+    note: POST /api/supervisor/penalties exists; no dedicated list/view
+      page id found — API-only surface at audit time
+
+  - id: esp_ota
+    name_vi: ESP Kiosk OTA (firmware)
+    surface: [ui, api]
+    criticality: medium
+    application_map_pages: [esp-ota]
+    note: full permission family (ota.*, 9 distinct codes) despite no
+      sidebar entry — reachable via direct link only
+
+  - id: kpi_legacy_views
+    name_vi: KPI nhân viên / Operation (view đơn giản, hệ cũ)
+    surface: [ui, api]
+    criticality: low
+    application_map_pages: [kpi-employees, kpi-operations]
+
+  - id: monitoring_admin
+    name_vi: Monitoring (admin)
+    surface: [ui, api]
+    criticality: low
+    application_map_pages: [monitoring]
+
+count_summary:
+  total_features: 38
+  by_surface:
+    ui_and_api: 25
+    api_only: 11
+    background_only: 2
+  by_criticality: {critical: 9, high: 6, medium: 15, low: 8}
