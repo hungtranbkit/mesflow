@@ -28,7 +28,17 @@ const fs = require('fs');
 
   let last='';
   for(let attempt=1;attempt<=8;attempt++){
-    await page.goto('/login');
+    // ?noauto=1 forces the real password form even when the target has
+    // MESFLOW_TEST_AUTO_LOGIN=1 (e.g. demo/prodtest since 2026-09-04) --
+    // without it, data-test-auto-login="1"'s client-side auto-submit races
+    // this script's own fill()/click() and detaches #username mid-navigation
+    // (page.fill times out waiting for a locator that just got swept away by
+    // the client's own autologin redirect to /app). See REQ-AUTH-005 /
+    // docs/MESFLOW_MASTER_REQUIREMENTS.md -- ?noauto=1 always renders the
+    // real form regardless of the flag, so this is safe on every target,
+    // autologin-enabled or not, and this script always wants the REAL
+    // password login for the recorded video regardless.
+    await page.goto('/login?noauto=1');
     await page.fill('#username',username);
     await page.fill('#password',password);
     const [response]=await Promise.all([
