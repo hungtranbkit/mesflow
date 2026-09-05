@@ -117,8 +117,25 @@ async function note(page, selector, title, explanation, detail={}){
     document.getElementById('__tutorialPanel')?.remove();
     document.getElementById('__tutorialConnector')?.remove();
     document.querySelectorAll('.__tutorialFocus').forEach(x=>x.classList.remove('__tutorialFocus'));
-    const target=document.querySelector('[data-__tutorial-target="1"]');
-    if(!target)return;
+    let target=document.querySelector('[data-__tutorial-target="1"]');
+    if(!target){
+      // Root cause (2026-09 QC bug triage: dashboard-04/06, real
+      // #dailyKpis/#opTimeProgress children confirmed reproducible at
+      // REALISTIC tutorial pacing, not at compressed test-only pacing).
+      // Dashboard's 10s and Production Schedule's 15s auto-refresh timers
+      // (app.js dashboardTimer=setInterval(...,10000/15000)) can legitimately
+      // re-render their content during the pause between marking the target
+      // above and this evaluate() running, destroying the marked node before
+      // any highlight/panel exists -- correct real-time app behavior, not a
+      // bug. Re-run the same selector query used to find the target
+      // originally instead of reporting a false TARGET_NOT_VISIBLE.
+      const candidates=[...document.querySelectorAll(selector)];
+      target=candidates.find(el=>{
+        const r=el.getBoundingClientRect(),cs=getComputedStyle(el);
+        return r.width>0&&r.height>0&&cs.display!=='none'&&cs.visibility!=='hidden';
+      })||candidates[0]||null;
+      if(!target)return;
+    }
     target.removeAttribute('data-__tutorial-target');
     target.classList.add('__tutorialFocus');
     const r=target.getBoundingClientRect();
