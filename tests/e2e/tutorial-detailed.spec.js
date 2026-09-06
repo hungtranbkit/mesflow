@@ -676,8 +676,34 @@ const tours = {
       await page.evaluate(()=>document.getElementById('epdClose')?.click());
       await pause(page,500);
     }
-    await note(page,'.wallboard-group','Cấu hình trình chiếu Kiosk','3 nhóm tách riêng: khoảng thời gian, cấu hình hiển thị (sắp xếp, số nhân viên/trang, số cột, thời gian mỗi trang, làm mới dữ liệu) và tự động hóa (tự động chuyển trang).',{action:'Xem qua từng nhóm cấu hình.',expected:'Biết chỗ chỉnh từng phần thay vì một hàng cài đặt dồn lại.'});
+    // 2026-09-06 QC audit (regroup commit 2595925 -- xem
+    // WALLBOARD_PANEL_UX_REDESIGN_20260905.md §9): panel hiện chỉ còn ĐÚNG
+    // 2 nhóm ("Cấu hình hiển thị" + "Tự động hóa"), không phải 3 -- câu
+    // narration cũ liệt kê 3 nhóm ("khoảng thời gian" đã bị gộp vào "Tự
+    // động hóa") đã lệch khỏi UI thật, sửa lại đúng cấu trúc hiện có.
+    await note(page,'.wallboard-group','Cấu hình trình chiếu Kiosk','2 nhóm tách riêng: cấu hình hiển thị (sắp xếp, số nhân viên/trang, số cột) và tự động hóa (tự động dùng đầu tháng→hôm nay, tự động chuyển trang, thời gian mỗi trang, làm mới dữ liệu).',{action:'Xem qua từng nhóm cấu hình.',expected:'Biết chỗ chỉnh từng phần thay vì một hàng cài đặt dồn lại.'});
     await note(page,'.wallboard-actions','Xem trước và Trình chiếu trên Kiosk là 2 việc khác nhau','“Xem trước” chỉ mở thử màn hình bằng cấu hình đang chỉnh, KHÔNG lưu lại — dùng để kiểm tra trước khi công khai. “Trình chiếu trên Kiosk” mới thực sự lưu cấu hình và là màn hình công khai, không cần đăng nhập, mà TV tại xưởng sẽ hiển thị liên tục.',{action:'Phân biệt rõ 2 nút trước khi bấm Trình chiếu trên Kiosk.',expected:'Không nhầm việc xem thử với việc công khai năng suất thật lên Kiosk.'});
+
+    // 2026-09-06 QC audit (Kiosk năng suất nhân viên coverage): trước bản
+    // sửa này, video chỉ MÔ TẢ BẰNG LỜI việc "tự động chuyển trang" mà
+    // không hề chờ đủ 1 chu kỳ để CHỨNG MINH nó thật sự xảy ra -- với cấu
+    // hình mặc định (20 nhân viên/trang) và dữ liệu tutorial hiện có
+    // (~16 nhân viên trong 14 ngày), tổng số trang luôn <=1 nên auto-flip
+    // không bao giờ có cơ hội chạy trong video dù nút/checkbox hoạt động
+    // đúng (đã xác nhận qua code: wallboard-employee-productivity.js chỉ
+    // bật timer khi totalPages>1). Chọn "10 nhân viên/trang" + "5 giây/
+    // trang" ngay trên UI thật (không chỉnh URL ngầm) để CHẮC CHẮN có từ 2
+    // trang trở lên, sau đó chờ đúng 1 chu kỳ và xác nhận số trang đã đổi
+    // -- vừa là bằng chứng thật cho video, vừa closes gap đã phát hiện khi
+    // audit REQ-KIOSK-004 (auto-rotate "chưa xác nhận" trong video, dù đã
+    // có test Playwright ở tests/e2e/employee-productivity-wallboard.spec.js).
+    await note(page,'#epWbEmployeesPerPage, #epWbFlipSeconds','Chọn số nhân viên/trang nhỏ hơn để thấy rõ tự động chuyển trang','Với nhiều nhân viên hơn số hiển thị mỗi trang, Kiosk sẽ tự động lật sang trang kế tiếp theo đúng chu kỳ đã chọn -- chọn số nhỏ hơn ở đây chỉ để MINH HỌA rõ trong video; xưởng thật nên dùng khuyến nghị "24–30 nhân viên, 3 cột" ghi ngay trên panel.',{action:'Chọn 10 nhân viên/trang và 5 giây/trang.',expected:'Khi số nhân viên có dữ liệu nhiều hơn 10, Kiosk sẽ xuất hiện từ 2 trang trở lên và tự chuyển sau mỗi 5 giây.'});
+    await page.evaluate(()=>{
+      const perPage=document.getElementById('epWbEmployeesPerPage'),flip=document.getElementById('epWbFlipSeconds');
+      perPage.value='10';perPage.dispatchEvent(new Event('change',{bubbles:true}));
+      flip.value='5';flip.dispatchEvent(new Event('change',{bubbles:true}));
+    });
+    await pause(page,500);
 
     // Minh họa "Xem trước" bằng điều hướng trực tiếp tới đúng URL nút này mở
     // (thay vì bấm và bắt tab mới) -- vì Playwright ghi video theo browser
@@ -707,6 +733,21 @@ const tours = {
     await note(page,'#wbKpis','4 chỉ số lớn, dễ đọc từ xa','Cùng 4 chỉ số đã thấy ở trang quản trị, phóng to cho phù hợp xem trên TV.');
     await note(page,'#wbList .wb-card','Bảng xếp hạng dạng thẻ lớn','Mỗi thẻ là một nhân viên: hạng, tên và % năng suất theo màu (xanh/vàng/đỏ) -- nhìn được ngay từ xa, không cần lại gần đọc bảng.',{action:'Quan sát thứ hạng và màu sắc theo mức năng suất.',expected:'Phân biệt được nhân viên năng suất cao/thấp chỉ bằng màu sắc.'});
 
+    // Chờ thật đúng 1 chu kỳ tự chuyển trang (5s vừa chọn, cộng biên độ an
+    // toàn) và xác nhận số trang thật sự đổi -- bằng chứng thật, không chỉ
+    // lời thoại, cho đúng hành vi "tự động chuyển trang qua nhiều nhân
+    // viên" mà REQ-KIOSK-004 mô tả.
+    const pageIndicatorText=await page.locator('#wbPageIndicator').textContent();
+    if(pageIndicatorText && /Trang \d+\/[2-9]/.test(pageIndicatorText)){
+      await card(page,'Tự động chuyển trang qua nhiều nhân viên','Đang ở '+pageIndicatorText.trim()+' -- chờ đúng chu kỳ đã chọn (5 giây) để xem Kiosk tự chuyển sang trang kế tiếp, không cần thao tác gì.',STEP_WAIT);
+      await page.waitForFunction((prev)=>{
+        const t=document.getElementById('wbPageIndicator')?.textContent||'';
+        return t.trim()&&t.trim()!==prev;
+      },pageIndicatorText,{timeout:8000});
+      const afterText=await page.locator('#wbPageIndicator').textContent();
+      await note(page,'#wbPageIndicator','Đã tự chuyển sang trang khác','Trang hiển thị vừa đổi từ "'+pageIndicatorText.trim()+'" sang "'+afterText.trim()+'" hoàn toàn tự động -- đúng cơ chế "Tự động chuyển trang" đã bật ở bước cấu hình, không cần người vận hành can thiệp.',{action:'So sánh số trang trước và sau khi chờ.',expected:'Sau đúng chu kỳ đã cấu hình, Kiosk tự hiển thị nhóm nhân viên tiếp theo mà không cần bấm gì.'});
+    }
+
     // Quay lại trang quản trị, bấm THẬT nút "Trình chiếu trên Kiosk" (khác
     // với minh họa "Xem trước" ở trên -- đây là hành động lưu cấu hình
     // thật), rồi mở đúng URL công khai (không có ?preview=1) để chứng minh
@@ -729,8 +770,36 @@ const tours = {
     await expect(page.locator('#wbList .wb-card').first()).toBeVisible({timeout:10000});
     await pause(page,600);
     await card(page,'Đây là màn TRÌNH CHIẾU THẬT','URL này không có ?preview, không cần đăng nhập -- chính là màn hình TV tại xưởng sẽ hiển thị liên tục, tự làm mới và tự chuyển trang theo đúng cấu hình vừa lưu.',LONG_WAIT);
+
+    // Cùng bằng chứng tự-chuyển-trang như ở bước Xem trước, nhưng lần này
+    // trên chính màn hình CÔNG KHAI thật (đã lưu cấu hình 10 nhân viên/
+    // trang, 5 giây/trang ở bước publish trên) -- xác nhận hành vi giống
+    // hệt nhau giữa Xem trước và Kiosk thật, không chỉ ở chế độ preview.
+    const publicPageText=await page.locator('#wbPageIndicator').textContent();
+    if(publicPageText && /Trang \d+\/[2-9]/.test(publicPageText)){
+      await page.waitForFunction((prev)=>{
+        const t=document.getElementById('wbPageIndicator')?.textContent||'';
+        return t.trim()&&t.trim()!==prev;
+      },publicPageText,{timeout:8000});
+      await pause(page,400);
+    }
+
+    // Khôi phục lại đúng cấu hình khuyến nghị cho TV thật (20 nhân viên/
+    // trang, 10 giây/trang -- giá trị mặc định trước khi video này chỉnh
+    // nhỏ lại để minh họa) để không để lại cấu hình "demo" trên Kiosk công
+    // khai thật sau khi video kết thúc.
     await page.goto('/app?page=employee-productivity');
     await expect(page.locator('#epWbPanel')).toBeVisible({timeout:10000});
+    await page.evaluate(()=>{
+      const perPage=document.getElementById('epWbEmployeesPerPage'),flip=document.getElementById('epWbFlipSeconds');
+      perPage.value='20';perPage.dispatchEvent(new Event('change',{bubbles:true}));
+      flip.value='10';flip.dispatchEvent(new Event('change',{bubbles:true}));
+    });
+    await Promise.all([
+      page.waitForResponse(r=>r.url().includes('/api/reports/employee-productivity/wallboard-config')&&r.request().method()==='POST'),
+      page.click('#epWbPublish'),
+    ]);
+    await page.waitForFunction(()=>document.getElementById('epWbState')?.textContent?.startsWith('Đang public'),{timeout:10000});
     await card(page,'Lưu ý khi đọc năng suất','Năng suất trung bình chỉ tính trên Session hợp lệ (có đủ thời gian và định mức để so sánh); Session thiếu dữ liệu được đếm riêng, không kéo méo chỉ số trung bình. Khi thấy năng suất bất thường, nên đối chiếu chi tiết theo Operation trước khi kết luận.',LONG_WAIT);
   },
   calendar: async page=>{

@@ -135,3 +135,61 @@ test('page flip pauses on interaction and auto-resumes after idle', async ({ pag
   await page.waitForTimeout(3500); // idle-resume fires at 4s; next tick at 6s
   await expect(page.locator('#wbPageIndicator')).toContainText('Trang 2/3');
 });
+
+// 2026-09-06 QC audit (Kiosk năng suất nhân viên coverage): these 3 states
+// were listed as "Lỗi: chưa xác nhận N/A" in REQ-KIOSK-004 (MESFLOW_MASTER_
+// REQUIREMENTS(_VI).md) and claimed as "empty_state" coverage in tutorial/
+// coverage-matrix.json despite never having an automated assertion --
+// coded correctly in wallboard-employee-productivity.js (drawEmpty()/
+// setConnState()) since the route existed, just never exercised by a test.
+
+test('never-published wallboard shows the "not configured" message, not a blank screen', async ({ page }) => {
+  await page.route('**/api/wallboard/employee-productivity', route => route.fulfill({
+    json: { ok: true, configured: false, config: { date_mode: 'dynamic_mtd' }, summary: null, employees: [] },
+  }));
+  await page.goto('/kiosk/employee-productivity');
+  await expect(page.locator('#wbEmpty')).toBeVisible();
+  await expect(page.locator('#wbEmpty')).toContainText('Chưa cấu hình trình chiếu');
+  await expect(page.locator('#wbRange')).toContainText('Chưa cấu hình');
+  await expect(page.locator('#wbList .wb-card')).toHaveCount(0);
+});
+
+test('configured wallboard with zero matching employees shows the empty-data message, not a blank screen', async ({ page }) => {
+  await mockWallboard(page, { config: {}, employeeCount: 0 });
+  await page.goto('/kiosk/employee-productivity');
+  await expect(page.locator('#wbEmpty')).toBeVisible();
+  await expect(page.locator('#wbEmpty')).toContainText('Chưa có dữ liệu năng suất');
+  await expect(page.locator('#wbList .wb-card')).toHaveCount(0);
+  // Nav arrows must not appear for an empty board (there is nothing to page through).
+  await expect(page.locator('#wbPrev')).toBeHidden();
+  await expect(page.locator('#wbNext')).toBeHidden();
+});
+
+test('a failed refresh shows a connection-lost banner but keeps the last good cards on screen', async ({ page }) => {
+  let calls = 0;
+  await page.route('**/api/wallboard/employee-productivity', route => {
+    calls += 1;
+    // First load succeeds (short refresh interval so the 2nd tick is fast);
+    // every call after that fails, simulating the API/network dropping
+    // while a TV keeps running unattended on the shop floor.
+    if (calls === 1) {
+      return route.fulfill({
+        json: {
+          ok: true, configured: true,
+          config: { date_mode: 'dynamic_mtd', sort: 'productivity_desc', refresh_interval_seconds: 5, employees_per_page: 20, columns: 'auto', auto_page_flip: false, auto_page_flip_seconds: 10 },
+          summary: { avg_employee_productivity_percent: 92.5, employee_count: 5, completed_sessions: 40, total_good_qty: 900, from: '2026-08-01', to: '2026-08-22' },
+          employees: employees(5),
+        },
+      });
+    }
+    return route.abort('failed');
+  });
+  await page.goto('/kiosk/employee-productivity');
+  await expect(page.locator('#wbList .wb-card')).toHaveCount(5);
+  await page.waitForTimeout(5500); // past the 5s refresh_interval_seconds -- the 2nd call fails
+  await expect(page.locator('#wbConnState')).toBeVisible();
+  await expect(page.locator('#wbConnState')).toContainText('Mất kết nối');
+  // Section 11 requirement: never blank the screen on a transient API error --
+  // the last good render must still be showing underneath the banner.
+  await expect(page.locator('#wbList .wb-card')).toHaveCount(5);
+});
