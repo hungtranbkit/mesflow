@@ -813,6 +813,53 @@ const tours = {
     await card(page,'Người dùng & Phân quyền','RBAC tách quyền theo vai trò. Không chỉ ẩn tab ở frontend; backend cũng phải từ chối API khi thiếu quyền.');
     await note(page,'.panel, table','Tài khoản người dùng','Admin quản lý tài khoản, trạng thái và role. Không dùng chung tài khoản admin cho vận hành hằng ngày.');
     await note(page,'button','Vai trò & phân quyền','Mở ma trận quyền để quyết định role nào được View/Create/Edit/Delete/Operate theo từng module.');
+
+    // 2026-09-06 QC audit follow-up (SPEC-GAP-001, KIOSK_EMPLOYEE_PRODUCTIVITY_
+    // AUDIT_20260906.md §7): trước bản sửa này video chỉ NÓI câu "backend
+    // cũng phải từ chối API khi thiếu quyền" mà chưa từng CHỨNG MINH bằng
+    // hành động thật. Chuyển thật sang tài khoản role Viewer (mesflow.core.
+    // config.settings.test_auto_login, đã bật sẵn trên DEMO -- tính năng
+    // chỉ dùng cho test/demo, tự cảnh báo và tắt trên production, xác nhận
+    // qua app.py:_auto_login_allowed/test_auto_login trước khi dùng), thử
+    // mở đúng màn Người dùng bằng cả điều hướng UI lẫn gọi thẳng API --
+    // 'users.view' là quyền DUY NHẤT chỉ admin có (xác nhận qua
+    // app/mesflow/db/repositories/rbac.py: không role nào khác được cấp
+    // users.view/users.manage), nên đây là ví dụ 403 rõ ràng nhất có thể
+    // demo bằng chính vai trò "chỉ xem" mà video đã giới thiệu.
+    await card(page,'Chứng minh: backend thật sự từ chối, không chỉ ẩn nút','Chuyển sang một tài khoản role "Viewer" (chỉ xem) và thử mở đúng màn Người dùng này -- xem cả giao diện lẫn API có từ chối đúng như đã nói ở trên không.',STEP_WAIT);
+    await page.request.post('/api/auth/test-auto-login',{data:{persona:'viewer'}});
+    await page.goto('/app');
+    await expect(page.locator('#appLayout')).toBeVisible();
+    await pause(page,500);
+    // Assertion thật, không chỉ narration: nếu quyền viewer từng bị cấp
+    // nhầm users.view trong tương lai, 2 assert này phải FAIL để bắt hồi
+    // quy, chứ không chỉ hiển thị chữ khác trong video.
+    await expect(page.locator('[data-page="users"]')).toHaveCount(0);
+    await page.evaluate(()=>window.openPage && window.openPage('users'));
+    await pause(page,500);
+    await expect(page.locator('#content')).toContainText('Không có quyền truy cập');
+    await note(page,'#content','Giao diện đã từ chối vì thiếu quyền','Với role Viewer, mục "Người dùng" không còn xuất hiện trên thanh điều hướng nữa; nếu cố mở thẳng, giao diện hiện đúng thông báo "Không có quyền truy cập" thay vì màn trắng hay lỗi khó hiểu.',{action:'Quan sát menu bên trái đã mất mục Người dùng, và nội dung chính hiện thông báo từ chối.',expected:'Không thấy mục Người dùng trên menu; nếu cố mở vẫn bị chặn ngay trên giao diện, không phải chỉ ẩn nút.'});
+    const apiResult=await page.evaluate(async()=>{
+      const r=await fetch('/api/users',{credentials:'same-origin'});
+      const body=await r.json().catch(()=>({}));
+      return {status:r.status,permission:body.permission,error:body.error};
+    });
+    expect(apiResult.status,'Viewer role phải luôn bị 403 trên /api/users -- nếu pass sang giá trị khác nghĩa là quyền users.view đã bị cấp nhầm cho Viewer').toBe(403);
+    await card(page,'Backend cũng từ chối độc lập, không chỉ ẩn ở giao diện',`Gọi thẳng API /api/users (bỏ qua hoàn toàn giao diện) với tài khoản Viewer, kết quả thật: HTTP ${apiResult.status} ${apiResult.error} -- thiếu quyền "${apiResult.permission}". Dù giao diện có lỗi hay bị bỏ qua, dữ liệu người dùng vẫn không bao giờ lộ ra nếu role không có đúng quyền.`,STEP_WAIT);
+
+    // Khôi phục lại phiên admin trước khi kết thúc chapter -- không để lại
+    // phiên Viewer dở dang (dù mỗi chapter video là 1 lần chạy Playwright
+    // độc lập với login() riêng nên không ảnh hưởng các chapter khác, vẫn
+    // giữ đúng nguyên tắc "không để lại tác dụng phụ" đã áp dụng cho phần
+    // Kiosk năng suất nhân viên).
+    const password=process.env.MESFLOW_TUTORIAL_PASSWORD||'';
+    if(password){
+      await page.request.post('/api/auth/login',{data:{username:process.env.MESFLOW_TUTORIAL_USERNAME||'admin',password}});
+    }
+    await page.goto('/app?page=users');
+    await expect(page.locator('#content')).toBeVisible();
+    await pause(page,500);
+
     await card(page,'Role mặc định','Admin: toàn quyền · Manager: kế hoạch/vận hành · Supervisor: điều hành xưởng · Operator: thao tác · Viewer: chỉ xem.',LONG_WAIT);
   },
   logs: async page=>{
