@@ -1853,18 +1853,22 @@ are the test-entry-points into it.
 - **Preconditions**: a published wallboard config exists (or defaults apply); reportable sessions exist in range.
 - **Input**: none from the viewer; config is set separately by an admin/manager (`POST /reports/employee-productivity/wallboard-config`).
 - **Trigger**: `GET /api/wallboard/employee-productivity`, and the `/kiosk/employee-productivity` page.
-- **Main flow**: reads the exact same query as §8's formula — ranked employee list, configurable sort/columns/page-size/auto-flip-interval.
+- **Main flow**: reads the exact same query as §8's formula — ranked employee list, configurable sort/columns/page-size/auto-flip-interval. When the total number of employees with data exceeds `employees_per_page`, the screen **must** auto-advance to the next page every `auto_page_flip_seconds` with no interaction required — this IS this wallboard's own "rotate through multiple employees" mechanism (distinct from REQ-KIOSK-003, see Related).
 - **Expected output**: same numbers as the authenticated Employee Productivity report for the same date range (REQ-PROD-001) — must never diverge.
 - **State transition**: N/A (read-only).
 - **Validation**: N/A for the read path.
-- **Errors**: N/A confirmed.
+- **Errors / special states** (2026-09-06 QC audit — previously "N/A confirmed"; verified against `wallboard-employee-productivity.js` and backed by 3 new Playwright tests, see `tests/e2e/employee-productivity-wallboard.spec.js`):
+  1. **Never published** (`configured=false`): shows "Chưa cấu hình trình chiếu — vào Báo cáo năng suất nhân viên để Public lên Kiosk", not a blank screen.
+  2. **Published but 0 employees match the filter** (e.g. no sessions in the date range/department): shows "Chưa có dữ liệu năng suất trong khoảng đang chọn", nav arrows hidden.
+  3. **API error/network drop mid-refresh**: shows a small "Mất kết nối · đang thử lại" banner but **keeps** the last good render on screen — never blanks on a transient error (Section 11's original requirement).
+  4. Resigned/inactive employee: **no** dedicated badge/state — REQ-PROD-001's same formula only shows employees with a valid `CLOSED` session in the selected range (an inner JOIN against `work_sessions`, not the full employee roster), so a resigned employee with historical sessions inside the viewed range still correctly appears — by design, not a missing feature.
 - **Boundary**: a "Preview" of a not-yet-published config change must **not** mutate what the public wallboard currently shows (confirmed, specifically tested requirement).
-- **Permission**: **no auth required** for the data endpoint itself — this is deliberate, not a bug; do not flag it as a security gap without first confirming it is not the intended design (it is, per direct code confirmation).
+- **Permission**: **no auth required** for the data endpoint itself — this is deliberate, not a bug; do not flag it as a security gap without first confirming it is not the intended design (it is, per direct code confirmation). See REQ-PROD-002 for who may configure/publish (admin, manager only).
 - **Concurrency**: N/A.
 - **Audit**: N/A (read-only).
-- **Related**: §8 (KPI formula), REQ-PROD-001, REQ-KIOSK-003 (the sequential multi-employee demo this wallboard should visibly reflect afterward).
-- **Priority**: P0 — this is the tutorial's explicitly required "Kiosk năng suất nhân viên" chapter subject.
-- **Dimensions**: positive, boundary (preview-does-not-mutate), unauth access (confirm intended).
+- **Related**: §8 (KPI formula), REQ-PROD-001, REQ-PROD-002 (publish config). REQ-KIOSK-003 is a DIFFERENT feature entirely — its "sequential multiple employees" means several workers scanning their badge one after another on the SAME real operator Kiosk terminal (`/kiosk`), unrelated to this wallboard's own auto-page-flip; the two only share the phrase "multiple employees", noted here to avoid confusing the two on a skim read.
+- **Priority**: P0 — this is the tutorial's explicitly required "Kiosk năng suất nhân viên" chapter subject (video 10_employee_productivity of the 15-video set — not its own chapter, but the closing portion of the "Employee Productivity Report" chapter; confirmed by a 2026-09-06 audit to actually open the real kiosk/slideshow UI, both via Preview and the real published Kiosk, and to wait for and assert one real auto-page-flip cycle via `#wbPageIndicator` changing value — not narration alone).
+- **Dimensions**: positive, boundary (preview-does-not-mutate), unauth access (confirm intended), the 3 special states above (not-configured/empty-data/connection-lost), multi-page auto-flip.
 
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 

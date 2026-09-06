@@ -1905,18 +1905,22 @@ dưới đây là điểm-vào để sinh testcase từ đó.
 - **Điều kiện tiên quyết**: tồn tại một cấu hình wallboard đã publish (hoặc dùng mặc định); có session tính vào báo cáo trong khoảng thời gian.
 - **Đầu vào**: không có từ người xem; cấu hình được set riêng bởi admin/manager (`POST /reports/employee-productivity/wallboard-config`).
 - **Kích hoạt bởi**: `GET /api/wallboard/employee-productivity`, và trang `/kiosk/employee-productivity`.
-- **Luồng chính**: đọc đúng truy vấn của công thức §8 — danh sách nhân viên đã xếp hạng, sort/cột/số dòng mỗi trang/chu kỳ tự lật trang cấu hình được.
+- **Luồng chính**: đọc đúng truy vấn của công thức §8 — danh sách nhân viên đã xếp hạng, sort/cột/số dòng mỗi trang/chu kỳ tự lật trang cấu hình được. Khi tổng số nhân viên có dữ liệu lớn hơn `employees_per_page`, màn hình **phải** tự động chuyển sang trang kế tiếp đúng sau mỗi `auto_page_flip_seconds` giây mà không cần thao tác — đây chính là cơ chế "trình chiếu qua nhiều nhân viên" của riêng wallboard này (khác với REQ-KIOSK-003, xem mục Liên quan).
 - **Kết quả mong đợi**: cùng con số với báo cáo Năng suất nhân viên đã xác thực cho cùng khoảng ngày (REQ-PROD-001) — không bao giờ được lệch nhau.
 - **Chuyển trạng thái**: N/A (chỉ đọc).
 - **Kiểm tra hợp lệ**: N/A cho đường đọc.
-- **Lỗi**: chưa xác nhận N/A.
+- **Lỗi / trạng thái đặc biệt** (2026-09-06 QC audit — trước đây ghi "chưa xác nhận N/A"; đã đọc `wallboard-employee-productivity.js` và bổ sung 3 test Playwright xác nhận cả 3 trạng thái dưới đây, xem `tests/e2e/employee-productivity-wallboard.spec.js`):
+  1. **Chưa từng publish** (`configured=false`): hiển thị thông báo "Chưa cấu hình trình chiếu — vào Báo cáo năng suất nhân viên để Public lên Kiosk", không phải màn trắng.
+  2. **Đã publish nhưng 0 nhân viên khớp bộ lọc** (ví dụ khoảng ngày/bộ phận không có session nào): hiển thị "Chưa có dữ liệu năng suất trong khoảng đang chọn", ẩn nút chuyển trang.
+  3. **API lỗi/mất mạng khi đang làm mới**: hiển thị banner nhỏ "Mất kết nối · đang thử lại" nhưng **giữ nguyên** dữ liệu tốt cuối cùng trên màn hình — không bao giờ để trắng màn hình khi lỗi xảy ra tạm thời (đúng yêu cầu §11 gốc).
+  4. Nhân viên nghỉ việc/không còn hoạt động: **không có** trạng thái badge riêng — do REQ-PROD-001's cùng công thức chỉ hiện nhân viên có session `CLOSED` hợp lệ trong khoảng ngày đã chọn (JOIN với `work_sessions`, không phải toàn bộ danh mục nhân viên), một nhân viên đã nghỉ nhưng có lịch sử làm việc trong khoảng đang xem **vẫn xuất hiện** đúng như dữ liệu lịch sử của họ — đây là hành vi đúng theo thiết kế, không phải thiếu tính năng.
 - **Ranh giới**: một "Preview" của một thay đổi cấu hình chưa publish **không được phép** làm thay đổi những gì wallboard công khai hiện đang hiển thị (yêu cầu đã xác nhận, đã test riêng cụ thể).
-- **Quyền**: **không yêu cầu xác thực** cho chính endpoint dữ liệu — đây là cố ý, không phải lỗi; không gắn cờ đây là lỗ hổng bảo mật nếu chưa xác nhận đây không phải thiết kế có chủ đích (đúng là có chủ đích, theo xác nhận trực tiếp từ mã nguồn).
+- **Quyền**: **không yêu cầu xác thực** cho chính endpoint dữ liệu — đây là cố ý, không phải lỗi; không gắn cờ đây là lỗ hổng bảo mật nếu chưa xác nhận đây không phải thiết kế có chủ đích (đúng là có chủ đích, theo xác nhận trực tiếp từ mã nguồn). Xem REQ-PROD-002 cho quyền cấu hình/publish (chỉ admin, manager).
 - **Đồng thời**: N/A.
 - **Nhật ký kiểm toán**: N/A (chỉ đọc).
-- **Liên quan**: §8 (công thức KPI), REQ-PROD-001, REQ-KIOSK-003 (demo nhiều-nhân-viên-nối-tiếp mà wallboard này nên phản ánh được sau đó).
-- **Độ ưu tiên**: P0 — đây chính là chủ đề chương video hướng dẫn **bắt buộc** "Kiosk năng suất nhân viên".
-- **Khía cạnh kiểm thử**: positive, boundary (preview không làm thay đổi dữ liệu thật), truy cập không xác thực (xác nhận là có chủ đích).
+- **Liên quan**: §8 (công thức KPI), REQ-PROD-001, REQ-PROD-002 (cấu hình publish). REQ-KIOSK-003 là một tính năng KHÁC — "nhiều nhân viên nối tiếp" ở đó nghĩa là nhiều công nhân lần lượt quét thẻ trên cùng một Kiosk thao tác thật ngoài xưởng (`/kiosk`), không liên quan tới cơ chế tự-chuyển-trang của wallboard này; 2 tính năng chỉ trùng cụm từ "nhiều nhân viên", tránh nhầm lẫn khi đọc lướt.
+- **Độ ưu tiên**: P0 — đây chính là chủ đề chương video hướng dẫn **bắt buộc** "Kiosk năng suất nhân viên" (video 10_employee_productivity trong bộ 15 video hướng dẫn — không phải một chapter riêng, mà là phần cuối của chapter "Báo cáo năng suất nhân viên", đã xác nhận qua audit 2026-09-06 là có mở đúng UI kiosk/slideshow thật, cả bằng "Xem trước" lẫn Kiosk công khai thật, và có chờ + xác nhận đúng 1 chu kỳ tự chuyển trang qua nhiều nhân viên bằng bằng chứng `#wbPageIndicator` đổi giá trị, không chỉ lời thoại).
+- **Khía cạnh kiểm thử**: positive, boundary (preview không làm thay đổi dữ liệu thật), truy cập không xác thực (xác nhận là có chủ đích), 3 trạng thái đặc biệt ở trên (not-configured/empty-data/connection-lost), auto-page-flip qua nhiều trang.
 
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 

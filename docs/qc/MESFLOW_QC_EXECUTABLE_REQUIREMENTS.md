@@ -266,6 +266,17 @@ this was verified against).
 - **Safety**: local_dev+demo+prodtest
 - **Source Reference**: FEATURE_MAP.yaml kiosk_wallboard
 
+### REQ-KIOSK-004-STATES — not-configured, empty-data and connection-lost never blank the screen
+- **Feature**: kiosk_wallboard
+- **Role**: none (public)
+- **Preconditions**: 3 separate cases — (1) `employee_productivity_wallboard` key never written to `app_settings`; (2) config published but the filtered range/department matches 0 employees; (3) the page has already rendered once successfully, then the next poll to `/api/wallboard/employee-productivity` fails
+- **Action**: load `/kiosk/employee-productivity` for cases 1-2; for case 3, let one successful refresh happen then fail the next
+- **Expected Result**: case 1 shows "Chưa cấu hình trình chiếu — vào Báo cáo năng suất nhân viên để Public lên Kiosk"; case 2 shows "Chưa có dữ liệu năng suất trong khoảng đang chọn" with nav arrows hidden; case 3 shows a "Mất kết nối · đang thử lại" banner while the previous page's cards remain visible — none of the 3 ever render a blank `#wbList`
+- **Executor**: ui (mocked `/api/wallboard/employee-productivity` response — no real DB seed needed, this is pure frontend state handling in wallboard-employee-productivity.js)
+- **Priority**: P1 — previously listed as "Lỗi: chưa xác nhận N/A" in REQ-KIOSK-004; found coded correctly but never asserted during the 2026-09-06 Kiosk năng suất nhân viên audit
+- **Safety**: local_dev+demo+prodtest
+- **Source Reference**: MESFLOW_MASTER_REQUIREMENTS_VI.md REQ-KIOSK-004 "Lỗi / trạng thái đặc biệt"; tests/e2e/employee-productivity-wallboard.spec.js (3 new cases added same audit)
+
 ### REQ-PROD-001 — employee productivity formula, all edge cases
 - **Feature**: employee_productivity_report
 - **Role**: any (session.view)
