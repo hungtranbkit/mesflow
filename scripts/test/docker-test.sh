@@ -6,6 +6,11 @@ mkdir -p test-results
 cleanup(){ docker compose -f compose.test.yml down -v --remove-orphans >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 cleanup
+# Issue #25 (2026-09-07): compose.yml's default image tag drifted from
+# VERSION.txt/release.json for an extended period, silently failing 24
+# release-contract tests only after several minutes of Docker build/boot.
+# Fail fast, with a specific message, before spending any of that time.
+./scripts/check-version-sync.sh
 # runtime/tutorials/ (bind-mounted read-only into mesflow-test-api below)
 # is gitignored -- a fresh checkout, and every CI run, never has the real
 # device-captured ESP Kiosk tutorial videos. Generate a deterministic,

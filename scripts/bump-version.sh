@@ -41,6 +41,21 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 die(){ echo "ERROR: $*" >&2; exit 1; }
 
+# artifacts/releases/ lives as a sibling of the CANONICAL checkout, not of
+# whichever worktree happens to be running this script -- see the matching
+# comment in build-release.sh. From a worktree, "$ROOT/.." used to resolve
+# to <repo>/.worktrees (never has artifacts/releases), making is_frozen()
+# below always report "not frozen" even for a version that really is
+# released, silently taking the wrong branch in --if-released. Found
+# 2026-09-07 fixing issue #25. Resolve via git's shared common .git dir.
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$GIT_COMMON_DIR" ]]; then
+  GIT_COMMON_DIR="$(cd "$GIT_COMMON_DIR" && pwd)"
+  CANONICAL_ROOT="$(dirname "$GIT_COMMON_DIR")"
+else
+  CANONICAL_ROOT="$ROOT"
+fi
+
 # --- Concurrency guard ------------------------------------------------
 # Two concurrent invocations (e.g. two CI triggers racing on --if-released)
 # must never both read the same "current" version and each independently
@@ -66,7 +81,7 @@ fi
 current="$(tr -d '[:space:]' < VERSION.txt)"
 [[ "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION_INVALID: current VERSION.txt is not X.Y.Z.W: '$current'"
 
-is_frozen(){ [[ -f "$ROOT/../artifacts/releases/$1/release.json" ]]; }
+is_frozen(){ [[ -f "$CANONICAL_ROOT/../artifacts/releases/$1/release.json" ]]; }
 next_patch(){ python3 -c "print('.'.join('$1'.split('.')[:3] + [str(int('$1'.split('.')[3]) + 1)]))"; }
 
 # Write $1 into every declared location and verify it actually landed

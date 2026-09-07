@@ -18,6 +18,23 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 die(){ echo "ERROR: $*" >&2; exit 1; }
 command -v docker >/dev/null || die "DOCKER_NOT_FOUND"
 
+# artifacts/releases/ lives as a sibling of the CANONICAL checkout, not of
+# whichever worktree happens to be running this script. The mandatory
+# agent worktree policy (AGENTS.md) puts every agent invocation under
+# <repo>/.worktrees/<name>, where "$ROOT/.." is that .worktrees directory,
+# not the checkout's real parent -- found 2026-09-07 fixing issue #25:
+# from a worktree this silently made the immutable-release guard below
+# always see an empty/missing dist dir, defeating "a version may be built
+# only once". Resolve via git's common .git dir, shared by every
+# worktree, instead of a literal "$ROOT/..".
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$GIT_COMMON_DIR" ]]; then
+  GIT_COMMON_DIR="$(cd "$GIT_COMMON_DIR" && pwd)"
+  CANONICAL_ROOT="$(dirname "$GIT_COMMON_DIR")"
+else
+  CANONICAL_ROOT="$ROOT"
+fi
+
 BUMP=0
 BUMP_TARGET=""
 while [[ $# -gt 0 ]]; do
@@ -38,7 +55,7 @@ version="$(tr -d '[:space:]' < VERSION.txt)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION_INVALID"
 image_repo="${MESFLOW_IMAGE_REPOSITORY:-mesflow-app}"
 image="${image_repo}:$version"
-dist="$ROOT/../artifacts/releases/$version"
+dist="$CANONICAL_ROOT/../artifacts/releases/$version"
 
 # --- immutable release guard --------------------------------------------
 # A version may be built only once. Never overwrite a frozen release.json /
