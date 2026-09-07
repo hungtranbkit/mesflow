@@ -34,6 +34,17 @@ target_config() {
       # ssh-prod.mesflow.net via Cloudflare Access, user kimex -- not
       # verified, auth not available from this session).
       #
+      # 2026-09-07 mapping clarification (explicit user confirmation): the
+      # public https://mesflow.net domain is a TEST alias, not this
+      # "production" target -- its backend self-reports
+      # server_role=PRODUCTION_TEST via its own /api/system/ready, and
+      # there is no confirmed real production host as of this date. That
+      # host has its own deploy path: scripts/deploy-remote-test.sh (a
+      # separate script -- different transfer mechanism, different SSH
+      # account model, different SERVER_ROLE expectation; this "production"
+      # case is NOT repointed at it and stays exactly as frozen above).
+      # Do not conflate the two just because both are "a real remote host".
+      #
       # Refuse to guess. A real target must be explicitly provided in
       # $PRODUCTION_TARGET_FILE (gitignored -- never commit real prod
       # credentials/host), and that host must NOT resolve to this machine.

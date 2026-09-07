@@ -20,6 +20,15 @@ classification_procedure: >
        the public `mesflow.net` domain returned a server_role/commit that
        matched NO container reachable from the audit host — do not trust a
        domain-to-backend assumption without this kind of independent check.
+       RESOLVED 2026-09-07 (see docs/DEPLOY_ARCHITECTURE_A.md "Production
+       origin — RESOLVED"): `mesflow.net`'s real backend was identified via
+       a genuinely separate remote host (not reachable from the audit host
+       used on 2026-09-05, which is why that check found nothing) and
+       confirmed with a live causal deploy-and-observe test, explicitly per
+       the user: it is a TEST environment (server_role reports
+       PRODUCTION_TEST), not real production — no real production exists
+       yet. `mesflow.net` now correctly classifies under `prodtest` below
+       via the same server_role check, not the `production` fallback.
 
 classes:
   local_dev:
@@ -58,7 +67,11 @@ classes:
       (prod.mesflow.net at audit time) — real external users may view its
       published tutorial videos; do not leave it in a broken state after a
       QC run (a video-generation or dataset run belongs on demo first,
-      promoted here only after its own QA gate passes).
+      promoted here only after its own QA gate passes). `mesflow.net`
+      ALSO matches this class as of 2026-09-07 (its backend self-reports
+      server_role=PRODUCTION_TEST) — a genuinely separate host from
+      prod.mesflow.net, deployed to via scripts/deploy-remote-test.sh, not
+      scripts/deploy.sh prodtest. Same permission set applies to both.
 
   production:
     matches: any target where server_role/identity cannot be positively
@@ -78,10 +91,16 @@ classes:
       this authorization for a production-class target. When in doubt,
       treat the target as production-class and ask.
     known_unidentified_target: >
-      The public `mesflow.net` domain is UNCLASSIFIED at audit time
-      (2026-09-05) — its backend does not match any locally-reachable
-      container's identity. Treat it as production-class (read-only) until
-      someone with infrastructure access resolves its real identity.
+      RESOLVED 2026-09-07 — `mesflow.net` was UNCLASSIFIED at audit time
+      (2026-09-05, its backend did not match any locally-reachable
+      container's identity from that session's audit host) but has since
+      been confirmed as a genuinely separate remote TEST host (server_role
+      PRODUCTION_TEST) — see the `prodtest` class above and
+      docs/DEPLOY_ARCHITECTURE_A.md. It no longer falls under this
+      `production` class's default-forbidden rules. Kept here as a
+      worked example of the classification_procedure above: a target can
+      look unidentified only because the audit host lacked the right
+      access, not because it is actually production-class by default.
 
 action_definitions:
   read: GET requests, viewing pages, reading logs/reports

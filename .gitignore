@@ -18,5 +18,6 @@ New Text Document.txt
 .env.prod-test
 release/
 scripts/production-target.env
+scripts/remote-test-target.env
 .bump-version.lock
 .worktrees/

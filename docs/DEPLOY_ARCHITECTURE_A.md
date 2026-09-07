@@ -9,7 +9,7 @@ Supersedes ad-hoc `docker compose up --build` on target servers.
 |---|---|---|
 | DEV | `dev.mesflow.net` | live, stable |
 | PROD-TEST | `prod.mesflow.net` | live, stable -- full deploy/rollback/FAST-test workflow proven (see below) |
-| PRODUCTION | `mesflow.net` | **2026-09-04: the 2026-09-02 "routes to `/opt/mesflow`" conclusion is disproven by a deterministic canary test** -- public `mesflow.net` is a genuinely different remote instance again. See "Production origin — 2026-09-04 follow-up" below before relying on anything above. `scripts/deploy.sh production` still refuses to run (`PRODUCTION_TARGET_NOT_CONFIGURED`) and that remains correct. |
+| PRODUCTION | `mesflow.net` | **RESOLVED 2026-09-07**: `mesflow.net` is a TEST alias (self-reports `server_role: PRODUCTION_TEST`), not real production -- there is no confirmed real production host yet (explicit user confirmation). Deployed to directly and verified via a live causal test; see "Production origin — RESOLVED, 2026-09-07" at the end of this doc. Deploys go through the new `scripts/deploy-remote-test.sh`, never `scripts/deploy.sh production` -- that target stays frozen/unconfigured exactly as before, on purpose. |
 
 **Update, 2026-09-02**: the 2026-08-25 conclusion below ("`mesflow.net`
 is a different, unconfirmed remote host") is now **contradicted by
@@ -428,3 +428,69 @@ screenshot was showing. Getting the same content onto the real public
 ssh-prod.mesflow.net` lead (or another host the user identifies) or the
 user performing the final copy themselves from the artifact this session
 staged.
+
+## Production origin — RESOLVED, 2026-09-07 (explicit user confirmation +
+live causal deploy-and-observe test)
+
+**The open question above is now closed.** The 2026-08-25/09-02/09-04
+back-and-forth all shared one unstated assumption: that public
+`mesflow.net` must map to whichever host was being investigated as
+"production". The user explicitly corrected this today: **`mesflow.net`
+is a TEST alias. There is no confirmed real production environment yet.**
+That single fact resolves the contradiction cleanly -- every earlier
+canary test in this doc was checking the wrong CANDIDATE host, not using
+the wrong METHOD.
+
+**New evidence, strongest kind available (causal, not just correlational):**
+the host reachable via the `mesflow-test` SSH alias (see the gitignored
+`scripts/remote-test-target.env` -- the real IP is deliberately not
+written anywhere in this public repo, same policy as
+`scripts/production-target.env`) was deployed to directly today (version
+71.0.0.219 -> 71.0.0.226, via the new `scripts/deploy-remote-test.sh`).
+Immediately after, `curl https://mesflow.net/api/system/ready` publicly
+returned the new version/commit (`71.0.0.226` / `e4ddfc2369cb`) --
+matching exactly what was just deployed, observed from the outside with
+no prior state to have coincidentally matched. This is not a passive
+version-string match (the 2026-09-02 note's flaw) -- it is "change X,
+observe X change publicly," the same class of proof the 2026-09-04
+canary used to correctly rule out `/opt/mesflow` on the *other*
+(this-session's-own) host.
+
+**Corroborating**: that host's own `/api/system/ready` (checked directly
+over SSH, before AND after the deploy) is byte-identical to
+`https://mesflow.net/api/system/ready` at every point checked, including
+`server_role: PRODUCTION_TEST` -- consistent with the user's framing,
+not a coincidence requiring further explanation.
+
+**Why prior investigations never found this**: every previous session
+fixated on the `kimex@ssh-prod.mesflow.net` lead specifically because it
+has "prod" in the name -- a reasonable-looking lead that was actually
+never real production, because there IS no real production yet. The
+correct host was reachable the whole time via the `mesflow-test` alias
+already present in `~/.ssh/config`, just never tried because nothing
+before today told this session mesflow.net might be a TEST environment
+rather than PRODUCTION.
+
+**Access model on that host** (relevant for anyone deploying there
+again): the day-to-day maintenance SSH account (backups, log-retention --
+see `~/mesflow-ops` on that host) is deliberately NOT in `sudoers`
+(`sudo -n true` -> "not in the sudoers file", confirmed live). A
+separate account has passwordless sudo and is what
+`scripts/deploy-remote-test.sh` / `scripts/remote-test-target.env` are
+configured to use. This machine's local Docker registry
+(`127.0.0.1:5000`) is not reachable from that host (it is a genuinely
+separate machine, unlike `prodtest`'s loopback SSH) -- deploys there use
+a `docker save` + SFTP transfer + `docker load` bundle, matching that
+host's own `release.json` (`"distribution": "bundle"`), not a registry
+pull.
+
+**What this does NOT change**: `scripts/deploy.sh production` remains
+exactly as frozen 2026-08-25 -- refusing to run without a real,
+independently-verified `scripts/production-target.env` pointing at an
+actual confirmed-real-production host, which still does not exist. The
+`mesflow-test` host resolved above is explicitly a TEST target
+(`SERVER_ROLE=PRODUCTION_TEST`), deployed to via the separate
+`scripts/deploy-remote-test.sh`, never via the `production` case. Do not
+repoint `production` at this host just because it is now confirmed and
+reachable -- per the user's own words, doing so would be premature until
+a real production environment is separately confirmed to exist.
