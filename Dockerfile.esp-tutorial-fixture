@@ -1,0 +1,21 @@
+# One-shot init image for compose.sandbox.yml: seeds a deterministic,
+# synthetic, browser-playable ESP Kiosk tutorial fixture (same generator
+# compose.test.yml's scripts/test/docker-test.sh already uses) into a
+# shared volume before `app` starts.
+#
+# Root cause this exists for (found 2026-09-07): compose.sandbox.yml never
+# mounted /data/tutorials/esp-kiosk at all, so every ProjectFlow Workspace
+# Manager sandbox instance had no ESP Kiosk tutorial content -- a real
+# DATA_ISSUE, not an app bug (the app itself degrades this gracefully; see
+# scripts/validate-esp-tutorial-fixture.js's header for the full story).
+#
+# Deliberately its own tiny image, not a change to the app's own
+# Dockerfile/entrypoint -- this only ever runs scripts/test/
+# generate-esp-tutorial-fixture.sh (see that script: it never touches or
+# overwrites a real, already-published manifest) and exits.
+FROM python:3.13-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg bash \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /repo
+COPY scripts/test/generate-esp-tutorial-fixture.sh scripts/test/generate-esp-tutorial-fixture.sh
+ENTRYPOINT ["bash", "scripts/test/generate-esp-tutorial-fixture.sh"]

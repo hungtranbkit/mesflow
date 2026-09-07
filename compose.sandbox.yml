@@ -36,6 +36,19 @@
 #   - No secret/credential below is a production secret -- same
 #     not-for-prod convention as compose.projectflow-local.yml.
 services:
+  # One-shot: seeds a synthetic ESP Kiosk tutorial fixture into
+  # esp_tutorial_fixture before `app` starts. See
+  # Dockerfile.esp-tutorial-fixture and scripts/validate-esp-tutorial-fixture.js
+  # for why -- this compose file never had this mount at all before
+  # (2026-09-07 finding), so `app` here previously always had an empty
+  # ESP Kiosk tutorial (a real, honestly-degraded DATA_ISSUE, not a crash).
+  esp-tutorial-fixture:
+    build:
+      context: .
+      dockerfile: Dockerfile.esp-tutorial-fixture
+    volumes:
+      - esp_tutorial_fixture:/repo/runtime/tutorials/esp-kiosk
+
   db:
     image: postgres:17-alpine
     environment:
@@ -76,6 +89,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      esp-tutorial-fixture:
+        condition: service_completed_successfully
     ports:
       # Container port fixed at 8080 (matches Dockerfile's EXPOSE 8080 /
       # docker-entrypoint.sh waitress bind); host side is
@@ -86,6 +101,7 @@ services:
       - uploads:/data/uploads
       - backups:/data/backups
       - firmware:/data/firmware
+      - esp_tutorial_fixture:/data/tutorials/esp-kiosk:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/system/ready"]
       interval: 5s
@@ -104,3 +120,4 @@ volumes:
   uploads:
   backups:
   firmware:
+  esp_tutorial_fixture:

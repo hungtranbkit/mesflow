@@ -13,6 +13,13 @@ cleanup
 # tests/e2e/mesflow.spec.js's ESP Kiosk tutorial test is never dependent
 # on runtime files that only happen to exist on one developer's machine.
 ./scripts/test/generate-esp-tutorial-fixture.sh
+# Preflight, not a hope: fail loudly here (before spending time on
+# postgres/app/tests build+boot) if the fixture the generator was
+# supposed to produce is still missing/invalid for any reason -- never
+# let a downstream Playwright assertion (deep inside "ESP Kiosk tutorial
+# loads seven runtime videos and plays") be the first sign of an
+# ENV/DATA problem.
+node scripts/validate-esp-tutorial-fixture.js
 docker compose -f compose.test.yml up --build -d postgres-test mesflow-test-api
 # --build here too: `run` alone reuses whatever image is already tagged for
 # the service with no staleness check at all (found by real evidence: a

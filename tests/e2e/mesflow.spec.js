@@ -78,8 +78,8 @@ test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page })
   await expect(page.getByRole('button', { name: 'KIMEX', exact: true })).toHaveClass(/active/);
   await expect(page.locator('#tutorialSearch')).toBeVisible();
   expect(await page.locator('#nav').evaluate(x=>x.scrollWidth<=x.clientWidth)).toBeTruthy();
-  await page.getByRole('button', { name: 'ESP Kiosk' }).click();
-  await expect(page.getByRole('button', { name: 'ESP Kiosk' })).toHaveClass(/active/);
+  await page.getByRole('button', { name: 'ESP Kiosk', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'ESP Kiosk', exact: true })).toHaveClass(/active/);
   await expect(page.locator('#espTutorialVersions')).toContainText('5.1.9.2');
   await expect(page.locator('#espTutorialList button')).toHaveCount(7);
   await expect(page.locator('#espTutorialWorkspace')).not.toContainText('.mp4');
@@ -121,8 +121,8 @@ test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page })
   // there without a page reload losing state.
   await page.getByRole('button', { name: 'KIMEX', exact: true }).click();
   await expect(page.locator('#tutorialSearch')).toBeVisible();
-  await page.getByRole('button', { name: 'ESP Kiosk' }).click();
-  await expect(page.getByRole('button', { name: 'ESP Kiosk' })).toHaveClass(/active/);
+  await page.getByRole('button', { name: 'ESP Kiosk', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'ESP Kiosk', exact: true })).toHaveClass(/active/);
   await expect(page.locator('#espTutorialList button')).toHaveCount(7);
   await page.route('**/api/esp-kiosk-tutorial',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:true,manifest:null})}));
   await page.evaluate(()=>renderEspKioskTutorial());
