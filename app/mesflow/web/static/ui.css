@@ -1487,6 +1487,10 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
 .wallboard-actions-buttons{display:flex;gap:8px;flex-shrink:0}
 .wallboard-config .btn,.wallboard-config input,.wallboard-config select,
 .wallboard-actions-buttons .btn{height:var(--control-height)!important;min-height:var(--control-height)!important}
+/* #epWbOpenKiosk is an <a>, not a <button> -- .btn elsewhere in the app is
+   only ever a <button>, so give this one explicit link-reset + centering
+   instead of assuming the shared .btn rule already covers anchors. */
+#epWbOpenKiosk{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;white-space:nowrap}
 @media(max-width:900px){.wallboard-config{grid-template-columns:1fr}.wallboard-group-display{grid-column:auto}}
 @media(max-width:720px){.wallboard-actions{flex-direction:column;align-items:stretch}.wallboard-actions-buttons{justify-content:stretch}.wallboard-actions-buttons .btn{flex:1}.wallboard-actions-hint{max-width:none}}
 .content-panel-body:has(>.table-wrap){padding:0}

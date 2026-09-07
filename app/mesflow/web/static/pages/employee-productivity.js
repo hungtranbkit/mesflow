@@ -95,10 +95,11 @@ async function renderEmployeeProductivity() {
           </fieldset>
         </div>
         <div class="wallboard-actions">
-          <p class="wallboard-actions-hint"><b>Xem trước</b>: mở thử ở tab mới bằng cấu hình đang chỉnh, không lưu lại, không ảnh hưởng Kiosk thật. <b>Trình chiếu trên Kiosk</b>: lưu cấu hình này và công khai ngay trên màn hình Kiosk thật tại xưởng.</p>
+          <p class="wallboard-actions-hint"><b>Xem trước</b>: mở thử ở tab mới bằng cấu hình đang chỉnh, không lưu lại, không ảnh hưởng Kiosk thật. <b>Áp dụng lên Kiosk</b>: lưu cấu hình này -- màn hình Kiosk thật tại xưởng sẽ dùng ngay từ lần làm mới tiếp theo, bấm "Mở màn hình Kiosk" để xem ngay.</p>
           <div class="wallboard-actions-buttons">
             <button class="btn" id="epWbPreview" type="button">Xem trước</button>
-            <button class="btn primary" id="epWbPublish" type="button">Trình chiếu trên Kiosk</button>
+            <button class="btn primary" id="epWbPublish" type="button">Áp dụng lên Kiosk</button>
+            <a class="btn" id="epWbOpenKiosk" href="/kiosk/employee-productivity" target="_blank" rel="noopener">Mở màn hình Kiosk ↗</a>
           </div>
         </div>
         <div id="epWbBody"></div>
@@ -258,9 +259,20 @@ async function renderEmployeeProductivity() {
     // published config, so a manager can check before publishing.
     window.open(`/kiosk/employee-productivity?preview=1&${wbQueryFromCurrentFilters().toString()}`, '_blank');
   };
+  // 2026-09-07 UX audit (user báo "bấm không thấy tác dụng"): xác nhận qua
+  // source + test sống -- nút này CHƯA BAO GIỜ mở màn hình Kiosk, chỉ lưu
+  // cấu hình (đúng thiết kế, đã xác nhận backend hoạt động đúng nhiều lần
+  // qua test tự động). Vấn đề thuần túy là feedback: click xong chỉ có 1
+  // toast tự ẩn sau 2.2s (core/api.js toast()) và 1 dòng subtitle nhỏ đổi
+  // chữ -- không có gì buộc người dùng phải NHÌN THẤY kết quả. Không đổi
+  // route/payload/logic backend nào -- chỉ đổi tên nút, thêm trạng thái
+  // đang xử lý rõ ràng, toast rõ nghĩa hơn, và 1 link "Mở màn hình Kiosk"
+  // để xem ngay kết quả thay vì phải tự nhớ URL.
   document.getElementById('epWbPublish').onclick = async () => {
     const btn = document.getElementById('epWbPublish');
+    const originalLabel = btn.textContent;
     btn.disabled = true;
+    btn.textContent = 'Đang áp dụng...';
     try {
       const dynamic = document.getElementById('epWbDynamicMtd').checked;
       const employeesPerPage = Number(document.getElementById('epWbEmployeesPerPage').value || 20);
@@ -282,11 +294,12 @@ async function renderEmployeeProductivity() {
       };
       const d = await api('/api/reports/employee-productivity/wallboard-config', { method: 'POST', body: JSON.stringify(body) });
       document.getElementById('epWbState').textContent = wbStateText(d.config);
-      toast('Đã trình chiếu lên Kiosk.');
+      toast('Đã cập nhật cấu hình Kiosk.');
     } catch (e) {
-      toast(e.message || 'Không public được lên Kiosk.', 'danger');
+      toast(e.message || 'Không cập nhật được cấu hình Kiosk.', 'danger');
     } finally {
       btn.disabled = false;
+      btn.textContent = originalLabel;
     }
   };
 

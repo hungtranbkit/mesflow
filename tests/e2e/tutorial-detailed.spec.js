@@ -684,7 +684,7 @@ const tours = {
     // (chu kỳ refresh) -- mỗi checkbox nay nằm đúng nhóm dùng nó, không
     // còn 2 checkbox không liên quan bị gộp chung 1 hàng như bản trước.
     await note(page,'.wallboard-group','Cấu hình trình chiếu Kiosk','3 nhóm theo đúng chức năng: dữ liệu hiển thị (đầu tháng→hôm nay, sắp xếp, số nhân viên/trang, số cột), chuyển trang (bật/tắt + thời gian mỗi trang), và làm mới dữ liệu (chu kỳ refresh).',{action:'Xem qua từng nhóm cấu hình.',expected:'Biết chỗ chỉnh từng phần thay vì một hàng cài đặt dồn lại.'});
-    await note(page,'.wallboard-actions','Xem trước và Trình chiếu trên Kiosk là 2 việc khác nhau','“Xem trước” chỉ mở thử màn hình bằng cấu hình đang chỉnh, KHÔNG lưu lại — dùng để kiểm tra trước khi công khai. “Trình chiếu trên Kiosk” mới thực sự lưu cấu hình và là màn hình công khai, không cần đăng nhập, mà TV tại xưởng sẽ hiển thị liên tục.',{action:'Phân biệt rõ 2 nút trước khi bấm Trình chiếu trên Kiosk.',expected:'Không nhầm việc xem thử với việc công khai năng suất thật lên Kiosk.'});
+    await note(page,'.wallboard-actions','Xem trước và Áp dụng lên Kiosk là 2 việc khác nhau','“Xem trước” chỉ mở thử màn hình bằng cấu hình đang chỉnh, KHÔNG lưu lại — dùng để kiểm tra trước khi công khai. “Áp dụng lên Kiosk” mới thực sự lưu cấu hình cho màn hình công khai, không cần đăng nhập, mà TV tại xưởng sẽ hiển thị liên tục; nút "Mở màn hình Kiosk" ngay bên cạnh để xem kết quả ngay, không phải tự nhớ URL.',{action:'Phân biệt rõ 3 nút trước khi bấm Áp dụng lên Kiosk.',expected:'Không nhầm việc xem thử với việc công khai năng suất thật lên Kiosk.'});
 
     // 2026-09-06 QC audit (Kiosk năng suất nhân viên coverage): trước bản
     // sửa này, video chỉ MÔ TẢ BẰNG LỜI việc "tự động chuyển trang" mà
@@ -757,14 +757,23 @@ const tours = {
     await page.goto('/app?page=employee-productivity');
     await expect(page.locator('#epWbPanel')).toBeVisible({timeout:10000});
     await pause(page,500);
-    await note(page,'#epWbPublish','Bấm "Trình chiếu trên Kiosk" để công khai thật','Khác với "Xem trước" ở bước trước, nút này lưu cấu hình thật và làm nó công khai ngay trên Kiosk.',{action:'Bấm nút để lưu cấu hình và công khai lên Kiosk.',expected:'Trạng thái phía trên đổi từ "Chưa trình chiếu" sang "Đang trình chiếu" kèm đúng phạm vi ngày vừa chọn.'});
+    await note(page,'#epWbPublish','Bấm "Áp dụng lên Kiosk" để lưu cấu hình thật','Khác với "Xem trước" ở bước trước, nút này lưu cấu hình thật cho Kiosk công khai -- nút hiện chữ "Đang áp dụng..." trong lúc xử lý, rồi có toast xác nhận "Đã cập nhật cấu hình Kiosk." khi xong.',{action:'Bấm nút để lưu cấu hình.',expected:'Trạng thái phía trên đổi từ "Chưa trình chiếu" sang "Đang trình chiếu" kèm đúng phạm vi ngày vừa chọn.'});
     await Promise.all([
       page.waitForResponse(r=>r.url().includes('/api/reports/employee-productivity/wallboard-config')&&r.request().method()==='POST'),
       page.click('#epWbPublish'),
     ]);
     await page.waitForFunction(()=>document.getElementById('epWbState')?.textContent?.startsWith('Đang trình chiếu'),undefined,{timeout:10000});
     await pause(page,600);
-    await page.goto('/kiosk/employee-productivity');
+    // 2026-09-07 UX audit: "Mở màn hình Kiosk" là link thật ngay cạnh nút
+    // Áp dụng -- highlight nó trước khi điều hướng (thay vì bấm thật, mở
+    // tab mới href="/kiosk/employee-productivity" target="_blank" -- giữ
+    // đúng nguyên tắc tránh popup đã áp dụng cho "Xem trước": 1 tab popup
+    // sẽ tạo thêm 1 file .webm riêng, có thể bị pipeline nhầm là bản ghi
+    // chính). Điều hướng cùng trang tới ĐÚNG href của link để nội dung
+    // video khớp 100% với việc bấm link thật.
+    const openKioskHref=await page.locator('#epWbOpenKiosk').getAttribute('href');
+    await note(page,'#epWbOpenKiosk','Mở màn hình Kiosk để xem ngay kết quả','Sau khi Áp dụng lên Kiosk, bấm đúng link này để mở màn hình công khai thật -- không cần nhớ URL, không cần đoán xem đã lưu thành công hay chưa.',{action:'Bấm "Mở màn hình Kiosk".',expected:'Mở đúng /kiosk/employee-productivity, không có ?preview, thấy ngay số liệu vừa cấu hình.'});
+    await page.goto(openKioskHref);
     // #wbEmpty precedes #wbList in the DOM (wallboard_employee_productivity.html),
     // so a combined "wb-card, wbEmpty" locator's .first() always resolves to
     // #wbEmpty regardless of which one is actually visible -- wait on the
