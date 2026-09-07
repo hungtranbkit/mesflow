@@ -52,13 +52,13 @@ async function renderEmployeeProductivity() {
     bảng bên dưới cho tới khi bấm "Trình chiếu trên Kiosk"). -->
     <section class="content-panel wallboard-panel" id="epWbPanel">
       <div class="content-panel-head">
-        <div><h3>Trình chiếu Kiosk</h3><p class="wallboard-hint">TV 1080p: nên dùng 24–30 nhân viên, 3 cột.</p></div>
+        <div><h3>Trình chiếu Kiosk</h3><p id="epWbState" class="wallboard-state">Đang tải trạng thái...</p></div>
       </div>
       <div class="content-panel-body">
-        <p id="epWbState" class="wallboard-state">Đang tải trạng thái...</p>
         <div class="wallboard-config">
-          <fieldset class="wallboard-group">
-            <legend>Cấu hình hiển thị</legend>
+          <fieldset class="wallboard-group wallboard-group-display">
+            <legend>Dữ liệu hiển thị</legend>
+            <label class="wallboard-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động dùng đầu tháng → hôm nay</span></label>
             <div class="wallboard-field-grid">
               <label><span>Sắp xếp</span><select id="epWbSort">
                 <option value="productivity_desc">Năng suất giảm dần</option>
@@ -70,30 +70,32 @@ async function renderEmployeeProductivity() {
                 <option value="10">10</option><option value="12">12</option><option value="16">16</option>
                 <option value="20" selected>20</option><option value="24">24</option><option value="30">30</option>
               </select></label>
-              <label><span>Số cột</span><select id="epWbColumns">
+              <label><span>Số cột hiển thị</span><select id="epWbColumns">
                 <option value="auto" selected>Tự động</option>
                 <option value="1">1 cột</option><option value="2">2 cột</option><option value="3">3 cột</option>
               </select></label>
             </div>
+            <p class="wallboard-group-hint">TV 1080p: nên dùng 24–30 nhân viên, 3 cột. Khi tắt "Tự động dùng đầu tháng → hôm nay", Kiosk dùng đúng khoảng "Từ ngày" / "Đến ngày" đang chọn ở bộ lọc phía trên.</p>
           </fieldset>
-          <fieldset class="wallboard-group wallboard-group-auto">
-            <legend>Tự động hóa</legend>
-            <div class="wallboard-toggle-row">
-              <label class="wallboard-toggle"><input type="checkbox" id="epWbDynamicMtd" checked> <span>Tự động dùng đầu tháng → hôm nay</span></label>
-              <label class="wallboard-toggle"><input type="checkbox" id="epWbAutoFlip" checked> <span>Tự động chuyển trang</span></label>
-            </div>
+          <fieldset class="wallboard-group wallboard-group-flip">
+            <legend>Chuyển trang</legend>
+            <label class="wallboard-toggle"><input type="checkbox" id="epWbAutoFlip" checked> <span>Tự động chuyển trang</span></label>
             <div class="wallboard-field-grid">
-              <label><span>Thời gian mỗi trang</span><select id="epWbFlipSeconds">
+              <label><span>Thời gian chuyển trang</span><select id="epWbFlipSeconds">
                 <option value="5">5 giây</option><option value="10" selected>10 giây</option>
                 <option value="15">15 giây</option><option value="30">30 giây</option>
               </select></label>
-              <label><span>Làm mới dữ liệu (giây)</span><input type="number" id="epWbRefresh" min="5" max="300" value="20"></label>
             </div>
-            <p class="wallboard-group-hint">Khi tắt "Tự động dùng đầu tháng → hôm nay", Kiosk dùng đúng khoảng "Từ ngày" / "Đến ngày" đang chọn ở bộ lọc phía trên.</p>
+          </fieldset>
+          <fieldset class="wallboard-group wallboard-group-refresh">
+            <legend>Làm mới dữ liệu</legend>
+            <div class="wallboard-field-grid">
+              <label><span>Làm mới mỗi (giây)</span><input type="number" id="epWbRefresh" min="5" max="300" value="20"></label>
+            </div>
           </fieldset>
         </div>
         <div class="wallboard-actions">
-          <p class="wallboard-actions-hint"><b>Xem trước</b>: mở thử ở tab mới bằng cấu hình đang chỉnh, không lưu lại. <b>Trình chiếu trên Kiosk</b>: áp dụng ngay cho màn hình Kiosk thật tại xưởng.</p>
+          <p class="wallboard-actions-hint"><b>Xem trước</b>: mở thử ở tab mới bằng cấu hình đang chỉnh, không lưu lại, không ảnh hưởng Kiosk thật. <b>Trình chiếu trên Kiosk</b>: lưu cấu hình này và công khai ngay trên màn hình Kiosk thật tại xưởng.</p>
           <div class="wallboard-actions-buttons">
             <button class="btn" id="epWbPreview" type="button">Xem trước</button>
             <button class="btn primary" id="epWbPublish" type="button">Trình chiếu trên Kiosk</button>
@@ -208,13 +210,17 @@ async function renderEmployeeProductivity() {
   // wallboard-config endpoint. Nothing here duplicates the productivity
   // formula -- Preview calls the same authenticated report API this page
   // already uses; Publish only ever writes filter/display config.
+  // 2026-09-07 UX audit: dòng trạng thái cũ lặp lại gần như mọi giá trị đã
+  // hiển thị ngay trong các field bên dưới (sort/số người/số cột/chu kỳ
+  // chuyển trang/refresh) -- chỉ giữ 2 thứ form không tự nói ra được: đang
+  // public hay chưa (kèm phạm vi ngày thật sự áp dụng, vì "đầu tháng->hôm
+  // nay" là một LỰA CHỌN, không phải một giá trị cố định như "20 người/
+  // trang" đã thấy ngay trong select), và lần cập nhật cuối/ai cập nhật.
   const wbStateText = cfg => {
-    if (!cfg.configured) return 'Chưa public — Kiosk sẽ hiện màn "Chưa cấu hình trình chiếu".';
+    if (!cfg.configured) return 'Chưa trình chiếu — Kiosk sẽ hiện màn "Chưa cấu hình trình chiếu".';
     const range = cfg.date_mode === 'dynamic_mtd' ? 'Đầu tháng → hôm nay (tự động)' : `${epDateShort(cfg.from)} → ${epDateShort(cfg.to)}`;
-    const sortLabel = { productivity_desc: 'Năng suất giảm dần', productivity_asc: 'Năng suất tăng dần', name_asc: 'Tên A→Z', sessions_desc: 'Số session giảm dần' }[cfg.sort] || cfg.sort;
-    const columnsLabel = cfg.columns === 'auto' ? 'Tự động' : `${cfg.columns} cột`;
-    const flipLabel = cfg.auto_page_flip ? `Tự động chuyển trang mỗi ${cfg.auto_page_flip_seconds}s` : 'Không tự động chuyển trang';
-    return `Đang public: ${range} · Sort: ${sortLabel} · ${cfg.employees_per_page} người/trang · ${columnsLabel} · ${flipLabel} · Refresh dữ liệu: ${cfg.refresh_interval_seconds}s · Cập nhật lần cuối: ${cfg.updated_at ? epTimeShort(cfg.updated_at) + ' ' + epDateShort(cfg.updated_at) : '—'} · Người cập nhật: ${cfg.updated_by || '—'}`;
+    const updated = cfg.updated_at ? `${epTimeShort(cfg.updated_at)} ${epDateShort(cfg.updated_at)}` : '—';
+    return `Đang trình chiếu: ${range} · Cập nhật lần cuối ${updated}${cfg.updated_by ? ' bởi ' + cfg.updated_by : ''}`;
   };
   const loadWallboardState = async () => {
     try {

@@ -676,12 +676,14 @@ const tours = {
       await page.evaluate(()=>document.getElementById('epdClose')?.click());
       await pause(page,500);
     }
-    // 2026-09-06 QC audit (regroup commit 2595925 -- xem
-    // WALLBOARD_PANEL_UX_REDESIGN_20260905.md §9): panel hiện chỉ còn ĐÚNG
-    // 2 nhóm ("Cấu hình hiển thị" + "Tự động hóa"), không phải 3 -- câu
-    // narration cũ liệt kê 3 nhóm ("khoảng thời gian" đã bị gộp vào "Tự
-    // động hóa") đã lệch khỏi UI thật, sửa lại đúng cấu trúc hiện có.
-    await note(page,'.wallboard-group','Cấu hình trình chiếu Kiosk','2 nhóm tách riêng: cấu hình hiển thị (sắp xếp, số nhân viên/trang, số cột) và tự động hóa (tự động dùng đầu tháng→hôm nay, tự động chuyển trang, thời gian mỗi trang, làm mới dữ liệu).',{action:'Xem qua từng nhóm cấu hình.',expected:'Biết chỗ chỉnh từng phần thay vì một hàng cài đặt dồn lại.'});
+    // 2026-09-07 UX redesign (theo yêu cầu user, dựa trên screenshot màn
+    // rối/dàn hàng ngang trên DEV): quay lại đúng 3 nhóm nhưng chia theo
+    // ĐÚNG chức năng thay vì theo "loại control" như bản 05/09 -- "Dữ liệu
+    // hiển thị" (đầu-tháng→hôm-nay + sắp xếp + số người/trang + số cột),
+    // "Chuyển trang" (bật/tắt + thời gian mỗi trang), "Làm mới dữ liệu"
+    // (chu kỳ refresh) -- mỗi checkbox nay nằm đúng nhóm dùng nó, không
+    // còn 2 checkbox không liên quan bị gộp chung 1 hàng như bản trước.
+    await note(page,'.wallboard-group','Cấu hình trình chiếu Kiosk','3 nhóm theo đúng chức năng: dữ liệu hiển thị (đầu tháng→hôm nay, sắp xếp, số nhân viên/trang, số cột), chuyển trang (bật/tắt + thời gian mỗi trang), và làm mới dữ liệu (chu kỳ refresh).',{action:'Xem qua từng nhóm cấu hình.',expected:'Biết chỗ chỉnh từng phần thay vì một hàng cài đặt dồn lại.'});
     await note(page,'.wallboard-actions','Xem trước và Trình chiếu trên Kiosk là 2 việc khác nhau','“Xem trước” chỉ mở thử màn hình bằng cấu hình đang chỉnh, KHÔNG lưu lại — dùng để kiểm tra trước khi công khai. “Trình chiếu trên Kiosk” mới thực sự lưu cấu hình và là màn hình công khai, không cần đăng nhập, mà TV tại xưởng sẽ hiển thị liên tục.',{action:'Phân biệt rõ 2 nút trước khi bấm Trình chiếu trên Kiosk.',expected:'Không nhầm việc xem thử với việc công khai năng suất thật lên Kiosk.'});
 
     // 2026-09-06 QC audit (Kiosk năng suất nhân viên coverage): trước bản
@@ -755,12 +757,12 @@ const tours = {
     await page.goto('/app?page=employee-productivity');
     await expect(page.locator('#epWbPanel')).toBeVisible({timeout:10000});
     await pause(page,500);
-    await note(page,'#epWbPublish','Bấm "Trình chiếu trên Kiosk" để công khai thật','Khác với "Xem trước" ở bước trước, nút này lưu cấu hình thật và làm nó công khai ngay trên Kiosk.',{action:'Bấm nút để lưu cấu hình và công khai lên Kiosk.',expected:'Trạng thái phía trên đổi từ "Chưa public" sang "Đang public" kèm đúng cấu hình vừa chọn.'});
+    await note(page,'#epWbPublish','Bấm "Trình chiếu trên Kiosk" để công khai thật','Khác với "Xem trước" ở bước trước, nút này lưu cấu hình thật và làm nó công khai ngay trên Kiosk.',{action:'Bấm nút để lưu cấu hình và công khai lên Kiosk.',expected:'Trạng thái phía trên đổi từ "Chưa trình chiếu" sang "Đang trình chiếu" kèm đúng phạm vi ngày vừa chọn.'});
     await Promise.all([
       page.waitForResponse(r=>r.url().includes('/api/reports/employee-productivity/wallboard-config')&&r.request().method()==='POST'),
       page.click('#epWbPublish'),
     ]);
-    await page.waitForFunction(()=>document.getElementById('epWbState')?.textContent?.startsWith('Đang public'),{timeout:10000});
+    await page.waitForFunction(()=>document.getElementById('epWbState')?.textContent?.startsWith('Đang trình chiếu'),undefined,{timeout:10000});
     await pause(page,600);
     await page.goto('/kiosk/employee-productivity');
     // #wbEmpty precedes #wbList in the DOM (wallboard_employee_productivity.html),
@@ -799,7 +801,7 @@ const tours = {
       page.waitForResponse(r=>r.url().includes('/api/reports/employee-productivity/wallboard-config')&&r.request().method()==='POST'),
       page.click('#epWbPublish'),
     ]);
-    await page.waitForFunction(()=>document.getElementById('epWbState')?.textContent?.startsWith('Đang public'),{timeout:10000});
+    await page.waitForFunction(()=>document.getElementById('epWbState')?.textContent?.startsWith('Đang trình chiếu'),undefined,{timeout:10000});
     await card(page,'Lưu ý khi đọc năng suất','Năng suất trung bình chỉ tính trên Session hợp lệ (có đủ thời gian và định mức để so sánh); Session thiếu dữ liệu được đếm riêng, không kéo méo chỉ số trung bình. Khi thấy năng suất bất thường, nên đối chiếu chi tiết theo Operation trước khi kết luận.',LONG_WAIT);
   },
   calendar: async page=>{
