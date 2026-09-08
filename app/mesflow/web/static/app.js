@@ -300,11 +300,20 @@ async function renderDashboard(){
     const scaleMarks=uniqueMarks.map(minute=>({label:`${String(Math.floor((minute%1440)/60)).padStart(2,'0')}:${String(minute%60).padStart(2,'0')}`,left:pct(atMinute(minute))}));
     const scaleHtml=scaleMarks.map((m,i)=>`<span class="shift-scale-mark ${i===0?'first':i===scaleMarks.length-1?'last':''}" style="left:${m.left}%">${m.label}</span>`).join('');
     const gridHtml=scaleMarks.map((m,i)=>`<i class="shift-grid-line ${i===0?'first':i===scaleMarks.length-1?'last':''}" style="left:${m.left}%"></i>`).join('');
+    // Field report (2026-09-08): each session chip only ever showed
+    // time/duration/operation -- no product quantity, so cross-checking
+    // "did this specific session's kiosk input actually land?" meant
+    // digging into a different screen entirely. good_qty/defect_qty/
+    // rework_qty are already returned per-session by daily_sessions() (see
+    // analytics.py) -- just never rendered here. An OPEN session with no
+    // report yet correctly shows "Đạt 0", not blank -- that IS real
+    // information (nothing reported on it yet), not a missing value.
     const sessionChip=x=>{
       const open=x.session_status==='OPEN',start=new Date(x.started_at).getTime(),end=open?now:new Date(x.ended_at||x.effective_end_at).getTime();
       const elapsed=Math.max(0,(Math.min(end,shiftEnd)-Math.max(start,viewStart))/1000);
       const operation=`${x.operation_code||''} · ${x.operation_name||''}`.trim();
-      return `<span class="${open?'open':''}" title="${esc(operation)}">${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${esc(x.operation_code||'')}</span>`;
+      const qty=`Đạt ${Number(x.good_qty||0).toLocaleString('vi-VN')}${Number(x.defect_qty||0)>0?` · NG ${Number(x.defect_qty||0).toLocaleString('vi-VN')}`:''}${Number(x.rework_qty||0)>0?` · Sửa ${Number(x.rework_qty||0).toLocaleString('vi-VN')}`:''}`;
+      return `<span class="${open?'open':''}" title="${esc(operation)}">${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${esc(x.operation_code||'')} · ${qty}</span>`;
     };
     return `<div class="employee-day-legend"><span><i class="legend-session"></i>Session</span><span><i class="legend-gap"></i>Khoảng hở ≥15 phút</span><span><i class="legend-lunch"></i>${breaks.map(x=>x[2]).join(' · ')||'Không có giờ nghỉ'}</span><span><i class="legend-off"></i>Ngoài ca</span></div><div class="employee-day-head"><span>Nhân viên / ngày công</span><div class="employee-day-scale shift-scale">${scaleHtml}</div><span>Session / sản lượng</span></div><div class="employee-day-list">${workers.map(g=>{
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
