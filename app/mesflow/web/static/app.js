@@ -246,7 +246,10 @@ async function renderDashboard(){
   const stateLabel=x=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý ngoại lệ',UPDATED:'Đã cập nhật',IDLE:'Không có người đang làm'}[x]||x);
   const row=x=>`<div class="daily-op-row ${String(x.day_state||'').toLowerCase()}"><span><b>${esc(x.operation_code)} · ${esc(x.operation_name)}</b><small>${esc(x.po_code)} · ${esc(x.part_code)} ${esc(x.part_name||'')}</small></span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>${x.session_count} session · ${x.open_session_count} đang mở</small></span><span><b>Đạt ${Number(x.day_good_qty||0).toLocaleString('vi-VN')}</b><small>NG ${Number(x.day_defect_qty||0).toLocaleString('vi-VN')}</small></span><span><em class="daily-state ${String(x.day_state||'').toLowerCase()}">${esc(stateLabel(x.day_state))}</em><small>${fmt(x.last_report_at||x.last_started_at)}</small></span></div>`;
   const hm=v=>new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(v));
-  const duration=sec=>{sec=Math.max(0,Number(sec||0));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);return h?`${h} giờ ${m} phút`:`${m} phút`};
+  // Field report (2026-09-08): "3 giờ 20 phút" ate too much of a session
+  // chip's fixed width, crowding out the qty info next to it -- "3g 20p"
+  // says the same thing in about half the characters.
+  const duration=sec=>{sec=Math.max(0,Number(sec||0));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);return h?`${h}g ${m}p`:`${m}p`};
   const timeline=(sessions,date,shift='DAY')=>{
     if(!sessions.length)return '<div class="control-clear-state"><b>Chưa có dữ liệu ngày công</b><span>Khi nhân viên bắt đầu session, ngày công sẽ xuất hiện tại đây.</span></div>';
     const baseStart=new Date(`${date}T00:00:00+07:00`).getTime();
@@ -308,6 +311,12 @@ async function renderDashboard(){
     // analytics.py) -- just never rendered here. An OPEN session with no
     // report yet correctly shows "Đạt 0", not blank -- that IS real
     // information (nothing reported on it yet), not a missing value.
+    // Field report (2026-09-08): a long real OP code (e.g.
+    // "111-THAN-THUNG-R-04") could eat most of a chip's fixed width,
+    // pushing the qty info that was JUST added to the far edge -- shown
+    // in full is still available on hover (title=), the on-chip text just
+    // needs to fit next to the number that matters more day to day.
+    const shortCode=(s,max=18)=>{s=String(s||'');return s.length>max?s.slice(0,max-1)+'…':s};
     const sessionChip=x=>{
       const open=x.session_status==='OPEN',start=new Date(x.started_at).getTime(),end=open?now:new Date(x.ended_at||x.effective_end_at).getTime();
       const elapsed=Math.max(0,(Math.min(end,shiftEnd)-Math.max(start,viewStart))/1000);
@@ -322,7 +331,7 @@ async function renderDashboard(){
       // exactly the part most likely to be the cut-off portion. title= now
       // mirrors the chip's full text (hover/long-press reveals it in full
       // regardless of how much is visually cut off), not just a fragment.
-      return `<span class="${open?'open':''}" title="${esc(full)}">${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${esc(x.operation_code||'')} · ${qty}</span>`;
+      return `<span class="${open?'open':''}" title="${esc(full)}">${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${esc(shortCode(x.operation_code))} · ${qty}</span>`;
     };
     return `<div class="employee-day-legend"><span><i class="legend-session"></i>Session</span><span><i class="legend-gap"></i>Khoảng hở ≥15 phút</span><span><i class="legend-lunch"></i>${breaks.map(x=>x[2]).join(' · ')||'Không có giờ nghỉ'}</span><span><i class="legend-off"></i>Ngoài ca</span></div><div class="employee-day-head"><span>Nhân viên / ngày công</span><div class="employee-day-scale shift-scale">${scaleHtml}</div><span>Session / sản lượng</span></div><div class="employee-day-list">${workers.map(g=>{
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));

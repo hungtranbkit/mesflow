@@ -72,7 +72,8 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   await expect(page.locator('.running-session-card')).toHaveCount(0);
   await expect(page.locator('.employee-day-row')).toHaveCount(20);
   await expect(page.locator('.employee-session-chips span.open').first()).toContainText('Đang chạy');
-  await expect(page.locator('.employee-session-chips span.open').first()).toContainText(/phút|giờ/);
+  // v71.0.0.235: duration shortened from "X giờ Y phút" to "Xg Yp".
+  await expect(page.locator('.employee-session-chips span.open').first()).toContainText(/\dp\b/);
   await expect(page.locator('#dailySessionStatus')).toContainText('20 session đang chạy');
   // One closed session plus one OPEN session split around the configured break.
   await expect(page.locator('.employee-day-row').first().locator('.employee-session-segment')).toHaveCount(3);
