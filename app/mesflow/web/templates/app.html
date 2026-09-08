@@ -71,7 +71,10 @@
       renderEspKioskTutorial();
     }else{
       const initialPage=bootParams.get('page')||'overview';
-      openPage(initialPage, document.querySelector(`[data-page="${initialPage}"]`));
+      // replace, not push: this is the page the browser already loaded, not a
+      // new visit -- pushing here would leave a phantom entry a single Back
+      // press could never get past.
+      openPage(initialPage, document.querySelector(`[data-page="${initialPage}"]`), {historyMode:'replace'});
       // Deep link support: a shared `?session=123` URL (or a page refresh
       // while the drawer was open) reopens the Session Detail drawer on top
       // of the default landing page. There is no recorded "previous

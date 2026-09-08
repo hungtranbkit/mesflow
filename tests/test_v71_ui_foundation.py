@@ -50,11 +50,23 @@ def test_session_management_uses_shared_vertical_slice():
 def test_navigation_supports_url_and_refresh_state():
     nav = (STATIC / "core" / "nav.js").read_text(encoding="utf-8")
     template = (ROOT / "app" / "mesflow" / "web" / "templates" / "app.html").read_text(encoding="utf-8")
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "sessionStorage" in nav
     assert "setPageUrl" in nav
     assert "setQuery" in nav
     assert "bootParams.get('page')" in template
     assert "/static/core/ui.js" in template
+    # Dashboard/URL nav-audit fix (2026-09-09): every top-level page --
+    # including Overview/Dashboard, previously the only two sidebar entries
+    # with no `?page=` URL at all -- gets it from this one place in
+    # openPage(), and a single popstate listener (not a second, parallel
+    # routing mechanism) renders whichever page the URL now names on
+    # browser Back/Forward. The boot call normalizes the URL with
+    # replaceState, not pushState, so a refresh never leaves a phantom
+    # history entry behind.
+    assert "AppNav.setPageUrl(id,{replace:historyMode==='replace'||samePage})" in app
+    assert "window.addEventListener('popstate'" in app
+    assert "{historyMode:'replace'}" in template
 
 
 def test_foundation_keeps_business_and_kiosk_boundaries_unchanged():
