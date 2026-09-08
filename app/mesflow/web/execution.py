@@ -3,6 +3,7 @@ from flask import Blueprint,g,jsonify,request,session
 from mesflow.web.auth import login_required,production_client_required,roles_required
 from mesflow.db.repositories.base import NotFoundError,ConflictError,RepositoryError
 from mesflow.db.repositories.execution import KioskRepository,WorkSessionRepository,QCRepository,SupervisorRepository,_json_safe
+from mesflow.db.repositories.rework import ReworkQueueRepository
 from mesflow.db.repositories.analytics import AuditRepository,KioskEventRepository
 from mesflow.db.connection import transaction,fetch_one
 from mesflow.db.repositories.production_state import reconcile_operation_and_po,reconcile_po_tree
@@ -21,7 +22,7 @@ class KioskRepositoryLookup:
     @staticmethod
     def operation(qr,key):
         from mesflow.db.connection import fetch_one
-        return fetch_one("SELECT o.id,o.code,o.name,o.qr,p.code part_code,po.code po_code,po.status po_status FROM operations o LEFT JOIN parts p ON p.id=o.part_id LEFT JOIN production_orders po ON po.id=o.production_order_id WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s) LIMIT 1",(qr,key))
+        return fetch_one("SELECT o.id,o.code,o.name,o.qr,o.is_rework_op,p.code part_code,po.code po_code,po.status po_status FROM operations o LEFT JOIN parts p ON p.id=o.part_id LEFT JOIN production_orders po ON po.id=o.production_order_id WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s) LIMIT 1",(qr,key))
     @staticmethod
     def station(code):
         from mesflow.db.connection import fetch_one
@@ -53,6 +54,26 @@ def heartbeat():
 @bp.get('/work-sessions')
 @login_required
 def list_sessions(): return jsonify(ok=True,items=WorkSessionRepository().list())
+
+@bp.get('/rework/queue')
+@login_required
+def rework_queue():
+    try:
+        return jsonify(ok=True, items=ReworkQueueRepository().queue(int(request.args.get('limit', 1000))))
+    except Exception as exc:
+        return err(exc)
+
+@bp.post('/rework/queue/<int:source_session_id>/resolve')
+@roles_required('admin','manager','supervisor')
+def resolve_rework(source_session_id):
+    try:
+        body = request.get_json(silent=True) or {}
+        result = ReworkQueueRepository().resolve(source_session_id, body,
+            actor_user_id=session.get('user_id'), actor_username=str(session.get('username') or ''),
+            correlation_id=str(getattr(g, 'trace_id', '') or ''))
+        return jsonify(**result)
+    except Exception as exc:
+        return err(exc)
 @bp.post('/work-sessions/start')
 @production_client_required
 def start_session():

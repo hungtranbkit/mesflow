@@ -104,7 +104,8 @@ def reconcile_operation(cur, operation_id: int):
           COUNT(*) FILTER (WHERE status='OPEN') open_session_count,
           COALESCE(SUM(good_qty) FILTER (WHERE status='CLOSED'),0) good_qty,
           COALESCE(SUM(defect_qty) FILTER (WHERE status='CLOSED'),0) defect_qty,
-          COALESCE(SUM(rework_qty) FILTER (WHERE status='CLOSED'),0) rework_qty
+          COALESCE(SUM(rework_qty) FILTER (WHERE status='CLOSED'),0) rework_qty,
+          COALESCE(SUM(scrap_qty) FILTER (WHERE status='CLOSED'),0) scrap_qty
         FROM work_sessions WHERE operation_id=%s AND {reportable_session_sql("")}''', (operation_id,))
     facts = cur.fetchone() or {}
     current = str(operation.get('status') or 'PLANNED').upper()
@@ -113,6 +114,7 @@ def reconcile_operation(cur, operation_id: int):
     good = int(facts.get('good_qty') or 0)
     defect = int(facts.get('defect_qty') or 0)
     rework = int(facts.get('rework_qty') or 0)
+    scrap = int(facts.get('scrap_qty') or 0)
     planned = int(operation.get('planned_quantity') or 0)
     if current == 'CANCELLED':
         status = 'CANCELLED'
@@ -142,10 +144,10 @@ def reconcile_operation(cur, operation_id: int):
         status = current
     else:
         status = 'PLANNED'
-    cur.execute('''UPDATE operations SET done_qty=%s,defect_qty=%s,rework_qty=%s,status=%s,
+    cur.execute('''UPDATE operations SET done_qty=%s,defect_qty=%s,rework_qty=%s,scrap_qty=%s,status=%s,
           updated_at=CURRENT_TIMESTAMP WHERE id=%s
-          RETURNING id,production_order_id,done_qty,defect_qty,rework_qty,status''',
-        (good, defect, rework, status, operation_id))
+          RETURNING id,production_order_id,done_qty,defect_qty,rework_qty,scrap_qty,status''',
+        (good, defect, rework, scrap, status, operation_id))
     result = dict(cur.fetchone())
     if status!=current:
         record_event(cur,event_type='OPERATION_COMPLETED' if status=='COMPLETED' else ('OPERATION_STARTED' if status=='IN_PROGRESS' else 'OPERATION_STATUS_CHANGED'),
@@ -177,7 +179,7 @@ def reconcile_production_order(cur, po_id: int):
                  WHERE x.production_order_id=%s AND ws.status='OPEN') has_open_session,
           EXISTS(SELECT 1 FROM work_sessions ws JOIN operations x ON x.id=ws.operation_id
                  WHERE x.production_order_id=%s AND {reportable_session_sql("ws")}) has_history
-        FROM operations WHERE production_order_id=%s''', (po_id, po_id, po_id))
+        FROM operations WHERE production_order_id=%s AND COALESCE(is_rework_op,FALSE)=FALSE''', (po_id, po_id, po_id))
     facts = cur.fetchone() or {}
     current = str(po.get('status') or 'DRAFT').upper()
     total = int(facts.get('operation_count') or 0)

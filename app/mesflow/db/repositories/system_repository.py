@@ -35,7 +35,7 @@ class SystemRepository:
             'users','employees','stations','equipment','sales_orders',
             'production_orders','parts','operations','templates',
             'kiosk_identities','work_sessions','qc_inspections',
-            'operation_adjustments','penalty_tickets','kiosk_events',
+            'operation_adjustments','rework_ledger','penalty_tickets','kiosk_events',
             'notifications','audit_logs','action_logs'
         )
         result = {}
