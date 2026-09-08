@@ -313,7 +313,8 @@ async function renderDashboard(){
       const elapsed=Math.max(0,(Math.min(end,shiftEnd)-Math.max(start,viewStart))/1000);
       const operation=`${x.operation_code||''} · ${x.operation_name||''}`.trim();
       const qty=qtyLine(x.good_qty,x.defect_qty,x.rework_qty);
-      const full=`${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${operation} · ${qty}`;
+      const qtyPlain=qtyLine(x.good_qty,x.defect_qty,x.rework_qty,true);
+      const full=`${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${operation} · ${qtyPlain}`;
       // Field report (2026-09-08): the chip itself truncates with an
       // ellipsis on narrow screens/many sessions (.employee-session-chips
       // span{overflow:hidden;text-overflow:ellipsis}), but title= only ever
@@ -480,7 +481,17 @@ function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hou
 // "Người làm" cho Operation: chỉ người có session đang chạy (active_workers,
 // nguồn xác thực là work_sessions.status='OPEN'), KHÔNG suy ra từ việc từng
 // xuất hiện trong Operation. running_sessions=0 -> không hiện tên lịch sử.
-function activeWorkersLabel(x){const workers=Array.isArray(x.active_workers)?x.active_workers:[];return workers.length?esc(workers.map(w=>w.name).join(', ')):'Không có người đang làm'}
+// Field report (2026-09-08, same-day follow-up): this used to read
+// active_workers (currently-OPEN-session people only) -- the exact same
+// mismatch the day_contributors fix below already fixed for the
+// breakdown lines, just one level up: the BOLD NAME here could show two
+// people who just started (0 output yet) while the REAL contributor for
+// today's Đạt/NG/Sửa right underneath was someone else entirely, not
+// even named in this title. Now reads day_contributors (everyone with
+// today's activity on this Operation, open or closed), same sort as
+// activeWorkersBreakdown() -- the name at the top and the numbers right
+// below it are now about the same people.
+function activeWorkersLabel(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.length?esc(workers.map(w=>w.name).join(', ')):'Không có người đang làm'}
 // Field report (2026-09-08): "Trong ca: Đạt/NG/Sửa" only ever showed the
 // Operation's combined total, even with several people on it at once --
 // no way to tell who contributed what. One small line per person with ANY
@@ -505,13 +516,33 @@ function activeWorkersLabel(x){const workers=Array.isArray(x.active_workers)?x.a
 // QUANTITY_SUBMITTED yet), show "—" instead. A session/person with a REAL
 // partial report (e.g. some good, zero defect) still shows those numbers
 // as-is -- this only collapses the literal "nothing at all yet" case.
-function qtyLine(good,defect,rework){
+// Field report (2026-09-08, same-day follow-up): plain muted-gray text made
+// Đạt/NG/Sửa hard to tell apart at a glance and read as too small/faint --
+// each number now gets its own color (same green/red/amber roles the rest
+// of this dashboard already uses for good/defect/rework), returned as HTML
+// (both call sites below insert this directly into innerHTML, never
+// through esc() -- there is no user-controlled text in here, only numbers
+// this function itself formatted).
+// plain=true returns unstyled text -- for a native title= tooltip, which
+// renders raw markup as literal text rather than interpreting it (using the
+// colored-spans version there would show the actual "<b class=..." tags).
+function qtyLine(good,defect,rework,plain){
   good=Number(good||0);defect=Number(defect||0);rework=Number(rework||0);
-  if(good===0&&defect===0&&rework===0)return 'Đạt —';
-  return `Đạt ${good.toLocaleString('vi-VN')}${defect>0?` · NG ${defect.toLocaleString('vi-VN')}`:''}${rework>0?` · Sửa ${rework.toLocaleString('vi-VN')}`:''}`;
+  if(good===0&&defect===0&&rework===0)return plain?'Đạt —':'<b class="qty-empty">Đạt —</b>';
+  if(plain){
+    return `Đạt ${good.toLocaleString('vi-VN')}${defect>0?` · NG ${defect.toLocaleString('vi-VN')}`:''}${rework>0?` · Sửa ${rework.toLocaleString('vi-VN')}`:''}`;
+  }
+  const parts=[`<b class="qty-good">Đạt ${good.toLocaleString('vi-VN')}</b>`];
+  if(defect>0)parts.push(`<b class="qty-ng">NG ${defect.toLocaleString('vi-VN')}</b>`);
+  if(rework>0)parts.push(`<b class="qty-fix">Sửa ${rework.toLocaleString('vi-VN')}</b>`);
+  return parts.join(' · ');
 }
 function activeWorkersBreakdown(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: ${qtyLine(w.good_qty,w.defect_qty,w.rework_qty)}</small>`).join('')}
-function activeWorkersTitle(x){const activeIds=new Set((Array.isArray(x.active_workers)?x.active_workers:[]).map(w=>w.employee_id)),previous=(Array.isArray(x.all_participants)?x.all_participants:[]).filter(w=>!activeIds.has(w.employee_id));return previous.length?`Đã tham gia trước đó: ${previous.map(w=>w.name).join(', ')}`:''}
+// "Previously participated" now excludes whoever activeWorkersLabel() above
+// already names (day_contributors, not just active_workers) -- otherwise a
+// closed-session contributor already shown by name in the title AND in the
+// breakdown would ALSO get listed here as if they were somehow separate.
+function activeWorkersTitle(x){const shownIds=new Set((Array.isArray(x.day_contributors)?x.day_contributors:[]).map(w=>w.employee_id)),previous=(Array.isArray(x.all_participants)?x.all_participants:[]).filter(w=>!shownIds.has(w.employee_id));return previous.length?`Đã tham gia trước đó: ${previous.map(w=>w.name).join(', ')}`:''}
 function toLocalInput(value){
   if(!value)return '';
   const d=new Date(value); if(Number.isNaN(d.getTime()))return '';
