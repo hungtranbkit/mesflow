@@ -9,12 +9,13 @@ def test_current_shift_autodetect_present():
     assert "if(now.minute>=start)return {shift,date:now.date,active:true}" in JS
     assert 'previousDate(now.date)' in JS
 
-def test_shift_picker_is_prominent():
-    assert 'shift-picker' in JS
-    assert 'Ca hiện tại' in JS  # label is no longer all-caps in the JS literal itself
-    assert '.shift-picker.is-current' in CSS
-    assert '.shift-picker.is-night' in CSS
+def test_daily_dashboard_exposes_shift_metadata_without_a_filter():
+    assert 'daily-shift-reference' in JS
+    assert 'không lọc theo ca' in JS
+    assert 'Ca ngày' in JS
+    assert 'Ca tối' in JS
 
-def test_current_shift_selected_on_initial_render():
-    assert "Number(x.id)===Number(currentCtx.shift.id)?'selected':''" in JS
+def test_date_is_the_only_dashboard_filter():
+    assert 'id="dailyShift"' not in JS
+    assert '/api/dashboard/day?date=${encodeURIComponent(date)}' in JS
     assert 'value="${currentCtx.date}"' in JS

@@ -376,12 +376,12 @@ const tours = {
   },
   dashboard: async page=>{
     await open(page,'dashboard');
-    await card(page,'Tổng quan sản xuất theo ngày','Màn hình điều hành trong ca. Hãy bắt đầu từ ngày/ca, sau đó đọc KPI, tiến độ và danh sách session.');
+    await card(page,'Tổng quan sản xuất theo ngày','Màn hình điều hành theo ngày. Hãy bắt đầu từ ngày làm việc, sau đó đọc KPI, tiến độ và danh sách session.');
     await note(page,'#dailyDate','Chọn ngày','Đổi ngày để xem đúng dữ liệu lịch sử. Khi theo dõi realtime nên để ngày hiện tại.');
-    await note(page,'#dailyShift','Chọn ca','MESFlow dùng lịch làm việc và khoảng nghỉ để tính thời gian sản xuất thực tế.');
-    await note(page,'#dailyKpis .daily-kpi:nth-child(1)','Nhân viên có hoạt động','Số người đã có ít nhất một phiên làm việc trong ngày và ca đang chọn. Hệ thống đếm mỗi mã nhân viên một lần; dùng để biết ca này đã huy động bao nhiêu người.',{action:'Đọc số nhân viên và số phiên làm việc bên dưới chỉ số.',expected:'Phân biệt được người đã có hoạt động với người hiện đang làm.'});
+    await note(page,'.daily-shift-reference','Phạm vi dữ liệu','Dashboard ngày luôn tổng hợp toàn bộ session của ngày đã chọn. Nhãn ca chỉ là thông tin tham khảo, không phải điều kiện lọc.');
+    await note(page,'#dailyKpis .daily-kpi:nth-child(1)','Nhân viên có hoạt động','Số người đã có ít nhất một phiên làm việc trong ngày. Hệ thống đếm mỗi mã nhân viên một lần; dùng để biết ngày đó đã huy động bao nhiêu người.',{action:'Đọc số nhân viên và số phiên làm việc bên dưới chỉ số.',expected:'Phân biệt được người đã có hoạt động với người hiện đang làm.'});
     await note(page,'#dailyKpis .daily-kpi:nth-child(2)','Đang làm việc','Số nhân viên có phiên làm việc chưa kết thúc tại thời điểm tải bảng tổng quan. Dữ liệu này cho biết lực lượng đang hoạt động ngay lúc này.',{action:'Đối chiếu số người với số phiên đang mở.',expected:'Nhận ra nhanh ca đang có bao nhiêu người thực sự làm việc và phiên nào có thể bị quên kết thúc.'});
-    await note(page,'#dailyKpis .daily-kpi:nth-child(3)','Sản lượng đạt','Tổng số sản phẩm đạt của mọi phiên làm việc trong ngày và ca được chọn. Đây là kết quả thực tế do người vận hành ghi nhận, không phải số kế hoạch.',{action:'Đọc tổng sản phẩm đạt và phạm vi dữ liệu của chỉ số.',expected:'Biết dùng số thực tế này để so với kế hoạch ca và phát hiện thiếu sản lượng.'});
+    await note(page,'#dailyKpis .daily-kpi:nth-child(3)','Sản lượng đạt','Tổng số sản phẩm đạt của mọi phiên làm việc trong ngày đã chọn. Đây là kết quả thực tế do người vận hành ghi nhận, không phải số kế hoạch.',{action:'Đọc tổng sản phẩm đạt và phạm vi dữ liệu của chỉ số.',expected:'Biết dùng số thực tế này để so với kế hoạch ngày.'});
     await note(page,'#opTimeProgress .op-time-row:not(.head) .op-dual-progress','Tiến độ theo công đoạn','Mỗi công đoạn có hai thước đo: thời gian thực tế so với định mức và sản phẩm đạt so với số lượng kế hoạch. So sánh hai thanh để phát hiện nơi dùng nhiều thời gian nhưng đầu ra thấp.',{action:'So sánh phần trăm thời gian với phần trăm sản phẩm của một công đoạn.',expected:'Xác định được công đoạn đúng tiến độ hoặc có nguy cơ chậm và cần quản lý kiểm tra.'});
     await note(page,'#sessionTimeline, .session-timeline','Phiên làm việc theo nhân viên','Xem ai đang làm gì, thời điểm bắt đầu và phiên nào chưa kết thúc.');
   },

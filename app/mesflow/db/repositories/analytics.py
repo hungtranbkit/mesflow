@@ -115,6 +115,22 @@ def _worker_list(value):
     return sorted(items,key=lambda x:str(x.get('name') or ''))
 
 class DashboardRepository:
+    @staticmethod
+    def _calendar_day_context(shift_date):
+        """Return a full local calendar-day window for the day dashboard.
+
+        Shift dashboards keep their existing shift-window semantics.  The
+        date dashboard deliberately uses one 00:00-24:00 window so selecting
+        a day never hides sessions from another configured shift.
+        """
+        ctx=resolve_shift_context(shift_date)
+        ctx=dict(ctx)
+        ctx['range_start']=ctx['day_start']
+        ctx['range_end']=ctx['day_end']
+        ctx['intervals']=[{'interval_type':'WORK','start_minute':0,'end_minute':1440,
+          'start_at':ctx['day_start'],'end_at':ctx['day_end']}]
+        return ctx
+
     def summary(self):
         # active_sessions is a dashboard KPI card ("session dang mo") -- an
         # excluded-but-still-OPEN session (spec: "session mo nhung thuc te
@@ -690,8 +706,8 @@ class DashboardRepository:
         return {'summary':summary,'production_orders':pos,'operations':flat,'generated_at':now}
 
 
-    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,shift_code:str|None=None):
-        ctx=resolve_shift_context(shift_date,shift_id,shift_code)
+    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+        ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         shift_start,shift_end=ctx['range_start'],ctx['range_end']
         work_windows=[(x['start_at'],x['end_at']) for x in ctx['intervals'] if x.get('interval_type')=='WORK']
         duration_parts=[]; duration_params=[]
@@ -801,8 +817,8 @@ class DashboardRepository:
             row['day_contributors']=_worker_list(row.get('day_contributors'))
         return rows
 
-    def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None):
-        ctx=resolve_shift_context(shift_date,shift_id,shift_code)
+    def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+        ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         work_parts=[];work_params=[]
         for interval in ctx['intervals']:
             if interval.get('interval_type')!='WORK':continue
@@ -832,8 +848,8 @@ class DashboardRepository:
           AND {reportable_session_sql('ws')} AND COALESCE(o.is_rework_op,FALSE)=FALSE
         ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['day_end'],ctx['day_start'],min(max(limit,1),3000)))
 
-    def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None):
-        ctx=resolve_shift_context(shift_date,shift_id,shift_code)
+    def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+        ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         return fetch_all(f"""SELECT * FROM (
           SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,
             e.name actor,o.name subject,'STARTED' status,po.code po_code,o.code operation_code,
@@ -864,6 +880,14 @@ class DashboardRepository:
           'target_minutes':int(shift.get('target_minutes') or 0),'intervals':serial_intervals},
           'items':self.daily_progress(shift_date,limit,shift_id),'sessions':self.daily_sessions(shift_date,min(limit*2,3000),shift_id),
           'activity':self.shift_activity(shift_date,100,shift_id)}
+
+    def daily_dashboard(self,shift_date:str|None=None,limit:int=1000):
+        ctx=self._calendar_day_context(shift_date)
+        return {'context':{'date':ctx['shift_date'].isoformat(),'timezone':ctx['shift']['timezone'],
+          'day_start':ctx['day_start'].isoformat(),'day_end':ctx['day_end'].isoformat()},
+          'items':self.daily_progress(shift_date,limit,calendar_day=True),
+          'sessions':self.daily_sessions(shift_date,min(limit*2,3000),calendar_day=True),
+          'activity':self.shift_activity(shift_date,100,calendar_day=True)}
 
     def recent_activity(self,limit:int=100):
         return fetch_all(f"""SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,

@@ -4,8 +4,10 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def test_current_dashboard_frontend_sections():
     js=(ROOT/'app/mesflow/web/static/app.js').read_text(encoding='utf-8')
-    for marker in ('/api/dashboard/shift','shift_date','shift_id','employee-day-row','session-management'):
+    for marker in ('/api/dashboard/day','dailyDate','employee-day-row','session-management'):
         assert marker in js
+    assert 'id="dailyShift"' not in js
+    assert 'không lọc theo ca' in js
 
 def test_shift_dashboard_backend_contract():
     analytics=(ROOT/'app/mesflow/web/analytics.py').read_text(encoding='utf-8')

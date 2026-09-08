@@ -14,11 +14,12 @@ test.afterEach(async ({ page }) => {
   expect(page.__mesflowErrors || []).toEqual([]);
 });
 
-test('dashboard renders and shift API responds', async ({ page }) => {
+test('dashboard renders with one shared date filter', async ({ page }) => {
   await page.evaluate(()=>openPage('dashboard',document.querySelector('[data-page="dashboard"]')));
   await expect(page.locator('#pageTitle')).toContainText('Dashboard theo ngày');
   await expect(page.locator('#dailyDate')).toBeVisible();
-  await expect(page.locator('#dailyShift')).toBeVisible();
+  await expect(page.locator('#dailyShift')).toHaveCount(0);
+  await expect(page.locator('.daily-shift-reference')).toContainText('không lọc theo ca');
 });
 
 test('employee screen opens integrated report entry point', async ({ page }) => {
