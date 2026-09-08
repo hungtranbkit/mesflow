@@ -20,6 +20,8 @@ def test_daily_dashboard_uses_one_date_filter_and_full_day_endpoint():
     assert "id=\"dailyDate\"" in app
     routes=(ROOT/'app/mesflow/web/analytics.py').read_text()
     assert "id=\"dailyShift\"" not in app
+    assert 'data-dashboard-tab="overview">A · Tổng quan Operation</button>' in app
+    assert 'data-dashboard-pane="overview" role="tabpanel"><section' in app
     assert "/api/dashboard/day?date=${encodeURIComponent(date)}" in app
     assert "@bp.get('/dashboard/day')" in routes
     assert "calendar_day:bool=False" in repo

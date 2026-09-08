@@ -66,6 +66,7 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   await page.clock.setFixedTime(new Date(`${date}T14:30:00+07:00`));
   await mockDashboard(page, date);
   await page.evaluate(() => openPage('dashboard'));
+  await page.locator('[data-dashboard-tab="people"]').click();
 
   await expect(page.locator('#dailyEmployeeSort')).toHaveValue('start');
   await expect(page.locator('.running-session-card')).toHaveCount(0);
@@ -91,6 +92,11 @@ test('dashboard ngày vẫn hiển thị session ca tối cùng ngày', async ({
   await mockDashboard(page, date);
   await page.evaluate(() => openPage('dashboard'));
   await page.locator('#dailyDate').fill('2026-08-01');
+  await page.locator('[data-dashboard-tab="people"]').click();
+  await page.locator('[data-dashboard-tab="output"]').click();
+  await page.locator('[data-dashboard-tab="overview"]').click();
+  await expect(page.locator('#dailyDate')).toHaveValue('2026-08-01');
+  await page.locator('[data-dashboard-tab="people"]').click();
   await expect(page.locator('#dailyShift')).toHaveCount(0);
   await expect(page.locator('.employee-day-person b', { hasText: 'Nhân viên ca tối' })).toBeVisible();
   await expect(page.locator('.employee-day-row', { hasText: 'Nhân viên ca tối' }).locator('.employee-session-chips span.open')).toContainText('Đang chạy');
@@ -103,6 +109,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
     await login(page);
     await mockDashboard(page, date);
     await page.evaluate(() => openPage('dashboard'));
+    await page.locator('[data-dashboard-tab="people"]').click();
     await expect(page.locator('.session-timeline-panel')).toBeVisible();
     const overflow = await page.locator('body').evaluate(body => body.scrollWidth > body.clientWidth);
     expect(overflow).toBe(false);
