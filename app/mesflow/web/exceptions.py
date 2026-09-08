@@ -46,6 +46,11 @@ EDITABLE_FIELDS_BY_EXCEPTION_TYPE={
     # action for this detector's real shape; closing one session entirely
     # via `status` is the other common resolution).
     'EMPLOYEE_SESSION_CONFLICT':('started_at','ended_at','status'),
+    # "Quét thẻ mới trong khi chưa nhập số liệu" -- the real fix is either
+    # the employee scanning back in to finish it themselves, or (if they
+    # already left) a supervisor entering the missed numbers/closing the
+    # session directly here, same shape as ZERO_QUANTITY_LONG + LONG_OPEN_SESSION.
+    'INTERRUPTED_QUANTITY_ENTRY':('good_qty','defect_qty','rework_qty','ended_at','status'),
 }
 
 @bp.get('/exceptions')

@@ -2,7 +2,7 @@
    navigation/API contract stays backward compatible while the page upgrades. */
 const ExceptionCenter=(()=>{
   const state={view:'action',items:[],selected:null,scroll:0,timer:null,resolution:null};
-  const labels={LONG_OPEN_SESSION:'Session mở quá lâu',ZERO_QUANTITY_LONG:'Sản lượng bất thường',MISSING_STATION:'Thiếu thông tin trạm',INVALID_DURATION:'Thời gian không hợp lệ',OPERATION_COMPLETED_SESSION_OPEN:'Operation hoàn tất nhưng Session còn mở',EMPLOYEE_SESSION_CONFLICT:'Session xung đột'};
+  const labels={LONG_OPEN_SESSION:'Session mở quá lâu',ZERO_QUANTITY_LONG:'Sản lượng bất thường',MISSING_STATION:'Thiếu thông tin trạm',INVALID_DURATION:'Thời gian không hợp lệ',OPERATION_COMPLETED_SESSION_OPEN:'Operation hoàn tất nhưng Session còn mở',EMPLOYEE_SESSION_CONFLICT:'Session xung đột',INTERRUPTED_QUANTITY_ENTRY:'Quét thẻ mới trong khi chưa nhập số liệu'};
   const statusLabel={OPEN:'Cần xử lý',ACKNOWLEDGED:'Đã xác nhận',RESOLVED:'Đã giải quyết',AUTO_IGNORED:'Tự động bỏ qua',MANUAL_IGNORED:'Đã bỏ qua'};
   // §3 of the 2026-08-28 Session Exception Resolution modal task: presentation
   // (label/input widget) only -- WHICH fields are ever offered per exception

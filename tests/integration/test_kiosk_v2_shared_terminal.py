@@ -245,6 +245,76 @@ def test_employee_b_scan_does_not_get_blocked_by_employee_a_open_session(db, thr
     assert 'Worker A' not in r['view'].get('employee_name', '')
 
 
+def test_scanning_a_different_employee_during_unsubmitted_quantity_input_logs_an_exception(db, three_employee_graph):
+    """Field report (2026-09-08): A reaches QUANTITY_INPUT (their own OPEN
+    session, one card tap) but never submits -- no # press, no
+    QUANTITY_SUBMITTED event, they just walk away. B then scans their own
+    card on the SAME shared kiosk. The shared-terminal design (see this
+    file's own module docstring/every test above it) must still let B
+    through -- a hard lock would brick the kiosk for the whole line the
+    moment one person forgets to finish -- but A's still-open, still-
+    unreported session must not be silently abandoned with zero trace: an
+    INTERRUPTED_QUANTITY_ENTRY exception (see ExceptionRepository.
+    report_interrupted_quantity_entry) is the record of that."""
+    g = three_employee_graph
+    device = _device_id(g['suffix'])
+
+    r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'A')})
+    assert r['state']['name'] == 'WAIT_OPERATION'
+    r = _send(device, 'SCAN', {'raw': _scan_op_qr(g, 'A')})
+    assert r['state']['name'] == 'WAIT_EMPLOYEE'
+    # A returns -- lands on QUANTITY_INPUT for their own open session --
+    # then walks away without ever submitting a quantity.
+    r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'A')})
+    assert r['state']['name'] == 'QUANTITY_INPUT'
+
+    # B scans in on the same device -- must still be let through cleanly,
+    # not blocked/mismatched by A's unfinished business.
+    r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'B')})
+    assert r['accepted'] is True, r
+    assert r['state']['name'] == 'WAIT_OPERATION'
+    assert r['view']['employee_name'] == 'Docker Test Worker B'
+
+    # A's session is still OPEN, no data lost -- and a reviewable exception
+    # now exists for it, pointing at who interrupted it.
+    with db.cursor() as cur:
+        cur.execute('SELECT id, status, good_qty FROM work_sessions WHERE employee_id=%s', (g['employees'][0],))
+        session_row = cur.fetchone()
+        assert session_row['status'] == 'OPEN'
+        assert session_row['good_qty'] == 0
+        cur.execute("SELECT * FROM exception_records WHERE session_id=%s AND exception_type='INTERRUPTED_QUANTITY_ENTRY'",
+                   (session_row['id'],))
+        exc = cur.fetchone()
+    assert exc is not None, 'expected an INTERRUPTED_QUANTITY_ENTRY exception for A\'s abandoned session'
+    assert exc['status'] == 'OPEN'
+    assert exc['severity'] == 'MEDIUM'
+    assert exc['employee_id'] == g['employees'][0]
+    assert 'Worker B' in exc['message']
+
+
+def test_scanning_the_same_employee_again_during_quantity_input_does_not_log_an_exception(db, three_employee_graph):
+    """The canonical finish/re-resolve path (A scanning their OWN card
+    again while still mid-entry) must never be mistaken for an
+    interruption by someone else -- no exception here."""
+    g = three_employee_graph
+    device = _device_id(g['suffix'])
+
+    _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'A')})
+    _send(device, 'SCAN', {'raw': _scan_op_qr(g, 'A')})
+    r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'A')})
+    assert r['state']['name'] == 'QUANTITY_INPUT'
+
+    r = _send(device, 'SCAN', {'raw': _scan_emp_qr(g, 'A')})
+    assert r['accepted'] is True, r
+
+    with db.cursor() as cur:
+        cur.execute('SELECT id FROM work_sessions WHERE employee_id=%s', (g['employees'][0],))
+        session_id = cur.fetchone()['id']
+        cur.execute("SELECT * FROM exception_records WHERE session_id=%s AND exception_type='INTERRUPTED_QUANTITY_ENTRY'",
+                   (session_id,))
+        assert cur.fetchone() is None
+
+
 def test_response_never_contains_previous_users_temporary_state(db, three_employee_graph):
     """A's WAIT_OPERATION selection (employee scanned, no operation yet) is
     abandoned when B scans instead -- B's response must be a clean slate,

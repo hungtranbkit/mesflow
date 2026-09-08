@@ -101,6 +101,70 @@ class ExceptionRepository:
         (list(past_shift_end_ids),))
         return rows
 
+    def report_interrupted_quantity_entry(self, session_id: int, interrupted_by_employee_name: str,
+                                          correlation_id: str = '') -> dict[str, Any] | None:
+        """Field report (2026-09-08): an employee scans their card a 2nd
+        time to reach QUANTITY_INPUT, then walks away without entering
+        anything. A DIFFERENT employee then scans in -- kiosk_v2.py's own
+        design (see its "Fresh resolve" comment) deliberately still lets
+        that go through rather than locking the shared kiosk to one person
+        indefinitely (a hard lock risks bricking the kiosk for the whole
+        line if the first employee simply forgot/left for the day). The
+        first employee's session stays OPEN with no data lost at the
+        storage layer -- but nothing surfaced that this happened, so a
+        supervisor had no way to know a quantity report is still missing
+        until/unless that employee happens to scan in again themselves.
+        Called from kiosk_v2.py's EMP-scan handling at the exact moment a
+        DIFFERENT employee's scan is about to overwrite the projection out
+        from under a still-QUANTITY_INPUT session. Not data-loss (the
+        session is still there, still OPEN, still fixable) so MEDIUM, not
+        HIGH/CRITICAL -- but real enough to need a human decision, not a
+        silent skip.
+
+        Same fingerprint-keyed upsert idiom as reconcile() (ON CONFLICT ...
+        DO NOTHING while an prior occurrence is still ACTIVE) -- a session
+        interrupted more than once before anyone looks at it stays ONE
+        exception, not a growing spam pile.
+        """
+        row = fetch_one("""SELECT ws.id session_id,ws.employee_id,e.name employee_name,e.employee_no employee_code,
+              ws.operation_id,o.code operation_code,o.name operation_name,o.production_order_id,o.part_id,
+              po.code po_code,p.code part_code
+            FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id
+            JOIN operations o ON o.id=ws.operation_id JOIN production_orders po ON po.id=o.production_order_id
+            JOIN parts p ON p.id=o.part_id WHERE ws.id=%s AND ws.status='OPEN'""", (session_id,))
+        if not row:
+            return None  # session already closed/gone by the time this ran -- nothing to flag
+        fingerprint = f'INTERRUPTED_QUANTITY_ENTRY:SESSION:{session_id}'
+        title = 'Quét thẻ mới trong khi chưa nhập số liệu'
+        message = (f"{row['employee_name']} ({row['employee_code']}) quét thẻ để nhập số lượng cho "
+                   f"{row['operation_code']} nhưng chưa nhập thì {interrupted_by_employee_name} đã quét thẻ khác vào Kiosk. "
+                   f"Session vẫn đang mở, số liệu chưa bị mất.")
+        recommended_action = ('Nhờ nhân viên quét lại thẻ để nhập số lượng, hoặc sửa trực tiếp số lượng/kết thúc Session '
+                              'nếu nhân viên đã rời ca.')
+        metadata = {'exception_type': 'INTERRUPTED_QUANTITY_ENTRY', 'severity': 'MEDIUM', 'session_id': session_id,
+                    'interrupted_by_employee_name': interrupted_by_employee_name}
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM exception_records WHERE fingerprint=%s ORDER BY occurrence_no DESC,id DESC LIMIT 1 FOR UPDATE",
+                            (fingerprint,))
+                prior = cur.fetchone()
+                if prior and (prior['status'] in ACTIVE or prior['condition_active']):
+                    cur.execute("UPDATE exception_records SET condition_active=TRUE,updated_at=CURRENT_TIMESTAMP,metadata_json=%s WHERE id=%s",
+                                (json.dumps(metadata, ensure_ascii=False, default=str), prior['id']))
+                    return None
+                occurrence = (prior['occurrence_no'] + 1) if prior else 1
+                cur.execute("""INSERT INTO exception_records(exception_type,severity,entity_type,entity_id,employee_id,production_order_id,part_id,operation_id,session_id,title,message,recommended_action,fingerprint,metadata_json,occurrence_no)
+                  VALUES('INTERRUPTED_QUANTITY_ENTRY','MEDIUM','SESSION',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                  ON CONFLICT(fingerprint) WHERE status IN ('OPEN','ACKNOWLEDGED') DO NOTHING RETURNING *""",
+                  (session_id, row['employee_id'], row['production_order_id'], row['part_id'], row['operation_id'],
+                   session_id, title, message, recommended_action, fingerprint,
+                   json.dumps(metadata, ensure_ascii=False, default=str), occurrence))
+                created = cur.fetchone()
+                if created:
+                    self._history(cur, created['id'], 'DETECTED', None, 'OPEN', correlation_id=correlation_id,
+                                  metadata={'fingerprint': fingerprint})
+                return created
+
     @staticmethod
     def _history(cur,exception_id,action,previous,new,actor_id=None,actor='',reason='',correlation_id='',metadata=None):
         cur.execute("""INSERT INTO exception_history(exception_id,action,previous_status,new_status,actor_id,actor_username,reason,metadata_json,correlation_id)

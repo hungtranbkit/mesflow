@@ -54,6 +54,7 @@ from mesflow.db.connection import transaction, fetch_one, fetch_all
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
 from mesflow.db.repositories.execution import WorkSessionRepository, KioskRepository, _json_safe
 from mesflow.db.repositories.analytics import KioskEventRepository
+from mesflow.db.repositories.exceptions import ExceptionRepository
 from mesflow.domain.errors import PermissionDeniedError
 from mesflow.web.execution import _legacy_kiosk_identity, KioskRepositoryLookup
 
@@ -408,6 +409,22 @@ def _apply_event(device_id: str, event_id: str, event_type: str, payload: dict, 
                     'message': f"Quét lại thẻ {emp['employee_no']} để kết thúc (kiosk v2)",
                     'employee_id': emp['id'], 'session_id': proj['work_session_id'], 'payload': {'qr': raw}})
                 return True, None, None, new_proj
+
+            # Field report (2026-09-08): a DIFFERENT employee's scan reaching
+            # this point while the kiosk was showing someone else's
+            # not-yet-submitted QUANTITY_INPUT is about to silently overwrite
+            # that projection -- the interrupted employee's session stays
+            # OPEN (no data lost at the storage layer, they can always scan
+            # in again later and land right back on QUANTITY_INPUT for it),
+            # but nothing else ever surfaced that this happened. Deliberately
+            # NOT a hard lock here (see kiosk_v2.py's module docstring on why
+            # a shared kiosk must never be blockable by one person walking
+            # away) -- instead this still lets the new scan through but logs
+            # a real, reviewable exception so a supervisor can follow up
+            # instead of the missing report just quietly never happening.
+            if (state == _STATE_QUANTITY_INPUT and proj.get('employee_id')
+                    and proj.get('employee_id') != emp['id'] and proj.get('work_session_id')):
+                ExceptionRepository().report_interrupted_quantity_entry(proj['work_session_id'], emp['name'])
 
             # Fresh resolve: does THIS employee (not whoever the kiosk was
             # previously showing) have their own OPEN session right now?
