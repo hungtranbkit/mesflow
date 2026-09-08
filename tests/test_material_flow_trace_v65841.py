@@ -12,7 +12,7 @@ def test_material_flow_trace_contract():
     assert "/operations/<int:operation_id>/material-flow" in backend
     assert 'available_qty' in backend and 'history_count' in backend
     js=text('app/mesflow/web/static/pages/material-flow.js')
-    for marker in ('DÒNG VẬT TƯ','Ledger hiện tại','Lịch sử thay đổi','BACKFILL','ADMIN_EDIT'):
+    for marker in ('DÒNG VẬT TƯ','Lịch sử cấp đầu vào','Lịch sử thay đổi','BACKFILL','ADMIN_EDIT'):
         assert marker in js
 
 def test_ledger_mutation_guards():

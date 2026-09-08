@@ -182,7 +182,7 @@ class PartRepository(BaseRepository):
 
 class OperationRepository(BaseRepository):
     table='operations'; id_column='id'
-    selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
+    selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','scrap_qty','is_rework_op','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
     writable_columns=('production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input')
 
     def list(self,*,limit=200,offset=0):

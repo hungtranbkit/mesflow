@@ -14,11 +14,16 @@ def test_overview_page_and_api_are_wired():
     assert "def operation_overview" in repo
     assert "/static/pages/overview.js" in html
 
-def test_daily_dashboard_keeps_explicit_date_and_shift():
+def test_daily_dashboard_uses_one_date_filter_and_full_day_endpoint():
     app=(ROOT/'app/mesflow/web/static/app.js').read_text()
     repo=(ROOT/'app/mesflow/db/repositories/analytics.py').read_text()
     assert "id=\"dailyDate\"" in app
-    assert "id=\"dailyShift\"" in app
-    assert "shift_date=${encodeURIComponent(date)}" in app
-    assert "resolve_shift_context(shift_date,shift_id)" in repo
+    routes=(ROOT/'app/mesflow/web/analytics.py').read_text()
+    assert "id=\"dailyShift\"" not in app
+    assert 'data-dashboard-tab="overview">A · Tổng quan Operation</button>' in app
+    assert 'data-dashboard-pane="overview" role="tabpanel"><section' in app
+    assert "/api/dashboard/day?date=${encodeURIComponent(date)}" in app
+    assert "@bp.get('/dashboard/day')" in routes
+    assert "calendar_day:bool=False" in repo
+    assert "self._calendar_day_context(shift_date) if calendar_day" in repo
     assert "ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s" in repo

@@ -23,7 +23,7 @@ test('tổng quan sản xuất dễ quét và không tràn ở viewport chính',
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', await page.locator('body').evaluate(el => el.clientWidth));
 });
 
-test('dashboard theo ngày mở ổn định và dùng dữ liệu ca từ API', async ({ page }) => {
+test('dashboard theo ngày mở ổn định và chỉ dùng ngày làm việc', async ({ page }) => {
   // Rewritten (2026-08-26): "Báo cáo ca sản xuất" is not in the source
   // anywhere (grep-confirmed) -- #pageTitle ("Dashboard theo ngày") is the
   // only page-level heading now; #dailyKpis/#dailyShift already cover the
@@ -33,7 +33,8 @@ test('dashboard theo ngày mở ổn định và dùng dữ liệu ca từ API',
   await login(page);
   await page.evaluate(() => openPage('dashboard'));
   await expect(page.locator('#pageTitle')).toHaveText('Dashboard theo ngày');
-  await expect(page.locator('#dailyShift option')).not.toHaveCount(0);
+  await expect(page.locator('#dailyShift')).toHaveCount(0);
+  await expect(page.locator('.daily-shift-reference')).toContainText('Toàn bộ ngày đã chọn');
   await expect(page.locator('#dailyKpis .daily-kpi')).toHaveCount(4);
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', await page.locator('body').evaluate(el => el.clientWidth));
   expect(errors).toEqual([]);

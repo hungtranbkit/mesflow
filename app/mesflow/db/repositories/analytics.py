@@ -115,6 +115,22 @@ def _worker_list(value):
     return sorted(items,key=lambda x:str(x.get('name') or ''))
 
 class DashboardRepository:
+    @staticmethod
+    def _calendar_day_context(shift_date):
+        """Return a full local calendar-day window for the day dashboard.
+
+        Shift dashboards keep their existing shift-window semantics.  The
+        date dashboard deliberately uses one 00:00-24:00 window so selecting
+        a day never hides sessions from another configured shift.
+        """
+        ctx=resolve_shift_context(shift_date)
+        ctx=dict(ctx)
+        ctx['range_start']=ctx['day_start']
+        ctx['range_end']=ctx['day_end']
+        ctx['intervals']=[{'interval_type':'WORK','start_minute':0,'end_minute':1440,
+          'start_at':ctx['day_start'],'end_at':ctx['day_end']}]
+        return ctx
+
     def summary(self):
         # active_sessions is a dashboard KPI card ("session dang mo") -- an
         # excluded-but-still-OPEN session (spec: "session mo nhung thuc te
@@ -124,11 +140,12 @@ class DashboardRepository:
         return fetch_one(f"""SELECT
           (SELECT COUNT(*) FROM production_orders) po_total,
           (SELECT COUNT(*) FROM production_orders WHERE status IN ('IN_PROGRESS','ACTIVE')) po_active,
-          (SELECT COUNT(*) FROM operations) operation_total,
-          (SELECT COUNT(*) FROM operations WHERE status='COMPLETED') operation_completed,
-          (SELECT COALESCE(SUM(done_qty),0) FROM operations) total_good_qty,
-          (SELECT COALESCE(SUM(defect_qty),0) FROM operations) total_defect_qty,
-          (SELECT COALESCE(SUM(rework_qty),0) FROM operations) total_rework_qty,
+          (SELECT COUNT(*) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) operation_total,
+          (SELECT COUNT(*) FROM operations WHERE status='COMPLETED' AND COALESCE(is_rework_op,FALSE)=FALSE) operation_completed,
+          (SELECT COALESCE(SUM(done_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_good_qty,
+          (SELECT COALESCE(SUM(defect_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_defect_qty,
+          (SELECT COALESCE(SUM(rework_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_rework_qty,
+          (SELECT COALESCE(SUM(scrap_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_scrap_qty,
           (SELECT COUNT(*) FROM work_sessions WHERE status='OPEN' AND {reportable_session_sql('')}) active_sessions,
           -- spec section 5: "Dashboard phai co kha nang bao: Co N session
           -- chua xac nhan so lieu" -- quantity_confirmed=FALSE sessions are
@@ -689,8 +706,8 @@ class DashboardRepository:
         return {'summary':summary,'production_orders':pos,'operations':flat,'generated_at':now}
 
 
-    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,shift_code:str|None=None):
-        ctx=resolve_shift_context(shift_date,shift_id,shift_code)
+    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+        ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         shift_start,shift_end=ctx['range_start'],ctx['range_end']
         work_windows=[(x['start_at'],x['end_at']) for x in ctx['intervals'] if x.get('interval_type')=='WORK']
         duration_parts=[]; duration_params=[]
@@ -698,7 +715,9 @@ class DashboardRepository:
             duration_parts.append("GREATEST(EXTRACT(EPOCH FROM (LEAST(COALESCE(ds.ended_at,CURRENT_TIMESTAMP),%s)-GREATEST(ds.started_at,%s))),0)")
             duration_params.extend([right,left])
         duration_sql=' + '.join(duration_parts) if duration_parts else '0'
-        params=[shift_end,shift_start]+[shift_start,shift_end]*6+[*duration_params,min(max(limit,1),2000)]
+        # Four employee/day quantity windows (good, defect, rework, scrap)
+        # plus the duration windows below.
+        params=[shift_end,shift_start]+[shift_start,shift_end]*8+[*duration_params,min(max(limit,1),2000)]
         # shift_sessions feeds day_good_qty/day_defect_qty/day_rework_qty
         # (KPI) AND open_session_count/active_workers/day_state (health) --
         # filtering once here at the source covers both.
@@ -716,7 +735,8 @@ class DashboardRepository:
           SELECT ds.operation_id,ds.employee_id,
             COALESCE(SUM(ds.good_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_good_qty,
             COALESCE(SUM(ds.defect_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_defect_qty,
-            COALESCE(SUM(ds.rework_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_rework_qty
+            COALESCE(SUM(ds.rework_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_rework_qty,
+            COALESCE(SUM(ds.scrap_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_scrap_qty
           FROM shift_sessions ds WHERE ds.employee_id IS NOT NULL GROUP BY ds.operation_id,ds.employee_id
         ), rollup AS (
           SELECT o.id operation_id,MIN(ds.started_at) first_started_at,MAX(ds.started_at) last_started_at,
@@ -725,6 +745,7 @@ class DashboardRepository:
             COALESCE(SUM(ds.good_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_good_qty,
             COALESCE(SUM(ds.defect_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_defect_qty,
             COALESCE(SUM(ds.rework_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_rework_qty,
+            COALESCE(SUM(ds.scrap_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_scrap_qty,
             COALESCE(SUM({duration_sql}),0)::bigint day_work_seconds,
             -- "Người làm" must reflect who is CURRENTLY running the Operation,
             -- not everyone who ever touched it in the window. status='OPEN' is
@@ -751,7 +772,7 @@ class DashboardRepository:
             -- above -- each with their own share via emp_rollup.
             jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name,
               'good_qty',COALESCE(er.emp_good_qty,0),'defect_qty',COALESCE(er.emp_defect_qty,0),
-              'rework_qty',COALESCE(er.emp_rework_qty,0)))
+              'rework_qty',COALESCE(er.emp_rework_qty,0),'scrap_qty',COALESCE(er.emp_scrap_qty,0)))
               FILTER (WHERE ds.employee_id IS NOT NULL) day_contributors,
             -- Production/Operation overview UI fix: NG (defect) quantity is
             -- normal production data, never a status condition by itself --
@@ -770,11 +791,11 @@ class DashboardRepository:
           GROUP BY o.id
         ) SELECT po.id po_id,po.code po_code,po.product,po.status po_status,
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
-          o.status operation_status,o.done_qty total_good_qty,o.defect_qty total_defect_qty,COALESCE(o.rework_qty,0) total_rework_qty,po.planned_quantity,
+          o.status operation_status,o.done_qty total_good_qty,o.defect_qty total_defect_qty,COALESCE(o.rework_qty,0) total_rework_qty,COALESCE(o.scrap_qty,0) total_scrap_qty,po.planned_quantity,
           COALESCE(o.standard_seconds_per_unit,0) standard_seconds_per_unit,
           (COALESCE(po.planned_quantity,0)*COALESCE(o.standard_seconds_per_unit,0))::bigint planned_work_seconds,
           COALESCE(r.session_count,0) session_count,COALESCE(r.open_session_count,0) open_session_count,
-          COALESCE(r.day_good_qty,0) day_good_qty,COALESCE(r.day_defect_qty,0) day_defect_qty,COALESCE(r.day_rework_qty,0) day_rework_qty,
+          COALESCE(r.day_good_qty,0) day_good_qty,COALESCE(r.day_defect_qty,0) day_defect_qty,COALESCE(r.day_rework_qty,0) day_rework_qty,COALESCE(r.day_scrap_qty,0) day_scrap_qty,
           COALESCE(r.day_work_seconds,0) day_work_seconds,r.active_workers,r.all_participants,r.day_contributors,r.first_started_at,r.last_started_at,r.last_report_at,
           COALESCE(r.unconfirmed_count,0) unconfirmed_count,
           -- day_state describes OPERATIONAL/session state only (spec:
@@ -787,7 +808,7 @@ class DashboardRepository:
             WHEN COALESCE(r.session_count,0)>0 THEN 'UPDATED' ELSE 'IDLE' END day_state
         FROM operations o JOIN parts p ON p.id=o.part_id JOIN production_orders po ON po.id=o.production_order_id
         LEFT JOIN rollup r ON r.operation_id=o.id
-        WHERE COALESCE(r.session_count,0)>0
+        WHERE COALESCE(r.session_count,0)>0 AND COALESCE(o.is_rework_op,FALSE)=FALSE
         ORDER BY CASE WHEN COALESCE(r.unconfirmed_count,0)>0 THEN 0 WHEN COALESCE(r.open_session_count,0)>0 THEN 1 ELSE 2 END,
           r.last_report_at DESC NULLS LAST LIMIT %s""",params)
         for row in rows:
@@ -796,8 +817,8 @@ class DashboardRepository:
             row['day_contributors']=_worker_list(row.get('day_contributors'))
         return rows
 
-    def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None):
-        ctx=resolve_shift_context(shift_date,shift_id,shift_code)
+    def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+        ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         work_parts=[];work_params=[]
         for interval in ctx['intervals']:
             if interval.get('interval_type')!='WORK':continue
@@ -809,7 +830,7 @@ class DashboardRepository:
           GREATEST(EXTRACT(EPOCH FROM (LEAST(COALESCE(ws.ended_at,CURRENT_TIMESTAMP),%s)-GREATEST(ws.started_at,%s))),0)::bigint duration_seconds,
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint total_duration_seconds,
           ({work_sql})::bigint work_duration_seconds,
-          COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
+          COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,COALESCE(ws.scrap_qty,0) scrap_qty,
           e.id employee_id,e.employee_no employee_code,e.name employee_name,
           po.id po_id,po.code po_code,p.id part_id,p.code part_code,p.name part_name,
           o.id operation_id,o.code operation_code,o.name operation_name
@@ -824,18 +845,18 @@ class DashboardRepository:
         -- the duration math; it must never exclude an otherwise same-day
         -- session from the list.
         WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
-          AND {reportable_session_sql('ws')}
+          AND {reportable_session_sql('ws')} AND COALESCE(o.is_rework_op,FALSE)=FALSE
         ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['day_end'],ctx['day_start'],min(max(limit,1),3000)))
 
-    def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None):
-        ctx=resolve_shift_context(shift_date,shift_id,shift_code)
+    def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+        ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         return fetch_all(f"""SELECT * FROM (
           SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,
             e.name actor,o.name subject,'STARTED' status,po.code po_code,o.code operation_code,
             0::integer good_qty,0::integer defect_qty
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
-          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')}
+          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')} AND COALESCE(o.is_rework_op,FALSE)=FALSE
           UNION ALL
           SELECT 'QUANTITY_REPORTED',ws.id::text,COALESCE(ws.ended_at,ws.updated_at),e.name,o.name,
             CASE WHEN ws.status='OPEN' THEN 'QUANTITY_UPDATED' ELSE 'FINISHED' END,po.code,o.code,
@@ -843,7 +864,7 @@ class DashboardRepository:
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
           WHERE COALESCE(ws.ended_at,ws.updated_at) >= %s AND COALESCE(ws.ended_at,ws.updated_at) < %s
-            AND {reportable_session_sql('ws')}
+            AND {reportable_session_sql('ws')} AND COALESCE(o.is_rework_op,FALSE)=FALSE
         ) activity ORDER BY activity_at DESC LIMIT %s""",(ctx['range_start'],ctx['range_end'],ctx['range_start'],ctx['range_end'],min(max(limit,1),500)))
 
     def shift_dashboard(self,shift_date:str|None=None,shift_id:int|None=None,limit:int=1000):
@@ -859,6 +880,14 @@ class DashboardRepository:
           'target_minutes':int(shift.get('target_minutes') or 0),'intervals':serial_intervals},
           'items':self.daily_progress(shift_date,limit,shift_id),'sessions':self.daily_sessions(shift_date,min(limit*2,3000),shift_id),
           'activity':self.shift_activity(shift_date,100,shift_id)}
+
+    def daily_dashboard(self,shift_date:str|None=None,limit:int=1000):
+        ctx=self._calendar_day_context(shift_date)
+        return {'context':{'date':ctx['shift_date'].isoformat(),'timezone':ctx['shift']['timezone'],
+          'day_start':ctx['day_start'].isoformat(),'day_end':ctx['day_end'].isoformat()},
+          'items':self.daily_progress(shift_date,limit,calendar_day=True),
+          'sessions':self.daily_sessions(shift_date,min(limit*2,3000),calendar_day=True),
+          'activity':self.shift_activity(shift_date,100,calendar_day=True)}
 
     def recent_activity(self,limit:int=100):
         return fetch_all(f"""SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,
@@ -949,7 +978,7 @@ class ReportRepository:
         sessions=fetch_all(f"""SELECT ws.id session_id,ws.status,ws.started_at,ws.ended_at,
           COALESCE(ws.ended_at,CURRENT_TIMESTAMP) effective_end_at,
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
-          COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
+          COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,COALESCE(ws.scrap_qty,0) scrap_qty,
           ws.device_uuid,ws.station_id,s.code station_code,s.name station_name,
           ws.excluded_from_reports,ws.exclusion_reason,ws.closed_by_system,ws.quantity_confirmed,
           e.id employee_id,e.employee_no employee_code,e.name employee_name,e.department,e.team,e.position,
@@ -967,7 +996,7 @@ class ReportRepository:
         users=fetch_all(f"""SELECT e.id employee_id,e.employee_no employee_code,e.name employee_name,
           e.department,e.team,e.position,COUNT(ws.id) session_count,
           COUNT(*) FILTER (WHERE ws.status='OPEN') open_session_count,
-          COALESCE(SUM(ws.good_qty),0) good_qty,COALESCE(SUM(ws.defect_qty),0) defect_qty,COALESCE(SUM(ws.rework_qty),0) rework_qty,
+          COALESCE(SUM(ws.good_qty),0) good_qty,COALESCE(SUM(ws.defect_qty),0) defect_qty,COALESCE(SUM(ws.rework_qty),0) rework_qty,COALESCE(SUM(ws.scrap_qty),0) scrap_qty,
           COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at))),0)::bigint work_seconds,
           MIN(ws.started_at) first_started_at,MAX(COALESCE(ws.ended_at,ws.updated_at,ws.started_at)) last_activity_at
         FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id

@@ -56,6 +56,7 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
     # whitelist" apart from an ordinary full-form Session edit, even though
     # both ultimately call the same SupervisorRepository.edit_session().
     'SESSION_EXCEPTION_CORRECT_SESSION': {'label': 'Sửa Session từ màn hình xử lý ngoại lệ', 'category': 'exception'},
+    'REWORK_RESOLVED': {'label': 'Xử lý hàng chờ sửa', 'category': 'quantity'},
     'EXCEPTION_ACKNOWLEDGED': {'label': 'Xác nhận ngoại lệ', 'category': 'exception'},
     'EXCEPTION_RESOLVED': {'label': 'Giải quyết ngoại lệ', 'category': 'exception'},
     'EXCEPTION_IGNORED': {'label': 'Bỏ qua ngoại lệ', 'category': 'exception'},
@@ -104,7 +105,7 @@ FIELD_LABELS: dict[str, str] = {
     'detected_at': 'Thời điểm phát hiện', 'acknowledged_at': 'Thời điểm xác nhận',
     'resolved_at': 'Thời điểm giải quyết', 'ignored_at': 'Thời điểm bỏ qua',
     'auto_ignored_at': 'Thời điểm tự động bỏ qua',
-    'good_qty': 'Sản phẩm đạt', 'defect_qty': 'Sản phẩm lỗi', 'rework_qty': 'Lỗi sửa được',
+    'good_qty': 'Sản phẩm đạt', 'defect_qty': 'Sản phẩm lỗi', 'rework_qty': 'Lỗi sửa được', 'scrap_qty': 'Sản phẩm loại',
     'status': 'Trạng thái', 'employee_id': 'Nhân viên', 'operation_id': 'Công đoạn',
     'station_id': 'Trạm', 'device_uuid': 'Thiết bị/Kiosk',
     'assigned_to': 'Người xử lý', 'workflow_status': 'Trạng thái xử lý',

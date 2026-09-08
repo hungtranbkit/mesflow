@@ -19,7 +19,11 @@ def get_available_input(row:dict,predecessor:dict|None=None)->dict:
     elif predecessor:
         supplied=max(int(predecessor.get('done_qty') or 0),0);wip=max(supplied-reported,0);source='PREDECESSOR'
     else:
-        wip=max(plan-reported,0);source='PLANNED_QUANTITY_FALLBACK'
+        # Defects consume input but do not satisfy the production target.
+        # A replacement run remains actionable until GOOD reaches plan;
+        # using plan-reported incorrectly blocked the legitimate 92 GOOD /
+        # 8 NG -> produce 8 more GOOD flow.
+        wip=max(plan-good,0);source='PLANNED_QUANTITY_FALLBACK'
     return {'available_input_qty':wip,'wip_source':source}
 
 def operation_wip(row:dict,predecessor:dict|None=None)->dict:

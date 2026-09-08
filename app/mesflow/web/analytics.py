@@ -153,6 +153,20 @@ def dashboard_shift():
         return jsonify(ok=True,**DashboardRepository().shift_dashboard(request.args.get('shift_date'),shift_id,int(request.args.get('limit',1000))))
     except Exception as exc: return error(exc)
 
+@bp.get('/dashboard/day')
+@login_required
+def dashboard_day():
+    """Date dashboard: aggregate the complete local calendar day.
+
+    This is intentionally separate from /dashboard/shift, whose shift filter
+    remains available to shift reports and existing integrations.
+    """
+    try:
+        return jsonify(ok=True,**DashboardRepository().daily_dashboard(
+            request.args.get('date') or request.args.get('shift_date'),
+            int(request.args.get('limit',1000))))
+    except Exception as exc: return error(exc)
+
 @bp.get('/dashboard/recent-activity')
 @login_required
 def dashboard_activity():
