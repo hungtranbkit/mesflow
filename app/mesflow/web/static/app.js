@@ -312,7 +312,7 @@ async function renderDashboard(){
       const open=x.session_status==='OPEN',start=new Date(x.started_at).getTime(),end=open?now:new Date(x.ended_at||x.effective_end_at).getTime();
       const elapsed=Math.max(0,(Math.min(end,shiftEnd)-Math.max(start,viewStart))/1000);
       const operation=`${x.operation_code||''} · ${x.operation_name||''}`.trim();
-      const qty=`Đạt ${Number(x.good_qty||0).toLocaleString('vi-VN')}${Number(x.defect_qty||0)>0?` · NG ${Number(x.defect_qty||0).toLocaleString('vi-VN')}`:''}${Number(x.rework_qty||0)>0?` · Sửa ${Number(x.rework_qty||0).toLocaleString('vi-VN')}`:''}`;
+      const qty=qtyLine(x.good_qty,x.defect_qty,x.rework_qty);
       const full=`${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${operation} · ${qty}`;
       // Field report (2026-09-08): the chip itself truncates with an
       // ellipsis on narrow screens/many sessions (.employee-session-chips
@@ -497,7 +497,20 @@ function activeWorkersLabel(x){const workers=Array.isArray(x.active_workers)?x.a
 // already closed out the real numbers earlier isn't "active" any more and
 // so never appeared. Sorted by good_qty desc -- whoever actually produced
 // the numbers shows first, which is the whole point of this breakdown.
-function activeWorkersBreakdown(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: Đạt ${Number(w.good_qty||0).toLocaleString('vi-VN')} · NG ${Number(w.defect_qty||0).toLocaleString('vi-VN')}${Number(w.rework_qty||0)>0?` · Sửa ${Number(w.rework_qty||0).toLocaleString('vi-VN')}`:''}</small>`).join('')}
+// Field report (2026-09-08): "Đạt 0 · NG 0" next to a real person's name
+// reads as "confirmed zero output", not "hasn't reported anything yet" --
+// exactly the ambiguity that triggered a same-day bug report on this same
+// screen. When good/defect/rework are ALL zero (nothing at all reported
+// yet -- the normal state for a session that's still open with no
+// QUANTITY_SUBMITTED yet), show "—" instead. A session/person with a REAL
+// partial report (e.g. some good, zero defect) still shows those numbers
+// as-is -- this only collapses the literal "nothing at all yet" case.
+function qtyLine(good,defect,rework){
+  good=Number(good||0);defect=Number(defect||0);rework=Number(rework||0);
+  if(good===0&&defect===0&&rework===0)return 'Đạt —';
+  return `Đạt ${good.toLocaleString('vi-VN')}${defect>0?` · NG ${defect.toLocaleString('vi-VN')}`:''}${rework>0?` · Sửa ${rework.toLocaleString('vi-VN')}`:''}`;
+}
+function activeWorkersBreakdown(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: ${qtyLine(w.good_qty,w.defect_qty,w.rework_qty)}</small>`).join('')}
 function activeWorkersTitle(x){const activeIds=new Set((Array.isArray(x.active_workers)?x.active_workers:[]).map(w=>w.employee_id)),previous=(Array.isArray(x.all_participants)?x.all_participants:[]).filter(w=>!activeIds.has(w.employee_id));return previous.length?`Đã tham gia trước đó: ${previous.map(w=>w.name).join(', ')}`:''}
 function toLocalInput(value){
   if(!value)return '';
