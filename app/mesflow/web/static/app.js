@@ -528,13 +528,19 @@ function activeWorkersLabel(x){const workers=(Array.isArray(x.day_contributors)?
 // colored-spans version there would show the actual "<b class=..." tags).
 function qtyLine(good,defect,rework,plain){
   good=Number(good||0);defect=Number(defect||0);rework=Number(rework||0);
-  if(good===0&&defect===0&&rework===0)return plain?'Đạt —':'<b class="qty-empty">Đạt —</b>';
+  if(good===0&&defect===0&&rework===0)return plain?'Đạt —':'<span class="qty-empty">Đạt —</span>';
   if(plain){
     return `Đạt ${good.toLocaleString('vi-VN')}${defect>0?` · NG ${defect.toLocaleString('vi-VN')}`:''}${rework>0?` · Sửa ${rework.toLocaleString('vi-VN')}`:''}`;
   }
-  const parts=[`<b class="qty-good">Đạt ${good.toLocaleString('vi-VN')}</b>`];
-  if(defect>0)parts.push(`<b class="qty-ng">NG ${defect.toLocaleString('vi-VN')}</b>`);
-  if(rework>0)parts.push(`<b class="qty-fix">Sửa ${rework.toLocaleString('vi-VN')}</b>`);
+  // Field report (2026-09-08): <b> forced each part onto its own line --
+  // several existing rules in this same dashboard force `b{display:block}`
+  // inside dense rows (.op-time-row/.employee-day-summary), which this
+  // codebase relies on elsewhere for real "label \n value" stacking, so
+  // reusing <b> here for an inline highlight fought that. <span> is inline
+  // by default and untouched by those rules; bold comes from CSS instead.
+  const parts=[`<span class="qty-good">Đạt ${good.toLocaleString('vi-VN')}</span>`];
+  if(defect>0)parts.push(`<span class="qty-ng">NG ${defect.toLocaleString('vi-VN')}</span>`);
+  if(rework>0)parts.push(`<span class="qty-fix">Sửa ${rework.toLocaleString('vi-VN')}</span>`);
   return parts.join(' · ');
 }
 function activeWorkersBreakdown(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: ${qtyLine(w.good_qty,w.defect_qty,w.rework_qty)}</small>`).join('')}
