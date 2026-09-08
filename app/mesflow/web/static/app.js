@@ -313,7 +313,15 @@ async function renderDashboard(){
       const elapsed=Math.max(0,(Math.min(end,shiftEnd)-Math.max(start,viewStart))/1000);
       const operation=`${x.operation_code||''} · ${x.operation_name||''}`.trim();
       const qty=`Đạt ${Number(x.good_qty||0).toLocaleString('vi-VN')}${Number(x.defect_qty||0)>0?` · NG ${Number(x.defect_qty||0).toLocaleString('vi-VN')}`:''}${Number(x.rework_qty||0)>0?` · Sửa ${Number(x.rework_qty||0).toLocaleString('vi-VN')}`:''}`;
-      return `<span class="${open?'open':''}" title="${esc(operation)}">${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${esc(x.operation_code||'')} · ${qty}</span>`;
+      const full=`${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${operation} · ${qty}`;
+      // Field report (2026-09-08): the chip itself truncates with an
+      // ellipsis on narrow screens/many sessions (.employee-session-chips
+      // span{overflow:hidden;text-overflow:ellipsis}), but title= only ever
+      // carried the operation name -- the quantity that just got added was
+      // exactly the part most likely to be the cut-off portion. title= now
+      // mirrors the chip's full text (hover/long-press reveals it in full
+      // regardless of how much is visually cut off), not just a fragment.
+      return `<span class="${open?'open':''}" title="${esc(full)}">${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)} · ${esc(x.operation_code||'')} · ${qty}</span>`;
     };
     return `<div class="employee-day-legend"><span><i class="legend-session"></i>Session</span><span><i class="legend-gap"></i>Khoảng hở ≥15 phút</span><span><i class="legend-lunch"></i>${breaks.map(x=>x[2]).join(' · ')||'Không có giờ nghỉ'}</span><span><i class="legend-off"></i>Ngoài ca</span></div><div class="employee-day-head"><span>Nhân viên / ngày công</span><div class="employee-day-scale shift-scale">${scaleHtml}</div><span>Session / sản lượng</span></div><div class="employee-day-list">${workers.map(g=>{
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
@@ -475,11 +483,21 @@ function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hou
 function activeWorkersLabel(x){const workers=Array.isArray(x.active_workers)?x.active_workers:[];return workers.length?esc(workers.map(w=>w.name).join(', ')):'Không có người đang làm'}
 // Field report (2026-09-08): "Trong ca: Đạt/NG/Sửa" only ever showed the
 // Operation's combined total, even with several people on it at once --
-// no way to tell who contributed what. One small line per active worker,
-// each with their own Đạt/NG/Sửa (day_good_qty/day_defect_qty/day_rework_qty
-// aggregated per-employee server-side, see analytics.py's emp_rollup) --
-// in ADDITION to the existing combined "Trong ca" line, not replacing it.
-function activeWorkersBreakdown(x){const workers=Array.isArray(x.active_workers)?x.active_workers:[];return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: Đạt ${Number(w.good_qty||0).toLocaleString('vi-VN')} · NG ${Number(w.defect_qty||0).toLocaleString('vi-VN')}${Number(w.rework_qty||0)>0?` · Sửa ${Number(w.rework_qty||0).toLocaleString('vi-VN')}`:''}</small>`).join('')}
+// no way to tell who contributed what. One small line per person with ANY
+// session (open or closed) in today's shift window, each with their own
+// Đạt/NG/Sửa (analytics.py's emp_rollup) -- in ADDITION to the existing
+// combined "Trong ca" line, not replacing it.
+//
+// Real bug found live (2026-09-08, same-day follow-up report): the first
+// cut read x.active_workers (currently-OPEN-session people only) instead
+// of x.day_contributors (everyone who actually has a session counted in
+// today's total) -- looked exactly like "0 0" garbage next to two real
+// names whenever both of today's currently-active people just started
+// and hadn't reported anything yet THIS session, while a third person who
+// already closed out the real numbers earlier isn't "active" any more and
+// so never appeared. Sorted by good_qty desc -- whoever actually produced
+// the numbers shows first, which is the whole point of this breakdown.
+function activeWorkersBreakdown(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: Đạt ${Number(w.good_qty||0).toLocaleString('vi-VN')} · NG ${Number(w.defect_qty||0).toLocaleString('vi-VN')}${Number(w.rework_qty||0)>0?` · Sửa ${Number(w.rework_qty||0).toLocaleString('vi-VN')}`:''}</small>`).join('')}
 function activeWorkersTitle(x){const activeIds=new Set((Array.isArray(x.active_workers)?x.active_workers:[]).map(w=>w.employee_id)),previous=(Array.isArray(x.all_participants)?x.all_participants:[]).filter(w=>!activeIds.has(w.employee_id));return previous.length?`Đã tham gia trước đó: ${previous.map(w=>w.name).join(', ')}`:''}
 function toLocalInput(value){
   if(!value)return '';

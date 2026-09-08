@@ -732,18 +732,27 @@ class DashboardRepository:
             -- (and is backed by uq_open_session_per_employee, so an employee
             -- can hold at most one OPEN session at all -- DISTINCT on the
             -- whole object is therefore already DISTINCT by employee_id).
-            -- Per-person Đạt/NG/Sửa (er.*) joined in from emp_rollup above --
-            -- see this CTE's own comment for why.
-            jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name,
-              'good_qty',COALESCE(er.emp_good_qty,0),'defect_qty',COALESCE(er.emp_defect_qty,0),
-              'rework_qty',COALESCE(er.emp_rework_qty,0)))
+            jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
               FILTER (WHERE ds.status='OPEN') active_workers,
             -- History only (who touched this Operation in the window, active
             -- or not) -- for an optional "Đã tham gia trước đó" detail; must
-            -- never be the default rendered value. No per-person quantities
-            -- here -- this is a "who else touched it" list, not a KPI view.
+            -- never be the default rendered value.
             jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
               FILTER (WHERE ds.employee_id IS NOT NULL) all_participants,
+            -- Real bug found live (2026-09-08 field report): the FIRST cut of
+            -- this per-person breakdown put Đạt/NG/Sửa on active_workers --
+            -- looked like "0 0" garbage whenever the currently-open-session
+            -- person hadn't reported anything yet THIS session, while someone
+            -- ELSE who already closed out today's real numbers on this same
+            -- Operation earlier isn't "active" any more and so never appeared
+            -- by name anywhere. day_contributors is everyone with ANY session
+            -- (open or closed) in today's shift window on this Operation --
+            -- the actual source of day_good_qty/day_defect_qty/day_rework_qty
+            -- above -- each with their own share via emp_rollup.
+            jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name,
+              'good_qty',COALESCE(er.emp_good_qty,0),'defect_qty',COALESCE(er.emp_defect_qty,0),
+              'rework_qty',COALESCE(er.emp_rework_qty,0)))
+              FILTER (WHERE ds.employee_id IS NOT NULL) day_contributors,
             -- Production/Operation overview UI fix: NG (defect) quantity is
             -- normal production data, never a status condition by itself --
             -- day_state must never derive from day_defect_qty. The only
@@ -766,7 +775,7 @@ class DashboardRepository:
           (COALESCE(po.planned_quantity,0)*COALESCE(o.standard_seconds_per_unit,0))::bigint planned_work_seconds,
           COALESCE(r.session_count,0) session_count,COALESCE(r.open_session_count,0) open_session_count,
           COALESCE(r.day_good_qty,0) day_good_qty,COALESCE(r.day_defect_qty,0) day_defect_qty,COALESCE(r.day_rework_qty,0) day_rework_qty,
-          COALESCE(r.day_work_seconds,0) day_work_seconds,r.active_workers,r.all_participants,r.first_started_at,r.last_started_at,r.last_report_at,
+          COALESCE(r.day_work_seconds,0) day_work_seconds,r.active_workers,r.all_participants,r.day_contributors,r.first_started_at,r.last_started_at,r.last_report_at,
           COALESCE(r.unconfirmed_count,0) unconfirmed_count,
           -- day_state describes OPERATIONAL/session state only (spec:
           -- "Status phai mo ta operational/session state only"). A real
@@ -784,6 +793,7 @@ class DashboardRepository:
         for row in rows:
             row['active_workers']=_worker_list(row.get('active_workers'))
             row['all_participants']=_worker_list(row.get('all_participants'))
+            row['day_contributors']=_worker_list(row.get('day_contributors'))
         return rows
 
     def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None):
