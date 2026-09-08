@@ -698,7 +698,7 @@ class DashboardRepository:
             duration_parts.append("GREATEST(EXTRACT(EPOCH FROM (LEAST(COALESCE(ds.ended_at,CURRENT_TIMESTAMP),%s)-GREATEST(ds.started_at,%s))),0)")
             duration_params.extend([right,left])
         duration_sql=' + '.join(duration_parts) if duration_parts else '0'
-        params=[shift_end,shift_start,shift_start,shift_end,shift_start,shift_end,shift_start,shift_end,*duration_params,min(max(limit,1),2000)]
+        params=[shift_end,shift_start]+[shift_start,shift_end]*6+[*duration_params,min(max(limit,1),2000)]
         # shift_sessions feeds day_good_qty/day_defect_qty/day_rework_qty
         # (KPI) AND open_session_count/active_workers/day_state (health) --
         # filtering once here at the source covers both.
@@ -706,6 +706,18 @@ class DashboardRepository:
           SELECT ws.*,COALESCE(ws.ended_at,ws.updated_at) report_at
           FROM work_sessions ws
           WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s AND {reportable_session_sql('ws')}
+        ), emp_rollup AS (
+          -- Field report (2026-09-08): the "Trong ca" line only ever showed
+          -- ONE combined Đạt/NG/Sửa total for the whole Operation, even when
+          -- several people are on it at once -- no way to tell who did what.
+          -- Pre-aggregated PER (operation, employee) here, same shift-window
+          -- filter as rollup's own day_good/day_defect/day_rework below, so
+          -- active_workers can carry each person's own numbers.
+          SELECT ds.operation_id,ds.employee_id,
+            COALESCE(SUM(ds.good_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_good_qty,
+            COALESCE(SUM(ds.defect_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_defect_qty,
+            COALESCE(SUM(ds.rework_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_rework_qty
+          FROM shift_sessions ds WHERE ds.employee_id IS NOT NULL GROUP BY ds.operation_id,ds.employee_id
         ), rollup AS (
           SELECT o.id operation_id,MIN(ds.started_at) first_started_at,MAX(ds.started_at) last_started_at,
             MAX(ds.report_at) last_report_at,COUNT(ds.id) session_count,
@@ -720,11 +732,16 @@ class DashboardRepository:
             -- (and is backed by uq_open_session_per_employee, so an employee
             -- can hold at most one OPEN session at all -- DISTINCT on the
             -- whole object is therefore already DISTINCT by employee_id).
-            jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
+            -- Per-person Đạt/NG/Sửa (er.*) joined in from emp_rollup above --
+            -- see this CTE's own comment for why.
+            jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name,
+              'good_qty',COALESCE(er.emp_good_qty,0),'defect_qty',COALESCE(er.emp_defect_qty,0),
+              'rework_qty',COALESCE(er.emp_rework_qty,0)))
               FILTER (WHERE ds.status='OPEN') active_workers,
             -- History only (who touched this Operation in the window, active
             -- or not) -- for an optional "Đã tham gia trước đó" detail; must
-            -- never be the default rendered value.
+            -- never be the default rendered value. No per-person quantities
+            -- here -- this is a "who else touched it" list, not a KPI view.
             jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
               FILTER (WHERE ds.employee_id IS NOT NULL) all_participants,
             -- Production/Operation overview UI fix: NG (defect) quantity is
@@ -739,7 +756,9 @@ class DashboardRepository:
             -- exception rule).
             COUNT(ds.id) FILTER (WHERE ds.closed_by_system AND NOT ds.quantity_confirmed) unconfirmed_count
           FROM operations o LEFT JOIN shift_sessions ds ON ds.operation_id=o.id
-          LEFT JOIN employees e ON e.id=ds.employee_id GROUP BY o.id
+          LEFT JOIN employees e ON e.id=ds.employee_id
+          LEFT JOIN emp_rollup er ON er.operation_id=ds.operation_id AND er.employee_id=ds.employee_id
+          GROUP BY o.id
         ) SELECT po.id po_id,po.code po_code,po.product,po.status po_status,
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
           o.status operation_status,o.done_qty total_good_qty,o.defect_qty total_defect_qty,COALESCE(o.rework_qty,0) total_rework_qty,po.planned_quantity,
