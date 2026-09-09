@@ -242,6 +242,21 @@ def reconcile_po_tree(cur, po_id: int):
     return {'operations': operations, 'production_order': reconcile_production_order(cur, po_id)}
 
 
+def lock_production_order_first_for_session(cur, session_id: int) -> int | None:
+    """Khoá PO của một session TRƯỚC MỌI khoá dòng nào khác.
+
+    Cùng bất biến với lock_production_order_for_operation_first(), chỉ khác đầu
+    vào là session_id -- đúng thứ mọi đường ghi ở tầng session đang có sẵn.
+    Bảy chỗ trong execution.py chép tay đúng hai câu lệnh này; tách ra để chỗ
+    thứ tám không phải nhớ, vì quên là deadlock chứ không phải lỗi biên dịch.
+    """
+    cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s', (session_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return lock_production_order_for_operation_first(cur, row['operation_id'])
+
+
 def lock_startable_operation(cur, operation_id: int):
     """Reconcile stale state, lock the graph, then enforce the single Start guard."""
     reconciled = reconcile_operation_and_po(cur, operation_id)

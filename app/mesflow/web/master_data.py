@@ -9,7 +9,7 @@ from mesflow.db.repositories.base import NotFoundError, ConflictError, Repositor
 from mesflow.db.repositories.master_data import (
     EmployeeRepository,StationRepository,EquipmentRepository,SalesOrderRepository,
     ProductionOrderRepository,PartRepository,OperationRepository,TemplateRepository,TemplateTreeRepository,TemplateValidationError)
-from mesflow.db.repositories.production_state import reconcile_production_order
+from mesflow.db.repositories.production_state import reconcile_production_order, lock_production_order_for_operation_first
 from mesflow.db.repositories.setup_ops import display_key_sql
 from mesflow.db.repositories.analytics import AuditRepository
 from mesflow.db.repositories.scheduling import RUNNABLE_STATUSES,RUNNABLE_PO_STATUSES
@@ -445,6 +445,13 @@ def start_production_order(po_id):
 def cancel_operation(operation_id):
     try:
         with transaction() as conn:
+            # PO trước, rồi mới tới dòng operations -- cùng thứ tự với mọi
+            # đường ghi session. Đảo lại là deadlock với start()/finish() đang
+            # chạy trên cùng PO. Khoá PO trước cũng đóng luôn khe hở giữa lệnh
+            # đếm session OPEN bên dưới và lệnh UPDATE: nếu không, một start()
+            # commit vào giữa hai câu đó sẽ để lại session OPEN trên một
+            # Operation vừa bị CANCELLED.
+            with conn.cursor() as cur: lock_production_order_for_operation_first(cur,operation_id)
             operation=conn.execute('SELECT id,code,status,production_order_id FROM operations WHERE id=%s FOR UPDATE',(operation_id,)).fetchone()
             if not operation:raise NotFoundError('operation not found')
             if str(operation.get('status') or '').upper()=='COMPLETED':raise ConflictError('Operation đã COMPLETED, phải dùng workflow rework thay vì Cancel')

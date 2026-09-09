@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from mesflow.db.connection import transaction, fetch_all
 from mesflow.db.repositories.base import ConflictError, NotFoundError
-from mesflow.db.repositories.production_state import reconcile_operation_and_po
+from mesflow.db.repositories.production_state import (reconcile_operation_and_po,
+    lock_production_order_first_for_session)
 from mesflow.domain.audit import record_audit
 from mesflow.domain.trace import record_event, record_quantities
 from psycopg.types.json import Jsonb
@@ -80,11 +81,19 @@ class ReworkQueueRepository:
         with transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,2))', (f'rework-{source_session_id}',))
+                # PO trước tiên, như mọi đường ghi khác. Advisory lock ở trên
+                # chỉ tuần tự hoá rework-với-rework; nó không nói gì với
+                # finish()/adjust(), vốn khoá theo thứ tự PO -> session. Câu
+                # SELECT bên dưới dùng FOR UPDATE trên một join, nên nó khoá
+                # cả ba bảng và production_orders là bảng CUỐI -- ngược chiều.
+                # Hai quản đốc, một người resolve hàng chờ sửa và một người sửa
+                # số liệu cùng session, là đủ để deadlock.
+                lock_production_order_first_for_session(cur, source_session_id)
                 cur.execute("""SELECT ws.*,o.production_order_id,o.part_id,o.code operation_code,
                     o.operation_type,po.code po_code
                   FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id
                   JOIN production_orders po ON po.id=o.production_order_id
-                  WHERE ws.id=%s FOR UPDATE""", (source_session_id,))
+                  WHERE ws.id=%s FOR UPDATE OF ws""", (source_session_id,))
                 source = cur.fetchone()
                 if not source:
                     raise NotFoundError('source session not found')

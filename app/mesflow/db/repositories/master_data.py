@@ -5,7 +5,7 @@ from mesflow.core.time_policy import parse_datetime_utc
 from psycopg import sql
 from mesflow.db.connection import transaction, fetch_all
 from .base import BaseRepository, NotFoundError, ConflictError, RepositoryError, reportable_session_sql
-from .production_state import reconcile_operation_and_po
+from .production_state import reconcile_operation_and_po, lock_production_order_for_operation_first
 from .dependency_graph import validate_operation_dependencies
 from .setup_ops import SETUP_CODE_SUFFIX, display_key_sql
 from mesflow.domain.trace import record_event
@@ -296,6 +296,15 @@ class OperationRepository(BaseRepository):
         if not writable:return self.get(entity_id)
         with transaction() as conn:
             with conn.cursor() as cur:
+                # Khoá DÒNG production_orders trước, không phải advisory lock.
+                # Advisory key ở đây là id của PO nhưng không trùng key nào mà
+                # start()/finish() dùng, nên nó không tuần tự hoá được với
+                # chúng: khoá dòng THẬT đầu tiên transaction này lấy lại là
+                # dòng operations (ở UPDATE bên dưới), rồi mới tới PO trong
+                # reconcile -- ngược chiều với đường ghi session. Sửa cấu hình
+                # một OP trong khi công nhân kết thúc session trên chính OP đó
+                # là đủ để deadlock, và has_history đúng bằng lúc OP đang bận.
+                lock_production_order_for_operation_first(cur,int(entity_id))
                 cur.execute('SELECT pg_advisory_xact_lock(%s)',(int(merged.get('production_order_id') or 0),))
                 validate_operation_dependencies(int(entity_id),int(merged.get('production_order_id') or 0),merged.get('predecessor_operation_id'),merged.get('input_source_operation_id') if merged.get('input_flow_enabled') else None,cur=cur)
                 assignments=sql.SQL(',').join(sql.SQL('{}={}').format(sql.Identifier(k),sql.Placeholder()) for k in writable)
