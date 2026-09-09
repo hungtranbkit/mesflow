@@ -708,12 +708,23 @@ def qr_labels():
             # only a row with no payload of its own gets one derived, and then
             # by id whenever its code is ambiguous, because the scan resolver
             # refuses an ambiguous code rather than guessing.
+            # The catalogue is read by people looking for a job by its Vietnamese
+            # name, so the screen groups by PO -> Part and sorts by routing
+            # order. That needs the Part and the sequence as real fields, not
+            # squashed into one display string: `detail` used to be the only
+            # place the Part appeared, and SETUP was detectable only by finding
+            # the words ' · Setup máy' inside it. All of these already sit in
+            # the FROM clause -- nothing new is joined, nothing is migrated.
             sql=f"""SELECT o.id,'OPERATION' AS qr_type,
                 {display_key_sql('o','p')} AS code,o.name,
                 COALESCE(NULLIF(o.qr,''),
                   CASE WHEN EXISTS(SELECT 1 FROM operations d WHERE upper(d.code)=upper(o.code) AND d.id<>o.id)
                        THEN 'WF|OPID|'||o.id ELSE 'WF|OP|'||o.code END) AS qr_payload,
                 po.code AS group_name,
+                p.code AS part_code,COALESCE(p.name,'') AS part_name,
+                COALESCE(p.sort_order,0) AS part_sort,COALESCE(o.sort_order,0) AS operation_sort,
+                COALESCE(o.operation_type,'PRODUCTION') AS operation_type,o.parent_operation_id,
+                parent.name AS parent_name,
                 p.code||' · '||COALESCE(p.name,'')||
                   CASE WHEN COALESCE(o.operation_type,'PRODUCTION')='SETUP' THEN ' · Setup máy' ELSE '' END AS detail,
                 (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})
@@ -721,8 +732,10 @@ def qr_labels():
                 po.id AS production_order_id,po.code AS po_code
                 FROM operations o JOIN production_orders po ON po.id=o.production_order_id
                 JOIN parts p ON p.id=o.part_id
-                WHERE (%s='' OR o.code ILIKE %s OR o.name ILIKE %s OR po.code ILIKE %s OR p.code ILIKE %s)"""
-            params=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)+[q,like,like,like,like]
+                LEFT JOIN operations parent ON parent.id=o.parent_operation_id
+                WHERE (%s='' OR o.code ILIKE %s OR o.name ILIKE %s OR po.code ILIKE %s
+                       OR p.code ILIKE %s OR p.name ILIKE %s OR parent.name ILIKE %s)"""
+            params=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)+[q,like,like,like,like,like,like]
             if active_only:
                 # SỬA HÀNG (REWORK) is excluded for exactly the reason stated
                 # above: lock_startable_operation() refuses to start a session
@@ -735,7 +748,7 @@ def qr_labels():
                 sql+=" AND COALESCE(o.operation_type,'PRODUCTION') IN ('PRODUCTION','SETUP')"
                 params+=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)
             if po_id: sql+=' AND po.id=%s'; params.append(int(po_id))
-            sql+=' ORDER BY po.code,p.sort_order,o.sort_order,o.id LIMIT %s'; params.append(limit)
+            sql+=' ORDER BY po.code,p.sort_order,p.code,o.sort_order,o.id LIMIT %s'; params.append(limit)
         elif kind=='PART':
             sql="""SELECT p.id,'PART' AS qr_type,p.code,p.name,
                 'WF|PART|'||p.code AS qr_payload,po.code AS group_name,

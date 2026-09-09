@@ -247,8 +247,7 @@ def lock_startable_operation(cur, operation_id: int):
     reconciled = reconcile_operation_and_po(cur, operation_id)
     cur.execute('''SELECT o.id,o.code,o.name,o.status,o.production_order_id,o.predecessor_operation_id,
                o.input_flow_enabled,o.input_source_operation_id,COALESCE(o.is_rework_op,FALSE) is_rework_op,
-               o.operation_type,o.requires_setup,o.setup_completed_at,o.parent_operation_id,
-               po.status po_status,po.code po_code
+               o.operation_type,o.parent_operation_id,po.status po_status,po.code po_code
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
         WHERE o.id=%s FOR UPDATE OF o,po''', (operation_id,))
     operation = cur.fetchone()
@@ -270,27 +269,14 @@ def lock_startable_operation(cur, operation_id: int):
         raise ConflictError(
             f"{operation.get('name') or 'SỬA HÀNG'} là bàn sửa hàng, không Start bằng QR. "
             "Ghi nhận số sửa được / loại tại màn hình Hàng chờ sửa.")
-    # Setup prerequisite, enforced HERE rather than in the kiosk UI: kiosk v1,
-    # kiosk v2, the legacy batch path and the API all funnel through this
-    # guard, so a client that never heard of setup still cannot start
-    # production. SETUP rows themselves are exempt -- starting one IS how the
-    # requirement gets satisfied.
-    #
-    # The message is the whole user interface for this rule on the ESP, which
-    # renders one short error line and offers no way to ask a follow-up
-    # question. So it names the exact label to scan next instead of describing
-    # a state: the worker's next physical action is to find that QR.
-    if (operation.get('operation_type') or 'PRODUCTION') != 'SETUP' \
-            and operation.get('requires_setup') and not operation.get('setup_completed_at'):
-        cur.execute("""SELECT CASE WHEN strpos(upper(s.code),upper(p.code))>0 THEN s.code
-                   ELSE p.code||'-'||s.code END display_key
-            FROM operations s LEFT JOIN parts p ON p.id=s.part_id
-            WHERE s.parent_operation_id=%s AND s.operation_type='SETUP'""", (operation_id,))
-        setup_row = cur.fetchone()
-        label = (setup_row or {}).get('display_key')
-        raise ConflictError(
-            f"Cần setup máy trước. Quét QR {label}" if label
-            else f"Operation {operation.get('code') or ''} cần setup máy trước khi sản xuất.")
+    # Setup is NOT a prerequisite. A linked SETUP row means only "this
+    # Operation has related setup work"; whether it has run, and when, is the
+    # dispatcher's call, not a gate. One setup can serve many production runs,
+    # and production may legitimately start before any setup has been
+    # recorded. The block that used to live here (requires_setup AND NOT
+    # setup_completed_at -> ConflictError) was removed on 2026-09-09 along with
+    # the whole notion of setup "validity": setup_completed_at is history now,
+    # never a precondition. Nothing else in this guard reads those columns.
     if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
         raise ConflictError(f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng")
     operation['reconciled'] = reconciled

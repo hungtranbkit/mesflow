@@ -188,24 +188,11 @@ def kiosk_scan():
         if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
             return jsonify(ok=False, error='PO_NOT_STARTED', error_code='PO-001', message=f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng", action='Nhờ quản đốc bấm Start/Tiếp tục PO trên màn hình quản lý.'), 409
         payload = dict(operation)
-        # Setup is NOT a handover to some other screen -- the ESP terminal has
-        # no room for one and its firmware is fixed, so the browser kiosk must
-        # not invent a flow the real device cannot perform either. Setup is
-        # done by scanning the SETUP label, exactly like any other Operation.
-        # This only tells the worker WHICH label to go and scan; the actual
-        # block lives in lock_startable_operation(), so a client that ignores
-        # the hint still cannot start production.
-        if payload.get('requires_setup') and not payload.get('setup_completed_at'):
-            setup = fetch_one("""SELECT o.id,o.code,o.qr,o.expected_setup_minutes,
-                    CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
-                         ELSE p.code||'-'||o.code END display_key
-                FROM operations o LEFT JOIN parts p ON p.id=o.part_id
-                WHERE o.parent_operation_id=%s AND o.operation_type='SETUP'""", (payload['id'],))
-            if setup:
-                return jsonify(ok=False, error='SETUP_REQUIRED', error_code='OP-010',
-                    operation=payload, setup_operation=dict(setup),
-                    message=f"Cần setup máy trước. Quét QR {setup['display_key']}",
-                    action='Làm theo tờ hướng dẫn setup tại máy, quét tem SETUP để bắt đầu.'), 409
+        # A linked SETUP row is informational, never a gate: it says this
+        # Operation has related setup work, not that setup must happen first.
+        # The 409 that used to live here (and the SETUP_REQUIRED / OP-010 error
+        # it raised) was removed on 2026-09-09 -- production is never blocked
+        # by setup state, so the scan simply succeeds.
         return jsonify(ok=True, type='operation', operation=payload)
 
     return jsonify(ok=False, error='UNSUPPORTED_QR', error_code='SCN-002', message='Sai định dạng QR', action='QR hợp lệ phải bắt đầu bằng WF|EMP|, WF|OP| hoặc WF|OPID|.'), 400

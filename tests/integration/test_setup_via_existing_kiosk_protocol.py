@@ -13,7 +13,7 @@ What a worker actually does, using nothing the device did not already do:
 Exactly the four steps of an ordinary Operation. The SETUP row is an ordinary
 `operations` row with its own label; the backend is the only thing that knows
 the session is a setup, and it is the backend that zeroes the quantities and
-unlocks the parent (WorkSessionRepository._finish_within).
+records that setup happened (WorkSessionRepository._finish_within).
 
 Every request below goes to /api/kiosk/v2/events -- the real firmware endpoint,
 byte-identical envelope -- so a pass here means a real device performs this flow
@@ -125,18 +125,19 @@ def test_setup_label_is_its_own_scannable_operation(api, setup_graph):
     assert setup['qr'] == f"WF|OPID|{setup['id']}"
 
 
-def test_scanning_the_main_op_before_setup_is_refused_on_the_existing_screen(api, setup_graph):
-    """No handover, no new screen: one ordinary rejection the device already
-    renders, whose text names the label to scan next."""
-    setup = _configure_setup(api, setup_graph['operation_id'])
+def test_production_starts_even_when_the_linked_setup_never_ran(api, setup_graph):
+    """Setup is related work, not a gate — proved over the real device protocol.
+
+    The predecessor of this test asserted the opposite: that scanning the
+    production label was refused with a 409 naming the SETUP label. That rule
+    was removed on 2026-09-09.
+    """
+    _configure_setup(api, setup_graph['operation_id'])
     assert _send(setup_graph, 'SCAN', {'raw': setup_graph['employee_qr']})['state']['name'] == 'WAIT_OPERATION'
 
-    refused = _send(setup_graph, 'SCAN', {'raw': setup_graph['operation_qr']})
-    assert refused['accepted'] is False
-    assert setup['display_key'] in refused['error']['message'], refused['error']
-    assert 'setup' in refused['error']['message'].lower()
-    # The device stays exactly where it was -- it never learns a new state.
-    assert refused['state']['name'] == 'WAIT_OPERATION'
+    accepted = _send(setup_graph, 'SCAN', {'raw': setup_graph['operation_qr']})
+    assert accepted['accepted'] is True, accepted
+    assert accepted['state']['name'] == 'WAIT_EMPLOYEE', accepted
 
 
 def test_full_setup_then_production_over_the_unmodified_protocol(api, db, setup_graph):
@@ -161,16 +162,16 @@ def test_full_setup_then_production_over_the_unmodified_protocol(api, db, setup_
     assert done['accepted'] is True, done
     assert done['state']['name'] == 'WAIT_EMPLOYEE'
 
-    # The parent Operation is unlocked, and the setup left no production data.
+    # The setup is recorded as history and left no production data behind.
     main = db.execute("""SELECT setup_completed_at,setup_completed_session_id,done_qty,defect_qty
         FROM operations WHERE id=%s""", (setup_graph['operation_id'],)).fetchone()
-    assert main['setup_completed_at'] is not None
+    assert main['setup_completed_at'] is not None, 'when setup last ran is worth keeping'
     assert main['setup_completed_session_id'] == opened['id']
     assert (main['done_qty'], main['defect_qty']) == (0, 0)
     assert api.get(f"{BASE_URL}/api/operations/{setup_graph['operation_id']}/setup",
                    timeout=15).json()['state'] == 'DONE'
 
-    # 4. Production now starts on the very same scan that was refused before.
+    # 4. Production starts, exactly as it would have before the setup ran.
     _send(setup_graph, 'SCAN', {'raw': setup_graph['employee_qr']})
     produce = _send(setup_graph, 'SCAN', {'raw': setup_graph['operation_qr']})
     assert produce['accepted'] is True, produce
@@ -202,18 +203,18 @@ def test_a_number_typed_on_the_keypad_never_becomes_production(api, db, setup_gr
     setup_row = db.execute('SELECT done_qty,defect_qty FROM operations WHERE id=%s',
                            (setup['id'],)).fetchone()
     assert (setup_row['done_qty'], setup_row['defect_qty']) == (0, 0)
-    # ...and the setup still completed, because that is what closing it means.
+    # ...and the setup is still recorded as having happened.
     assert db.execute('SELECT setup_completed_at FROM operations WHERE id=%s',
                       (setup_graph['operation_id'],)).fetchone()['setup_completed_at'] is not None
 
 
-def test_requires_setup_is_off_by_default_and_blocks_nothing(api, db, setup_graph):
+def test_a_new_operation_has_no_linked_setup_by_default(api, db, setup_graph):
     """An Operation nobody configured stays a plain production step."""
     state = api.get(f"{BASE_URL}/api/operations/{setup_graph['operation_id']}/setup",
                     timeout=15).json()
-    assert state['operation']['requires_setup'] is False
     assert state['setup'] is None
-    assert state['state'] == 'NOT_REQUIRED'
+    assert state['state'] == 'NONE'
+    assert state['has_setup'] is False
     assert db.execute("""SELECT COUNT(*) n FROM operations
         WHERE parent_operation_id=%s AND operation_type='SETUP'""",
         (setup_graph['operation_id'],)).fetchone()['n'] == 0

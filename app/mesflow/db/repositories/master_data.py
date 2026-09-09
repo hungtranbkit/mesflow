@@ -665,6 +665,10 @@ class TemplateTreeRepository:
                 # same transaction as the rest of the PO. Nobody creates SETUP
                 # rows by hand. The suffix comes from setup_ops so a cloned PO
                 # and one configured by hand cannot drift apart.
+                # template_operations.requires_setup now reads as "this
+                # Operation HAS setup work", not "requires setup first". The
+                # linked row, its note and its own QR are still cloned; what
+                # was dropped is any suggestion that production waits for it.
                 if op.get('requires_setup'):
                     conn.execute('UPDATE operations SET requires_setup=TRUE WHERE id=%s',(created['id'],))
                     setup_code=f"{op_code}{SETUP_CODE_SUFFIX}"

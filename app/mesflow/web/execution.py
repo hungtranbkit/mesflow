@@ -600,20 +600,11 @@ def configure_operation_setup(operation_id:int):
         return err(exc)
 
 
-@bp.post('/operations/<int:operation_id>/setup/reset')
-@roles_required('admin','manager','supervisor')
-def reset_operation_setup(operation_id:int):
-    """Demand a fresh setup before the next production session."""
-    try:
-        return jsonify(**SetupRepository().reset(operation_id))
-    except Exception as exc:
-        return err(exc)
-
-
 @bp.post('/setup-sessions/<int:session_id>/complete')
 @login_required
 def complete_setup_session(session_id:int):
-    """Finishing setup is what unlocks the production Operation."""
+    """Close a setup session from the browser kiosk. Records history; it
+    unlocks nothing -- production was never blocked by setup state."""
     try:
         return jsonify(**SetupRepository().complete(session_id,
             actor_username=str(session.get('username') or '')))

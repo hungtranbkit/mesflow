@@ -124,19 +124,28 @@ class SetupRepository:
                 FROM work_sessions ws LEFT JOIN employees e ON e.id=ws.employee_id
                 WHERE ws.operation_id=%s ORDER BY ws.started_at DESC,ws.id DESC LIMIT 1""",
                 (setup['id'],))
-        done = bool(main.get('setup_completed_at'))
+        # History, not readiness. There is no PENDING: an Operation whose setup
+        # has never run is not "waiting" for anything -- production may start
+        # regardless, and the dispatcher decides when setup is worth doing.
+        #   NONE    no linked SETUP row at all
+        #   NEVER   linked, never performed
+        #   RUNNING a setup session is open right now
+        #   DONE    performed at least once (last_session carries when/who)
         running = bool(session and session['status'] == 'OPEN')
-        state = 'NOT_REQUIRED' if not main.get('requires_setup') else (
-            'DONE' if done else ('RUNNING' if running else 'PENDING'))
+        ever = bool(setup) and bool(fetch_one(
+            "SELECT 1 FROM work_sessions WHERE operation_id=%s AND status='CLOSED' LIMIT 1",
+            (setup['id'],)))
+        state = 'NONE' if not setup else ('RUNNING' if running else ('DONE' if ever else 'NEVER'))
         return {'operation': dict(main), 'setup': dict(setup) if setup else None,
                 'last_session': dict(session) if session else None,
-                'state': state, 'setup_done': done}
+                'state': state, 'has_setup': bool(setup), 'ever_completed': ever}
 
     def configure(self, operation_id: int, data: dict):
-        """Turn the requirement on/off and save its config in one transaction.
+        """Attach or detach a linked SETUP Operation, and save its config.
 
-        Creating the SETUP row is the system's job, not the user's -- ticking
-        the box on the production Operation is the whole interaction.
+        The flag means "this Operation has related setup work" -- never that
+        setup must happen first. Creating the SETUP row is the system's job,
+        not the user's: ticking the box is the whole interaction.
         """
         requires = bool(data.get('requires_setup'))
         minutes = data.get('expected_setup_minutes')
@@ -154,8 +163,8 @@ class SetupRepository:
                 existing = cur.fetchone()
                 if not requires:
                     # Keep the SETUP row and its instructions: switching the
-                    # requirement back on must not lose them, and any session
-                    # already recorded against it is real history.
+                    # box back on must not lose them, and any session already
+                    # recorded against it is real history.
                     cur.execute('UPDATE operations SET requires_setup=FALSE,updated_at=CURRENT_TIMESTAMP WHERE id=%s',
                                 (main['id'],))
                     return {'ok': True, 'requires_setup': False,
@@ -196,15 +205,6 @@ class SetupRepository:
                     "SELECT parent_operation_id FROM operations WHERE id=%s",
                     (closed['operation_id'],))['parent_operation_id'],
                 'setup_completed': True}
-
-    def reset(self, operation_id: int):
-        """Demand a fresh setup for this Operation (admin action)."""
-        with transaction() as conn:
-            with conn.cursor() as cur:
-                main = _load_operation(cur, operation_id)
-                cur.execute("""UPDATE operations SET setup_completed_at=NULL,
-                    setup_completed_session_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=%s""", (main['id'],))
-        return {'ok': True, 'operation_id': int(operation_id), 'setup_completed': False}
 
     def print_sheet(self, operation_id: int):
         """Everything the printed A4 sheet shows, for a main OP or its SETUP.

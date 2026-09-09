@@ -70,7 +70,6 @@
     'SCN-002':'Dùng QR nhân viên WF|EMP|... hoặc QR Operation WF|OP|... / WF|OPID|...',
     'EMP-001':'Kiểm tra thẻ hoặc trạng thái nhân viên trong Danh mục.',
     'OP-001':'Kiểm tra QR Operation hoặc tạo lại QR từ PO.',
-    'OP-010':'Quét tem QR SETUP tại máy để bắt đầu chuẩn bị máy.',
     'PO-001':'Nhờ quản đốc Start/Tiếp tục PO.',
     'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra session đang mở.',
     'QTY-409':'Giảm số lượng hoặc kiểm tra sản lượng OP nguồn.',
@@ -86,12 +85,6 @@
     if(status===401||status===403)
       return {message:'Máy kiosk này chưa được cấp quyền ghi dữ liệu.',
               action:ERROR_HELP[status===401?'AUTH_REQUIRED':'FORBIDDEN']};
-    // Setup is the one 409 whose own text is the instruction: it names the
-    // SETUP label to scan next, which the generic wording below would throw
-    // away and leave the worker with nothing to do.
-    if(data?.error==='SETUP_REQUIRED'||raw.includes('CẦN SETUP'))
-      return {message:data?.message||'Cần setup máy trước khi sản xuất.',
-              action:data?.action||'Quét tem QR SETUP tại máy để bắt đầu chuẩn bị máy.'};
     if(raw.includes('COMPLETED'))return {message:'Công đoạn này đã hoàn thành.',action:'Chọn công đoạn khác hoặc báo quản đốc nếu cần làm lại.'};
     if(raw.includes('CANCELLED'))return {message:'Công đoạn này đã bị hủy.',action:'Không tiếp tục sản xuất. Hỏi quản đốc để được điều phối.'};
     if(raw.includes('WIP=0')||raw.includes('NO_WIP'))return {message:'Chưa có sản phẩm đầu vào.',action:'Chờ WIP từ công đoạn trước hoặc báo quản đốc.'};

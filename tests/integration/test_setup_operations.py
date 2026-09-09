@@ -6,9 +6,10 @@ employee timeline and station unchanged. It carries no production quantity and
 stays out of every production rollup, exactly as REWORK does; its TIME is real
 work and stays in the employee day view.
 
-Validity rule V1: operations.setup_completed_at on the PRODUCTION row is the
-whole state. Completing a setup session with every required step ticked sets
-it; an admin reset clears it. No invented notion of a batch or a shift.
+Setup is NOT a prerequisite (changed 2026-09-09). A linked SETUP row means
+only that this Operation has related setup work; production never waits for
+it, nothing expires, and there is no reset. What is recorded is history: when
+setup last ran and who did it.
 """
 import uuid
 
@@ -55,16 +56,21 @@ def test_A_operation_without_setup_starts_normally(api, seeded_factory):
     assert response.status_code == 201, response.text
 
 
-def test_B_production_is_blocked_until_setup_is_done(api, db, seeded_factory):
+def test_B_configuring_setup_creates_the_linked_row_and_blocks_nothing(api, db, seeded_factory):
+    """Setup is related work, not a precondition.
+
+    This test used to assert the opposite -- that production was refused with
+    409 until setup ran. That rule was removed on 2026-09-09: one setup can
+    serve many runs, and the dispatcher decides when it is worth doing.
+    """
     graph = seeded_factory
     assert _configure(api, graph['operation_id']).status_code == 200
-    blocked = _start(api, graph['employee_id'], graph['operation_id'], graph['station_id'])
-    assert blocked.status_code == 409, blocked.text
-    assert 'setup' in (blocked.json().get('message') or '').lower()
-    # ...and the linked SETUP row exists, ready for the kiosk to hand over to.
+    allowed = _start(api, graph['employee_id'], graph['operation_id'], graph['station_id'])
+    assert allowed.status_code == 201, allowed.text
     state = _setup_of(api, graph['operation_id'])
     assert state['setup'] is not None
-    assert state['setup_done'] is False
+    assert state['state'] == 'NEVER'
+    assert state['ever_completed'] is False
     # One free-text instruction, newlines preserved for the printed sheet.
     assert state['setup']['setup_note'] == SETUP_NOTE
     assert '\n' in state['setup']['setup_note']
@@ -109,13 +115,19 @@ def _complete_setup(api, graph):
     return session_id
 
 
-def test_D_completing_setup_unlocks_production(api, seeded_factory):
+def test_D_production_starts_the_same_before_and_after_setup(api, seeded_factory):
+    """State-independent: the answer must not depend on setup history."""
     graph = seeded_factory
     _configure(api, graph['operation_id'])
+    before = _start(api, graph['employee_id'], graph['operation_id'], graph['station_id'])
+    assert before.status_code == 201, before.text
+    api.post(f"{BASE_URL}/api/work-sessions/{before.json()['session']['id']}/finish",
+             json={'request_id': f'SETUP-FIN-{uuid.uuid4()}', 'good_qty': 1,
+                   'defect_qty': 0, 'rework_qty': 0}, timeout=15)
     _complete_setup(api, graph)
-    assert _setup_of(api, graph['operation_id'])['setup_done'] is True
-    started = _start(api, graph['employee_id'], graph['operation_id'], graph['station_id'])
-    assert started.status_code == 201, started.text
+    assert _setup_of(api, graph['operation_id'])['ever_completed'] is True
+    after = _start(api, graph['employee_id'], graph['operation_id'], graph['station_id'])
+    assert after.status_code == 201, after.text
 
 
 def test_D2_setup_cannot_be_completed_twice(api, seeded_factory):
@@ -143,16 +155,6 @@ def test_E_a_second_worker_does_not_setup_again(api, db, seeded_factory):
         with db.cursor() as cur:
             cur.execute('DELETE FROM work_sessions WHERE employee_id=%s', (second,))
             cur.execute('DELETE FROM employees WHERE id=%s', (second,))
-
-
-def test_E2_admin_reset_demands_a_fresh_setup(api, seeded_factory):
-    graph = seeded_factory
-    _configure(api, graph['operation_id'])
-    _complete_setup(api, graph)
-    reset = api.post(f"{BASE_URL}/api/operations/{graph['operation_id']}/setup/reset", timeout=15)
-    assert reset.status_code == 200, reset.text
-    assert _start(api, graph['employee_id'], graph['operation_id'],
-                  graph['station_id']).status_code == 409
 
 
 def test_F_setup_time_counts_as_work_but_never_as_production(api, db, seeded_factory):
@@ -260,14 +262,12 @@ def test_H_configuring_setup_twice_does_not_duplicate_the_linked_row(api, db, se
     assert _setup_of(api, graph['operation_id'])['setup']['expected_setup_minutes'] == 30
 
 
-def test_H2_turning_setup_off_keeps_the_instructions_and_unblocks_production(api, seeded_factory):
+def test_H2_detaching_setup_keeps_the_instructions(api, seeded_factory):
     graph = seeded_factory
     _configure(api, graph['operation_id'])
     off = api.put(f"{BASE_URL}/api/operations/{graph['operation_id']}/setup",
                   json={'requires_setup': False}, timeout=15)
     assert off.status_code == 200, off.text
-    assert _start(api, graph['employee_id'], graph['operation_id'],
-                  graph['station_id']).status_code == 201
     # Instructions survive so switching it back on does not lose them.
     assert _setup_of(api, graph['operation_id'])['setup']['setup_note'] == SETUP_NOTE
 

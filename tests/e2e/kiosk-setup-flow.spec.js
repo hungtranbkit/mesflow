@@ -1,10 +1,9 @@
-// Browser kiosk: setup is scanned, not navigated to.
+// Kiosk: tem SETUP quét như một Operation bình thường, và không chặn gì cả.
 //
-// The ESP terminal is fixed hardware whose firmware cannot grow a setup
-// screen, so the browser kiosk deliberately does not have one either -- it
-// performs the SAME four steps the device does: card, SETUP label, card,
-// confirm. Scanning the production label too early is an ordinary rejection
-// that names the label to go and find.
+// SETUP là OP phụ có liên quan tới OP chính, không phải điều kiện tiên quyết:
+// một lần setup phục vụ nhiều lượt sản xuất, và người điều phối quyết định khi
+// nào cần chạy. Bản trước của spec này khẳng định điều ngược lại — quét OP
+// chính khi chưa setup thì bị từ chối kèm mã tem — luật đó đã bỏ 2026-09-09.
 const { test, expect } = require('@playwright/test');
 
 const OPERATION = {
@@ -19,8 +18,7 @@ const SETUP_OP = { id: 4243, code: 'OP01-SU', display_key: 'PA-OP01-SU',
 
 async function mockKiosk(page, state) {
   await page.route(/\/api\/kiosk-web\/scan/, route => {
-    const body = route.request().postDataJSON() || {};
-    const qr = String(body.qr || '');
+    const qr = String((route.request().postDataJSON() || {}).qr || '');
     if (qr.startsWith('WF|EMP|')) {
       const openSession = state.openSetupSession
         ? { id: 555, operation_id: SETUP_OP.id, operation_code: SETUP_OP.code,
@@ -34,59 +32,50 @@ async function mockKiosk(page, state) {
     if (qr === SETUP_OP.qr) {
       return route.fulfill({ json: { ok: true, type: 'operation',
         operation: { ...OPERATION, ...SETUP_OP, operation_type: 'SETUP',
-          parent_operation_id: OPERATION.id, requires_setup: false } } });
+          parent_operation_id: OPERATION.id } } });
     }
-    // The production label, while setup is still pending: one refusal on the
-    // screen the kiosk already has, naming the SETUP label.
-    if (!state.setupDone) {
-      return route.fulfill({ status: 409, json: { ok: false, error: 'SETUP_REQUIRED',
-        error_code: 'OP-010', operation: OPERATION, setup_operation: SETUP_OP,
-        message: `Cần setup máy trước. Quét QR ${SETUP_OP.display_key}`,
-        action: 'Làm theo tờ hướng dẫn setup tại máy, quét tem SETUP để bắt đầu.' } });
-    }
-    return route.fulfill({ json: { ok: true, type: 'operation',
-      operation: { ...OPERATION, setup_completed_at: '2026-09-09T04:05:00Z' } } });
+    // OP chính luôn quét được — dù setup chưa từng chạy.
+    return route.fulfill({ json: { ok: true, type: 'operation', operation: OPERATION } });
   });
   await page.route(/\/api\/kiosk-web\/start/, route => {
-    const body = route.request().postDataJSON() || {};
-    const operationId = Number(body.operation_id);
+    const operationId = Number((route.request().postDataJSON() || {}).operation_id);
     state.started.push(operationId);
     if (operationId === SETUP_OP.id) state.openSetupSession = true;
     return route.fulfill({ json: { ok: true, session: { id: 555 } } });
   });
   await page.route(/\/api\/kiosk-web\/finish/, route => {
-    state.openSetupSession = false; state.setupDone = true;
+    state.openSetupSession = false;
     state.finished.push(route.request().postDataJSON() || {});
     return route.fulfill({ json: { ok: true, session: { id: 555, status: 'CLOSED' } } });
   });
   await page.route(/\/api\/kiosk\/(register|heartbeat)/, route => route.fulfill({ json: { ok: true } }));
 }
 
-test('quét OP chính khi chưa setup thì báo lỗi kèm mã tem SETUP, không mở màn hình mới', async ({ page }) => {
-  const state = { setupDone: false, openSetupSession: false, started: [], finished: [] };
+function freshState() { return { openSetupSession: false, started: [], finished: [] }; }
+
+test('quét OP chính chạy được ngay dù setup chưa từng thực hiện', async ({ page }) => {
+  const state = freshState();
   await mockKiosk(page, state);
   await page.goto('/kiosk');
   await page.waitForFunction(() => !!window.MESFlowKioskDemo);
 
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|EMP|NV-009'));
+  await expect(page.locator('#screen-operation')).toHaveClass(/active/);
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|OP|OP01'));
 
-  await expect(page.locator('#screen-error')).toHaveClass(/active/);
-  await expect(page.locator('#screen-error')).toContainText('PA-OP01-SU');
-  // Nothing was started, and no setup-specific screen exists to land on.
-  expect(state.started).toEqual([]);
+  await expect(page.locator('#screen-started')).toHaveClass(/active/, { timeout: 10000 });
+  expect(state.started).toEqual([OPERATION.id]);
+  // Không màn hình setup nào tồn tại để rơi vào.
   expect(await page.locator('#screen-setup').count()).toBe(0);
 });
 
-test('quét tem SETUP chạy như một Operation bình thường rồi mở khóa sản xuất', async ({ page }) => {
-  const state = { setupDone: false, openSetupSession: false, started: [], finished: [] };
+test('tem SETUP chạy như một Operation bình thường, kết thúc không cần nhập sản lượng', async ({ page }) => {
+  const state = freshState();
   await mockKiosk(page, state);
   await page.goto('/kiosk');
   await page.waitForFunction(() => !!window.MESFlowKioskDemo);
 
-  // Card, then the SETUP label: an ordinary start. Each scan waits for the
-  // screen it produces -- the kiosk resets itself between tasks, so firing the
-  // next scan before that lands would race the reset, not the code under test.
+  // Quét thẻ, quét tem SETUP: một lần start bình thường.
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|EMP|NV-009'));
   await expect(page.locator('#screen-operation')).toHaveClass(/active/);
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|OPID|4243'));
@@ -94,8 +83,7 @@ test('quét tem SETUP chạy như một Operation bình thường rồi mở kh�
   await expect(page.locator('#started-operation')).toContainText('PA-OP01-SU');
   expect(state.started).toEqual([SETUP_OP.id]);
 
-  // Card again: a setup produces nothing, so it confirms instead of asking
-  // for quantities -- the keypad screens are skipped, not answered.
+  // Quét lại thẻ: setup không sinh sản lượng nên xác nhận thẳng, bỏ qua keypad.
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|EMP|NV-009'));
   await expect(page.locator('#screen-finish-confirm')).toHaveClass(/active/);
   await expect(page.locator('#finish-confirm-summary')).toContainText('Setup máy');
@@ -103,7 +91,7 @@ test('quét tem SETUP chạy như một Operation bình thường rồi mở kh�
   await expect(page.locator('#screen-finished')).toHaveClass(/active/, { timeout: 10000 });
   expect(state.finished[0].good_qty).toBe(0);
 
-  // Production now starts on the very scan that was refused before.
+  // Và sản xuất vẫn chạy y như trước khi setup — không có gì được "mở khóa".
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|EMP|NV-009'));
   await expect(page.locator('#screen-operation')).toHaveClass(/active/, { timeout: 10000 });
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|OP|OP01'));
