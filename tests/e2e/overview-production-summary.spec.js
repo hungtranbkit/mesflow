@@ -1,5 +1,9 @@
 const {test,expect}=require('@playwright/test');
-async function login(page){await page.goto('/login');await page.request.post('/api/auth/test-auto-login');await page.goto('/app');await expect(page.locator('#appLayout')).toBeVisible()}
+async function login(page){await page.goto('/login');await page.request.post('/api/auth/test-auto-login');
+ // /login khi đã có phiên tự chuyển sang /app; goto ngay sau đó bị chính nó
+ // cắt ngang. Đợi chuyển hướng tự động xong rồi mới đi tiếp.
+ await page.waitForURL(/\/app/,{timeout:20000}).catch(()=>{});
+ await page.goto('/app');await expect(page.locator('#appLayout')).toBeVisible()}
 function fixtures(){
  const production_orders=[
   {id:1,po_id:1,code:'QA-PO-REPAIR-25',po_code:'QA-PO-REPAIR-25',product:'KHUNG MÁY',status:'IN_PROGRESS',planned_quantity:1000,good_quantity:620,defect_quantity:38,repairable_quantity:21,repair_pending_quantity:25,estimated_repair_work_seconds:12600,repair_operation_count:2,repair_unconfigured_operation_count:0,scrap_quantity:17,remaining_quantity:380,progress_percent:62,terminal_operation_count:1,due_date:'2026-08-12'},

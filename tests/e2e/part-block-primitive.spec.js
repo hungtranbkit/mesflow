@@ -54,6 +54,10 @@ const PO_OPS = [0, 1, 2].map(i => ({
 async function login(page) {
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
+  // /login khi đã có phiên tự chuyển sang /app; goto ngay sau đó bị chính nó
+  // cắt ngang, và với các bài dùng goBack() thì lịch sử duyệt còn bị hỏng
+  // theo. Đợi chuyển hướng tự động xong ngay trong helper đăng nhập.
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
 }
 
 async function routeTemplate(page) {

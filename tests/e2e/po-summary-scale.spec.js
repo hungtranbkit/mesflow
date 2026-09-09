@@ -28,6 +28,11 @@ async function openDetail(page, { parts = PARTS, ops } = {}) {
   await page.route(/\/api\/production-control\?/, r => r.fulfill({ json: { ok: true, operations: [] } }));
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
+  // Trang /login khi đã có phiên sẽ tự điều hướng sang /app; lần goto ngay
+  // sau đó bị chính nó cắt ngang ("interrupted by another navigation").
+  // Đợi chuyển hướng tự động xong rồi mới đi tiếp -- nguồn flaky lác đác
+  // của cả bộ E2E, tìm ra khi truy po-action-menu (2026-09-09).
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.goto('/app?page=production-orders&po_id=7');
   await expect(page.locator('.po-workspace-metrics')).toBeVisible({ timeout: 20000 });
 }
@@ -109,6 +114,11 @@ test('thêm OP rồi tải lại chi tiết thì summary cập nhật, không st
   await page.route(/\/api\/production-control\?/, r => r.fulfill({ json: { ok: true, operations: [] } }));
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
+  // Trang /login khi đã có phiên sẽ tự điều hướng sang /app; lần goto ngay
+  // sau đó bị chính nó cắt ngang ("interrupted by another navigation").
+  // Đợi chuyển hướng tự động xong rồi mới đi tiếp -- nguồn flaky lác đác
+  // của cả bộ E2E, tìm ra khi truy po-action-menu (2026-09-09).
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.goto('/app?page=production-orders&po_id=7');
   await expect(chip(page, 'OP sản xuất')).toHaveText('1');
   await expect(page.locator('.po-workspace-metrics small:text-is("OP phụ")')).toHaveCount(0);

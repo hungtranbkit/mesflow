@@ -1,5 +1,5 @@
 const{test,expect}=require('@playwright/test');
-async function login(page){await page.goto('/login');await page.request.post('/api/auth/test-auto-login');await page.goto('/app')}
+async function login(page){await page.goto('/login');await page.request.post('/api/auth/test-auto-login');/* /login khi đã có phiên tự chuyển sang /app; đợi xong rồi mới goto tiếp */await page.waitForURL(/\/app/,{timeout:20000}).catch(()=>{});await page.goto('/app')}
 const events=[
  {id:'9',event_type:'VALUE_CHANGED',category:'CHANGE',occurred_at:'2026-08-13T08:40:00Z',actor_id:1,actor_name:'Supervisor A',po_id:1,part_id:2,operation_id:3,session_id:77,title:'Điều chỉnh sản lượng Session',description:'Double scan correction',quantity_delta:null,metadata:{before:{good_qty:120},after:{good_qty:118}},correlation_id:'corr-fix',session_trace_id:'',source:'AUDIT'},
  {id:'8',event_type:'REPAIRABLE_DEFECT_RECORDED',category:'REWORK',occurred_at:'2026-08-13T08:35:00Z',actor_name:'Nguyễn Văn A',po_id:1,part_id:2,operation_id:3,session_id:77,title:'Ghi nhận lỗi sửa được',description:'',quantity_delta:2,metadata:{movement_id:8},correlation_id:'corr-finish',session_trace_id:'trace-77',source:'NATIVE'},

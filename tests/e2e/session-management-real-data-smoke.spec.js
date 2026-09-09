@@ -10,6 +10,8 @@ test('Quản lý Session dependent filters với dữ liệu DEV thật', async 
   await page.goto('/login');
   const login = await page.request.post('/api/auth/test-auto-login');
   expect(login.ok()).toBe(true);
+  // /login khi đã có phiên tự chuyển sang /app; đợi xong rồi mới goto tiếp.
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.goto('/app');
   await page.evaluate(() => renderSessionManagement());
   await expect(page.locator('#smSessionCount')).toContainText('session');

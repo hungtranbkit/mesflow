@@ -1,5 +1,5 @@
 const{test,expect}=require('@playwright/test');
-async function login(p){await p.goto('/login');await p.request.post('/api/auth/test-auto-login');await p.goto('/app')}
+async function login(p){await p.goto('/login');await p.request.post('/api/auth/test-auto-login');/* /login khi đã có phiên tự chuyển sang /app; đợi xong rồi mới goto tiếp */await p.waitForURL(/\/app/,{timeout:20000}).catch(()=>{});await p.goto('/app')}
 
 test('business audit trail page renders with filters, no console/page errors',async({page})=>{
  await page.setViewportSize({width:1920,height:1080});

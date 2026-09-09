@@ -10,6 +10,10 @@ const { test, expect } = require('@playwright/test');
 async function login(page) {
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
+  // /login khi đã có phiên tự chuyển sang /app; goto ngay sau đó bị chính nó
+  // cắt ngang, và với các bài dùng goBack() thì lịch sử duyệt còn bị hỏng
+  // theo. Đợi chuyển hướng tự động xong ngay trong helper đăng nhập.
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
 }
 
 const PO = { id: 1, code: 'QA-BACK-PO', product: 'Khung máy', planned_quantity: 100,

@@ -19,6 +19,12 @@ async function openList(page, items = [PROD, DRAFT, DONE, PAUSED]) {
     route.fulfill({ json: { ok: true, items } }));
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
+  // NGUỒN FLAKY THẬT của cả file (đỏ ở gate .262 và .266, xanh khi chạy lại):
+  // trang /login sau khi đã có phiên sẽ tự điều hướng sang /app, và lần goto
+  // thứ hai bị chính nó cắt ngang -- "Navigation to /app?page=production-orders
+  // is interrupted by another navigation to /app". Đợi lần chuyển hướng tự
+  // động đó xong trước, rồi mới đi tới trang cần mở.
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.goto('/app?page=production-orders');
   await expect(page.locator('.po-actions').first()).toBeVisible({ timeout: 20000 });
 }
@@ -101,9 +107,14 @@ test('đóng bằng Escape, bằng click ra ngoài, và aria-expanded đúng', a
 
   await trigger.click();
   await expect(page.locator('.ui-row-menu')).toBeVisible();
-  await page.locator('h1, .page-header, header').first().click({ force: true });
+  // Đích click-ra-ngoài phải XÁC ĐỊNH. 'h1, .page-header, header' trước đây
+  // khớp phần tử nào tuỳ bố cục từng viewport -- có lần trúng vùng điều hướng,
+  // trang vẽ lại, trigger bị gỡ khỏi DOM và assertion aria sau đó đọc vào node
+  // đã chết. Đó là nguồn flaky của bài này (đỏ ở gate .262 và .266, xanh khi
+  // chạy lại). Tiêu đề panel là chữ trơ, không bắt sự kiện, luôn tồn tại.
+  await page.locator('.content-panel-head h3').first().click();
   await expect(page.locator('.ui-row-menu')).toHaveCount(0);
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('[data-po-menu]').first()).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('bấm vào dòng là mở PO', async ({ page }) => {
