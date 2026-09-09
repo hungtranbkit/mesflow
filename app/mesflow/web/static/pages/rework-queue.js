@@ -22,7 +22,6 @@ function rqNum(value) { return MFUI.formatQuantity(value); }
 
 function rqRow(item) {
   const canResolve = hasPermission('rework.resolve');
-  const resolved = Number(item.rework_qty || 0) + Number(item.scrap_qty || 0);
   return `<div class="rq-row" data-rq-row="${Number(item.source_session_id)}">
     <span class="rq-cell rq-what">
       <b>${esc(item.operation_code || '')} · ${esc(item.operation_name || '')}</b>
@@ -38,7 +37,10 @@ function rqRow(item) {
     </span>
     <span class="rq-cell rq-split">
       <b>NG ${rqNum(item.defect_qty)}</b>
-      <small>Đã sửa ${rqNum(item.rework_qty)} · Đã loại ${rqNum(item.scrap_qty)}${resolved ? '' : ' · chưa xử lý'}</small>
+      <!-- No "chưa xử lý" suffix: "Đã sửa 0 · Đã loại 0" already says exactly
+           that, and the extra words wrapped mid-word on a real row ("chưa xử /
+           lý"), leaving the untouched rows taller than the rest of the list. -->
+      <small>Đã sửa ${rqNum(item.rework_qty)} · Đã loại ${rqNum(item.scrap_qty)}</small>
     </span>
     <span class="rq-cell rq-pending"><strong>${rqNum(item.pending_qty)}</strong><small>chờ sửa</small></span>
     <span class="rq-cell rq-act">${canResolve
