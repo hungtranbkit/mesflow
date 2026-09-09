@@ -122,8 +122,18 @@ test('Tổng quan sản xuất -> Mở PO -> Back giữ bộ lọc và vị trí
   await expect(page.locator('.overview-po')).toHaveCount(1);
 
   await page.locator('#ovSearch').fill('PO-501');
+  // #ovSearch redraws the PO list through a 250ms debounce, and the filtered
+  // list is SHORTER than the unfiltered one. Scrolling before that redraw
+  // lands measures a page that is about to shrink: the browser then clamps
+  // scrollY down, and AppNav.push() captures the clamped value at drill-in --
+  // so the assertion below was really a race against the debounce (flaky
+  // both before and after this file's neighbours changed; verified by
+  // measuring identical heights on the previous commit). Wait for the list to
+  // settle first, then scroll -- same assertion, no coin toss.
+  await page.waitForTimeout(400);
   await page.evaluate(() => window.scrollTo(0, 120));
   const scrollBefore = await page.evaluate(() => window.scrollY);
+  expect(scrollBefore).toBeGreaterThan(0);
 
   await page.locator('[data-open-po]').first().click();
   await expect(page.locator('#poBack')).toBeVisible();

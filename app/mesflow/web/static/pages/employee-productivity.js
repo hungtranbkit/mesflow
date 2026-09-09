@@ -4,15 +4,12 @@
 //   parse time, unlike renderTutorials()/attachGuideTabs(), so unlike
 //   text-guide.js this one genuinely needs a small app.js edit -- nothing
 //   else in app.js changes).
-// - Everything else (openPage routing, rendering, the detail modal) lives
-//   here, wired the same way pages/production-trace.js already wires a new
-//   page id: capture the previous openPage, add one more `if`, delegate.
+// - Everything else (page routing, rendering, the detail modal) lives here,
+//   wired the same way pages/production-trace.js does: registerPage(id, fn),
+//   which lets openPage() keep ownership of the permission check, setActive
+//   and the `?page=` history sync.
 
-const openPageWithoutProductivity = openPage;
-openPage = async function (id, btn) {
-  if (id === 'employee-productivity') { setActive(btn || document.querySelector('[data-page="employee-productivity"]')); return renderEmployeeProductivity(); }
-  return openPageWithoutProductivity(id, btn);
-};
+registerPage('employee-productivity', () => renderEmployeeProductivity());
 
 function productivityText(pct) {
   return pct === null || pct === undefined ? '—' : `${Number(pct).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`;

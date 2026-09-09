@@ -29,10 +29,20 @@ def test_page_module_registered_after_app_js():
 
 
 def test_openpage_routing_is_additive_not_editing_app_js():
+    """Routing still lives in this file, not in app.js's dispatch chain.
+
+    Updated 2026-09-09: the original mechanism here was to wrap the global
+    (`const openPageWithoutProductivity = openPage; openPage = (id, btn) =>
+    ...`). That wrapper took exactly two parameters, so when openPage grew a
+    third (historyMode, for browser Back/Forward) it silently swallowed it --
+    and because the wrapper returned the renderer directly it also bypassed
+    openPage's own `?page=` URL sync, leaving this page with no URL at all.
+    registerPage() keeps the routing additive in the same way while letting
+    openPage stay the single owner of permissions, setActive and history.
+    """
     js = _js()
-    assert 'const openPageWithoutProductivity = openPage;' in js
-    assert "id === 'employee-productivity'" in js
-    assert 'return openPageWithoutProductivity(id, btn);' in js
+    assert "registerPage('employee-productivity'" in js
+    assert 'openPageWithoutProductivity' not in js
 
 
 def test_average_definition_matches_spec_default_sort_and_no_clamp():

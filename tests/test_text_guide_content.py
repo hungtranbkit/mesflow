@@ -38,6 +38,7 @@ EXPECTED_TOC = [
     ('recommended-workflow', 'Quy trình sử dụng MESFlow đề xuất'),
     ('employee-productivity', 'Báo cáo năng suất nhân viên'),
     ('system-health', 'Hệ thống (dành cho Super Admin / IT)'),
+    ('rework-queue', 'Hàng chờ sửa'),
 ]
 KNOWN_BLOCK_TYPES = {'h3', 'p', 'note', 'example', 'diagram', 'list', 'steps', 'table'}
 
@@ -50,6 +51,7 @@ MENU_PAGE_TO_GUIDE = {
     'templates': 'template',
     'session-management': 'work-session',
     'session-exceptions': 'exceptions',
+    'rework-queue': 'rework-queue',
     'production-trace': 'production-trace',
     'business-audit': 'business-audit',
     'production-schedule': 'gantt-material-flow',

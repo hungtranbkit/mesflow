@@ -134,6 +134,7 @@ def _permission_for_request():
       ('/api/session-management','session.edit' if edit else 'session.view'),
       ('/api/supervisor/sessions','session.edit'),
       ('/api/session-exceptions','exceptions.resolve' if edit else 'exceptions.view'),
+      ('/api/rework','rework.resolve' if edit else 'rework.view'),
       ('/api/material-flow','material_flow.edit' if edit else 'material_flow.view'),
       ('/api/kiosks','kiosk.manage' if edit else 'kiosk.view'),
       ('/api/settings/work-shifts','calendar.edit' if edit else 'calendar.view'),

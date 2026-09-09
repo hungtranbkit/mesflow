@@ -1,6 +1,6 @@
 import uuid
 from flask import Blueprint,g,jsonify,request,session
-from mesflow.web.auth import login_required,production_client_required,roles_required
+from mesflow.web.auth import login_required,permission_required,production_client_required,roles_required
 from mesflow.db.repositories.base import NotFoundError,ConflictError,RepositoryError
 from mesflow.db.repositories.execution import KioskRepository,WorkSessionRepository,QCRepository,SupervisorRepository,_json_safe
 from mesflow.db.repositories.rework import ReworkQueueRepository
@@ -56,7 +56,11 @@ def heartbeat():
 def list_sessions(): return jsonify(ok=True,items=WorkSessionRepository().list())
 
 @bp.get('/rework/queue')
-@login_required
+# Was @login_required (any signed-in user) while the queue had no UI at all.
+# Now that Hàng chờ sửa is a real page behind PAGE_PERMISSION['rework-queue'],
+# gate the data the same way the page is gated, so the menu entry and the API
+# agree instead of the API being quietly wider than the screen.
+@permission_required('rework.view')
 def rework_queue():
     try:
         return jsonify(ok=True, items=ReworkQueueRepository().queue(int(request.args.get('limit', 1000))))

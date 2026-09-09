@@ -18,4 +18,4 @@ const ProductionTrace=(()=>{
   return {render,openPo:id=>{poId=Number(id);return render().then(()=>{document.getElementById('ptPo').value=String(poId);return load(true)})}};
 })();
 function renderProductionTrace(){return ProductionTrace.render()}
-const openPageWithoutTrace=openPage;openPage=async function(id,btn){if(id==='production-trace'){setActive(btn||document.querySelector('[data-page="production-trace"]'));return renderProductionTrace()}return openPageWithoutTrace(id,btn)};
+registerPage('production-trace',()=>renderProductionTrace());

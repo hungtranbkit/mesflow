@@ -685,11 +685,11 @@ tbody tr{transition:box-shadow .12s ease,transform .12s ease}
 tbody tr:hover td{background:#f1f5f7!important}
 tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1)}
 
-:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row){
+:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row){
   border-color:var(--border-subtle)!important;box-shadow:var(--shadow-row);transition:transform .12s ease,box-shadow .12s ease,background-color .12s ease
 }
-:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row):nth-child(even){background:var(--surface-row-alt)}
-:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row):hover{position:relative;z-index:1;background:#f3f6f8!important;box-shadow:0 4px 10px rgba(16,43,63,.11);transform:translateY(-1px)}
+:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row):nth-child(even){background:var(--surface-row-alt)}
+:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row):hover{position:relative;z-index:1;background:#f3f6f8!important;box-shadow:0 4px 10px rgba(16,43,63,.11);transform:translateY(-1px)}
 
 /* Production hierarchy: PO owns the section, Part owns a card, Operation stays a compact row. */
 :where(.schedule-po,.gantt-po,.ct-po,.dash-po-card,.pc-po-card){border:1px solid var(--border-strong)!important;border-radius:var(--radius-panel)!important;background:#fff!important;box-shadow:var(--shadow-section-strong)!important}
@@ -702,7 +702,7 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 @media(max-width:520px){
   .panel{box-shadow:0 2px 7px rgba(16,43,63,.09)!important}
   .card,.daily-kpi,.catalog-summary article,.system-user-summary article,.session-accordion-item{box-shadow:var(--shadow-row)!important}
-  :where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row):hover{transform:none}
+  :where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row):hover{transform:none}
   .schedule-po.gantt-po .schedule-po-head:after{content:"Kéo ngang timeline để xem đầy đủ →";grid-column:1/-1;padding-top:6px;border-top:1px solid var(--border-subtle);color:var(--text-secondary);font-size:11px;font-weight:650}
   .schedule-po.gantt-po .gantt-wrap{scrollbar-color:var(--action-primary) #dfe5ea;scrollbar-width:auto}
   .schedule-po.gantt-po .gantt-wrap::-webkit-scrollbar{height:10px}.schedule-po.gantt-po .gantt-wrap::-webkit-scrollbar-thumb{border:2px solid #dfe5ea;border-radius:999px;background:var(--action-primary)}
@@ -1358,14 +1358,14 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
    row, and keeps its own hover-lift defined above (see "Page-specific:
    Kiosk Management" rule) -- this list is for rows that scroll past quickly
    in a dense list, where movement is distracting. */
-:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row){transform:none!important}
+:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row){transform:none!important}
 /* Field report (2026-09-08): the hover cue above was too subtle to notice
    while scanning down a dense list -- kept "highlight by surface/border,
    not movement" (see this block's own comment above), just turned up the
    contrast on all three: a visibly blue-tinted background (not just a
    whisper-lighter gray), a darker/heavier border, and a real shadow depth
    instead of a barely-there one. */
-:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row):hover{transform:none!important;box-shadow:0 3px 14px rgba(16,43,63,.2)!important;border-color:#8b98a5!important;background:#e8f0f6!important}
+:where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row):hover{transform:none!important;box-shadow:0 3px 14px rgba(16,43,63,.2)!important;border-color:#8b98a5!important;background:#e8f0f6!important}
 
 /* Status language: compact, restrained, and semantically consistent. */
 .badge,.status-pill,.workflow-badge,.pc-state,.pc-priority,.equipment-state,.user-role,.user-access,.user-security,.log-level,.ota-badge{min-height:22px;padding:2px 7px;border-radius:999px;font-size:11px;line-height:16px;font-weight:700;letter-spacing:0;text-transform:none}
@@ -1613,3 +1613,36 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
    sat with no gap. One shared base rule, same as above. */
 .form-check{display:flex;align-items:center;gap:8px}
 .form-check-label{cursor:pointer}
+
+/* Hàng chờ sửa (rework queue, 2026-09-09). Same dense-row grammar as
+   .daily-op-row / .op-time-row -- the row itself is already covered by the
+   shared :where(...) zebra/hover rules above, so only the grid, the pending
+   emphasis and the resolve modal need their own declarations here. */
+.rq-stats{margin:14px 0}
+.rq-table{overflow:auto}
+.rq-row{display:grid;grid-template-columns:minmax(240px,1.5fr) minmax(170px,1fr) minmax(140px,.8fr) minmax(160px,.9fr) minmax(92px,.42fr) minmax(104px,.5fr);gap:12px;align-items:center;padding:11px;border-bottom:1px solid #e8edf2;min-width:1000px}
+.rq-row.head{background:#f5f7fa;color:#657585;font-size:11px;font-weight:800}
+.rq-row b,.rq-row small{display:block}
+.rq-row small{color:var(--muted);margin-top:3px}
+.rq-cell{min-width:0}
+.rq-what b,.rq-who b,.rq-what small,.rq-who small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rq-pending{text-align:right}
+.rq-pending strong{display:block;font-size:20px;font-weight:800;color:#a35a12}
+.rq-pending small{color:var(--muted)}
+.rq-act{text-align:right}
+.rq-noperm{color:var(--muted);font-size:11px}
+.rq-resolve{display:grid;gap:14px}
+.rq-resolve-source{display:grid;gap:3px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#f7f9fb}
+.rq-resolve-source span{color:var(--muted);font-size:12px}
+.rq-resolve-source strong{margin-top:5px;color:#a35a12}
+.rq-resolve-grid{grid-template-columns:1fr 1fr}
+/* .form-grid only lays out the grid itself -- stacking the caption above its
+   control is each form's own job here (same as .shift-edit-grid label /
+   .session-edit-grid label). Without this the caption and the input sit on
+   one line and a longer caption ("Loại (phế)") gets clipped by the field. */
+.rq-resolve-grid label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:#52616d}
+.rq-resolve-grid .rq-span{grid-column:1/-1}
+.rq-resolve-preview{margin:0;color:var(--muted);font-size:12.5px}
+.rq-resolve-preview b{color:#17212b}
+.rq-resolve-preview b.danger{color:#a62c2c}
+@media(max-width:900px){.rq-resolve-grid{grid-template-columns:1fr}}
