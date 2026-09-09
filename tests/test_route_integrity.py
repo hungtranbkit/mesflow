@@ -88,6 +88,19 @@ def test_no_dispatch_branch_points_at_a_removed_feature():
         'hàm render thật, nếu không route đó lại ra trang trắng')
 
 
+def test_unknown_route_renders_a_not_found_state_not_a_blank_screen():
+    """Gỡ một route thì phải để lại thông báo, không để lại khoảng trống.
+
+    Gỡ nhánh esp-ota đã đổi một ReferenceError thành một màn hình trắng im
+    lặng -- chưa khá hơn là bao. Người gõ nhầm URL hay bấm bookmark cũ cần biết
+    mình đang ở đâu.
+    """
+    app = _app_js()
+    assert 'Không tìm thấy trang' in app, (
+        'openPage() không có nhánh cuối cho route lạ -- route không khớp sẽ ra trang trắng')
+    assert 'Không có màn hình' in app
+
+
 def test_registered_pages_are_loaded_by_the_shell():
     """pages/*.js phải được nạp, nếu không registerPage không bao giờ chạy."""
     index = None
