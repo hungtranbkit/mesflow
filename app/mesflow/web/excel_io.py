@@ -382,7 +382,7 @@ def _parse_go_router_template(workbook, filename):
         part_name=sheet.title.strip() or _text(drawing_name) or part_code
         parts.append({'key':part_code,'code':part_code,'name':part_name,'sort_order':part_order})
         op_order=0
-        for row in rows:
+        for excel_row,row in enumerate(rows,start=1):
             first_nonempty=next((_text(v) for v in row if _text(v)), '')
             match=op_pattern.match(first_nonempty)
             if not match:
@@ -393,7 +393,11 @@ def _parse_go_router_template(workbook, filename):
             op_code=f'{part_code}-OP{seq:02d}'
             operations.append({
                 'part_key':part_code,'code':op_code,'name':op_name,
-                'equipment_code':'','sort_order':op_order
+                'equipment_code':'','sort_order':op_order,
+                # Where this block actually sits, so a rejection can point at
+                # it: this layout puts each Part on its own sheet, so the sheet
+                # name matters as much as the row number.
+                '_excel_sheet':sheet.title,'_excel_row':excel_row
             })
             op_order+=1
     if not parts or not operations:
@@ -442,7 +446,7 @@ def _duplicate_rows_message(parts, operations, duplicate_codes):
     part_code_by_key={p['key']:p['code'] for p in parts}
     lines=[]
     for wanted in duplicate_codes:
-        rows=[]
+        rows={}
         part_label=''
         for op in operations:
             part_code=part_code_by_key.get(op.get('part_key'))
@@ -450,12 +454,13 @@ def _duplicate_rows_message(parts, operations, duplicate_codes):
                 continue
             part_label=part_label or str(part_code or '')
             if op.get('_excel_row'):
-                rows.append(str(op['_excel_row']))
+                rows.setdefault(str(op.get('_excel_sheet') or 'Operations'),[]).append(str(op['_excel_row']))
         code=str((next((o.get('code') for o in operations
                         if operation_code_suffix(part_code_by_key.get(o.get('part_key')),o.get('code'))==wanted),
                        wanted)) or wanted)
         if rows:
-            lines.append(f"Part {part_label} · Operation {code} — sheet Operations dòng {', '.join(rows)}")
+            where='; '.join(f"sheet '{sheet}' dòng {', '.join(nums)}" for sheet,nums in rows.items())
+            lines.append(f'Part {part_label} · Operation {code} — {where}')
         else:
             lines.append(f'Part {part_label} · Operation {code}')
     return ('File Excel có Operation trùng mã trong cùng một Part:\n- '
@@ -532,7 +537,7 @@ def import_template_workbook():
                 if not pc and not on: continue
                 if pc not in part_keys: raise ValueError(f'Operations dòng {idx+2}: Part {pc} không tồn tại.')
                 if not on: raise ValueError(f'Operations dòng {idx+2}: thiếu tên Operation.')
-                cycle_value=float(ov('cycle time value','cycle_time_value',default=0) or 0); cycle_unit=_text(ov('cycle time unit','cycle_time_unit',default='second')).lower(); operations.append({'part_key':pc,'code':_text(ov('operation code','operation_code')).upper(),'name':on,'equipment_code':_text(ov('equipment code','equipment_code')).upper(),'standard_seconds_per_unit':cycle_value*(60 if cycle_unit.startswith(('min','phút','phut')) else 1),'sort_order':_integer(ov('sort order','sort_order',default=idx),f'Operations dòng {idx+2} sort_order',default=idx),'_excel_row':idx+2})
+                cycle_value=float(ov('cycle time value','cycle_time_value',default=0) or 0); cycle_unit=_text(ov('cycle time unit','cycle_time_unit',default='second')).lower(); operations.append({'part_key':pc,'code':_text(ov('operation code','operation_code')).upper(),'name':on,'equipment_code':_text(ov('equipment code','equipment_code')).upper(),'standard_seconds_per_unit':cycle_value*(60 if cycle_unit.startswith(('min','phút','phut')) else 1),'sort_order':_integer(ov('sort order','sort_order',default=idx),f'Operations dòng {idx+2} sort_order',default=idx),'_excel_sheet':'Operations','_excel_row':idx+2})
         else:
             parsed=_parse_go_router_template(wb,upload.filename)
             if not parsed:

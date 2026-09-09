@@ -176,6 +176,7 @@ def test_excel_import_refuses_a_duplicate_inside_one_part(db, api):
         # Points at the rows to edit, not just the code: the person reading
         # this has the workbook open.
         assert 'dòng' in message
+        assert "sheet 'Operations'" in message, f'the sheet must be named: {message}'
         assert '2' in message and '3' in message, f'expected the two Operations rows: {message}'
         assert 'Part PA' in message
         assert db.execute('SELECT COUNT(*) n FROM templates WHERE upper(code)=upper(%s)',
@@ -185,3 +186,41 @@ def test_excel_import_refuses_a_duplicate_inside_one_part(db, api):
                           (code,)).fetchone()['n'] == 1
     finally:
         _drop_template(db, code)
+
+
+def _go_router_workbook(sheets):
+    """The other real layout: one sheet per Part, `OPERATION # NN - name` rows.
+
+    This is the shape the customer's own routing files use, and the one that
+    produced TPL-6126 -- two blocks numbered the same inside one sheet.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, ops in sheets.items():
+        ws = wb.create_sheet(title[:31])
+        ws.append(['PO NUMBER:', 'PO-GO-1'])
+        ws.append(['QTY:', 10])
+        ws.append(['MÃ BẢN VẼ', title])
+        for seq, name in ops:
+            ws.append([f'OPERATION # {seq:02d} - {name}'])
+            ws.append(['', 'chi tiết'])
+    buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+
+
+def test_go_router_workbook_names_the_sheet_and_row_of_a_duplicate(db, api):
+    """A one-sheet-per-Part file must say WHICH sheet, not just the code.
+
+    Reported live 2026-09-09: the rejection listed ten duplicated codes with
+    no location, and this layout spreads Operations across many sheets, so
+    "Part X · Operation Y" alone still left the file to be searched by hand.
+    """
+    payload = _go_router_workbook({'KM-3172005-08': [(1, 'CẮT LASER'), (2, 'CHAMFER LỖ'),
+                                                     (2, 'LÀM NGUỘI')]})
+    response = _upload(api, 'go_router.xlsx', payload)
+    assert response.status_code >= 400, response.text
+    message = response.json().get('message') or ''
+    assert 'KM-3172005-08-OP02' in message
+    assert "sheet 'KM-3172005-08'" in message, f'the sheet must be named: {message}'
+    # 3 header rows, then each block is a title row plus a detail row, so the
+    # two OPERATION # 02 titles land on rows 6 and 8.
+    assert 'dòng 6, 8' in message, message
