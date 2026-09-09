@@ -705,14 +705,27 @@ async function renderProductionOrders(){
     if(!items.length){document.getElementById('poList').innerHTML='<div class="po-empty"><strong>Chưa có Production Order phù hợp</strong><span>Tạo PO từ Template để sao chép sẵn Part và Operation, hoặc thay đổi bộ lọc hiện tại.</span><button class="btn primary" type="button" id="poEmptyCreate">Tạo Production Order đầu tiên</button></div>';document.getElementById('poEmptyCreate').onclick=()=>document.getElementById('addPO').click();return}
     document.getElementById('poList').innerHTML=`<div class="table-wrap"><table><thead><tr>
       <th>Mã PO</th><th>Template nguồn</th><th>Sản phẩm</th><th class="num">Kế hoạch</th><th>Trạng thái</th><th>Ưu tiên</th><th>Bắt đầu dự kiến</th><th>Kết thúc dự kiến</th><th>Thao tác</th>
-    </tr></thead><tbody>${items.map(x=>`<tr>
+    </tr></thead><tbody>${items.map(x=>`<tr class="po-row" tabindex="0" role="link" aria-label="Mở ${esc(x.code)}" data-po-row="${x.id}">
       <td><strong>${esc(x.code)}</strong></td><td>${x.source_template_code?`<b>${esc(x.source_template_code)}</b><small class="cell-sub">v${esc(x.source_template_version||'1.0')}</small>`:'<span class="badge warning">PO cũ</span>'}</td><td>${esc(x.product||'')}</td><td class="num">${format(x.planned_quantity||0)}</td>
-      <td><span class="badge po-status ${String(x.status||'planned').toLowerCase()}">${esc(statusText(x.status))}</span></td><td>${esc(priorityText(x.priority))}</td><td>${esc(x.planned_start_at?fmt(x.planned_start_at):'Chưa đặt')}</td><td>${esc(x.planned_end_at?fmt(x.planned_end_at):(x.due_date||'Chưa đặt'))}</td><td class="po-actions">${canStartProductionOrder(x.status)?`<button class="btn primary po-start-btn" data-po-start="${x.id}" data-po-code="${esc(x.code)}">${String(x.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:`<button class="btn primary po-open-btn" data-po-open="${x.id}">${String(x.status).toUpperCase()==='COMPLETED'?'Xem PO':'Mở PO'}</button>`}<details class="po-action-menu"><summary class="btn" aria-label="Thao tác khác với ${esc(x.code)}">…</summary><div class="po-action-popover">${canStartProductionOrder(x.status)?`<button class="po-open-btn" data-po-open="${x.id}">Mở PO</button>`:''}<button class="po-edit-btn" data-po-edit="${x.id}">Sửa thông tin</button><button class="danger-text po-delete-btn" data-po-delete="${x.id}">Xóa PO</button><button class="danger-text po-force-delete-btn" data-po-force-delete="${x.id}" data-po-code="${esc(x.code)}">Force Delete · Test/Admin</button></div></details></td></tr>`).join('')}</tbody></table></div>`;
+      <td><span class="badge po-status ${String(x.status||'planned').toLowerCase()}">${esc(statusText(x.status))}</span></td><td>${esc(priorityText(x.priority))}</td><td>${esc(x.planned_start_at?fmt(x.planned_start_at):'Chưa đặt')}</td><td>${esc(x.planned_end_at?fmt(x.planned_end_at):(x.due_date||'Chưa đặt'))}</td><td class="po-actions">${canStartProductionOrder(x.status)?`<button class="btn primary po-start-btn" data-po-start="${x.id}" data-po-code="${esc(x.code)}">${String(x.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:`<button class="btn primary po-open-btn" data-po-open="${x.id}">${String(x.status).toUpperCase()==='COMPLETED'?'Xem PO':'Mở PO'}</button>`}<button class="btn po-action-more" type="button" data-po-menu="${x.id}" data-po-code="${esc(x.code)}" aria-haspopup="menu" aria-expanded="false" aria-label="Thao tác khác với ${esc(x.code)}">…</button></td></tr>`).join('')}</tbody></table></div>`;
     document.querySelectorAll('[data-po-start]').forEach(b=>b.onclick=()=>startProductionOrder(Number(b.dataset.poStart),b.dataset.poCode,'list'));
     document.querySelectorAll('[data-po-open]').forEach(b=>b.onclick=()=>openProductionOrder(Number(b.dataset.poOpen)));
     document.querySelectorAll('[data-po-edit]').forEach(b=>b.onclick=()=>editProductionOrder(Number(b.dataset.poEdit)));
     document.querySelectorAll('[data-po-delete]').forEach(b=>b.onclick=()=>removeProductionOrder(Number(b.dataset.poDelete)));
     document.querySelectorAll('[data-po-force-delete]').forEach(b=>b.onclick=()=>forceDeleteProductionOrder(Number(b.dataset.poForceDelete),b.dataset.poCode));
+    document.querySelectorAll('[data-po-row]').forEach(tr=>{
+      const open=()=>openProductionOrder(Number(tr.dataset.poRow));
+      tr.onclick=e=>{if(e.target.closest('button'))return;open()};
+      tr.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();open()}};
+    });
+    // Menu chỉ chứa thao tác phụ. Primary của từng trạng thái đã nằm ngoài,
+    // và không được lặp lại ở đây -- đó chính là chỗ người dùng thấy cùng một
+    // action lúc ngoài lúc trong menu.
+    document.querySelectorAll('[data-po-menu]').forEach(b=>b.onclick=()=>MFUI.rowMenu(b,[
+      {label:'Sửa thông tin',onSelect:()=>editProductionOrder(Number(b.dataset.poMenu))},
+      {label:'Xóa PO',danger:true,onSelect:()=>removeProductionOrder(Number(b.dataset.poMenu))},
+      {label:'Force Delete · Test/Admin',danger:true,onSelect:()=>forceDeleteProductionOrder(Number(b.dataset.poMenu),b.dataset.poCode)},
+    ]));
   };
   const load=async()=>{try{const d=await api('/api/production-orders?limit=500');window.poItems=d.items||[];draw(window.poItems)}catch(e){document.getElementById('poList').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}};
   document.getElementById('addPO').onclick=()=>productionOrderModal(null).catch(e=>alert(`Không mở được form thêm PO: ${e.message}`));
