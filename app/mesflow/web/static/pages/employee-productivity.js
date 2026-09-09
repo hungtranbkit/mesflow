@@ -11,6 +11,16 @@
 
 registerPage('employee-productivity', () => renderEmployeeProductivity());
 
+function sessionBreakdown(row) {
+  // Only the parts that actually apply -- an empty <small> would still take
+  // up a line in the row.
+  const parts = [
+    row.completed_invalid_sessions ? `${row.completed_invalid_sessions} thiếu định mức` : '',
+    row.repair_sessions ? `${row.repair_sessions} ca sửa hàng` : '',
+  ].filter(Boolean);
+  return parts.length ? `<small>${parts.join(' · ')}</small>` : '';
+}
+
 function productivityText(pct) {
   return pct === null || pct === undefined ? '—' : `${Number(pct).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`;
 }
@@ -129,7 +139,12 @@ async function renderEmployeeProductivity() {
     // backend summary for this endpoint no longer computes any such field.
     document.getElementById('epKpis').innerHTML = [
       ['Nhân viên có dữ liệu', summary.employee_count || 0, (summary.completed_sessions || 0) + ' session đã kết thúc'],
-      ['Tổng Session đã kết thúc', summary.completed_sessions || 0, (summary.completed_invalid_sessions || 0) + ' không đủ dữ liệu định mức'],
+      // 'Thiếu định mức' is the actionable number (an Operation missing its
+      // standard time). Repair sessions on the SỬA HÀNG bench have no
+      // production standard by nature, so they are named, not lumped in.
+      ['Tổng Session đã kết thúc', summary.completed_sessions || 0,
+        [(summary.completed_invalid_sessions || 0) + ' thiếu định mức',
+         summary.repair_sessions ? summary.repair_sessions + ' ca sửa hàng' : ''].filter(Boolean).join(' · ')],
       ['Năng suất trung bình', productivityText(summary.avg_employee_productivity_percent), 'Trung bình của từng nhân viên, không phải trung bình mọi session'],
       ['Tổng sản lượng đạt', summary.total_good_qty || 0, 'Lỗi ' + Number(summary.total_defect_qty || 0).toLocaleString('vi-VN')],
     ].map((x, i) => `<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${typeof x[1] === 'number' ? Number(x[1]).toLocaleString('vi-VN') : x[1]}</strong><span>${x[2]}</span></article>`).join('');
@@ -148,7 +163,7 @@ async function renderEmployeeProductivity() {
     </tr></thead><tbody>${rows.map(x => {
       return `<tr class="ep-row" data-employee="${x.employee_id}" tabindex="0" role="button">
         <td><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
-        <td><b>${x.completed_sessions} session</b>${x.completed_invalid_sessions ? `<small>${x.completed_invalid_sessions} không đủ dữ liệu</small>` : ''}</td>
+        <td><b>${x.completed_sessions} session</b>${sessionBreakdown(x)}</td>
         <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} session hợp lệ</small></td>
         <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>NG ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
         <td>${epDur(x.worked_seconds)}</td>
@@ -326,8 +341,8 @@ async function openEmployeeProductivityDetail(employeeId, from, to) {
         <td>${epDateShort(x.ended_at)}</td><td>${esc(x.po_code)}</td><td>${esc(x.part_code)}</td><td>${esc(x.operation_code)}</td>
         <td>${epTimeShort(x.started_at)}</td><td>${epTimeShort(x.ended_at)}</td><td>${epDur(x.duration_seconds)}</td>
         <td>${Number(x.good_qty).toLocaleString('vi-VN')}</td><td>${Number(x.defect_qty).toLocaleString('vi-VN')}</td>
-        <td>${x.completion_percent === null ? '<span class="badge neutral">Không đủ dữ liệu</span>' : productivityText(x.completion_percent)}</td>
-        <td>${x.completion_percent === null ? 'Đã kết thúc · thiếu dữ liệu định mức' : 'Đã kết thúc · hợp lệ'}</td>
+        <td>${x.completion_percent === null ? `<span class="badge neutral">${x.is_repair ? 'Không tính điểm' : 'Không đủ dữ liệu'}</span>` : productivityText(x.completion_percent)}</td>
+        <td>${x.completion_percent === null ? (x.is_repair ? 'Đã kết thúc · ca sửa hàng, không có định mức' : 'Đã kết thúc · thiếu dữ liệu định mức') : 'Đã kết thúc · hợp lệ'}</td>
       </tr>`).join('')}</tbody></table></div><p class="ep-detail-footnote">Trung bình: ${productivityText(d.productivity_percent)} trên ${d.valid_session_count} session hợp lệ (session đang chạy đã bị loại từ query, không chỉ từ công thức; session thiếu dữ liệu định mức cũng không tính vào trung bình).</p>`
       : '<div class="empty">Không có Session đã kết thúc trong khoảng ngày đã chọn.</div>';
   } catch (e) {

@@ -1567,7 +1567,8 @@ class ReportRepository:
             e.department,e.team,ws.status,
             GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
-            COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty
+            COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
+            COALESCE(o.is_rework_op,FALSE) is_repair
           FROM work_sessions ws
           JOIN employees e ON e.id=ws.employee_id
           JOIN operations o ON o.id=ws.operation_id
@@ -1578,7 +1579,16 @@ class ReportRepository:
         SELECT employee_id,employee_code,employee_name,department,team,
           COUNT(*) completed_sessions,
           COUNT(*) FILTER (WHERE completion_percent IS NOT NULL) completed_valid_sessions,
-          COUNT(*) FILTER (WHERE completion_percent IS NULL) completed_invalid_sessions,
+          -- "Thiếu định mức" must stay ACTIONABLE: it means a production
+          -- session that should have been scored but could not be, because
+          -- its Operation has no standard time (or it reported nothing) --
+          -- something a manager can go and fix. A repair session on the SỬA
+          -- HÀNG workbench structurally has no production standard and never
+          -- will, so counting it here sent people looking for a config gap
+          -- that does not exist. Broken out below instead of dropped: the
+          -- time was really worked, and worked_seconds still includes it.
+          COUNT(*) FILTER (WHERE completion_percent IS NULL AND NOT is_repair) completed_invalid_sessions,
+          COUNT(*) FILTER (WHERE is_repair) repair_sessions,
           AVG(completion_percent) productivity_percent,
           COALESCE(SUM(good_qty),0) good_qty,COALESCE(SUM(defect_qty),0) defect_qty,
           COALESCE(SUM(actual_seconds),0)::bigint worked_seconds
@@ -1598,6 +1608,7 @@ class ReportRepository:
             'completed_sessions':sum(x['completed_sessions'] for x in employees),
             'completed_valid_sessions':sum(x['completed_valid_sessions'] for x in employees),
             'completed_invalid_sessions':sum(x['completed_invalid_sessions'] for x in employees),
+            'repair_sessions':sum(x['repair_sessions'] for x in employees),
             # AVG of employee productivity_percent values (one number per
             # employee who has at least one valid closed session) -- NOT
             # AVG over every session factory-wide. An employee with more
@@ -1632,6 +1643,7 @@ class ReportRepository:
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
             o.code operation_code,o.name operation_name,po.code po_code,p.code part_code,
+            COALESCE(o.is_rework_op,FALSE) is_repair,
             ws.excluded_from_reports,ws.exclusion_reason
           FROM work_sessions ws
           JOIN operations o ON o.id=ws.operation_id

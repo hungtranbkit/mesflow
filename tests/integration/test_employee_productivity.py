@@ -302,3 +302,41 @@ def test_endpoint_requires_login():
     import requests
     response = requests.get('http://mesflow-test-api:8080/api/reports/employee-productivity?from=2026-08-01&to=2026-08-22', timeout=10)
     assert response.status_code == 401
+
+
+def test_repair_session_is_named_not_counted_as_missing_standard(db, api, seeded_factory):
+    """A SỬA HÀNG session is repair labour, not a data-quality problem.
+
+    "Thiếu định mức" exists so a manager can go and configure the Operation's
+    standard time. The rework workbench has no production standard by nature
+    and never will, so counting its sessions there sent people chasing a config
+    gap that does not exist (2026-09-09 rework audit residual). They get their
+    own bucket instead of being dropped -- the time was really worked, and
+    worked_seconds still includes it.
+    """
+    g = seeded_factory
+    with db.cursor() as cur:
+        cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,sort_order,qr,is_rework_op)
+            VALUES(%s,%s,%s,'SỬA HÀNG','PLANNED',2147483647,%s,TRUE) RETURNING id""",
+            (g['po_id'], g['part_id'], f"REWORK-{g['po_id']}-{g['suffix']}", f"WF|OP|REWORK-{g['suffix']}"))
+        repair_op = cur.fetchone()['id']
+    # One ordinary session that genuinely lacks a standard, one repair session.
+    _insert_session(db, g['employee_id'], g['operation_id'], g['station_id'], g['suffix'], 'nostd',
+                    'CLOSED', datetime(2026, 8, 9, 9, 0, tzinfo=HCM), datetime(2026, 8, 9, 9, 10, tzinfo=HCM), good_qty=5)
+    _insert_session(db, g['employee_id'], repair_op, g['station_id'], g['suffix'], 'repair',
+                    'CLOSED', datetime(2026, 8, 9, 13, 0, tzinfo=HCM), datetime(2026, 8, 9, 15, 0, tzinfo=HCM), good_qty=0)
+
+    body = _fetch_summary(api, '2026-08-09', '2026-08-09')
+    row = _one(body, g['employee_id'])
+    assert row['completed_sessions'] == 2
+    # Only the real production session counts as missing a standard.
+    assert row['completed_invalid_sessions'] == 1
+    assert row['repair_sessions'] == 1
+    assert body['summary']['repair_sessions'] == 1
+    # The two hours on the bench are still working time.
+    assert row['worked_seconds'] >= 2 * 3600
+
+    detail = _fetch_detail(api, g['employee_id'], '2026-08-09', '2026-08-09')
+    repair_rows = [x for x in detail['sessions'] if x['is_repair']]
+    assert len(repair_rows) == 1
+    assert repair_rows[0]['completion_percent'] is None
