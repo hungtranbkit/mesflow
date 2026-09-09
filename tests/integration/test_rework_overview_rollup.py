@@ -89,3 +89,60 @@ def test_resolving_rework_keeps_po_progress_and_repair_buckets_honest(api, db, s
                 cur.execute('DELETE FROM rework_ledger WHERE rework_operation_id=%s', (rework_op_id,))
                 cur.execute('DELETE FROM work_sessions WHERE operation_id=%s', (rework_op_id,))
                 cur.execute('DELETE FROM operations WHERE id=%s', (rework_op_id,))
+
+
+def test_rework_session_is_not_a_second_quantity_source(api, db, seeded_factory):
+    """A repaired piece exists exactly once in work_sessions -- unfiltered.
+
+    resolve() used to write good_qty=repaired / defect_qty=scrapped onto the
+    rework session as well as crediting the source session: two rows carrying
+    the same physical pieces. Nothing double-counted only while every report
+    remembered to filter is_rework_op, and the one query that forgot
+    (po_progress) is exactly the P0 the test above guards. This asserts the
+    stronger property instead -- sum the raw rows with NO filter at all and
+    the totals still have to be the truth -- so a future query that forgets
+    the filter can no longer produce a wrong number.
+    """
+    graph = seeded_factory
+    rework_op_id = None
+    try:
+        source = _start(api, graph)
+        assert source.status_code == 201, source.text
+        source_id = source.json()['session']['id']
+        assert _finish(api, source_id, 92, 8).status_code == 200
+
+        resolved = api.post(f'{BASE_URL}/api/rework/queue/{source_id}/resolve', json={
+            'request_id': f'RWQTY-{uuid.uuid4()}', 'employee_id': graph['employee_id'],
+            'repaired_qty': 6, 'scrapped_qty': 2,
+        }, timeout=15)
+        assert resolved.status_code == 200, resolved.text
+        rework_op_id = db.execute(
+            'SELECT id FROM operations WHERE production_order_id=%s AND is_rework_op', (graph['po_id'],)).fetchone()['id']
+
+        # Deliberately NO is_rework_op filter: this is what a query that forgot
+        # it would see, and it must still be the real production total.
+        totals = db.execute("""SELECT COALESCE(SUM(ws.good_qty),0) good,COALESCE(SUM(ws.defect_qty),0) defect,
+              COALESCE(SUM(ws.rework_qty),0) rework,COALESCE(SUM(ws.scrap_qty),0) scrap
+            FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id
+            WHERE o.production_order_id=%s""", (graph['po_id'],)).fetchone()
+        assert (totals['good'], totals['defect'], totals['rework'], totals['scrap']) == (98, 8, 6, 2)
+
+        # The rework session still exists as the record of who did the repair
+        # and when -- it just carries no quantities of its own.
+        labour = db.execute("""SELECT employee_id,good_qty,defect_qty,rework_qty,scrap_qty,status
+            FROM work_sessions WHERE operation_id=%s""", (rework_op_id,)).fetchone()
+        assert labour is not None, 'the repair itself must still be recorded'
+        assert int(labour['employee_id']) == int(graph['employee_id'])
+        assert (labour['good_qty'], labour['defect_qty'], labour['rework_qty'], labour['scrap_qty']) == (0, 0, 0, 0)
+
+        # ...and the quantities are in the ledger, which is where the dated
+        # audit of this specific action belongs.
+        entry = db.execute('SELECT qty_reworked,qty_scrapped FROM rework_ledger WHERE source_session_id=%s',
+                           (source_id,)).fetchone()
+        assert (entry['qty_reworked'], entry['qty_scrapped']) == (6, 2)
+    finally:
+        with db.cursor() as cur:
+            if rework_op_id:
+                cur.execute('DELETE FROM rework_ledger WHERE rework_operation_id=%s', (rework_op_id,))
+                cur.execute('DELETE FROM work_sessions WHERE operation_id=%s', (rework_op_id,))
+                cur.execute('DELETE FROM operations WHERE id=%s', (rework_op_id,))

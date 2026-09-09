@@ -104,12 +104,27 @@ class ReworkQueueRepository:
                 if replay:
                     return {**replay['response_json'], 'idempotent_replay': True}
                 rework_op = _rework_operation(cur, int(source['production_order_id']), int(source['part_id']))
+                # The rework session records the LABOUR (who repaired, when,
+                # on which SỬA HÀNG workbench) and deliberately carries NO
+                # quantities. This used to write good_qty=repaired /
+                # defect_qty=scrapped here as well as crediting the source
+                # session below -- two rows describing the same physical
+                # pieces. Nothing double-counted only for as long as every
+                # single report remembered to filter is_rework_op, and the one
+                # query that forgot (po_progress, fixed 2026-09-09) collapsed a
+                # whole PO's progress to zero. Zero here restores this module's
+                # own stated rule -- "The source Session remains the bucket
+                # owner ... never a second quantity source" (see the docstring
+                # above and 0044_rework_queue.py) -- and makes the is_rework_op
+                # filters defence in depth instead of load-bearing. The
+                # quantities live on the source session (running balance) and
+                # in rework_ledger (dated audit of this specific action).
                 cur.execute("""INSERT INTO work_sessions(
                     employee_id,operation_id,station_id,device_uuid,status,started_at,ended_at,
                     good_qty,defect_qty,rework_qty,scrap_qty,start_request_id,finish_request_id,note)
-                    VALUES(%s,%s,%s,%s,'CLOSED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,%s,%s,0,0,%s,%s,%s)
+                    VALUES(%s,%s,%s,%s,'CLOSED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,0,0,0,0,%s,%s,%s)
                     RETURNING *""", (employee_id,rework_op['id'],data.get('station_id'),
-                    str(data.get('device_uuid') or 'REWORK-QUEUE'),repaired,scrapped,
+                    str(data.get('device_uuid') or 'REWORK-QUEUE'),
                     f'{request_id}-START',f'{request_id}-FINISH',str(data.get('note') or '')))
                 rework_session = cur.fetchone()
                 record_quantities(cur, session=source,
