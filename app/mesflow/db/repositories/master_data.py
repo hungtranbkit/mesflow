@@ -324,6 +324,30 @@ class TemplateRepository(BaseRepository):
     selectable_columns=('id','code','name','product','version','active','source_workbook','created_at','updated_at')
     writable_columns=('code','name','product','version','active','source_workbook')
 
+    def list(self, limit:int=200, offset:int=0, order_by:str|None=None):
+        """Include the structure counts the Template list actually renders.
+
+        The list panel prints "<n> Part · <n> Operation" straight off
+        part_count/operation_count, but the generic BaseRepository.list()
+        only ever returns the templates table's own columns -- so those
+        fields were always undefined and every row read "0 Part · 0
+        Operation", including templates whose Parts and Operations were
+        visible in the editor right next to the list (reported on TEST
+        2026-09-09). Same aggregate the /templates/available-for-po endpoint
+        already uses, kept here so every consumer of /api/templates sees a
+        truthful count rather than each screen growing its own query.
+        """
+        order='t.code,t.id' if order_by not in self.selectable_columns else f't.{order_by}'
+        return fetch_all(f"""SELECT t.id,t.code,t.name,t.product,t.version,t.active,t.source_workbook,
+                t.created_at,t.updated_at,
+                COUNT(DISTINCT tp.id) AS part_count,
+                COUNT(DISTINCT tpo.id) AS operation_count
+            FROM templates t
+            LEFT JOIN template_parts tp ON tp.template_id=t.id
+            LEFT JOIN template_operations tpo ON tpo.template_id=t.id
+            GROUP BY t.id
+            ORDER BY {order} LIMIT %s OFFSET %s""",(limit,offset))
+
     @staticmethod
     def _normalize(data):
         clean=dict(data or {})
@@ -390,6 +414,48 @@ def _validate_template_part_codes(parts, *, template=None):
     return normalized
 
 
+def _validate_template_operation_codes(operations, *, template=None):
+    """An Operation code must be unique within its Template.
+
+    Two reasons, both load-bearing rather than stylistic:
+
+    1. TemplateTreeRepository.instantiate() derives every real Operation code
+       as `<po_code>-<template_op_code>`, and operations.code carries a GLOBAL
+       unique constraint (operations_code_key). Two template rows sharing a
+       code therefore generate the same Operation code and the second INSERT
+       dies -- which is exactly what happened on TEST 2026-09-09 with
+       TPL-6126: ten duplicated codes, e.g. KM-3172005-08-OP02 present twice
+       under the same part, surfacing to the user as a raw PostgreSQL
+       "duplicate key value violates unique constraint" popup.
+    2. input_source_code references an operation BY CODE. With a duplicate,
+       that reference is genuinely ambiguous -- instantiate()'s
+       template_to_actual map silently keeps whichever row it saw last, so
+       the material-flow wiring would be a coin toss even if the insert
+       succeeded.
+
+    Deliberately not auto-renamed (e.g. appending -2): the code is the
+    customer's own routing identifier, and silently minting a different one
+    would put an Operation into production under a code that appears nowhere
+    in their template. The duplicate is reported instead, naming the codes so
+    it can be corrected at the source.
+    """
+    counts={}
+    for op in operations:
+        code=_normalize_part_code(op.get('code'))
+        if not code:
+            continue
+        counts[code]=counts.get(code,0)+1
+    duplicates=sorted(code for code,count in counts.items() if count>1)
+    if duplicates:
+        details={'duplicate_codes':duplicates}
+        if template:
+            details.update({'template_id':template.get('id'),'template_code':template.get('code')})
+        raise TemplateValidationError(
+            'DUPLICATE_OPERATION_CODE_IN_TEMPLATE',
+            'Template contains duplicate operation codes.',details)
+    return duplicates
+
+
 class TemplateTreeRepository:
     @staticmethod
     def _validate_dependency_graph(operations):
@@ -434,6 +500,8 @@ class TemplateTreeRepository:
             raise ValueError('standard_seconds_per_unit must be >= 0')
         if any(float(op.get('repair_cycle_time_seconds_per_unit') or 0) < 0 for op in operations):
             raise ValueError('repair_cycle_time_seconds_per_unit must be >= 0')
+        # Set() below would silently swallow a duplicate, so check first.
+        _validate_template_operation_codes(operations)
         op_codes={str(op.get('code') or '').strip().upper() for op in operations if str(op.get('code') or '').strip()}
         for item in operations:
             source=str(item.get('input_source_code') or '').strip().upper()
@@ -481,6 +549,11 @@ class TemplateTreeRepository:
             _validate_template_part_codes(parts,template=template)
         except TemplateValidationError as exc:
             errors.append({'code':exc.code.replace('_IN_TEMPLATE',''),'field':'parts.code','values':exc.details.get('duplicate_codes',[]),'details':exc.details})
+        try:
+            _validate_template_operation_codes(operations,template=template)
+        except TemplateValidationError as exc:
+            errors.append({'code':exc.code.replace('_IN_TEMPLATE',''),'field':'operations.code',
+                           'values':exc.details.get('duplicate_codes',[]),'details':exc.details})
         if not parts:
             errors.append({'code':'NO_PARTS','field':'parts','values':[]})
         if not operations:
@@ -511,6 +584,17 @@ class TemplateTreeRepository:
                 raise ConflictError('Template chưa có Operation. Hãy hoàn thiện Template trước khi tạo PO.')
             self._validate_dependency_graph(template_ops)
             _validate_template_part_codes(list(template_parts), template=template)
+            # Checked BEFORE the first INSERT: the transaction would roll the
+            # partial clone back anyway, but the user must get a message that
+            # says what to fix instead of a raw unique-constraint violation.
+            try:
+                _validate_template_operation_codes(list(template_ops), template=template)
+            except TemplateValidationError as exc:
+                duplicates=', '.join(exc.details.get('duplicate_codes') or [])
+                raise ConflictError(
+                    f"Template {template['code']} có mã Operation bị trùng: {duplicates}. "
+                    "Mỗi Operation phải có mã riêng trong Template (mã PO sẽ được ghép vào mã này). "
+                    "Hãy sửa Template rồi tạo lại PO.") from exc
             try:
                 po=conn.execute(
                     "INSERT INTO production_orders(code,sales_order_id,source_template_id,source_template_code,source_template_version,product,planned_quantity,status,priority,due_date,planned_start_at,planned_end_at,notes) VALUES(%s,%s,%s,%s,%s,%s,%s,'PLANNED',%s,%s,%s,%s,%s) RETURNING id",
