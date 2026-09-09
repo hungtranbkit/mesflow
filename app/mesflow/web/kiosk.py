@@ -4,6 +4,7 @@ import uuid
 from flask import Blueprint, jsonify, request, render_template
 
 from mesflow import __version__
+from mesflow.web.auth import login_required, production_client_required
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
@@ -34,7 +35,7 @@ def _error(exc):
                        action='Quét lại đúng thứ tự hoặc nhập lại dữ liệu.'), 400
     return jsonify(ok=False, error='INTERNAL_ERROR', error_code='SYS-500',
                    message='Máy chủ không xử lý được yêu cầu.',
-                   action='Ghi lại mã SYS-500 và báo người quản trị.', detail=f'{type(exc).__name__}: {exc}'), 500
+                   action='Ghi lại mã SYS-500 và báo người quản trị.'), 500
 
 
 def _normalize_qr(value: object) -> str:
@@ -86,8 +87,17 @@ def kiosk_web_heartbeat():
 
 
 @bp.get('/api/kiosk-web/demo-data')
+@login_required
 def kiosk_demo_data():
-    """Danh sách QR để mô phỏng máy quét trên màn hình kiosk."""
+    """Danh sách QR để mô phỏng máy quét trên màn hình kiosk.
+
+    Signed-in only. This returns the full employee roster including every
+    badge QR value, which is a credential: anyone holding it can identify as
+    that worker at any terminal. It exists purely so an admin can demo a scan
+    without a physical scanner -- a real terminal never calls it, because a
+    real scanner types into the input field. It was reachable unauthenticated
+    from the public internet until 2026-09-09.
+    """
     try:
         employees = fetch_all(
             """SELECT id, employee_no, name, department, position, qr
@@ -117,6 +127,7 @@ def kiosk_demo_data():
 
 
 @bp.post('/api/kiosk-web/scan')
+@production_client_required
 def kiosk_scan():
     body = request.get_json(silent=True) or {}
     qr = _normalize_qr(body.get('qr'))
@@ -201,6 +212,7 @@ def kiosk_scan():
 
 
 @bp.post('/api/kiosk-web/start')
+@production_client_required
 def kiosk_start():
     body = request.get_json(silent=True) or {}
     try:
@@ -217,6 +229,7 @@ def kiosk_start():
 
 
 @bp.post('/api/kiosk-web/finish/<int:session_id>')
+@production_client_required
 def kiosk_finish(session_id: int):
     body = request.get_json(silent=True) or {}
     try:

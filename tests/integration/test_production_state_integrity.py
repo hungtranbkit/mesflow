@@ -40,7 +40,11 @@ def test_completed_and_cancelled_operation_reject_every_start(api, db, seeded_fa
     completed = start(api, graph)
     assert completed.status_code == 409, completed.text
     assert 'COMPLETED' in completed.json()['message']
-    web_kiosk = requests.post(f'{BASE_URL}/api/kiosk-web/start', json={
+    # Authenticated on purpose: /api/kiosk-web/start requires a signed-in
+    # session or an approved kiosk token since 2026-09-09. An anonymous call
+    # would now stop at 401 and this assertion would be testing the auth gate
+    # instead of the terminal-status guard it exists to protect.
+    web_kiosk = api.post(f'{BASE_URL}/api/kiosk-web/start', json={
         'request_id': f'WEB-{uuid.uuid4()}', 'employee_id': graph['employee_id'],
         'operation_id': graph['operation_id'], 'device_uuid': 'WEB-P0-TEST',
     }, timeout=10)

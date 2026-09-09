@@ -326,6 +326,7 @@ class DashboardRepository:
           SELECT po.id,COALESCE(po.planned_quantity,0) planned_quantity,COUNT(o.id) operation_count,
             COALESCE(SUM(o.done_qty),0) done_qty,COALESCE(SUM(o.defect_qty),0) defect_qty
           FROM production_orders po LEFT JOIN operations o ON o.production_order_id=po.id
+            AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
           WHERE po.status IN ('IN_PROGRESS','ACTIVE','PAUSED') GROUP BY po.id
         ), completed_due AS (
           SELECT COUNT(*) FILTER (WHERE (updated_at AT TIME ZONE %s)::date<=due_date) on_time_count,COUNT(*) total_count
@@ -352,6 +353,13 @@ class DashboardRepository:
         LEFT JOIN work_sessions ws ON (COALESCE(ws.ended_at,ws.updated_at) AT TIME ZONE %s)::date=d::date AND {reportable}
         GROUP BY d ORDER BY d""",(today,today,settings.timezone_name))
 
+        # Support Operations (SETUP, SỬA HÀNG) carry no target and can never
+        # reach COMPLETED -- a SETUP session closes at good_qty=0 by
+        # construction -- so counting one here leaves a denominator that never
+        # fills: a finished PO reads as 75% and gets flagged CRITICAL "Quá
+        # hạn" forever. Same failure that collapsed po_progress() to zero
+        # (fixed 2026-09-09), found on four more surfaces by the architecture
+        # audit. Their TIME is still real work and stays in the day view.
         po_health=fetch_all(f"""WITH op_rollup AS (
           SELECT o.production_order_id,COUNT(*) operation_count,
             COUNT(*) FILTER (WHERE o.status='COMPLETED') completed_operation_count,
@@ -359,6 +367,7 @@ class DashboardRepository:
             COUNT(*) FILTER (WHERE COALESCE(o.standard_seconds_per_unit,0)<=0) unconfigured_cycle_count,
             COUNT(*) FILTER (WHERE o.predecessor_operation_id IS NOT NULL AND COALESCE(pred.status,'')<>'COMPLETED') blocked_operation_count
           FROM operations o LEFT JOIN operations pred ON pred.id=o.predecessor_operation_id
+          WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
           GROUP BY o.production_order_id
         ), active_rollup AS (
           SELECT o.production_order_id,COUNT(ws.id) active_sessions,
@@ -538,7 +547,8 @@ class DashboardRepository:
           GREATEST(COALESCE(CASE WHEN o.input_source_kind='REWORK' THEN src.rework_qty ELSE src.done_qty END,0)-
             COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=src.id AND c.source_qty_kind=o.input_source_kind),0),0) input_available_qty,
           MIN(ws.started_at) actual_start_at,MAX(ws.ended_at) actual_end_at,COUNT(ws.id) FILTER (WHERE ws.status='OPEN') active_sessions
-        FROM production_orders po JOIN parts p ON p.production_order_id=po.id JOIN operations o ON o.part_id=p.id
+        FROM production_orders po JOIN parts p ON p.production_order_id=po.id
+          JOIN operations o ON o.part_id=p.id AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
         LEFT JOIN operations src ON src.id=o.input_source_operation_id
         LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
@@ -1816,7 +1826,8 @@ class KPIRepository:
           CASE WHEN o.done_qty+o.defect_qty>0 THEN ROUND(o.done_qty::numeric/(o.done_qty+o.defect_qty)*100,2) ELSE 0 END yield_percent,
           COUNT(ws.id) session_count
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
-        LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')} GROUP BY o.id,po.id
+        LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
+        WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION' GROUP BY o.id,po.id
         ORDER BY o.updated_at DESC LIMIT %s""",(min(max(limit,1),1000),))
     def snapshot(self,snapshot_date:date|None=None):
         snapshot_date=snapshot_date or business_date(timezone_name=settings.timezone_name)

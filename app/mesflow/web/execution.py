@@ -494,7 +494,16 @@ def legacy_lookup():
             active=WorkSessionRepository().list_open_for_employee(row['id'])
             if device: KioskEventRepository().ingest({'event_uuid':f'{device}-SCAN-EMP-{uuid.uuid4()}','device_uuid':device,'event_type':'SCAN_EMPLOYEE','severity':'INFO','message':f"Quét nhân viên {row['employee_no']}",'employee_id':row['id'],'payload':{'qr':qr}})
             return jsonify(ok=True,type='worker',worker={'id':row['id'],'code':row['employee_no'],'employee_code':row['employee_no'],'name':row['name'],'qr':row['qr']},active_sessions=active)
-        if qr.upper().startswith('WF|OP|'):
+        # Both Operation payload shapes, because this is the endpoint the
+        # LEGACY ESP firmware calls to validate a scan before letting the
+        # worker proceed. 'WF|OPID|4243'.startswith('WF|OP|') is False -- the
+        # fifth character is 'I', not '|' -- so an id-based label (every SETUP
+        # label carries one) used to fall through to 'unsupported qr' and came
+        # back as a 400 the device rendered as an invalid QR. The same payload
+        # already worked on every other path (legacy_group_start, offline
+        # sync, kiosk v2, /api/kiosk-web/scan); only this pre-scan check was
+        # missed, which is what made the gap invisible.
+        if qr.upper().startswith('WF|OP|') or qr.upper().startswith('WF|OPID|'):
             key=qr.split('|')[-1]
             row=KioskRepositoryLookup.operation(qr,key)
             if not row: raise NotFoundError('operation not found')

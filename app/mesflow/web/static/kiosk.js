@@ -19,6 +19,27 @@
   localStorage.setItem('mesflow_web_kiosk_uuid', deviceUuid);
   document.getElementById('device-label').textContent = deviceUuid.slice(0, 20);
 
+  // Kiosk token. Starting a session writes to the real production record, so
+  // this terminal has to prove it is one -- the page itself is public (nobody
+  // signs in on a shop-floor screen), which is exactly why the credential
+  // lives on the device instead of in a login. An admin enrolls a machine
+  // once by opening /kiosk?token=<token issued for this device>; the token is
+  // kept in localStorage and stripped from the address bar immediately, so it
+  // is not left sitting in the URL of an unattended screen. A signed-in
+  // browser needs no token at all -- the session is accepted instead.
+  const TOKEN_KEY = 'mesflow_web_kiosk_token';
+  (function enrollFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const supplied = (params.get('token') || '').trim();
+    if (!supplied) return;
+    localStorage.setItem(TOKEN_KEY, supplied);
+    params.delete('token');
+    const query = params.toString();
+    history.replaceState(history.state, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  })();
+  const kioskToken = () => localStorage.getItem(TOKEN_KEY) || '';
+  const authHeaders = () => { const t = kioskToken(); return t ? {'X-Kiosk-Token': t} : {}; };
+
   let state = 'ready';
   const tutorialMode = new URLSearchParams(window.location.search).get('tutorial') === '1';
   let employee = null;
@@ -54,10 +75,17 @@
     'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra session đang mở.',
     'QTY-409':'Giảm số lượng hoặc kiểm tra sản lượng OP nguồn.',
     'NET-001':'Kiểm tra Wi-Fi/LAN và địa chỉ máy chủ.',
+    'AUTH_REQUIRED':'Máy này chưa được cấp token. Nhờ quản trị viên cấp token cho kiosk rồi mở lại màn hình bằng đường dẫn kèm token, hoặc đăng nhập trên máy này.',
+    'FORBIDDEN':'Token của máy này đã bị thu hồi hoặc hết hiệu lực. Nhờ quản trị viên cấp lại.',
     'SYS-500':'Báo quản trị viên kèm mã lỗi này.'
   };
   function workerError(data,status) {
     const raw=`${data?.reason||''} ${data?.message||''}`.toUpperCase();
+    // Not enrolled / token revoked: the operator can do nothing at the screen
+    // itself, so say who to ask instead of showing a raw auth failure.
+    if(status===401||status===403)
+      return {message:'Máy kiosk này chưa được cấp quyền ghi dữ liệu.',
+              action:ERROR_HELP[status===401?'AUTH_REQUIRED':'FORBIDDEN']};
     // Setup is the one 409 whose own text is the instruction: it names the
     // SETUP label to scan next, which the generic wording below would throw
     // away and leave the worker with nothing to do.
@@ -112,7 +140,7 @@
     try {
       const response = await fetch('/api/kiosk-web/heartbeat', {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:{'Content-Type':'application/json', ...authHeaders()},
         body:JSON.stringify({
           device_uuid:deviceUuid,
           device_name:'Web Kiosk Demo',
@@ -135,7 +163,7 @@
   async function api(url, options={}) {
     let response;
     try {
-      response = await fetch(url, {headers:{'Content-Type':'application/json', ...(options.headers||{})}, ...options});
+      response = await fetch(url, {headers:{'Content-Type':'application/json', ...authHeaders(), ...(options.headers||{})}, ...options});
     } catch (_) {
       const error = new Error('Không kết nối được máy chủ');
       error.code = 'NET-001'; error.action = ERROR_HELP['NET-001']; throw error;
@@ -423,7 +451,12 @@
         showTutorialDemoFallback(error.message);
         return;
       }
-      demoLoading.textContent = `Không tải được dữ liệu mô phỏng: ${error.message}`;
+      // The roster is signed-in-only now (it carries every badge QR). A real
+      // terminal never needs it -- the scanner types into the input -- so this
+      // says who can open it rather than reading as a kiosk failure.
+      demoLoading.textContent = String(error.code || '').includes('401') || error.code === 'AUTH_REQUIRED'
+        ? 'Danh sách mô phỏng chỉ dành cho tài khoản đã đăng nhập. Máy quét thật vẫn hoạt động bình thường.'
+        : `Không tải được dữ liệu mô phỏng: ${error.message}`;
     }
   }
   function openDemo() { clearTimeout(resetTimer); demoPanel.classList.add('open'); demoPanel.setAttribute('aria-hidden','false'); demoToggle.setAttribute('aria-expanded','true'); loadDemoData(true); }
