@@ -170,40 +170,76 @@ class DashboardRepository:
             COUNT(*) FILTER (WHERE o.predecessor_operation_id IS NOT NULL) OVER (PARTITION BY o.part_id) edge_count,
             NOT EXISTS(SELECT 1 FROM operations successor WHERE successor.predecessor_operation_id=o.id) graph_terminal
           FROM operations o
+          -- P0 (2026-09-09 rework audit): SỬA HÀNG (is_rework_op) is a
+          -- workbench, not a routing step. It is created with no predecessor
+          -- and sort_order=2147483647, so leaving it in this CTE made it win
+          -- `reverse_rank=1` on legacy Parts (stealing the terminal slot from
+          -- the real final operation) or add itself to the graph-terminal set
+          -- on Parts that have edges. Either way, because it is never
+          -- reconciled its done_qty stays 0 forever, so
+          -- good_quantity=SUM(done_qty)/COUNT(*) collapsed to 0 (or halved)
+          -- and progress_percent with it -- the whole PO read as zero the
+          -- moment a single rework item was resolved. Reproduced live.
+          WHERE COALESCE(o.is_rework_op,FALSE)=FALSE
         ), terminal_operations AS (
           SELECT * FROM ranked_operations
           WHERE (edge_count>0 AND graph_terminal) OR (edge_count=0 AND reverse_rank=1)
         ), operation_rollup AS (
+          -- Same exclusion reconcile_production_order() already applies to the
+          -- completed/total rollup that drives PO.status -- without it the
+          -- Overview's operation_count/completed_count disagreed with the very
+          -- status shown next to them (a PO could be COMPLETED while this said
+          -- 3/4, because the never-completed SỬA HÀNG row was being counted).
           SELECT production_order_id,COUNT(*) operation_count,
             COUNT(*) FILTER (WHERE status='COMPLETED') completed_count
-          FROM operations GROUP BY production_order_id
+          FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE GROUP BY production_order_id
         ), part_rollup AS (
           SELECT production_order_id,COUNT(*) part_count FROM parts GROUP BY production_order_id
         ), terminal_rollup AS (
           SELECT production_order_id,COUNT(*) terminal_operation_count,
             ROUND(COALESCE(SUM(done_qty),0)::numeric/NULLIF(COUNT(*),0))::bigint good_quantity,
             COALESCE(SUM(defect_qty),0)::bigint defect_quantity,
-            COALESCE(SUM(rework_qty),0)::bigint repairable_quantity
+            -- rework_qty means "of these defects, how many were FIXED" (0044's
+            -- model, and what the kiosk's own "sửa được" input has always
+            -- written). It is NOT the pending bucket -- see repair_rollup.
+            COALESCE(SUM(rework_qty),0)::bigint repaired_quantity,
+            COALESCE(SUM(scrap_qty),0)::bigint scrapped_quantity
           FROM terminal_operations GROUP BY production_order_id
         ), repair_rollup AS (
+          -- P1 (2026-09-09 rework audit): "chờ sửa" is defect MINUS what has
+          -- already been resolved, never rework_qty itself. Reading
+          -- SUM(rework_qty) as pending inverted the meaning -- the Overview
+          -- showed the ALREADY-FIXED count under "Chờ sửa" and the still-
+          -- pending count under "Phế". Confirmed on live TEST data (op 38:
+          -- 17 NG / 5 fixed / 0 scrapped displayed as "chờ sửa 5, phế 12"
+          -- when the truth is "chờ sửa 12, phế 0"). GREATEST(...,0) because
+          -- operation rows are aggregates that can lag a source session
+          -- correction (see 0044's own note on not adding a CHECK here).
           SELECT production_order_id,
-            COALESCE(SUM(rework_qty),0)::bigint repair_pending_quantity,
-            COALESCE(SUM(rework_qty*repair_cycle_time_seconds_per_unit),0)::bigint estimated_repair_work_seconds,
-            COUNT(*) FILTER (WHERE rework_qty>0) repair_operation_count,
-            COUNT(*) FILTER (WHERE rework_qty>0 AND repair_cycle_time_seconds_per_unit<=0) repair_unconfigured_operation_count
-          FROM operations GROUP BY production_order_id
+            COALESCE(SUM(GREATEST(defect_qty-rework_qty-scrap_qty,0)),0)::bigint repair_pending_quantity,
+            COALESCE(SUM(GREATEST(defect_qty-rework_qty-scrap_qty,0)*repair_cycle_time_seconds_per_unit),0)::bigint estimated_repair_work_seconds,
+            COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0) repair_operation_count,
+            COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0 AND repair_cycle_time_seconds_per_unit<=0) repair_unconfigured_operation_count
+          FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE GROUP BY production_order_id
         ) SELECT po.id,po.id po_id,po.code,po.code po_code,po.product,po.status,
           po.planned_quantity,po.due_date,po.planned_start_at,po.planned_end_at,
           COALESCE(pr.part_count,0) part_count,COALESCE(op.operation_count,0) operation_count,
           COALESCE(op.completed_count,0) completed_count,COALESCE(tr.terminal_operation_count,0) terminal_operation_count,
           COALESCE(tr.good_quantity,0) done_qty,COALESCE(tr.good_quantity,0) good_quantity,
           COALESCE(tr.defect_quantity,0) defect_qty,COALESCE(tr.defect_quantity,0) defect_quantity,
-          COALESCE(tr.repairable_quantity,0) rework_qty,COALESCE(tr.repairable_quantity,0) repairable_quantity,
+          COALESCE(tr.repaired_quantity,0) rework_qty,COALESCE(tr.repaired_quantity,0) repaired_quantity,
+          -- Deprecated alias kept so an older client reading this field does
+          -- not break; it has always carried SUM(rework_qty) = pieces FIXED,
+          -- despite the "repairable" name. Prefer repaired_quantity.
+          COALESCE(tr.repaired_quantity,0) repairable_quantity,
           COALESCE(rr.repair_pending_quantity,0) repair_pending_quantity,
           COALESCE(rr.estimated_repair_work_seconds,0) estimated_repair_work_seconds,
           COALESCE(rr.repair_operation_count,0) repair_operation_count,
           COALESCE(rr.repair_unconfigured_operation_count,0) repair_unconfigured_operation_count,
-          GREATEST(COALESCE(tr.defect_quantity,0)-COALESCE(tr.repairable_quantity,0),0) scrap_quantity,
+          -- Real scrap (work_sessions.scrap_qty, added by 0044), not the old
+          -- "defect - rework" stand-in that silently counted every not-yet-
+          -- triaged defect as written off.
+          COALESCE(tr.scrapped_quantity,0) scrap_quantity,
           GREATEST(COALESCE(po.planned_quantity,0)-COALESCE(tr.good_quantity,0),0) remaining_quantity,
           CASE WHEN COALESCE(po.planned_quantity,0)>0 THEN
             ROUND(LEAST(COALESCE(tr.good_quantity,0)::numeric/po.planned_quantity*100,100),1)
@@ -219,14 +255,23 @@ class DashboardRepository:
         rows=fetch_all(f"""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_quantity,po.due_date,
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
           o.status operation_status,COALESCE(o.done_qty,0) done_qty,COALESCE(o.defect_qty,0) defect_qty,COALESCE(o.rework_qty,0) rework_qty,
-          COALESCE(o.rework_qty,0) repair_pending_quantity,COALESCE(o.repair_cycle_time_seconds_per_unit,0) repair_cycle_time_seconds_per_unit,
-          (COALESCE(o.rework_qty,0)*COALESCE(o.repair_cycle_time_seconds_per_unit,0))::bigint estimated_repair_work_seconds,
+          COALESCE(o.scrap_qty,0) scrap_qty,
+          -- Same P1 correction as po_progress()'s repair_rollup: pending is
+          -- what is left un-triaged, not what has already been repaired.
+          GREATEST(COALESCE(o.defect_qty,0)-COALESCE(o.rework_qty,0)-COALESCE(o.scrap_qty,0),0) repair_pending_quantity,
+          COALESCE(o.repair_cycle_time_seconds_per_unit,0) repair_cycle_time_seconds_per_unit,
+          (GREATEST(COALESCE(o.defect_qty,0)-COALESCE(o.rework_qty,0)-COALESCE(o.scrap_qty,0),0)*COALESCE(o.repair_cycle_time_seconds_per_unit,0))::bigint estimated_repair_work_seconds,
           COUNT(ws.id) FILTER (WHERE ws.status='OPEN') open_session_count,
           STRING_AGG(DISTINCT e.name,', ' ORDER BY e.name) FILTER (WHERE ws.status='OPEN') active_workers,
           MAX(COALESCE(ws.ended_at,ws.updated_at,ws.started_at)) last_activity_at
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
         JOIN parts p ON p.id=o.part_id LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         LEFT JOIN employees e ON e.id=ws.employee_id
+        -- SỬA HÀNG has no target of its own, so progress_percent below would
+        -- render it as a permanently zero row inside every PO's Operation list.
+        -- It is a workbench: excluded here for the same reason it is excluded
+        -- from every other production rollup.
+        WHERE COALESCE(o.is_rework_op,FALSE)=FALSE
         GROUP BY po.id,p.id,o.id
         ORDER BY CASE WHEN COUNT(ws.id) FILTER (WHERE ws.status='OPEN')>0 THEN 0
           WHEN o.status='IN_PROGRESS' THEN 1 WHEN o.status='PAUSED' THEN 2 WHEN o.status='COMPLETED' THEN 4 ELSE 3 END,

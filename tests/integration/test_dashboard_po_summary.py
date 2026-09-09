@@ -23,8 +23,11 @@ def test_po_summary_uses_terminal_operation_without_sequential_double_count(db, 
             extra_ids.append(cur.fetchone()['id'])
 
         row = _po(DashboardRepository().po_progress(500), g['po_id'])
-        assert (row['good_quantity'], row['defect_quantity'], row['repairable_quantity']) == (70, 8, 3)
-        assert (row['scrap_quantity'], row['remaining_quantity']) == (5, 30)
+        assert (row['good_quantity'], row['defect_quantity'], row['repaired_quantity']) == (70, 8, 3)
+        # scrap_quantity is real scrap_qty now (none written here), and the 5
+        # defects that are neither repaired nor scrapped are PENDING, not scrap.
+        assert (row['scrap_quantity'], row['remaining_quantity']) == (0, 30)
+        assert row['repair_pending_quantity'] == (10 - 6) + (8 - 3)
         assert float(row['progress_percent']) == 70.0
         assert row['good_quantity'] != 250
 
@@ -37,8 +40,8 @@ def test_po_summary_uses_terminal_operation_without_sequential_double_count(db, 
                 (g['po_id'], part2, f"TEST-P2-FINAL-{g['suffix']}", f"WF|OP|TEST-P2-FINAL-{g['suffix']}"))
             extra_ids.append(cur.fetchone()['id'])
         row = _po(DashboardRepository().po_progress(500), g['po_id'])
-        assert (row['good_quantity'], row['defect_quantity'], row['repairable_quantity']) == (60, 18, 13)
-        assert row['scrap_quantity'] == 5
+        assert (row['good_quantity'], row['defect_quantity'], row['repaired_quantity']) == (60, 18, 13)
+        assert row['scrap_quantity'] == 0
         assert float(row['progress_percent']) == 60.0
     finally:
         with db.cursor() as cur:
@@ -46,12 +49,20 @@ def test_po_summary_uses_terminal_operation_without_sequential_double_count(db, 
             if part_ids: cur.execute('DELETE FROM parts WHERE id=ANY(%s)', (part_ids,))
 
 
-def test_po_scrap_variants_and_large_quantities(db, seeded_factory):
+def test_po_repair_buckets_are_distinct_and_survive_large_quantities(db, seeded_factory):
+    """defect splits into repaired / scrapped / still-pending -- never conflated.
+
+    Rewritten 2026-09-09 (rework audit): this used to assert
+    scrap_quantity == defect - rework_qty, which is exactly the P1 bug -- it
+    counted every defect nobody had triaged yet as "written off" and reported
+    the already-repaired count as "chờ sửa".
+    """
     g = seeded_factory
-    for defect, repairable, expected_scrap in ((0, 0, 0), (10, 0, 10), (10, 10, 0), (10, 4, 6)):
+    for defect, repaired, scrapped in ((0, 0, 0), (10, 0, 0), (10, 10, 0), (10, 0, 10), (10, 4, 2)):
         with db.cursor() as cur:
-            cur.execute('UPDATE operations SET done_qty=999999,defect_qty=%s,rework_qty=%s WHERE id=%s',
-                        (defect, repairable, g['operation_id']))
+            cur.execute('UPDATE operations SET done_qty=999999,defect_qty=%s,rework_qty=%s,scrap_qty=%s WHERE id=%s',
+                        (defect, repaired, scrapped, g['operation_id']))
         row = _po(DashboardRepository().po_progress(500), g['po_id'])
-        assert (row['defect_quantity'], row['repairable_quantity'], row['scrap_quantity']) == (defect, repairable, expected_scrap)
+        assert (row['defect_quantity'], row['repaired_quantity'], row['scrap_quantity']) == (defect, repaired, scrapped)
+        assert row['repair_pending_quantity'] == defect - repaired - scrapped
         assert float(row['progress_percent']) == 100.0
