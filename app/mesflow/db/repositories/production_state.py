@@ -246,13 +246,29 @@ def lock_startable_operation(cur, operation_id: int):
     """Reconcile stale state, lock the graph, then enforce the single Start guard."""
     reconciled = reconcile_operation_and_po(cur, operation_id)
     cur.execute('''SELECT o.id,o.code,o.name,o.status,o.production_order_id,o.predecessor_operation_id,
-               o.input_flow_enabled,o.input_source_operation_id,po.status po_status,po.code po_code
+               o.input_flow_enabled,o.input_source_operation_id,COALESCE(o.is_rework_op,FALSE) is_rework_op,
+               po.status po_status,po.code po_code
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
         WHERE o.id=%s FOR UPDATE OF o,po''', (operation_id,))
     operation = cur.fetchone()
     status = str(operation.get('status') or '').upper()
     if status in TERMINAL_OPERATION_STATUSES:
         raise ConflictError(f"Operation {operation.get('code') or operation_id} đang ở trạng thái {status}, không thể Start session")
+    # SỬA HÀNG is a workbench, not a routing step, and the repair queue is keyed
+    # by SOURCE SESSION: resolve() has to know whose defects are being repaired
+    # to credit the original operation and decrement that session's pending. A
+    # scan of the workbench QR carries no such reference, so a session started
+    # this way could only record time against an operation with no target --
+    # the queue would not move, the source operation would get no credit, and
+    # any quantity typed in would leak into the dashboard's "Sản lượng đạt"
+    # (daily_sessions lists rework sessions as working time since 4832a96)
+    # without ever being real production. Refused here rather than at each
+    # caller: kiosk v1/v2, the legacy batch path and the API all funnel through
+    # this one guard.
+    if operation.get('is_rework_op'):
+        raise ConflictError(
+            f"{operation.get('name') or 'SỬA HÀNG'} là bàn sửa hàng, không Start bằng QR. "
+            "Ghi nhận số sửa được / loại tại màn hình Hàng chờ sửa.")
     if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
         raise ConflictError(f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng")
     operation['reconciled'] = reconciled

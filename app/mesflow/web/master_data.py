@@ -702,14 +702,22 @@ def qr_labels():
             sql=f"""SELECT o.id,'OPERATION' AS qr_type,o.code,o.name,
                 COALESCE(NULLIF(o.qr,''),'WF|OP|'||o.code) AS qr_payload,
                 po.code AS group_name,p.code||' · '||COALESCE(p.name,'') AS detail,
-                (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})) AS active,
+                (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})
+                 AND NOT COALESCE(o.is_rework_op,FALSE)) AS active,
                 po.id AS production_order_id,po.code AS po_code
                 FROM operations o JOIN production_orders po ON po.id=o.production_order_id
                 JOIN parts p ON p.id=o.part_id
                 WHERE (%s='' OR o.code ILIKE %s OR o.name ILIKE %s OR po.code ILIKE %s OR p.code ILIKE %s)"""
             params=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)+[q,like,like,like,like]
             if active_only:
+                # SỬA HÀNG (is_rework_op) is excluded for exactly the reason
+                # stated above: lock_startable_operation() refuses to start a
+                # session on it, so printing its label would hand the shop
+                # floor a QR the kiosk cannot honour. It stays in the
+                # unfiltered catalogue (active=false) so an already-printed
+                # label can still be audited.
                 sql+=f' AND o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})'
+                sql+=' AND COALESCE(o.is_rework_op,FALSE)=FALSE'
                 params+=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)
             if po_id: sql+=' AND po.id=%s'; params.append(int(po_id))
             sql+=' ORDER BY po.code,p.sort_order,o.sort_order,o.id LIMIT %s'; params.append(limit)
