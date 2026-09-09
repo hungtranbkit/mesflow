@@ -431,6 +431,39 @@ def export_template_workbook(template_id):
     return send_file(out,as_attachment=True,download_name=f"template_{template['code']}.xlsx",mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',max_age=0)
 
 
+def _duplicate_rows_message(parts, operations, duplicate_codes):
+    """Point at the rows in the sheet, not just at the code.
+
+    The person reading this has the workbook open and needs to know which
+    lines to edit; "OP02 bị trùng" makes them hunt for it. Falls back to the
+    plain code list for a workbook shape that carries no row numbers.
+    """
+    from mesflow.db.repositories.master_data import operation_code_suffix
+    part_code_by_key={p['key']:p['code'] for p in parts}
+    lines=[]
+    for wanted in duplicate_codes:
+        rows=[]
+        part_label=''
+        for op in operations:
+            part_code=part_code_by_key.get(op.get('part_key'))
+            if operation_code_suffix(part_code,op.get('code'))!=wanted:
+                continue
+            part_label=part_label or str(part_code or '')
+            if op.get('_excel_row'):
+                rows.append(str(op['_excel_row']))
+        code=str((next((o.get('code') for o in operations
+                        if operation_code_suffix(part_code_by_key.get(o.get('part_key')),o.get('code'))==wanted),
+                       wanted)) or wanted)
+        if rows:
+            lines.append(f"Part {part_label} · Operation {code} — sheet Operations dòng {', '.join(rows)}")
+        else:
+            lines.append(f'Part {part_label} · Operation {code}')
+    return ('File Excel có Operation trùng mã trong cùng một Part:\n- '
+            +'\n- '.join(lines)
+            +'\nMã Operation được phép trùng giữa các Part KHÁC NHAU, nhưng trong CÙNG một Part '
+             'thì phải khác nhau. Sửa lại file Excel rồi nhập lại.')
+
+
 def _duplicate_operation_codes(operations):
     """Codes appearing more than once, so the archive says WHY a sheet is bad."""
     counts={}
@@ -499,7 +532,7 @@ def import_template_workbook():
                 if not pc and not on: continue
                 if pc not in part_keys: raise ValueError(f'Operations dòng {idx+2}: Part {pc} không tồn tại.')
                 if not on: raise ValueError(f'Operations dòng {idx+2}: thiếu tên Operation.')
-                cycle_value=float(ov('cycle time value','cycle_time_value',default=0) or 0); cycle_unit=_text(ov('cycle time unit','cycle_time_unit',default='second')).lower(); operations.append({'part_key':pc,'code':_text(ov('operation code','operation_code')).upper(),'name':on,'equipment_code':_text(ov('equipment code','equipment_code')).upper(),'standard_seconds_per_unit':cycle_value*(60 if cycle_unit.startswith(('min','phút','phut')) else 1),'sort_order':_integer(ov('sort order','sort_order',default=idx),f'Operations dòng {idx+2} sort_order',default=idx)})
+                cycle_value=float(ov('cycle time value','cycle_time_value',default=0) or 0); cycle_unit=_text(ov('cycle time unit','cycle_time_unit',default='second')).lower(); operations.append({'part_key':pc,'code':_text(ov('operation code','operation_code')).upper(),'name':on,'equipment_code':_text(ov('equipment code','equipment_code')).upper(),'standard_seconds_per_unit':cycle_value*(60 if cycle_unit.startswith(('min','phút','phut')) else 1),'sort_order':_integer(ov('sort order','sort_order',default=idx),f'Operations dòng {idx+2} sort_order',default=idx),'_excel_row':idx+2})
         else:
             parsed=_parse_go_router_template(wb,upload.filename)
             if not parsed:
@@ -537,10 +570,8 @@ def import_template_workbook():
                     raise ValueError('File Excel có mã Part bị trùng: '
                         +', '.join(verr.details.get('duplicate_codes') or [])
                         +'. Mỗi Part phải có mã riêng.') from verr
-                raise ValueError('File Excel có Operation trùng mã trong cùng một Part: '
-                    +', '.join(verr.details.get('duplicate_codes') or [])
-                    +'. Mã Operation được phép trùng giữa các Part khác nhau, '
-                    'nhưng trong cùng một Part thì phải khác nhau.') from verr
+                raise ValueError(_duplicate_rows_message(
+                    parts,operations,verr.details.get('duplicate_codes') or [])) from verr
             existing=conn.execute('SELECT id FROM templates WHERE UPPER(code)=UPPER(%s)',(code,)).fetchone()
             replaced=bool(existing)
             if existing:

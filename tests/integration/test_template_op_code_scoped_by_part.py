@@ -173,6 +173,11 @@ def test_excel_import_refuses_a_duplicate_inside_one_part(db, api):
         message = response.json().get('message') or ''
         assert 'cùng một Part' in message
         assert 'OP01' in message
+        # Points at the rows to edit, not just the code: the person reading
+        # this has the workbook open.
+        assert 'dòng' in message
+        assert '2' in message and '3' in message, f'expected the two Operations rows: {message}'
+        assert 'Part PA' in message
         assert db.execute('SELECT COUNT(*) n FROM templates WHERE upper(code)=upper(%s)',
                           (code,)).fetchone()['n'] == 0, 'nothing may be written'
         # ...and the rejected workbook is still archived for inspection.
