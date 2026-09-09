@@ -1639,7 +1639,29 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
    instead of assuming the shared .btn rule already covers anchors. */
 #epWbOpenKiosk{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;white-space:nowrap}
 @media(max-width:900px){.wallboard-config{grid-template-columns:1fr}.wallboard-group-display{grid-column:auto}}
-@media(max-width:720px){.wallboard-actions{flex-direction:column;align-items:stretch}.wallboard-actions-buttons{justify-content:stretch}.wallboard-actions-buttons .btn{flex:1}.wallboard-actions-hint{max-width:none}}
+/* Tràn ngang 43px ở iPhone 12 và 113px ở iPhone SE (320px), đo trên TEST
+   2026-09-09. Không phải nút tràn ra khỏi khung cha -- khung cha rộng đúng
+   332px. Cơ chế là DÒNG flex:
+
+     .wallboard-actions là flex-direction:column CÓ flex-wrap:wrap. Trong
+     container dọc, cross-size của một dòng do item rộng nhất quyết định, chứ
+     không bị giới hạn bởi bề rộng container. .wallboard-actions-buttons có
+     flex-shrink:0 và min-width:auto, mà min-content của nó là tổng 3 nút --
+     trong đó #epWbOpenKiosk có white-space:nowrap nên riêng nó đã 156px. Tổng
+     ~400.6px. Dòng nở ra 400.6px, rồi align-items:stretch kéo LUÔN cả thẻ <p>
+     hướng dẫn ra 400.6px, tràn qua mép phải.
+
+   Nên bản vá đánh vào đúng ba chỗ đó: container dọc không được wrap; hàng nút
+   được co và được xuống dòng; và trên điện thoại thì mỗi nút một hàng, đúng
+   khuôn .ui-drawer-footer/.ui-page-actions vẫn dùng ở <=600px -- như vậy nhãn
+   nút dài tới đâu cũng không dựng lại được lỗi này. */
+@media(max-width:720px){
+  .wallboard-actions{flex-direction:column;align-items:stretch;flex-wrap:nowrap}
+  .wallboard-actions>*{min-width:0}
+  .wallboard-actions-buttons{flex-direction:column;align-items:stretch;justify-content:stretch;flex-shrink:1;min-width:0}
+  .wallboard-actions-buttons .btn{flex:0 0 auto;width:100%;min-width:0}
+  .wallboard-actions-hint{max-width:none}
+}
 .content-panel-body:has(>.table-wrap){padding:0}
 .content-panel-body>.table-wrap{border:0;border-radius:0}
 .content-panel-body>.table-wrap table th:first-child,.content-panel-body>.table-wrap table td:first-child{padding-left:16px}
