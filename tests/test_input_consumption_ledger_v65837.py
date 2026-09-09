@@ -10,7 +10,17 @@ def test_ledger_migration_and_atomic_repository_contract():
     assert 'UniqueConstraint("session_id"' in migration
     assert "FOR UPDATE" in execution
     assert "_validate_and_upsert_input_consumption" in execution
-    assert "source_operation_id=%s AND source_qty_kind=%s AND session_id<>%s" in execution
+    # Updated 2026-09-09: this used to pin
+    # "source_operation_id=%s AND source_qty_kind=%s AND session_id<>%s", i.e.
+    # a per-kind budget. That is the shape that let a repaired piece be
+    # supplied twice (once as GOOD, once as REWORK), since a repair credits
+    # done_qty and rework_qty with the same pieces -- see
+    # tests/integration/test_rework_input_flow_supply.py. The stock is now
+    # counted across kinds, with rework_qty as an extra cap on the REWORK
+    # share only.
+    assert "WHERE source_operation_id=%s AND session_id<>%s" in execution
+    assert "FILTER (WHERE source_qty_kind=%s)" in execution
+    assert "source_operation_id=%s AND source_qty_kind=%s AND session_id<>%s" not in execution
 
 def test_duplicate_daily_operations_tab_removed():
     js=text("app/mesflow/web/static/app.js")

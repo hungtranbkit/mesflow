@@ -132,6 +132,19 @@ def seeded_factory(db):
     graph = dict(employee_id=employee_id, station_id=station_id, po_id=po_id, part_id=part_id, operation_id=operation_id, suffix=suffix)
     yield graph
     with db.cursor() as cur:
+        # Any test that resolves a rework item makes the repository create a
+        # SỬA HÀNG operation for this PO/Part on the fly (rework.py's
+        # _rework_operation), plus its own session and ledger rows. The
+        # teardown below deletes only the operation it created itself, so
+        # without this the leftover rows kept a foreign key on parts/
+        # production_orders and the DELETEs further down failed -- every test
+        # touching that flow had to clean up by hand. Scoped to this PO, so it
+        # is a no-op for the tests that never go near rework.
+        cur.execute("""DELETE FROM rework_ledger WHERE rework_operation_id IN
+            (SELECT id FROM operations WHERE production_order_id=%s AND is_rework_op)""", (po_id,))
+        cur.execute("""DELETE FROM work_sessions WHERE operation_id IN
+            (SELECT id FROM operations WHERE production_order_id=%s AND is_rework_op)""", (po_id,))
+        cur.execute("DELETE FROM operations WHERE production_order_id=%s AND is_rework_op", (po_id,))
         cur.execute("DELETE FROM kiosk_client_events WHERE server_session_id IN (SELECT id FROM work_sessions WHERE employee_id=%s)", (employee_id,))
         cur.execute("DELETE FROM kiosk_idempotency WHERE request_id IN (SELECT start_request_id FROM work_sessions WHERE employee_id=%s) OR request_id IN (SELECT finish_request_id FROM work_sessions WHERE employee_id=%s)", (employee_id, employee_id))
         cur.execute("DELETE FROM operation_adjustments WHERE session_id IN (SELECT id FROM work_sessions WHERE employee_id=%s)", (employee_id,))

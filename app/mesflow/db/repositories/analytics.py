@@ -889,8 +889,17 @@ class DashboardRepository:
         -- shift_id only selects which shift's WORK windows are used for
         -- the duration math; it must never exclude an otherwise same-day
         -- session from the list.
+        -- Rework sessions ARE listed here, unlike in daily_progress() above.
+        -- This feeds "Ngày công theo nhân viên", which is about a person's
+        -- working time: someone who spent two hours on the SỬA HÀNG bench did
+        -- real work, and excluding it left a hole in their day. Safe only
+        -- since c57f20b made the rework session carry zero quantities -- the
+        -- KPIs above sum good_qty/defect_qty straight off this list, so before
+        -- that change including these rows would have double-counted the
+        -- repaired pieces. "Tiến độ theo Operation" still excludes the
+        -- workbench: that panel is about routing steps with a target.
         WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
-          AND {reportable_session_sql('ws')} AND COALESCE(o.is_rework_op,FALSE)=FALSE
+          AND {reportable_session_sql('ws')}
         ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['day_end'],ctx['day_start'],min(max(limit,1),3000)))
 
     def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):

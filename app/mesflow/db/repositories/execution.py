@@ -113,12 +113,32 @@ def _validate_and_upsert_input_consumption(cur, *, session_id:int, target_operat
     source_kind=str(target.get('input_source_kind') or 'GOOD').upper()
     if source_kind not in ('GOOD','REWORK'):
         source_kind='GOOD'
-    cur.execute("""SELECT COALESCE(SUM(good_qty_consumed+defect_qty_consumed),0) consumed
+    # Repaired pieces belong to BOTH numbers on the source operation: a repair
+    # credits done_qty and rework_qty with the same physical pieces (rework.py,
+    # migration 0044). Budgeting the two kinds independently -- which is what
+    # filtering this sum by source_qty_kind alone did -- therefore handed the
+    # same pieces to a GOOD-fed successor and a REWORK-fed one. Proven at 104
+    # pieces drawn from an operation that produced 98
+    # (tests/integration/test_rework_input_flow_supply.py).
+    #
+    # done_qty is the physical ceiling for every kind, because a repaired piece
+    # is a good piece; rework_qty only ADDITIONALLY caps how many of those may
+    # be claimed specifically as REWORK. A pure-GOOD graph (no REWORK-fed
+    # successor anywhere) is unaffected: consumed_total then equals the GOOD
+    # total this used to compute.
+    cur.execute("""SELECT COALESCE(SUM(good_qty_consumed+defect_qty_consumed),0) consumed_total,
+                     COALESCE(SUM(good_qty_consumed+defect_qty_consumed)
+                              FILTER (WHERE source_qty_kind=%s),0) consumed_kind
                    FROM operation_input_consumptions
-                   WHERE source_operation_id=%s AND source_qty_kind=%s AND session_id<>%s""",(source_id,source_kind,session_id))
-    consumed=int((cur.fetchone() or {}).get('consumed') or 0)
-    supplied=int(source.get('rework_qty') or 0) if source_kind=='REWORK' else int(source.get('done_qty') or 0)
-    available=max(supplied-consumed,0)
+                   WHERE source_operation_id=%s AND session_id<>%s""",(source_kind,source_id,session_id))
+    totals=cur.fetchone() or {}
+    consumed=int(totals.get('consumed_kind') or 0)
+    consumed_total=int(totals.get('consumed_total') or 0)
+    produced=int(source.get('done_qty') or 0)
+    supplied=int(source.get('rework_qty') or 0) if source_kind=='REWORK' else produced
+    available=max(produced-consumed_total,0)
+    if source_kind=='REWORK':
+        available=min(available,max(supplied-consumed,0))
     if requested>available:
         if supplied<=0:
             label='lỗi sửa được' if source_kind=='REWORK' else 'sản lượng đạt'
@@ -129,7 +149,7 @@ def _validate_and_upsert_input_consumption(cur, *, session_id:int, target_operat
         label='rework' if source_kind=='REWORK' else 'đạt'
         raise ConflictError(
             f"Đầu vào {label} khả dụng chỉ còn {available} sản phẩm từ OP nguồn {source.get('code') or source_id}. "
-            f"Tổng đã phân bổ cho các OP đích khác: {consumed}."
+            f"Tổng đã phân bổ cho các OP đích khác: {consumed_total}."
         )
     cur.execute("""INSERT INTO operation_input_consumptions(
                        source_operation_id,target_operation_id,session_id,good_qty_consumed,defect_qty_consumed,source_qty_kind,origin,updated_at
