@@ -277,6 +277,28 @@ def create_app():
         permissions=RBACRepository().permissions_for_role(session.get('role'))
         return render_template('app.html', version=__version__, username=session.get('username'), role=session.get('role'), session_user_id=session.get('user_id'), permissions=permissions)
 
+    @app.get('/print/setup/<int:operation_id>')
+    def setup_print_page(operation_id:int):
+        """A4 sheet the operator keeps at the machine.
+
+        Rendered here rather than generated as a PDF: the browser's own print
+        support is enough for a one-page instruction sheet, and it keeps the
+        note editable-to-printed in one step. Accepts either the production
+        Operation id or its SETUP id, so the button works from both screens.
+        """
+        if session_policy.validate_and_touch() is not None:
+            return redirect(url_for('login_page'))
+        from mesflow.db.repositories.setup_ops import SetupRepository
+        from mesflow.core.time_policy import site_now
+        try:
+            sheet=SetupRepository().print_sheet(operation_id)
+        except Exception:
+            abort(404)
+        updated=sheet.get('setup_updated_at')
+        return render_template('setup_print.html', sheet=sheet, version=__version__,
+            printed_at=site_now().strftime('%d/%m/%Y %H:%M'),
+            updated_at=updated.strftime('%d/%m/%Y %H:%M') if updated else None)
+
     @app.get('/api/tutorials')
     def tutorial_manifest():
         if session_policy.validate_and_touch() is not None:

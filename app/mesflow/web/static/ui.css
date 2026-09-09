@@ -1653,20 +1653,30 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 #tplImportHistory small{display:block;color:var(--muted);margin-top:3px}
 #tplImportHistory .badge.danger{background:#fee2e2;color:#991b1b}
 
-/* Chuẩn bị máy — SETUP support operation (2026-09-09) */
+/* Setup máy — SETUP support operation (2026-09-09) */
 .op-setup-section{margin-top:14px;padding:13px;border:1px solid var(--line);border-radius:10px;background:#f7f9fb}
 .op-setup-section h3{margin:0 0 9px;font-size:13px}
 .op-setup-minutes{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:9px 0;font-size:12px;font-weight:700;color:#52616d}
 .op-setup-minutes span{display:flex;align-items:center;gap:6px;font-weight:400}
 .op-setup-minutes input{width:90px}
-.op-setup-steps-head{display:flex;align-items:center;justify-content:space-between;margin:10px 0 7px}
-.setup-step-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto auto auto auto;gap:7px;align-items:center;margin-bottom:6px}
-.setup-step-order{width:26px;height:26px;display:grid;place-items:center;border-radius:999px;background:#e6edf3;font-size:11px;font-weight:800;color:#41525f}
+.op-setup-status{margin:10px 0 8px;padding:7px 11px;border-radius:999px;display:inline-block;font-size:11.5px;font-weight:800;background:#e6edf3;color:#41525f}
+.op-setup-status.pending{background:#fef3c7;color:#92400e}
+.op-setup-status.running{background:#dbeafe;color:#1e40af}
+.op-setup-status.done{background:#dcfce7;color:#166534}
+.op-setup-facts{display:grid;gap:5px;margin-bottom:9px}
+.op-setup-facts>div{display:flex;gap:10px;font-size:12px;border-bottom:1px dotted var(--line);padding-bottom:4px}
+.op-setup-facts b{min-width:130px;color:#52616d}
+.op-setup-qr{display:flex;align-items:center;gap:11px;padding-top:8px}
+.op-setup-qr img{width:96px;height:96px;border:1px solid var(--line);border-radius:6px;background:#fff}
+.op-setup-qr code{font-size:11px;color:var(--muted);word-break:break-all}
+.op-setup-empty{font-size:12px;color:var(--muted);padding:6px 0}
+.op-setup-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .op-setup-hint{margin:9px 0 0;font-size:11.5px;color:var(--muted)}
 .empty-hint.compact{padding:9px;font-size:12px}
-/* SETUP hiện như dòng con của OP chính, không lẫn vào routing sản xuất */
+/* OP phụ chỉ hiện khi admin bật toggle; khi hiện thì phải nhìn ra ngay là phụ */
+.po-support-toggle{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12px;color:var(--muted)}
 .po-op-row.is-setup{background:#f7f9fb;border-left:3px solid #94a7b6}
 .op-setup-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;background:#e6edf3;color:#41525f;font-size:10px;font-weight:800;margin-left:6px}
 .op-setup-pending{background:#fef3c7;color:#92400e}
 .op-setup-ready{background:#dcfce7;color:#166534}
-@media(max-width:760px){.setup-step-row{grid-template-columns:26px minmax(0,1fr);row-gap:5px}}
+@media(max-width:760px){.op-setup-facts b{min-width:96px}.op-setup-qr img{width:78px;height:78px}}

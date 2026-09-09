@@ -135,7 +135,10 @@ def kiosk_scan():
             return jsonify(ok=False, error='EMPLOYEE_NOT_FOUND', error_code='EMP-001', message='Không tìm thấy nhân viên đang hoạt động', action='Quét đúng thẻ nhân viên hoặc nhờ quản đốc kiểm tra trạng thái nhân viên.'), 404
         opened = fetch_one(
             """SELECT s.id,s.employee_id,s.operation_id,s.started_at,s.station_id,
-                      o.code operation_code,o.name operation_name,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
+                      o.code operation_code,o.name operation_name,o.operation_type,
+                      CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
+                           ELSE p.code||'-'||o.code END operation_display_key,
+                      COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
                       p.code part_code,p.name part_name,po.code po_code,po.product
                FROM work_sessions s
                JOIN operations o ON o.id=s.operation_id
@@ -147,43 +150,54 @@ def kiosk_scan():
         )
         return jsonify(ok=True, type='employee', employee=dict(employee), open_session=dict(opened) if opened else None)
 
-    if qr.upper().startswith('WF|OP|'):
+    # Two payload shapes, one code path. `WF|OP|<code>` is what the labels
+    # already printed in the workshop carry; `WF|OPID|<id>` is what new labels
+    # (every SETUP label included) carry, because an Operation code is only
+    # unique within its Part and so cannot be a durable identifier.
+    upper = qr.upper()
+    if upper.startswith('WF|OP|') or upper.startswith('WF|OPID|'):
+        key = qr.split('|')[-1]
+        by_id = upper.startswith('WF|OPID|') and key.isdigit()
         operation = fetch_one(
             """SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
                       o.operation_type,o.requires_setup,o.setup_completed_at,o.parent_operation_id,
                       o.part_id,o.production_order_id,p.code part_code,p.name part_name,
+                      CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
+                           ELSE p.code||'-'||o.code END display_key,
                       po.code po_code,po.product,po.status po_status
                FROM operations o
                LEFT JOIN parts p ON p.id=o.part_id
                LEFT JOIN production_orders po ON po.id=o.production_order_id
-               WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s)
+               WHERE """ + ('o.id=%s' if by_id else 'upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s)') + """
                LIMIT 1""",
-            (qr, qr.split('|')[-1]),
+            (int(key),) if by_id else (qr, key),
         )
         if not operation:
             return jsonify(ok=False, error='OPERATION_NOT_FOUND', error_code='OP-001', message='Không tìm thấy Operation', action='Kiểm tra QR Operation hoặc tạo lại QR từ PO.'), 404
         if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
             return jsonify(ok=False, error='PO_NOT_STARTED', error_code='PO-001', message=f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng", action='Nhờ quản đốc bấm Start/Tiếp tục PO trên màn hình quản lý.'), 409
-        # Setup handover: the worker scans the PRODUCTION QR as usual and the
-        # device is told to run the setup checklist first, so nobody has to
-        # print or find a second label. Purely informational -- the actual
+        payload = dict(operation)
+        # Setup is NOT a handover to some other screen -- the ESP terminal has
+        # no room for one and its firmware is fixed, so the browser kiosk must
+        # not invent a flow the real device cannot perform either. Setup is
+        # done by scanning the SETUP label, exactly like any other Operation.
+        # This only tells the worker WHICH label to go and scan; the actual
         # block lives in lock_startable_operation(), so a client that ignores
-        # this still cannot start production.
-        payload=dict(operation)
-        setup=None
+        # the hint still cannot start production.
         if payload.get('requires_setup') and not payload.get('setup_completed_at'):
-            setup=fetch_one("""SELECT o.id,o.code,o.name,o.qr,o.expected_setup_minutes,
-                    (SELECT COUNT(*) FROM setup_steps s WHERE s.setup_operation_id=o.id AND s.active) step_count
-                FROM operations o WHERE o.parent_operation_id=%s AND o.operation_type='SETUP'""",
-                (payload['id'],))
-        if setup:
-            return jsonify(ok=True, type='operation', operation=payload,
-                next_action='SETUP_REQUIRED', setup_operation=dict(setup),
-                message='Cần setup máy trước khi sản xuất',
-                action='Bấm bắt đầu setup và làm theo các bước chuẩn bị máy.')
+            setup = fetch_one("""SELECT o.id,o.code,o.qr,o.expected_setup_minutes,
+                    CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
+                         ELSE p.code||'-'||o.code END display_key
+                FROM operations o LEFT JOIN parts p ON p.id=o.part_id
+                WHERE o.parent_operation_id=%s AND o.operation_type='SETUP'""", (payload['id'],))
+            if setup:
+                return jsonify(ok=False, error='SETUP_REQUIRED', error_code='OP-010',
+                    operation=payload, setup_operation=dict(setup),
+                    message=f"Cần setup máy trước. Quét QR {setup['display_key']}",
+                    action='Làm theo tờ hướng dẫn setup tại máy, quét tem SETUP để bắt đầu.'), 409
         return jsonify(ok=True, type='operation', operation=payload)
 
-    return jsonify(ok=False, error='UNSUPPORTED_QR', error_code='SCN-002', message='Sai định dạng QR', action='QR hợp lệ phải bắt đầu bằng WF|EMP| hoặc WF|OP|.'), 400
+    return jsonify(ok=False, error='UNSUPPORTED_QR', error_code='SCN-002', message='Sai định dạng QR', action='QR hợp lệ phải bắt đầu bằng WF|EMP|, WF|OP| hoặc WF|OPID|.'), 400
 
 
 @bp.post('/api/kiosk-web/start')

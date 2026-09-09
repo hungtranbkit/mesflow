@@ -21,7 +21,9 @@ class KioskRepositoryLookup:
         from mesflow.db.connection import fetch_one
         return fetch_one("SELECT id,employee_no,name,qr FROM employees WHERE active=TRUE AND (upper(qr)=upper(%s) OR upper(employee_no)=upper(%s)) LIMIT 1",(qr,key))
     OPERATION_FIELDS=("o.id,o.code,o.name,o.qr,o.is_rework_op,o.operation_type,o.parent_operation_id,"
-        "o.requires_setup,o.setup_completed_at,p.code part_code,po.code po_code,po.status po_status")
+        "o.requires_setup,o.setup_completed_at,p.code part_code,po.code po_code,po.status po_status,"
+        "CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code "
+        "ELSE p.code||'-'||o.code END display_key")
 
     @staticmethod
     def operation(qr,key):
@@ -595,26 +597,6 @@ def reset_operation_setup(operation_id:int):
     """Demand a fresh setup before the next production session."""
     try:
         return jsonify(**SetupRepository().reset(operation_id))
-    except Exception as exc:
-        return err(exc)
-
-
-@bp.get('/setup-sessions/<int:session_id>')
-@login_required
-def get_setup_session(session_id:int):
-    try:
-        return jsonify(ok=True,**SetupRepository().session_progress(session_id))
-    except Exception as exc:
-        return err(exc)
-
-
-@bp.post('/setup-sessions/<int:session_id>/steps/<int:step_id>')
-@login_required
-def mark_setup_step(session_id:int,step_id:int):
-    body=request.get_json(silent=True) or {}
-    try:
-        return jsonify(ok=True,**SetupRepository().mark_step(session_id,step_id,
-            employee_id=body.get('employee_id'),done=bool(body.get('done',True))))
     except Exception as exc:
         return err(exc)
 

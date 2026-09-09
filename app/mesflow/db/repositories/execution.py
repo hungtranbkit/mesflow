@@ -340,6 +340,13 @@ class KioskRepository:
         rows.sort(key=lambda x:(x.get('occurred_at') is not None,x.get('occurred_at')),reverse=True)
         return rows[:min(max(limit,1),1000)]
 
+def _setup_parent_operation(cur,operation_id):
+    """The production Operation a SETUP row prepares, or None for anything else."""
+    cur.execute("SELECT parent_operation_id FROM operations WHERE id=%s AND operation_type='SETUP'",(operation_id,))
+    row=cur.fetchone()
+    return row['parent_operation_id'] if row and row['parent_operation_id'] else None
+
+
 class WorkSessionRepository:
     def list_open_for_employee(self,employee_id:int):
         rows=fetch_all("""SELECT ws.id,ws.operation_id,ws.started_at start_time,o.name operation_name,o.qr operation_qr,po.code po,p.code part,''::text session_group_id FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id LEFT JOIN production_orders po ON po.id=o.production_order_id LEFT JOIN parts p ON p.id=o.part_id WHERE ws.employee_id=%s AND ws.status='OPEN' ORDER BY ws.id DESC""",(employee_id,))
@@ -503,7 +510,19 @@ class WorkSessionRepository:
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
                 if not row: raise NotFoundError('session not found')
                 if row['status']!='OPEN': raise ConflictError('session already closed')
-                _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect)
+                # SETUP (chuẩn bị máy) rides on the ordinary session flow so the
+                # ESP terminal needs no new screen: the worker scans the SETUP
+                # label, scans their card again, and submits on the SAME
+                # quantity screen every operation uses. A setup produces
+                # nothing, so whatever the keypad sent is discarded here rather
+                # than rejected -- refusing a number on a fixed terminal with no
+                # way to explain itself would just strand the worker -- and
+                # closing the session is what unlocks the parent Operation.
+                setup_parent_id=_setup_parent_operation(cur,row['operation_id'])
+                if setup_parent_id is not None:
+                    good=defect=rework=0
+                else:
+                    _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect)
             cur.execute("SELECT CURRENT_TIMESTAMP now_at")
             server_now=cur.fetchone()['now_at']
             # Same trusted-timestamp handling as start()
@@ -520,6 +539,13 @@ class WorkSessionRepository:
                 movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=audit_actor_user_id,
                     actor_name=audit_actor_username,source='SESSION_FINISH',reason=str(data.get('note','')),correlation_id=audit_correlation_id or request_id)
                 cur.execute("UPDATE work_sessions SET status='CLOSED',ended_at=%s,ended_at_trusted=%s,good_qty=%s,defect_qty=%s,rework_qty=%s,note=%s,finish_request_id=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *",(finish_at,ended_at_trusted,good,defect,rework,str(data.get('note','')),request_id,session_id)); closed=cur.fetchone()
+            if setup_parent_id is not None:
+                cur.execute("""UPDATE operations SET setup_completed_at=%s,setup_completed_session_id=%s,
+                    updated_at=CURRENT_TIMESTAMP WHERE id=%s""",(finish_at,session_id,setup_parent_id))
+                record_event(cur,event_type='SETUP_COMPLETED',category='OPERATION',title='Hoàn tất setup máy',
+                    operation_id=setup_parent_id,session_id=session_id,actor_id=audit_actor_user_id,
+                    actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,
+                    occurred_at=finish_at,metadata={'setup_operation_id':row['operation_id']})
             with timer.stage('reconcile_operation_and_po'):
                 # Same PO-row-serialization hot spot as start() -- see its
                 # comment above lock_startable_operation().

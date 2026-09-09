@@ -145,10 +145,27 @@ def _parse_scan(raw: str):
     /api/lookup endpoint (mesflow.web.execution.legacy_lookup) already
     parses; kept as a tiny local helper rather than importing that route
     function directly, since it also does HTTP-response-shaping we don't
-    want here."""
+    want here.
+
+    `WF|OPID|<id>` is the same thing addressed by immutable row id, which is
+    what labels printed from now on carry: an Operation code is only unique
+    within its Part, so a code-based payload can name two different rows (see
+    KioskRepositoryLookup.operation, which refuses an ambiguous one rather
+    than guessing). Every SETUP label uses this shape.
+
+    Normalising it to 'OP' right here is deliberately the ONLY thing the kiosk
+    v2 adapter knows about any of it. The device is fixed hardware: it scans a
+    string and posts it verbatim, and this module's own contract is that the
+    raw payload is parsed server-side, never by the firmware. So a second
+    payload shape costs the device nothing -- no new event type, no new state,
+    no new screen, no firmware change. Everything downstream (start, finish,
+    quantity, projection) is byte-for-byte the path an ordinary Operation
+    already takes.
+    """
     parts = str(raw or '').split('|')
     if len(parts) >= 3 and parts[0].upper() == 'WF':
-        return parts[1].upper(), '|'.join(parts[2:])
+        kind = parts[1].upper()
+        return ('OP' if kind == 'OPID' else kind), '|'.join(parts[2:])
     return None, None
 
 

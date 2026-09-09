@@ -254,6 +254,8 @@ class DashboardRepository:
     def operation_overview(self,limit:int=1000):
         rows=fetch_all(f"""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_quantity,po.due_date,
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
+          CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
+               ELSE p.code||'-'||o.code END operation_display_key,
           o.status operation_status,COALESCE(o.done_qty,0) done_qty,COALESCE(o.defect_qty,0) defect_qty,COALESCE(o.rework_qty,0) rework_qty,
           COALESCE(o.scrap_qty,0) scrap_qty,
           -- Same P1 correction as po_progress()'s repair_rollup: pending is
@@ -836,6 +838,8 @@ class DashboardRepository:
           GROUP BY o.id
         ) SELECT po.id po_id,po.code po_code,po.product,po.status po_status,
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
+          CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
+               ELSE p.code||'-'||o.code END operation_display_key,
           o.status operation_status,o.done_qty total_good_qty,o.defect_qty total_defect_qty,COALESCE(o.rework_qty,0) total_rework_qty,COALESCE(o.scrap_qty,0) total_scrap_qty,po.planned_quantity,
           COALESCE(o.standard_seconds_per_unit,0) standard_seconds_per_unit,
           (COALESCE(po.planned_quantity,0)*COALESCE(o.standard_seconds_per_unit,0))::bigint planned_work_seconds,

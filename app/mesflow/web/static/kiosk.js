@@ -46,9 +46,10 @@
   }
   const ERROR_HELP = {
     'SCN-001':'Kiểm tra nguồn, dây USB/UART và chế độ Enter/CR của máy quét.',
-    'SCN-002':'Dùng QR nhân viên WF|EMP|... hoặc QR Operation WF|OP|...',
+    'SCN-002':'Dùng QR nhân viên WF|EMP|... hoặc QR Operation WF|OP|... / WF|OPID|...',
     'EMP-001':'Kiểm tra thẻ hoặc trạng thái nhân viên trong Danh mục.',
     'OP-001':'Kiểm tra QR Operation hoặc tạo lại QR từ PO.',
+    'OP-010':'Quét tem QR SETUP tại máy để bắt đầu chuẩn bị máy.',
     'PO-001':'Nhờ quản đốc Start/Tiếp tục PO.',
     'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra session đang mở.',
     'QTY-409':'Giảm số lượng hoặc kiểm tra sản lượng OP nguồn.',
@@ -57,6 +58,12 @@
   };
   function workerError(data,status) {
     const raw=`${data?.reason||''} ${data?.message||''}`.toUpperCase();
+    // Setup is the one 409 whose own text is the instruction: it names the
+    // SETUP label to scan next, which the generic wording below would throw
+    // away and leave the worker with nothing to do.
+    if(data?.error==='SETUP_REQUIRED'||raw.includes('CẦN SETUP'))
+      return {message:data?.message||'Cần setup máy trước khi sản xuất.',
+              action:data?.action||'Quét tem QR SETUP tại máy để bắt đầu chuẩn bị máy.'};
     if(raw.includes('COMPLETED'))return {message:'Công đoạn này đã hoàn thành.',action:'Chọn công đoạn khác hoặc báo quản đốc nếu cần làm lại.'};
     if(raw.includes('CANCELLED'))return {message:'Công đoạn này đã bị hủy.',action:'Không tiếp tục sản xuất. Hỏi quản đốc để được điều phối.'};
     if(raw.includes('WIP=0')||raw.includes('NO_WIP'))return {message:'Chưa có sản phẩm đầu vào.',action:'Chờ WIP từ công đoạn trước hoặc báo quản đốc.'};
@@ -154,9 +161,21 @@
         if (result.open_session) {
           openSession = result.open_session;
           document.getElementById('finish-employee').textContent = `${employee.employee_no} · ${employee.name}`;
-          document.getElementById('finish-operation').textContent = `${openSession.operation_code} · ${openSession.operation_name}`;
+          document.getElementById('finish-operation').textContent =
+            `${openSession.operation_display_key || openSession.operation_code} · ${openSession.operation_name}`;
           pendingFinish.requestId = `${deviceUuid}-FINISH-${Date.now()}`;
-          show('quantity-good'); document.getElementById('good-qty').focus();
+          if (String(openSession.operation_type || '') === 'SETUP') {
+            // A setup produces nothing, so there is nothing to type. The
+            // backend discards quantities for a setup session anyway (see
+            // WorkSessionRepository._finish_within), which is exactly how the
+            // fixed ESP terminal finishes one on its ordinary keypad screen --
+            // this just spares the browser operator the three empty prompts.
+            pendingFinish.good = 0; pendingFinish.defect = 0;
+            pendingFinish.rework = 0; pendingFinish.hasRework = false;
+            renderFinishConfirmation();
+          } else {
+            show('quantity-good'); document.getElementById('good-qty').focus();
+          }
         } else {
           document.getElementById('employee-name').textContent = employee.name;
           document.getElementById('employee-code').textContent = `${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`;
@@ -165,72 +184,19 @@
       } else if (state === 'operation') {
         if (result.type !== 'operation') { const e=new Error('Hãy quét QR Operation'); e.code='SCN-004'; e.action='Sau khi nhận diện nhân viên, quét QR Operation.'; throw e; }
         const op = result.operation;
-        // Setup handover: the worker scans the PRODUCTION QR as usual; if the
-        // machine still needs preparing the device runs the checklist first,
-        // so there is no second label to print or find. The backend blocks
-        // the start regardless -- this only saves the failed attempt.
-        if (result.next_action === 'SETUP_REQUIRED' && result.setup_operation) {
-          await enterSetupFlow(op, result.setup_operation, employee);
-          return;
-        }
-        document.getElementById('starting-operation').textContent = `${op.code} · ${op.name}`;
+        document.getElementById('starting-operation').textContent =
+          `${op.display_key || op.code} · ${op.name}`;
         show('starting');
         if (tutorialMode) await new Promise(resolve => setTimeout(resolve, 9000));
         const started = await api('/api/kiosk-web/start', {method:'POST', body:JSON.stringify({employee_id:employee.id, operation_id:op.id, device_uuid:deviceUuid, request_id:`${deviceUuid}-START-${Date.now()}`})});
-        document.getElementById('started-operation').textContent = `${op.code} · ${op.name}`;
+        document.getElementById('started-operation').textContent =
+          `${op.display_key || op.code} · ${op.name}`;
         show('started'); scheduleReset(3500);
       } else if (state === 'started' || state === 'finished' || state === 'error') {
         reset(); setTimeout(() => scan(qr), 50);
       }
     } catch (error) { setError(error.message, error.code, error.action); }
     finally { document.body.classList.remove('kiosk-busy'); }
-  }
-
-  // ---- Setup máy: chạy checklist rồi mới mở sản xuất -------------------
-  let setupCtx = null;
-  async function enterSetupFlow(op, setupOp, employee) {
-    const started = await api('/api/kiosk-web/start', {method:'POST', body:JSON.stringify({
-      employee_id: employee.id, operation_id: setupOp.id, device_uuid: deviceUuid,
-      request_id: `${deviceUuid}-SETUP-${Date.now()}`})});
-    const sessionId = (started.session && started.session.id) || started.session_id;
-    setupCtx = {op, setupOp, employee, sessionId};
-    await drawSetupSteps();
-    show('setup');
-  }
-  async function drawSetupSteps() {
-    const d = await api(`/api/setup-sessions/${setupCtx.sessionId}`);
-    document.getElementById('setup-operation').textContent =
-      `${setupCtx.op.code} · ${setupCtx.op.name}`;
-    const host = document.getElementById('setup-steps');
-    host.innerHTML = (d.steps || []).map(st => `<label class="setup-check ${st.done ? 'done' : ''}">
-      <input type="checkbox" data-step="${st.id}" ${st.done ? 'checked' : ''}>
-      <span>${st.instruction}${st.required ? '' : ' <em>(không bắt buộc)</em>'}</span></label>`).join('')
-      || '<p class="setup-empty">Không có bước nào được khai báo. Bấm Hoàn tất setup để tiếp tục.</p>';
-    host.querySelectorAll('input[data-step]').forEach(cb => cb.onchange = async () => {
-      try {
-        await api(`/api/setup-sessions/${setupCtx.sessionId}/steps/${cb.dataset.step}`,
-          {method:'POST', body: JSON.stringify({done: cb.checked, employee_id: setupCtx.employee.id})});
-        await drawSetupSteps();
-      } catch (e) { setError(e.message); }
-    });
-    const done = document.getElementById('setup-complete');
-    done.disabled = !d.can_complete;
-    document.getElementById('setup-remaining').textContent = d.can_complete
-      ? 'Đã đủ các bước bắt buộc' : `Còn ${d.missing_required.length} bước bắt buộc`;
-  }
-  async function completeSetup() {
-    try {
-      await api(`/api/setup-sessions/${setupCtx.sessionId}/complete`, {method:'POST'});
-      const op = setupCtx.op, employee = setupCtx.employee;
-      document.getElementById('starting-operation').textContent = `${op.code} · ${op.name}`;
-      show('starting');
-      await api('/api/kiosk-web/start', {method:'POST', body: JSON.stringify({
-        employee_id: employee.id, operation_id: op.id, device_uuid: deviceUuid,
-        request_id: `${deviceUuid}-START-${Date.now()}`})});
-      document.getElementById('started-operation').textContent = `${op.code} · ${op.name}`;
-      setupCtx = null;
-      show('started'); scheduleReset(3500);
-    } catch (e) { setError(e.message, e.code, e.action); }
   }
 
   function readQuantity(id, minimum=0) {
@@ -284,9 +250,12 @@
   }
   function renderFinishConfirmation() {
     const scrap = pendingFinish.defect - pendingFinish.rework;
-    const rows = pendingFinish.hasRework
-      ? [['Đạt',pendingFinish.good],['NG tổng',pendingFinish.defect],['Sửa được',pendingFinish.rework],['Phế',scrap]]
-      : [['Đạt',pendingFinish.good],['NG',pendingFinish.defect]];
+    const isSetup = String((openSession && openSession.operation_type) || '') === 'SETUP';
+    const rows = isSetup
+      ? [['Setup máy','Hoàn tất']]
+      : (pendingFinish.hasRework
+        ? [['Đạt',pendingFinish.good],['NG tổng',pendingFinish.defect],['Sửa được',pendingFinish.rework],['Phế',scrap]]
+        : [['Đạt',pendingFinish.good],['NG',pendingFinish.defect]]);
     document.getElementById('finish-confirm-summary').innerHTML = rows.map(([label,value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('');
     document.getElementById('finish-submit-error').textContent = '';
     document.getElementById('finish-confirm-ok').hidden = false;
@@ -484,7 +453,6 @@
   demoEmployee.addEventListener('change', updateDemoQr); demoOperation.addEventListener('change', updateDemoQr);
   setInterval(() => { if (demoIsOpen()) loadDemoData(true); }, 10000);
   document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr()));
-  document.getElementById('setup-complete').addEventListener('click', completeSetup);
   document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr()));
   document.getElementById('demo-copy-employee').addEventListener('click', () => copyText(employeeQr()));
   document.getElementById('demo-copy-operation').addEventListener('click', () => copyText(operationQr()));

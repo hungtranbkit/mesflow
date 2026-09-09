@@ -272,14 +272,25 @@ def lock_startable_operation(cur, operation_id: int):
             "Ghi nhận số sửa được / loại tại màn hình Hàng chờ sửa.")
     # Setup prerequisite, enforced HERE rather than in the kiosk UI: kiosk v1,
     # kiosk v2, the legacy batch path and the API all funnel through this
-    # guard, so a client that skips the setup screen still cannot start
+    # guard, so a client that never heard of setup still cannot start
     # production. SETUP rows themselves are exempt -- starting one IS how the
     # requirement gets satisfied.
+    #
+    # The message is the whole user interface for this rule on the ESP, which
+    # renders one short error line and offers no way to ask a follow-up
+    # question. So it names the exact label to scan next instead of describing
+    # a state: the worker's next physical action is to find that QR.
     if (operation.get('operation_type') or 'PRODUCTION') != 'SETUP' \
             and operation.get('requires_setup') and not operation.get('setup_completed_at'):
+        cur.execute("""SELECT CASE WHEN strpos(upper(s.code),upper(p.code))>0 THEN s.code
+                   ELSE p.code||'-'||s.code END display_key
+            FROM operations s LEFT JOIN parts p ON p.id=s.part_id
+            WHERE s.parent_operation_id=%s AND s.operation_type='SETUP'""", (operation_id,))
+        setup_row = cur.fetchone()
+        label = (setup_row or {}).get('display_key')
         raise ConflictError(
-            f"Operation {operation.get('code') or ''} cần setup máy trước khi sản xuất. "
-            "Hoàn tất các bước chuẩn bị máy rồi mới bắt đầu.")
+            f"Cần setup máy trước. Quét QR {label}" if label
+            else f"Operation {operation.get('code') or ''} cần setup máy trước khi sản xuất.")
     if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
         raise ConflictError(f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng")
     operation['reconciled'] = reconciled

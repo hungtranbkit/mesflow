@@ -10,6 +10,7 @@ from mesflow.db.repositories.master_data import (
     EmployeeRepository,StationRepository,EquipmentRepository,SalesOrderRepository,
     ProductionOrderRepository,PartRepository,OperationRepository,TemplateRepository,TemplateTreeRepository,TemplateValidationError)
 from mesflow.db.repositories.production_state import reconcile_production_order
+from mesflow.db.repositories.setup_ops import display_key_sql
 from mesflow.db.repositories.analytics import AuditRepository
 from mesflow.db.repositories.scheduling import RUNNABLE_STATUSES,RUNNABLE_PO_STATUSES
 from mesflow.core.upload_policy import validate_drawing_upload
@@ -699,25 +700,39 @@ def qr_labels():
             # already-printed labels), not permanently hidden.
             runnable_status_ph=','.join(['%s']*len(RUNNABLE_STATUSES))
             runnable_po_ph=','.join(['%s']*len(RUNNABLE_PO_STATUSES))
-            sql=f"""SELECT o.id,'OPERATION' AS qr_type,o.code,o.name,
-                COALESCE(NULLIF(o.qr,''),'WF|OP|'||o.code) AS qr_payload,
-                po.code AS group_name,p.code||' · '||COALESCE(p.name,'') AS detail,
+            # The printed code is the DISPLAY KEY, never the bare one: an
+            # Operation code is only unique within its Part, so two labels
+            # could otherwise carry the same text and nobody could tell the
+            # machines apart. The payload keeps whatever the row already has
+            # (legacy WF|OP|<code> labels in the workshop must keep working);
+            # only a row with no payload of its own gets one derived, and then
+            # by id whenever its code is ambiguous, because the scan resolver
+            # refuses an ambiguous code rather than guessing.
+            sql=f"""SELECT o.id,'OPERATION' AS qr_type,
+                {display_key_sql('o','p')} AS code,o.name,
+                COALESCE(NULLIF(o.qr,''),
+                  CASE WHEN EXISTS(SELECT 1 FROM operations d WHERE upper(d.code)=upper(o.code) AND d.id<>o.id)
+                       THEN 'WF|OPID|'||o.id ELSE 'WF|OP|'||o.code END) AS qr_payload,
+                po.code AS group_name,
+                p.code||' · '||COALESCE(p.name,'')||
+                  CASE WHEN COALESCE(o.operation_type,'PRODUCTION')='SETUP' THEN ' · Setup máy' ELSE '' END AS detail,
                 (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})
-                 AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION') AS active,
+                 AND COALESCE(o.operation_type,'PRODUCTION') IN ('PRODUCTION','SETUP')) AS active,
                 po.id AS production_order_id,po.code AS po_code
                 FROM operations o JOIN production_orders po ON po.id=o.production_order_id
                 JOIN parts p ON p.id=o.part_id
                 WHERE (%s='' OR o.code ILIKE %s OR o.name ILIKE %s OR po.code ILIKE %s OR p.code ILIKE %s)"""
             params=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)+[q,like,like,like,like]
             if active_only:
-                # SỬA HÀNG (is_rework_op) is excluded for exactly the reason
-                # stated above: lock_startable_operation() refuses to start a
-                # session on it, so printing its label would hand the shop
-                # floor a QR the kiosk cannot honour. It stays in the
-                # unfiltered catalogue (active=false) so an already-printed
-                # label can still be audited.
+                # SỬA HÀNG (REWORK) is excluded for exactly the reason stated
+                # above: lock_startable_operation() refuses to start a session
+                # on it, so printing its label would hand the shop floor a QR
+                # the kiosk cannot honour. It stays in the unfiltered catalogue
+                # (active=false) so an already-printed label can still be
+                # audited. SETUP is the opposite case and MUST be listed:
+                # scanning that label is the only way setup gets done.
                 sql+=f' AND o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})'
-                sql+=" AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'"
+                sql+=" AND COALESCE(o.operation_type,'PRODUCTION') IN ('PRODUCTION','SETUP')"
                 params+=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)
             if po_id: sql+=' AND po.id=%s'; params.append(int(po_id))
             sql+=' ORDER BY po.code,p.sort_order,o.sort_order,o.id LIMIT %s'; params.append(limit)

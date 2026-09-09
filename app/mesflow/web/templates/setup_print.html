@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hướng dẫn setup · {{ sheet.main_display_key }}</title>
+  <style>
+    /* Paper is the instruction here -- the ESP kiosk never renders this text,
+       so this sheet has to be readable at arm's length on a machine. */
+    @page { size: A4; margin: 14mm 14mm 12mm; }
+    *{box-sizing:border-box}
+    body{margin:0;font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#111}
+    .sheet{max-width:182mm;margin:0 auto;padding:18px}
+    .toolbar{display:flex;gap:10px;justify-content:flex-end;margin-bottom:14px}
+    .toolbar button{padding:9px 16px;font-size:14px;font-weight:700;border:1px solid #1f3d55;
+      border-radius:7px;background:#1f3d55;color:#fff;cursor:pointer}
+    .toolbar a{padding:9px 16px;font-size:14px;border:1px solid #c7d0d8;border-radius:7px;
+      background:#fff;color:#1f3d55;text-decoration:none}
+    header{border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:14px}
+    header h1{margin:0 0 4px;font-size:22px;letter-spacing:.01em}
+    header p{margin:0;font-size:13px;color:#444}
+    .label-block{display:flex;gap:16px;align-items:center;border:1px solid #333;border-radius:6px;
+      padding:10px 14px;margin-bottom:14px}
+    .label-block img{width:34mm;height:34mm}
+    .label-block b{display:block;font-size:19px;letter-spacing:.02em}
+    .label-block span{display:block;font-size:13px;color:#333;margin:4px 0 6px}
+    .label-block code{font-size:11px;color:#666}
+    .facts{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px;margin-bottom:16px}
+    .facts div{display:flex;gap:8px;font-size:13.5px;border-bottom:1px dotted #bbb;padding-bottom:5px}
+    .facts b{min-width:118px;color:#333}
+    h2{font-size:15px;margin:18px 0 8px;padding-bottom:5px;border-bottom:1px solid #666}
+    /* The note is typed as free text with the operator's own numbering, so
+       line breaks are content, not formatting. */
+    .note{white-space:pre-wrap;font-size:15px;line-height:1.65;min-height:60mm;
+      border:1px solid #ccc;border-radius:4px;padding:12px 14px;background:#fff}
+    .empty{color:#888;font-style:italic}
+    footer{margin-top:18px;display:flex;justify-content:space-between;font-size:11.5px;color:#555;
+      border-top:1px solid #bbb;padding-top:8px}
+    .sign{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:30px;font-size:13px}
+    .sign div{border-top:1px solid #333;padding-top:6px;text-align:center;color:#444}
+    @media print{ .toolbar{display:none} body{font-size:13px} .sheet{padding:0;max-width:none} }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="toolbar">
+      <a href="/app?page=production-orders">Đóng</a>
+      <button type="button" onclick="window.print()">In hướng dẫn setup</button>
+    </div>
+
+    <header>
+      <h1>HƯỚNG DẪN SETUP MÁY</h1>
+      <p>{{ sheet.po_code or '' }}{% if sheet.product %} · {{ sheet.product }}{% endif %}</p>
+    </header>
+
+    <!-- The QR is on the sheet on purpose: setup is started by scanning this
+         label like any other Operation, so the instruction and the thing you
+         scan are one piece of paper at the machine, never two. -->
+    <div class="label-block">
+      <img src="/api/qr-image?data={{ sheet.setup_qr|urlencode }}" alt="QR setup {{ sheet.setup_display_key }}">
+      <div>
+        <b>{{ sheet.setup_display_key }}</b>
+        <span>Quét tem này để BẮT ĐẦU setup. Quét lại thẻ nhân viên để kết thúc.</span>
+        <code>{{ sheet.setup_qr }}</code>
+      </div>
+    </div>
+
+    <div class="facts">
+      <div><b>Production Order</b><span>{{ sheet.po_code or '—' }}</span></div>
+      <div><b>Part</b><span>{{ sheet.part_code or '—' }}{% if sheet.part_name %} · {{ sheet.part_name }}{% endif %}</span></div>
+      <div><b>Operation chính</b><span>{{ sheet.main_display_key }} · {{ sheet.main_name }}</span></div>
+      <div><b>Mã SETUP</b><span>{{ sheet.setup_display_key }}</span></div>
+      <div><b>Máy / thiết bị</b><span>{% if sheet.equipment_code %}{{ sheet.equipment_code }} · {{ sheet.equipment_name or '' }}{% else %}—{% endif %}</span></div>
+      <div><b>Thời gian setup chuẩn</b><span>{% if sheet.expected_setup_minutes is not none %}{{ sheet.expected_setup_minutes }} phút{% else %}—{% endif %}</span></div>
+    </div>
+
+    <h2>Nội dung setup</h2>
+    {% if sheet.setup_note and sheet.setup_note.strip() %}
+      <div class="note">{{ sheet.setup_note }}</div>
+    {% else %}
+      <div class="note empty">Chưa nhập hướng dẫn setup cho Operation này.</div>
+    {% endif %}
+
+    <div class="sign">
+      <div>Người setup (ký, ghi rõ họ tên)</div>
+      <div>Người kiểm tra (ký, ghi rõ họ tên)</div>
+    </div>
+
+    <footer>
+      <span>Cập nhật hướng dẫn: {{ updated_at or '—' }}</span>
+      <span>In lúc: {{ printed_at }} · KIMEX v{{ version }}</span>
+    </footer>
+  </div>
+</body>
+</html>

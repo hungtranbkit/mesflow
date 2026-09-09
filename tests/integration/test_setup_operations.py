@@ -32,14 +32,15 @@ def _finish(api, session_id, good=0, defect=0):
         'rework_qty': 0}, timeout=15)
 
 
-def _configure(api, operation_id, *, requires=True, minutes=15, steps=None):
+SETUP_NOTE = ("1. Lắp khuôn số 3, siết đủ lực\n"
+              "2. Căn tâm theo dưỡng, sai lệch tối đa 0.05mm\n"
+              "3. Chạy thử 2 sản phẩm, đo kiểm trước khi chạy loạt")
+
+
+def _configure(api, operation_id, *, requires=True, minutes=15, note=SETUP_NOTE):
     return api.put(f'{BASE_URL}/api/operations/{operation_id}/setup', json={
         'requires_setup': requires, 'expected_setup_minutes': minutes,
-        'steps': steps if steps is not None else [
-            {'instruction': 'Lắp khuôn số 3', 'required': True, 'sort_order': 0},
-            {'instruction': 'Kiểm tra căn tâm', 'required': True, 'sort_order': 1},
-            {'instruction': 'Ghi nhật ký (tùy chọn)', 'required': False, 'sort_order': 2},
-        ]}, timeout=15)
+        'setup_note': note}, timeout=15)
 
 
 def _setup_of(api, operation_id):
@@ -64,7 +65,9 @@ def test_B_production_is_blocked_until_setup_is_done(api, db, seeded_factory):
     state = _setup_of(api, graph['operation_id'])
     assert state['setup'] is not None
     assert state['setup_done'] is False
-    assert len(state['steps']) == 3
+    # One free-text instruction, newlines preserved for the printed sheet.
+    assert state['setup']['setup_note'] == SETUP_NOTE
+    assert '\n' in state['setup']['setup_note']
     row = db.execute("""SELECT operation_type,parent_operation_id,qr FROM operations WHERE id=%s""",
                      (state['setup']['id'],)).fetchone()
     assert row['operation_type'] == 'SETUP'
@@ -73,32 +76,34 @@ def test_B_production_is_blocked_until_setup_is_done(api, db, seeded_factory):
     assert row['qr'] == f"WF|OPID|{state['setup']['id']}"
 
 
-def test_C_setup_cannot_complete_while_a_required_step_is_open(api, seeded_factory):
+def test_C_the_instruction_sheet_prints_with_the_note_intact(api, seeded_factory):
+    """Paper is the instruction: the sheet must carry the note verbatim.
+
+    Replaces the old "cannot complete while a required step is unticked" case --
+    the checklist is gone (0048). The ESP screen is small and fixed, so the
+    procedure is printed and kept at the machine instead.
+    """
     graph = seeded_factory
     _configure(api, graph['operation_id'])
-    setup = _setup_of(api, graph['operation_id'])
-    session_id = _start(api, graph['employee_id'], setup['setup']['id'],
-                        graph['station_id']).json()['session']['id']
-    # Tick only the optional one.
-    optional = next(s for s in setup['steps'] if not s['required'])
-    api.post(f"{BASE_URL}/api/setup-sessions/{session_id}/steps/{optional['id']}",
-             json={'done': True}, timeout=15)
-    refused = api.post(f'{BASE_URL}/api/setup-sessions/{session_id}/complete', timeout=15)
-    assert refused.status_code == 409, refused.text
-    assert 'bắt buộc' in refused.json()['message']
-    # Production is still blocked.
-    assert _start(api, graph['employee_id'], graph['operation_id'],
-                  graph['station_id']).status_code == 409
+    page = api.get(f"{BASE_URL}/print/setup/{graph['operation_id']}", timeout=15)
+    assert page.status_code == 200, page.text
+    html = page.text
+    assert 'HƯỚNG DẪN SETUP MÁY' in html
+    for line in SETUP_NOTE.split('\n'):
+        assert line in html, f'missing instruction line: {line}'
+    assert '15 phút' in html
+    # white-space:pre-wrap is what keeps the operator's own numbering readable.
+    assert 'pre-wrap' in html
+    # The SETUP id resolves to the same sheet, so the button works from both.
+    setup_id = _setup_of(api, graph['operation_id'])['setup']['id']
+    assert api.get(f'{BASE_URL}/print/setup/{setup_id}', timeout=15).status_code == 200
 
 
 def _complete_setup(api, graph):
+    """start setup -> work from the printed sheet -> one confirmation."""
     setup = _setup_of(api, graph['operation_id'])
     session_id = _start(api, graph['employee_id'], setup['setup']['id'],
                         graph['station_id']).json()['session']['id']
-    for step in setup['steps']:
-        if step['required']:
-            api.post(f"{BASE_URL}/api/setup-sessions/{session_id}/steps/{step['id']}",
-                     json={'done': True}, timeout=15)
     done = api.post(f'{BASE_URL}/api/setup-sessions/{session_id}/complete', timeout=15)
     assert done.status_code == 200, done.text
     return session_id
@@ -192,7 +197,7 @@ def test_F2_setup_is_not_reported_as_missing_a_standard(api, db, seeded_factory)
         assert row['repair_sessions'] >= 1, 'support work is counted in its own bucket'
 
 
-def test_G_template_clone_carries_the_setup_and_its_checklist(api, db, seeded_factory):
+def test_G_template_clone_carries_the_setup_and_its_instructions(api, db, seeded_factory):
     graph = seeded_factory
     suffix = uuid.uuid4().hex[:6].upper()
     template_code = f'TPL-SETUP-{suffix}'
@@ -207,13 +212,10 @@ def test_G_template_clone_carries_the_setup_and_its_checklist(api, db, seeded_fa
             part_id = cur.fetchone()['id']
             cur.execute("""INSERT INTO template_operations(template_id,part_id,code,name,sort_order,
                     standard_seconds_per_unit,repair_cycle_time_seconds_per_unit,
-                    requires_setup,expected_setup_minutes)
-                VALUES(%s,%s,%s,'CẮT',0,10,0,TRUE,25) RETURNING id""",
-                (template_id, part_id, f'PS-{suffix}-OP01'))
-            top_id = cur.fetchone()['id']
-            for idx, (text, required) in enumerate([('Lắp khuôn', True), ('Ghi sổ', False)]):
-                cur.execute("""INSERT INTO template_setup_steps(template_operation_id,sort_order,
-                        instruction,required) VALUES(%s,%s,%s,%s)""", (top_id, idx, text, required))
+                    requires_setup,expected_setup_minutes,setup_note)
+                VALUES(%s,%s,%s,'CẮT',0,10,0,TRUE,25,%s) RETURNING id""",
+                (template_id, part_id, f'PS-{suffix}-OP01', SETUP_NOTE))
+            cur.fetchone()
 
         created = api.post(f'{BASE_URL}/api/templates/{template_id}/instantiate',
                            json={'code': po_code, 'planned_quantity': 10}, timeout=25)
@@ -229,9 +231,9 @@ def test_G_template_clone_carries_the_setup_and_its_checklist(api, db, seeded_fa
         # Parent points at the NEW operation id, not the template's.
         assert setup['parent_operation_id'] == main['id']
         assert setup['expected_setup_minutes'] == 25
-        steps = db.execute("""SELECT instruction,required FROM setup_steps
-            WHERE setup_operation_id=%s ORDER BY sort_order""", (setup['id'],)).fetchall()
-        assert [(s['instruction'], s['required']) for s in steps] == [('Lắp khuôn', True), ('Ghi sổ', False)]
+        note = db.execute('SELECT setup_note FROM operations WHERE id=%s',
+                          (setup['id'],)).fetchone()['setup_note']
+        assert note == SETUP_NOTE, 'the printed instruction must survive the clone'
         # Exactly one SETUP -- no duplicate from a retried save.
         assert len([r for r in rows if r['operation_type'] == 'SETUP']) == 1
     finally:
@@ -258,7 +260,7 @@ def test_H_configuring_setup_twice_does_not_duplicate_the_linked_row(api, db, se
     assert _setup_of(api, graph['operation_id'])['setup']['expected_setup_minutes'] == 30
 
 
-def test_H2_turning_setup_off_keeps_the_checklist_and_unblocks_production(api, seeded_factory):
+def test_H2_turning_setup_off_keeps_the_instructions_and_unblocks_production(api, seeded_factory):
     graph = seeded_factory
     _configure(api, graph['operation_id'])
     off = api.put(f"{BASE_URL}/api/operations/{graph['operation_id']}/setup",
@@ -267,7 +269,7 @@ def test_H2_turning_setup_off_keeps_the_checklist_and_unblocks_production(api, s
     assert _start(api, graph['employee_id'], graph['operation_id'],
                   graph['station_id']).status_code == 201
     # Instructions survive so switching it back on does not lose them.
-    assert len(_setup_of(api, graph['operation_id'])['steps']) == 3
+    assert _setup_of(api, graph['operation_id'])['setup']['setup_note'] == SETUP_NOTE
 
 
 def test_I_rework_classification_survives_the_new_operation_type(api, db, seeded_factory):
@@ -282,3 +284,73 @@ def test_I_rework_classification_survives_the_new_operation_type(api, db, seeded
     row = db.execute("""SELECT operation_type,is_rework_op FROM operations
         WHERE production_order_id=%s AND operation_type='REWORK'""", (graph['po_id'],)).fetchone()
     assert row['is_rework_op'] is True, 'the generated column must track operation_type'
+
+
+def test_K_two_parts_sharing_one_template_op_code_get_distinct_setup_labels(api, db):
+    """The collision case, taken through the path that actually creates it.
+
+    A Template may use OP01 in every Part -- that is the whole point of the
+    per-Part scoping. operation_code_suffix() folds the Part into the stored
+    code when the PO is created, so operations.code stays globally unique (the
+    DB enforces it) and the two OP01s become two different rows, each with its
+    own SETUP label. Nothing anywhere resolves an Operation by a code that
+    could name two rows.
+    """
+    suffix = uuid.uuid4().hex[:6].upper()
+    template_code, po_code = f'TPL-DUP-{suffix}', f'PO-DUP-{suffix}'
+    part_a, part_b = f'PA-{suffix}', f'PB-{suffix}'
+    try:
+        with db.cursor() as cur:
+            cur.execute("""INSERT INTO templates(code,name,product,version,active)
+                VALUES(%s,'Tpl trùng mã OP','SP','1.0',true) RETURNING id""", (template_code,))
+            template_id = cur.fetchone()['id']
+            for order, part_code in enumerate((part_a, part_b)):
+                cur.execute("""INSERT INTO template_parts(template_id,code,name,sort_order)
+                    VALUES(%s,%s,%s,%s) RETURNING id""", (template_id, part_code, f'Part {part_code}', order))
+                tpl_part = cur.fetchone()['id']
+                # The SAME Operation code in both Parts -- legal by design.
+                cur.execute("""INSERT INTO template_operations(template_id,part_id,code,name,sort_order,
+                        standard_seconds_per_unit,repair_cycle_time_seconds_per_unit,
+                        requires_setup,expected_setup_minutes,setup_note)
+                    VALUES(%s,%s,'OP01','Cắt',0,10,0,TRUE,15,%s)""", (template_id, tpl_part, SETUP_NOTE))
+
+        created = api.post(f'{BASE_URL}/api/templates/{template_id}/instantiate',
+                           json={'code': po_code, 'planned_quantity': 10}, timeout=25)
+        assert created.status_code in (200, 201), created.text
+
+        rows = db.execute("""SELECT o.id,o.code,o.operation_type,o.parent_operation_id,o.qr,p.code part_code
+            FROM operations o JOIN parts p ON p.id=o.part_id
+            JOIN production_orders po ON po.id=o.production_order_id
+            WHERE po.code=%s ORDER BY p.code,o.operation_type""", (po_code,)).fetchall()
+        mains = [r for r in rows if r['operation_type'] == 'PRODUCTION']
+        setups = [r for r in rows if r['operation_type'] == 'SETUP']
+        assert len(mains) == 2 and len(setups) == 2
+
+        # One template code, two distinct stored codes: the PO and the Part are
+        # both folded in, which is what keeps operations.code globally unique.
+        assert len({r['code'] for r in mains}) == 2, mains
+        assert {r['code'] for r in mains} == {f'{po_code}-{part_a}-OP01', f'{po_code}-{part_b}-OP01'}
+        # Each SETUP hangs off its own parent, with its own label and payload.
+        assert {r['code'] for r in setups} == {f'{po_code}-{part_a}-OP01-SU',
+                                               f'{po_code}-{part_b}-OP01-SU'}
+        assert {r['parent_operation_id'] for r in setups} == {r['id'] for r in mains}
+        for setup in setups:
+            assert setup['qr'] == f"WF|OPID|{setup['id']}"
+
+        # What the screens show is the same unambiguous text, per Part.
+        for main in mains:
+            state = _setup_of(api, main['id'])
+            assert state['operation']['display_key'] == main['code']
+            assert state['setup']['display_key'] == f"{main['code']}-SU"
+    finally:
+        with db.cursor() as cur:
+            cur.execute("""DELETE FROM operations WHERE production_order_id IN
+                (SELECT id FROM production_orders WHERE code=%s)""", (po_code,))
+            cur.execute("""DELETE FROM parts WHERE production_order_id IN
+                (SELECT id FROM production_orders WHERE code=%s)""", (po_code,))
+            cur.execute('DELETE FROM production_orders WHERE code=%s', (po_code,))
+            cur.execute("""DELETE FROM template_operations WHERE template_id IN
+                (SELECT id FROM templates WHERE code=%s)""", (template_code,))
+            cur.execute("""DELETE FROM template_parts WHERE template_id IN
+                (SELECT id FROM templates WHERE code=%s)""", (template_code,))
+            cur.execute('DELETE FROM templates WHERE code=%s', (template_code,))
