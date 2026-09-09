@@ -1,3 +1,9 @@
+# Trạng thái PO dùng ở file này bám theo mesflow.domain.policy.OPEN_PO_STATUSES
+# (RELEASED / IN_PROGRESS / PAUSED). Trước 2026-09-09 chúng lọc theo
+# ('IN_PROGRESS','ACTIVE','PAUSED'): 'ACTIVE' KHÔNG phải trạng thái PO hợp lệ,
+# còn RELEASED -- trạng thái thật của một PO đã phát hành -- thì bị bỏ sót, nên
+# PO vừa phát hành đơn giản là không xuất hiện trên dashboard mà không báo gì.
+# test_po_status_policy_is_single_sourced.py khoá hai bên lại với nhau.
 from __future__ import annotations
 import json
 from datetime import date, datetime, timezone, timedelta
@@ -139,7 +145,7 @@ class DashboardRepository:
         # reconcile_operation()), not summed here.
         return fetch_one(f"""SELECT
           (SELECT COUNT(*) FROM production_orders) po_total,
-          (SELECT COUNT(*) FROM production_orders WHERE status IN ('IN_PROGRESS','ACTIVE')) po_active,
+          (SELECT COUNT(*) FROM production_orders WHERE status IN ('RELEASED','IN_PROGRESS','PAUSED')) po_active,
           (SELECT COUNT(*) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') operation_total,
           (SELECT COUNT(*) FROM operations WHERE status='COMPLETED' AND COALESCE(operation_type,'PRODUCTION')='PRODUCTION') operation_completed,
           (SELECT COALESCE(SUM(done_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_good_qty,
@@ -327,7 +333,7 @@ class DashboardRepository:
             COALESCE(SUM(o.done_qty),0) done_qty,COALESCE(SUM(o.defect_qty),0) defect_qty
           FROM production_orders po LEFT JOIN operations o ON o.production_order_id=po.id
             AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
-          WHERE po.status IN ('IN_PROGRESS','ACTIVE','PAUSED') GROUP BY po.id
+          WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED') GROUP BY po.id
         ), completed_due AS (
           SELECT COUNT(*) FILTER (WHERE (updated_at AT TIME ZONE %s)::date<=due_date) on_time_count,COUNT(*) total_count
           FROM production_orders
@@ -382,7 +388,7 @@ class DashboardRepository:
           COALESCE(a.workers,'') workers
         FROM production_orders po LEFT JOIN op_rollup r ON r.production_order_id=po.id
         LEFT JOIN active_rollup a ON a.production_order_id=po.id
-        WHERE po.status IN ('IN_PROGRESS','ACTIVE','PAUSED')
+        WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
         ORDER BY CASE po.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'NORMAL' THEN 3 ELSE 4 END,
           po.due_date NULLS LAST,po.updated_at DESC LIMIT %s""",(min(max(limit,1),500),))
         for row in po_health:
@@ -401,7 +407,7 @@ class DashboardRepository:
                 health='CRITICAL'; label='Trễ kế hoạch'; reason='Đã qua thời điểm kết thúc dự kiến'
             elif str(row.get('status'))=='PAUSED':
                 health='WARNING'; label='Tạm dừng'; reason='PO đang tạm dừng'
-            elif str(row.get('status')) in ('IN_PROGRESS','ACTIVE') and int(row.get('active_sessions') or 0)==0:
+            elif str(row.get('status')) in ('RELEASED','IN_PROGRESS','PAUSED') and int(row.get('active_sessions') or 0)==0:
                 health='WARNING'; label='Không có người làm'; reason='PO đang chạy nhưng không có session mở'
             elif due and 0 <= (due-today).days <= 1 and row['progress_percent']<80:
                 health='WARNING'; label='Nguy cơ trễ'; reason='Sắp đến hạn nhưng tiến độ dưới 80%'
@@ -424,7 +430,7 @@ class DashboardRepository:
         LEFT JOIN operations o ON o.part_id=p.id
         LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         LEFT JOIN employees e ON e.id=ws.employee_id
-        WHERE po.status IN ('IN_PROGRESS','ACTIVE','PAUSED')
+        WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
         GROUP BY po.id,p.id,o.id
         ORDER BY po.due_date NULLS LAST,po.updated_at DESC,p.sort_order,p.id,o.sort_order,o.id""")
         for row in po_tree:
@@ -453,7 +459,7 @@ class DashboardRepository:
             po.code||' · '||po.product,
             CASE WHEN po.due_date<CURRENT_DATE THEN 'PO đã quá hạn' ELSE 'PO sắp đến hạn nhưng tiến độ dưới 80%' END,po.updated_at
           FROM production_orders po LEFT JOIN operations o ON o.production_order_id=po.id
-          WHERE po.status IN ('IN_PROGRESS','ACTIVE','PAUSED') AND po.due_date IS NOT NULL GROUP BY po.id
+          WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED') AND po.due_date IS NOT NULL GROUP BY po.id
           HAVING po.due_date<CURRENT_DATE OR (po.due_date<=CURRENT_DATE+1 AND COALESCE(SUM(o.done_qty),0)<COALESCE(NULLIF(COALESCE(po.planned_quantity,0)*COUNT(DISTINCT o.id),0),1)*0.8)
           UNION ALL
           SELECT CASE WHEN SUM(o.defect_qty)::numeric/NULLIF(SUM(o.done_qty+o.defect_qty),0)>=0.1 THEN 'CRITICAL' ELSE 'WARNING' END,
@@ -483,7 +489,7 @@ class DashboardRepository:
           po.planned_quantity
         FROM operations o JOIN operations src ON src.id=o.input_source_operation_id
         JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
-        WHERE po.status IN ('IN_PROGRESS','ACTIVE','PAUSED')
+        WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
           AND o.input_flow_enabled=true AND o.status<>'COMPLETED'
           AND GREATEST(CASE WHEN o.input_source_kind='REWORK' THEN src.rework_qty ELSE src.done_qty END-
             COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=src.id AND c.source_qty_kind=o.input_source_kind),0),0)>=GREATEST(1,CASE WHEN o.input_source_kind='REWORK' THEN 1 ELSE CEIL(COALESCE(po.planned_quantity,0)*0.1) END)

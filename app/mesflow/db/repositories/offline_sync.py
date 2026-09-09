@@ -16,6 +16,32 @@ from mesflow.services.kiosk_reconciliation import ReconciliationResult, compute_
 
 BUSINESS_ERRORS = (ValueError, ConflictError, NotFoundError, RepositoryError)
 
+# Thử lại tối đa bao nhiêu lần trước khi coi là hỏng hẳn. Thử mãi không được
+# thì phải dừng -- nhưng dừng một cách NHÌN THẤY ĐƯỢC, có reason_code riêng,
+# chứ không im lặng bỏ như trước.
+MAX_RETRY_ATTEMPTS = 8
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Lỗi này có thể tự hết theo thời gian không?
+
+    ConflictError là đụng độ TRẠNG THÁI: OP nguồn chưa có sản lượng để cấp,
+    Operation chưa được phép bắt đầu, session khác đang mở trên cùng chỗ. Tất
+    cả đều có thể đúng lại khi công đoạn phía trước nhập số hoặc người khác kết
+    thúc việc của họ. Trước đây chúng bị ghi 'rejected' -- trạng thái cuối --
+    nên thiết bị bỏ luôn sự kiện, và một ca làm việc CÓ THẬT biến mất chỉ vì
+    lúc đồng bộ thì thứ tự chưa tới.
+
+    ValueError / NotFoundError là dữ liệu sai hoặc thực thể không tồn tại: mã
+    nhân viên không có, Operation đã bị xoá. Thời gian không chữa được, thử lại
+    chỉ tốn công -- những cái này FINAL ngay.
+
+    Mặc định nghiêng về "thử lại được": đoán sai theo hướng này chỉ tốn vài lần
+    gửi lại rồi RETRY_EXHAUSTED; đoán sai theo hướng kia thì mất dữ liệu sản
+    xuất, không lấy lại được.
+    """
+    return isinstance(exc, ConflictError)
+
 
 def _canonical_hash(event: dict[str, Any]) -> str:
     encoded = json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str).encode('utf-8')
@@ -110,7 +136,15 @@ class OfflineSyncRepository:
                         boot_id,snapshot_revision,source,status,reason_code,reason,server_session_id,
                         payload_json,result_json,processed_at)
                       VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
-                      ON CONFLICT(client_event_id) DO NOTHING""", (
+                      ON CONFLICT(client_event_id) DO UPDATE SET
+                        attempt_count=kiosk_client_events.attempt_count+1,
+                        last_attempt_at=CURRENT_TIMESTAMP,
+                        status=CASE WHEN kiosk_client_events.status IN ('accepted','duplicate')
+                                    THEN kiosk_client_events.status ELSE EXCLUDED.status END,
+                        reason_code=CASE WHEN kiosk_client_events.status IN ('accepted','duplicate')
+                                    THEN kiosk_client_events.reason_code ELSE EXCLUDED.reason_code END,
+                        reason=CASE WHEN kiosk_client_events.status IN ('accepted','duplicate')
+                                    THEN kiosk_client_events.reason ELSE EXCLUDED.reason END""", (
                         str(event['client_event_id']), payload_hash, kiosk_id,
                         int(event.get('local_sequence') or 0), str(event.get('local_session_id') or ''),
                         str(event.get('session_trace_id') or ''), str(event.get('event_type') or '').upper(),
@@ -155,6 +189,12 @@ class OfflineSyncRepository:
         event['client_event_id'] = event_id
         payload_hash = _canonical_hash(event)
         existing = self._existing(event_id)
+        # 'retryable' KHÔNG phải trạng thái cuối -- đó là cả điểm của nó. Dòng
+        # ở trạng thái này phải được XỬ LÝ LẠI, không được coi là bản sao và
+        # trả về ngay. Thiếu đúng chỗ này thì vòng đời retry chỉ ghi được nhật
+        # ký đẹp mà chẳng bao giờ thử lại lần nào.
+        if existing and str(existing.get('status') or '') == 'retryable':
+            existing = None
         if existing:
             if existing['payload_hash'] != payload_hash:
                 return {'client_event_id': event_id, 'status': 'rejected', 'reason_code': 'IDEMPOTENCY_PAYLOAD_CONFLICT'}
@@ -255,14 +295,37 @@ class OfflineSyncRepository:
             else:
                 raise ValueError('event_type is required')
         except BUSINESS_ERRORS as exc:
-            result = {'client_event_id': event_id, 'status': 'rejected', 'reason_code': 'BUSINESS_REJECT', 'reason': str(exc)}
+            attempts = int((self._existing(event_id) or {}).get('attempt_count') or 0)
+            if _is_retryable(exc) and attempts < MAX_RETRY_ATTEMPTS:
+                # Máy chủ GIỮ dòng ở trạng thái retryable kèm lý do (nhìn thấy
+                # được), còn thiết bị nhận 'transient' -- đúng thứ firmware
+                # hiện tại đã hiểu là "giữ lại và gửi lại". Không đổi ESP.
+                result = {'client_event_id': event_id, 'status': 'transient',
+                          'reason_code': 'RETRYABLE_CONFLICT', 'reason': str(exc)}
+                self._record(kiosk_id, event, payload_hash, 'retryable', result,
+                             reason_code='RETRYABLE_CONFLICT', reason=str(exc))
+                return result
+            reason_code = 'RETRY_EXHAUSTED' if _is_retryable(exc) else 'BUSINESS_REJECT'
+            result = {'client_event_id': event_id, 'status': 'rejected',
+                      'reason_code': reason_code, 'reason': str(exc)}
             self._record(kiosk_id, event, payload_hash, 'rejected', result,
-                         reason_code='BUSINESS_REJECT', reason=str(exc))
+                         reason_code=reason_code, reason=str(exc))
             return result
-        except Exception:
-            # Unknown/database failures are transient. Do not create a terminal
-            # ledger row; the ESP retains and retries the event with backoff.
-            return {'client_event_id': event_id, 'status': 'transient', 'reason_code': 'TEMPORARY_FAILURE'}
+        except Exception as exc:            # noqa: BLE001 - hạ tầng, không phải nghiệp vụ
+            # Lỗi hạ tầng/CSDL: thiết bị vẫn nhận 'transient' và giữ sự kiện.
+            # Nhưng trước đây KHÔNG ghi dòng nào, nên phía máy chủ không có dấu
+            # vết gì -- không ai biết có bao nhiêu sự kiện đang kẹt và vì sao.
+            # Nay ghi 'retryable': không phải trạng thái cuối, chỉ là để nhìn
+            # thấy được. Việc ghi này tự nó có thể hỏng nếu CSDL đang chết, nên
+            # nó được bọc riêng và không bao giờ che mất câu trả lời cho thiết bị.
+            result = {'client_event_id': event_id, 'status': 'transient',
+                      'reason_code': 'TEMPORARY_FAILURE', 'reason': str(exc)[:300]}
+            try:
+                self._record(kiosk_id, event, payload_hash, 'retryable', result,
+                             reason_code='TEMPORARY_FAILURE', reason=str(exc)[:300])
+            except Exception:               # noqa: BLE001 - ghi nhật ký không được làm hỏng phản hồi
+                pass
+            return result
 
         result = {'client_event_id': event_id, 'status': 'accepted', 'server_session_id': session_id}
         if kind not in ('START', 'FINISH'):

@@ -2,9 +2,18 @@ from __future__ import annotations
 from datetime import date,datetime,time,timedelta
 from mesflow.core.time_policy import coerce_utc,utc_now
 
+from mesflow.domain.policy import (RUNNABLE_PO_STATUSES as _POLICY_RUNNABLE_PO,
+                                   TERMINAL_PO_STATUSES as _POLICY_TERMINAL_PO)
+
 RUNNABLE_STATUSES={'DRAFT','PLANNED','RELEASED','READY','IN_PROGRESS'}
-RUNNABLE_PO_STATUSES={'RELEASED','IN_PROGRESS','ACTIVE'}
-TERMINAL_STATUSES={'COMPLETED','CANCELLED'}
+# Lấy thẳng từ mesflow.domain.policy thay vì chép lại. Bản chép cũ có thêm
+# 'ACTIVE' -- một trạng thái PO KHÔNG tồn tại (tập hợp lệ là DRAFT/PLANNED/
+# RELEASED/IN_PROGRESS/PAUSED/COMPLETED/CANCELLED). Nó không gây lỗi thấy được,
+# chỉ là một giá trị không bao giờ khớp, nên nằm đó nhiều tháng và được chép
+# tiếp sang analytics.py -- nơi nó thay chỗ cho RELEASED và làm PO vừa phát
+# hành biến mất khỏi dashboard.
+RUNNABLE_PO_STATUSES=set(_POLICY_RUNNABLE_PO)
+TERMINAL_STATUSES=set(_POLICY_TERMINAL_PO)
 
 def as_utc(value):
     if value is None:return None

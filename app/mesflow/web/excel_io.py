@@ -290,7 +290,7 @@ def import_operations():
                     (SELECT COUNT(*) FROM operation_input_consumptions c JOIN operations o ON o.id=c.target_operation_id
                      WHERE o.production_order_id=ANY(%s)) ledgers''',(scope_ids,scope_ids)).fetchone()
                 if int(counts.get('sessions') or 0)>0 or int(counts.get('ledgers') or 0)>0:
-                    raise ConflictError('Không thể Replace cấu trúc Operation khi PO trong file đã có Session hoặc Ledger dòng vật tư. Hãy dùng Merge hoặc tạo PO mới.')
+                    raise ConflictError('Không thể Replace cấu trúc Operation khi PO trong file đã có Session hoặc lịch sử cấp đầu vào. Hãy dùng Merge hoặc tạo PO mới.')
                 conn.execute('DELETE FROM operations WHERE production_order_id=ANY(%s)',(scope_ids,))
                 conn.execute('DELETE FROM parts WHERE production_order_id=ANY(%s)',(scope_ids,))
             for row in normalized:
@@ -333,7 +333,7 @@ def import_operations():
                         EXISTS(SELECT 1 FROM operation_input_consumptions c WHERE c.target_operation_id=o.id) has_consumption
                         FROM operations o WHERE o.id=%s FOR UPDATE''',(existing['id'],)).fetchone()
                     if bool(guard.get('has_consumption')) and (int(guard['production_order_id'])!=int(po['id']) or int(guard['part_id'])!=int(part['id'])):
-                        raise ValueError(f"Operation {row['code']} đã có Ledger nên không thể chuyển PO/Part bằng Excel.")
+                        raise ValueError(f"Operation {row['code']} đã có lịch sử cấp đầu vào nên không thể chuyển PO/Part bằng Excel.")
                     conn.execute('''
                         UPDATE operations SET production_order_id=%s,part_id=%s,name=%s,
                             sort_order=%s,qr=%s,updated_at=CURRENT_TIMESTAMP

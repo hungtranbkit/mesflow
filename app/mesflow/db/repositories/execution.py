@@ -356,6 +356,31 @@ def _rework_ledger_floor(cur,session_id):
     return int(row.get('reworked') or 0),int(row.get('scrapped') or 0)
 
 
+def _guard_quantity_shape(*,good,defect,rework,scrap):
+    """Chặn trước những tổ hợp mà CSDL sẽ từ chối, để lỗi ra đúng nghĩa.
+
+    work_sessions có CHECK ck_work_sessions_rework_scrap_le_defect:
+    rework_qty + scrap_qty <= defect_qty. adjust() và edit_session() trước đây
+    chỉ kiểm rework > defect, KHÔNG kiểm phần phế. Một session đã qua Hàng chờ
+    sửa với scrap_qty=5 mà bị hạ defect xuống 2 sẽ vi phạm CHECK: người dùng
+    nhận HTTP 500 kèm thông báo của PostgreSQL thay vì một câu tiếng Việt nói
+    rõ vì sao không được.
+
+    scrap_qty cố ý KHÔNG nhận từ đầu vào của hai đường sửa này: phế chỉ sinh ra
+    qua Hàng chờ sửa và được ghi vào rework_ledger, nên nó là số cộng dồn có
+    nguồn gốc, không phải ô cho người dùng gõ đè.
+    """
+    if good < 0 or defect < 0 or rework < 0 or scrap < 0:
+        raise ValueError('Số lượng không được âm')
+    if rework > defect:
+        raise ValueError('rework_qty cannot exceed defect_qty')
+    if rework + scrap > defect:
+        raise ValueError(
+            f'Session này đã có {scrap} sản phẩm phế và {rework} sản phẩm sửa được '
+            f'qua Hàng chờ sửa (tổng {rework + scrap}). Số NG không thể thấp hơn tổng đó '
+            f'-- đang đặt {defect}.')
+
+
 def _guard_rework_ledger(cur,session_id,*,rework,scrap):
     """Chặn một lệnh sửa số liệu làm rơi tổng xuống dưới những gì đã ghi sổ."""
     reworked,scrapped=_rework_ledger_floor(cur,session_id)
@@ -736,6 +761,7 @@ class SupervisorRepository:
                 if pre: lock_production_order_for_operation_first(cur,pre['operation_id'])
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
                 if not row: raise NotFoundError('session not found')
+                _guard_quantity_shape(good=good,defect=defect,rework=rework,scrap=int(row.get('scrap_qty') or 0))
                 if row['status']=='CLOSED':
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 _guard_rework_ledger(cur,session_id,rework=rework,scrap=int(row.get('scrap_qty') or 0))
@@ -854,6 +880,7 @@ class SupervisorRepository:
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=operation_id,good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 else:
                     cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
+                _guard_quantity_shape(good=good,defect=defect,rework=rework,scrap=int(old.get('scrap_qty') or 0))
                 _guard_rework_ledger(cur,session_id,rework=rework,scrap=int(old.get('scrap_qty') or 0))
                 cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
                 movements=record_quantities(cur,session=old,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
@@ -917,13 +944,31 @@ class SupervisorRepository:
                     po.code po_code FROM operations o JOIN parts p ON p.id=o.part_id
                     JOIN production_orders po ON po.id=o.production_order_id WHERE o.id=%s FOR UPDATE OF o""",(old['operation_id'],))
                 source_op=cur.fetchone()
-                cur.execute("""SELECT o.id,o.code,o.name,o.status,o.part_id,o.production_order_id,p.code part_code,
+                cur.execute("""SELECT o.id,o.code,o.name,o.status,o.part_id,o.production_order_id,
+                    COALESCE(o.operation_type,'PRODUCTION') operation_type,p.code part_code,
                     po.code po_code FROM operations o JOIN parts p ON p.id=o.part_id
                     JOIN production_orders po ON po.id=o.production_order_id WHERE o.id=%s FOR UPDATE OF o""",(new_operation_id,))
                 target_op=cur.fetchone()
                 if not target_op: raise ValueError('Operation không tồn tại')
                 if str(target_op.get('status') or '').upper()=='CANCELLED':
                     raise ConflictError(f"Operation {target_op.get('code') or new_operation_id} đã CANCELLED, không thể chuyển vào")
+                # A2: session mang sản lượng KHÔNG được chuyển sang OP phụ.
+                # SETUP và SỬA HÀNG cố ý bị loại khỏi mọi rollup sản xuất (xem
+                # reportable_session_sql / reconcile_operation), nên chuyển một
+                # session có good/NG/rework/phế vào đó làm số lượng đó BIẾN MẤT
+                # khỏi tiến độ PO mà không có dấu vết nào -- OP nguồn mất sản
+                # lượng, OP đích không nhận, tổng không cân. Chặn ở tầng
+                # service chứ không phải ở giao diện: kiosk, API và Excel đều
+                # đi qua đây.
+                target_type=str(target_op.get('operation_type') or 'PRODUCTION').upper()
+                if target_type!='PRODUCTION':
+                    carried=sum(int(old.get(f) or 0) for f in ('good_qty','defect_qty','rework_qty','scrap_qty'))
+                    if carried>0:
+                        raise ConflictError(
+                            f"Session này có {carried} sản phẩm đã ghi nhận, không thể chuyển sang "
+                            f"OP phụ {target_op.get('code') or new_operation_id} ({target_type}): "
+                            'OP phụ không tính vào sản lượng nên số này sẽ biến mất khỏi tiến độ PO. '
+                            'Hãy chuyển sang một Operation sản xuất, hoặc chỉnh số lượng về 0 trước.')
                 if int(target_op['production_order_id'])!=int(source_op['production_order_id']):
                     if str(actor_role or '').lower()!='admin':
                         raise ConflictError(f"Operation mới thuộc PO khác ({target_op.get('po_code')} khác {source_op.get('po_code')}); chỉ admin mới được chuyển khác PO")
@@ -934,6 +979,24 @@ class SupervisorRepository:
                 # only the Operation assignment (and, transitively, which
                 # PO/Part's progress+KPI count them) changes.
                 cur.execute('UPDATE work_sessions SET operation_id=%s,quantity_confirmed=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *',(new_operation_id,session_id)); new=cur.fetchone()
+                # Dòng vật tư phải theo session sang Operation MỚI. Trước đây
+                # transfer_operation() không đụng operation_input_consumptions
+                # -- edit_session() thì có -- nên sau khi chuyển, dòng ledger
+                # vẫn ghi target_operation_id là OP CŨ và rút từ nguồn của OP
+                # cũ. Sản lượng đếm cho OP mới, còn nguyên liệu vẫn trừ của OP
+                # cũ: hai bên sổ nói hai chuyện khác nhau.
+                #
+                # Chỉ áp cho session đã CLOSED (session OPEN chưa có số lượng
+                # nên chưa giữ đầu vào). Helper tự xoá dòng nếu OP mới không
+                # bật giới hạn đầu vào, và ném ConflictError nếu OP nguồn của
+                # OP mới không đủ hàng -- lúc đó cả transaction quay lui và
+                # người dùng nhận đúng lý do, thay vì chuyển xong mới phát
+                # hiện sổ vật tư sai.
+                if str(old.get('status') or '').upper()=='CLOSED':
+                    _validate_and_upsert_input_consumption(
+                        cur,session_id=session_id,target_operation_id=new_operation_id,
+                        good_qty=int(old.get('good_qty') or 0),defect_qty=int(old.get('defect_qty') or 0),
+                        origin='TRANSFER')
                 reconcile_operation_and_po(cur,int(source_op['id']))
                 reconcile_operation_and_po(cur,int(target_op['id']))
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason,
@@ -966,6 +1029,16 @@ class SupervisorRepository:
                 cur.execute("""UPDATE work_sessions SET excluded_from_reports=TRUE,exclusion_reason=%s,
                     excluded_by=%s,excluded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                     WHERE id=%s RETURNING *""",(reason,actor_username,session_id)); new=cur.fetchone()
+                # Loại khỏi báo cáo thì phải NHẢ luôn phần đầu vào session này
+                # đang giữ. operation_input_consumptions không nối sang
+                # work_sessions khi cộng tổng đã phân bổ (xem
+                # _validate_and_upsert_input_consumption), nên một session bị
+                # loại vẫn tiếp tục chiếm sản lượng của OP nguồn: nó không còn
+                # đóng góp gì cho báo cáo nhưng vẫn chặn OP đích khác lấy đúng
+                # số hàng đó. restore_session() cấp lại, và cấp lại có thể
+                # thất bại nếu trong lúc đó người khác đã lấy -- đó là câu trả
+                # lời ĐÚNG, hơn là âm thầm phân bổ vượt.
+                cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
                 reconcile_operation_and_po(cur,int(old['operation_id']))
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
                 record_event(cur,event_type='SESSION_EXCLUDED',category='CHANGE',title='Loại Session khỏi báo cáo',
@@ -990,6 +1063,16 @@ class SupervisorRepository:
                 cur.execute("""UPDATE work_sessions SET excluded_from_reports=FALSE,exclusion_reason='',
                     excluded_by='',excluded_at=NULL,updated_at=CURRENT_TIMESTAMP
                     WHERE id=%s RETURNING *""",(session_id,)); new=cur.fetchone()
+                # Cấp lại đúng phần đầu vào đã nhả khi loại. Nếu OP nguồn không
+                # còn đủ (người khác đã lấy trong lúc session này bị loại) thì
+                # ConflictError làm cả transaction quay lui: session ở nguyên
+                # trạng thái bị loại và người dùng biết vì sao, thay vì được
+                # khôi phục trên một lượng hàng không tồn tại.
+                if str(old.get('status') or '').upper()=='CLOSED':
+                    _validate_and_upsert_input_consumption(
+                        cur,session_id=session_id,target_operation_id=old['operation_id'],
+                        good_qty=int(old.get('good_qty') or 0),defect_qty=int(old.get('defect_qty') or 0),
+                        origin='RESTORE')
                 reconcile_operation_and_po(cur,int(old['operation_id']))
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
                 record_event(cur,event_type='SESSION_RESTORED',category='CHANGE',title='Khôi phục Session vào báo cáo',

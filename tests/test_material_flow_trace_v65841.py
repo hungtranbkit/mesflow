@@ -22,7 +22,10 @@ def test_ledger_mutation_guards():
     assert 'Không thể xóa Operation vì đã phát sinh Ledger' in repo
     excel=text('app/mesflow/web/excel_io.py')
     assert 'Không thể Replace cấu trúc Operation' in excel
-    assert 'đã có Ledger nên không thể chuyển PO/Part' in excel
+    # Chữ 'Ledger' đã đổi thành 'lịch sử cấp đầu vào' (UI-4, 2026-09-09):
+    # thuật ngữ kỹ thuật không nên xuất hiện trong thông báo cho người vận
+    # hành. Guard vẫn còn, chỉ đổi cách nói.
+    assert 'đã có lịch sử cấp đầu vào nên không thể chuyển PO/Part' in excel
 
 def test_material_flow_po_modal_is_real_overlay_and_complete():
     js=text('app/mesflow/web/static/pages/material-flow.js')

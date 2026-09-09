@@ -180,6 +180,108 @@ def _inactive_kiosk_with_live_status() -> list[dict[str, Any]]:
         ORDER BY ki.id""")
 
 
+# --- Kiểm tra bổ sung 2026-09-09 -----------------------------------------
+#
+# Sáu bất biến bên dưới sinh ra từ audit kiến trúc. Điểm chung của chúng: khi
+# vi phạm, hệ thống KHÔNG báo lỗi -- số chỉ đơn giản là sai, hoặc dữ liệu chỉ
+# đơn giản là không hiện ra. Đó là lý do chúng cần một lệnh đối soát chủ động
+# chứ không thể trông vào việc người dùng phát hiện.
+
+
+def _support_operation_with_production_quantity() -> list[dict[str, Any]]:
+    """OP hỗ trợ (SETUP / SỬA HÀNG) mang sản lượng.
+
+    Theo policy, OP hỗ trợ ghi nhận CÔNG chứ không ghi nhận sản lượng. Một
+    dòng ở đây nghĩa là sản lượng đã bị ghi vào chỗ không đường nào cộng nó
+    vào tiến độ PO -- số đó biến mất khỏi mọi báo cáo mà không có dấu vết.
+    """
+    return fetch_all("""SELECT o.id operation_id,o.code,o.operation_type,
+            o.done_qty,o.defect_qty,o.rework_qty,po.code po_code
+        FROM operations o JOIN production_orders po ON po.id=o.production_order_id
+        WHERE COALESCE(o.operation_type,'PRODUCTION')<>'PRODUCTION'
+          AND (COALESCE(o.done_qty,0)>0 OR COALESCE(o.defect_qty,0)>0 OR COALESCE(o.rework_qty,0)>0)
+        ORDER BY o.id""")
+
+
+def _consumption_target_mismatch() -> list[dict[str, Any]]:
+    """Dòng vật tư trỏ về Operation KHÁC với Operation của session.
+
+    Bất biến (1) của operation_input_consumptions. Vi phạm nghĩa là sản lượng
+    đếm cho một OP còn nguyên liệu trừ của OP khác -- hai bên sổ nói hai
+    chuyện. Nguồn cũ: transfer_operation() không đổi ledger theo session.
+    """
+    return fetch_all("""SELECT c.session_id,c.target_operation_id,ws.operation_id session_operation_id
+        FROM operation_input_consumptions c JOIN work_sessions ws ON ws.id=c.session_id
+        WHERE c.target_operation_id<>ws.operation_id ORDER BY c.session_id""")
+
+
+def _consumption_held_by_non_reporting_session() -> list[dict[str, Any]]:
+    """Session không tính vào báo cáo mà vẫn giữ đầu vào.
+
+    Bất biến (2). Session bị loại khỏi báo cáo hoặc chưa đóng thì không đóng
+    góp gì, nên không được chiếm sản lượng của OP nguồn. Vi phạm chặn OP đích
+    khác lấy đúng số hàng đó -- im lặng, không có thông báo nào.
+    """
+    return fetch_all("""SELECT c.session_id,c.source_operation_id,ws.status,
+            ws.excluded_from_reports
+        FROM operation_input_consumptions c JOIN work_sessions ws ON ws.id=c.session_id
+        WHERE ws.excluded_from_reports=TRUE OR ws.status<>'CLOSED'
+        ORDER BY c.session_id""")
+
+
+def _rework_ledger_does_not_balance() -> list[dict[str, Any]]:
+    """Tổng ở rework_ledger không khớp số cộng dồn trên session nguồn.
+
+    rework_ledger là bản ghi bất biến từng lần xử lý; work_sessions chỉ là số
+    cộng dồn. Lệch nhau nghĩa là một lệnh sửa số liệu đã ghi đè lên phần đã
+    ghi sổ, và sản phẩm đã sửa có thể quay lại hàng chờ để được credit lần hai.
+    """
+    return fetch_all("""SELECT ws.id session_id,ws.rework_qty,ws.scrap_qty,
+            l.reworked ledger_reworked,l.scrapped ledger_scrapped
+        FROM work_sessions ws
+        JOIN (SELECT source_session_id,SUM(qty_reworked) reworked,SUM(qty_scrapped) scrapped
+              FROM rework_ledger GROUP BY source_session_id) l ON l.source_session_id=ws.id
+        WHERE ws.rework_qty<l.reworked OR ws.scrap_qty<l.scrapped
+        ORDER BY ws.id""")
+
+
+def _quantity_shape_violates_check() -> list[dict[str, Any]]:
+    """rework + phế vượt quá NG trên cùng một session.
+
+    CSDL có CHECK cho việc này, nên một dòng ở đây nghĩa là constraint đã bị
+    gỡ hoặc dữ liệu vào bằng đường không qua ứng dụng.
+    """
+    return fetch_all("""SELECT id session_id,good_qty,defect_qty,rework_qty,scrap_qty
+        FROM work_sessions
+        WHERE COALESCE(rework_qty,0)+COALESCE(scrap_qty,0)>COALESCE(defect_qty,0)
+        ORDER BY id""")
+
+
+def _ambiguous_operation_code() -> list[dict[str, Any]]:
+    """Mã Operation trùng nhau giữa các Part -- QR cũ dạng WF|OP|<code> hoá mơ hồ.
+
+    Mã OP chỉ unique trong phạm vi Part. Tem in theo mã (định dạng cũ) vì vậy
+    có thể trỏ tới nhiều Operation. Bộ giải mã phải TỪ CHỐI chứ không được
+    đoán; danh sách này cho biết những tem nào đang ở tình trạng đó.
+    """
+    return fetch_all("""SELECT upper(code) code,COUNT(*) n,
+            array_agg(id ORDER BY id) operation_ids
+        FROM operations GROUP BY upper(code) HAVING COUNT(*)>1 ORDER BY 2 DESC""")
+
+
+def _offline_events_stuck() -> list[dict[str, Any]]:
+    """Sự kiện kiosk offline kẹt ở retryable quá lâu.
+
+    Không phải lỗi tự thân -- nhưng một sự kiện kẹt nhiều ngày nghĩa là điều
+    kiện nghiệp vụ của nó không bao giờ đúng, và công của ca đó đang treo.
+    """
+    return fetch_all("""SELECT client_event_id,kiosk_id,event_type,attempt_count,
+            reason_code,reason,received_at
+        FROM kiosk_client_events
+        WHERE status='retryable' AND received_at < CURRENT_TIMESTAMP - INTERVAL '1 day'
+        ORDER BY received_at""")
+
+
 def audit_integrity() -> dict[str, list[dict[str, Any]]]:
     """Run every invariant check and return {category: [violations]}.
 
@@ -200,4 +302,12 @@ def audit_integrity() -> dict[str, list[dict[str, Any]]]:
         'DUPLICATE_OFFLINE_EVENT': _duplicate_offline_event(),
         'OPERATION_COMPLETED_SESSION_STILL_OPEN': _closed_session_operation_still_completed_conflict(),
         'INACTIVE_KIOSK_WITH_LIVE_STATUS': _inactive_kiosk_with_live_status(),
+        # Bổ sung 2026-09-09 -- xem chú thích của từng hàm.
+        'SUPPORT_OP_WITH_PRODUCTION_QUANTITY': _support_operation_with_production_quantity(),
+        'CONSUMPTION_TARGET_MISMATCH': _consumption_target_mismatch(),
+        'CONSUMPTION_HELD_BY_NON_REPORTING_SESSION': _consumption_held_by_non_reporting_session(),
+        'REWORK_LEDGER_DOES_NOT_BALANCE': _rework_ledger_does_not_balance(),
+        'QUANTITY_SHAPE_VIOLATES_CHECK': _quantity_shape_violates_check(),
+        'AMBIGUOUS_OPERATION_CODE': _ambiguous_operation_code(),
+        'OFFLINE_EVENTS_STUCK': _offline_events_stuck(),
     }

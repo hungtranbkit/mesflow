@@ -886,8 +886,32 @@ def events():
         _store_event(device_id, event_id, payload_hash, event.get('device_seq') or 0, resp)
         return _json_response(resp)
 
-    accepted, error_code, error_message, new_proj = _apply_event(device_id, event_id, event_type, payload, proj,
-                                                                  timer=timer)
+    # B3: BIÊN BẮT LỖI của /events.
+    #
+    # Trước đây hàm này không có except nào. Một lỗi bất ngờ trong _apply_event
+    # -- deadlock, lỗi chiếu trạng thái, KeyError trên payload lạ -- rơi thẳng
+    # ra trình xử lý lỗi chung của Flask, và kiosk nhận về một phong bì HOÀN
+    # TOÀN KHÁC hợp đồng: không có 'accepted', không có 'event_id', không có
+    # state_version. Firmware đọc thiếu khoá nên hiểu sai, và tệ nhất là nó
+    # không phân biệt được "thử lại đi" với "hỏng hẳn".
+    #
+    # Ở đây trả đúng phong bì giao thức, và CHỈ mã lỗi -- không bao giờ kèm
+    # nguyên văn exception (đường rò thông tin, đã sửa một lần ở kiosk.py).
+    # accepted=False + code INTERNAL_ERROR là tín hiệu "chưa xử lý được, giữ
+    # lại": KHÔNG ghi vào kiosk_v2_events, nên lần gửi lại không bị bộ nhớ
+    # idempotency trả về chính lỗi này.
+    try:
+        accepted, error_code, error_message, new_proj = _apply_event(
+            device_id, event_id, event_type, payload, proj, timer=timer)
+    except Exception:                   # noqa: BLE001 - biên: mọi thứ chưa lường trước
+        current_app.logger.exception('kiosk v2 /events thất bại device=%s event=%s type=%s',
+                                     device_id, event_id, event_type)
+        return _json_response({
+            'accepted': False, 'event_id': event_id,
+            'error': {'code': 'INTERNAL_ERROR'},
+            'action': 'RETRY',
+            'current_state_version': int(proj.get('state_version') or 0),
+        }), 503
     if timer: timer.lap('business_validation_ms')  # residual: state-machine branching not already lapped above
 
     resp = {'accepted': accepted, 'event_id': event_id}
