@@ -340,6 +340,35 @@ class KioskRepository:
         rows.sort(key=lambda x:(x.get('occurred_at') is not None,x.get('occurred_at')),reverse=True)
         return rows[:min(max(limit,1),1000)]
 
+def _rework_ledger_floor(cur,session_id):
+    """Bao nhiêu sản phẩm của session này ĐÃ được xử lý qua Hàng chờ sửa.
+
+    rework_ledger là bản ghi bất biến của từng lần resolve; work_sessions chỉ
+    là tổng cộng dồn. Một lệnh sửa số liệu ghi đè tuyệt đối lên rework_qty /
+    scrap_qty có thể xoá mất phần credit đó khỏi dòng session trong khi ledger
+    vẫn giữ -- và ReworkQueueRepository.resolve() tính "còn chờ sửa" thuần từ
+    dòng session, nên đúng những sản phẩm đã sửa sẽ quay lại hàng chờ và được
+    credit lần hai. Hai bên phải cùng đọc con số này.
+    """
+    cur.execute("""SELECT COALESCE(SUM(qty_reworked),0) reworked,COALESCE(SUM(qty_scrapped),0) scrapped
+        FROM rework_ledger WHERE source_session_id=%s""",(session_id,))
+    row=cur.fetchone() or {}
+    return int(row.get('reworked') or 0),int(row.get('scrapped') or 0)
+
+
+def _guard_rework_ledger(cur,session_id,*,rework,scrap):
+    """Chặn một lệnh sửa số liệu làm rơi tổng xuống dưới những gì đã ghi sổ."""
+    reworked,scrapped=_rework_ledger_floor(cur,session_id)
+    if rework<reworked:
+        raise ConflictError(
+            f'Session này đã ghi nhận {reworked} sản phẩm sửa được qua Hàng chờ sửa. '
+            f'Không thể đặt số sửa được xuống {rework}.')
+    if scrap<scrapped:
+        raise ConflictError(
+            f'Session này đã ghi nhận {scrapped} sản phẩm phế qua Hàng chờ sửa. '
+            f'Không thể đặt số phế xuống {scrap}.')
+
+
 def _setup_parent_operation(cur,operation_id):
     """The production Operation a SETUP row prepares, or None for anything else."""
     cur.execute("SELECT parent_operation_id FROM operations WHERE id=%s AND operation_type='SETUP'",(operation_id,))
@@ -709,6 +738,7 @@ class SupervisorRepository:
                 if not row: raise NotFoundError('session not found')
                 if row['status']=='CLOSED':
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
+                _guard_rework_ledger(cur,session_id,rework=rework,scrap=int(row.get('scrap_qty') or 0))
                 cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
                 movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
                 # An explicit admin/supervisor correction IS the human
@@ -824,6 +854,7 @@ class SupervisorRepository:
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=operation_id,good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 else:
                     cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
+                _guard_rework_ledger(cur,session_id,rework=rework,scrap=int(old.get('scrap_qty') or 0))
                 cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
                 movements=record_quantities(cur,session=old,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
                 # Same confirmation rule as adjust() above.

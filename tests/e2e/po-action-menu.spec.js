@@ -28,11 +28,14 @@ const rowFor = (page, code) => page.locator('tr', { has: page.locator(`strong:te
 test('mỗi trạng thái đúng một primary, và menu không lặp lại nó', async ({ page }) => {
   await openList(page);
 
-  // Primary cố định theo trạng thái.
+  // Chỉ trạng thái chạy được mới có primary. "Mở PO"/"Xem PO" đã bỏ vì bấm
+  // cả dòng đã mở PO rồi -- thêm một nút làm đúng việc đó là thừa.
   await expect(rowFor(page, 'QA-PO-DRAFT').locator('.po-actions .btn.primary')).toHaveText('Bắt đầu sản xuất');
   await expect(rowFor(page, 'QA-PO-PAUSED').locator('.po-actions .btn.primary')).toHaveText('Tiếp tục sản xuất');
-  await expect(rowFor(page, 'QA-PO-RUN').locator('.po-actions .btn.primary')).toHaveText('Mở PO');
-  await expect(rowFor(page, 'QA-PO-DONE').locator('.po-actions .btn.primary')).toHaveText('Xem PO');
+  await expect(rowFor(page, 'QA-PO-RUN').locator('.po-actions .btn.primary')).toHaveCount(0);
+  await expect(rowFor(page, 'QA-PO-DONE').locator('.po-actions .btn.primary')).toHaveCount(0);
+  // Và không nút nào trong bảng làm mỗi việc "mở PO" nữa.
+  await expect(page.locator('.po-actions button', { hasText: /^(Mở PO|Xem PO)$/ })).toHaveCount(0);
 
   // Menu chỉ có thao tác phụ — không có "Mở PO"/"Bắt đầu sản xuất" trong đó.
   for (const code of ['QA-PO-DRAFT', 'QA-PO-RUN']) {

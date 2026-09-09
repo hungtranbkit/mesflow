@@ -83,6 +83,15 @@
       // falls back to staying on Overview instead of trying to guess one.
       const deepLinkSessionId=bootParams.get('session');
       if(deepLinkSessionId&&window.SessionDetailDrawer)window.SessionDetailDrawer.open(deepLinkSessionId);
+      // ?po=<id>: chi tiết PO giờ có URL riêng, nên F5 hoặc mở lại link phải
+      // quay về đúng màn đó chứ không rơi về danh sách. pushUrl:false vì URL
+      // đã đúng sẵn rồi.
+      // po_id chứ không phải po: `po` đã là tên bộ lọc của Hàng chờ sửa và
+      // Quản lý Session, mở link của hai màn đó sẽ nhảy nhầm sang chi tiết PO.
+      // Và chỉ nhận khi đang thực sự ở trang Production Order.
+      const deepLinkPo=bootParams.get('po_id');
+      if(deepLinkPo&&initialPage==='production-orders'&&window.openProductionOrder)window.openProductionOrder(Number(deepLinkPo),{pushNav:false,pushUrl:false});
+      else if(bootParams.get('roles')&&initialPage==='users'&&window.renderRolePermissions)window.renderRolePermissions();
     }
   </script>
 </body>

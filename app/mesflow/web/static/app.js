@@ -135,8 +135,20 @@ async function openPage(id,btn,{historyMode='push'}={}){if(!canOpenPage(id)){con
 // alone: re-running openPage for the page you're already on would blow away
 // whatever's on screen for no reason.
 window.addEventListener('popstate',()=>{
-  const id=new URLSearchParams(location.search).get('page')||'overview';
-  if(id===document.body.dataset.page)return;
+  const params=new URLSearchParams(location.search);
+  const id=params.get('page')||'overview';
+  if(id===document.body.dataset.page){
+    // Cùng trang, nhưng một màn con có thể vừa mở ra hoặc vừa đóng lại. Không
+    // xử lý ở đây thì Back từ chi tiết PO chẳng làm gì cả (URL đổi, màn hình
+    // đứng yên) -- hoặc tệ hơn, nhảy thẳng qua trang khác.
+    if(id==='production-orders'){
+      const po=params.get('po_id'),showing=window.poDetail&&window.poDetail.po&&window.poDetail.po.id;
+      if(po&&Number(po)!==Number(showing))return void openProductionOrder(Number(po),{pushNav:false,pushUrl:false});
+      if(!po&&showing)return void renderProductionOrders();
+    }
+    if(id==='users'&&!params.get('roles')&&document.getElementById('rbacBack'))return void renderUsers();
+    return;
+  }
   AppNav.reset();AppNav.clearReturnContext();
   openPage(id,document.querySelector(`[data-page="${id}"]`),{historyMode:'none'});
 });
@@ -707,7 +719,7 @@ async function renderProductionOrders(){
       <th>Mã PO</th><th>Template nguồn</th><th>Sản phẩm</th><th class="num">Kế hoạch</th><th>Trạng thái</th><th>Ưu tiên</th><th>Bắt đầu dự kiến</th><th>Kết thúc dự kiến</th><th>Thao tác</th>
     </tr></thead><tbody>${items.map(x=>`<tr class="po-row" tabindex="0" role="link" aria-label="Mở ${esc(x.code)}" data-po-row="${x.id}">
       <td><strong>${esc(x.code)}</strong></td><td>${x.source_template_code?`<b>${esc(x.source_template_code)}</b><small class="cell-sub">v${esc(x.source_template_version||'1.0')}</small>`:'<span class="badge warning">PO cũ</span>'}</td><td>${esc(x.product||'')}</td><td class="num">${format(x.planned_quantity||0)}</td>
-      <td><span class="badge po-status ${String(x.status||'planned').toLowerCase()}">${esc(statusText(x.status))}</span></td><td>${esc(priorityText(x.priority))}</td><td>${esc(x.planned_start_at?fmt(x.planned_start_at):'Chưa đặt')}</td><td>${esc(x.planned_end_at?fmt(x.planned_end_at):(x.due_date||'Chưa đặt'))}</td><td class="po-actions">${canStartProductionOrder(x.status)?`<button class="btn primary po-start-btn" data-po-start="${x.id}" data-po-code="${esc(x.code)}">${String(x.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:`<button class="btn primary po-open-btn" data-po-open="${x.id}">${String(x.status).toUpperCase()==='COMPLETED'?'Xem PO':'Mở PO'}</button>`}<button class="btn po-action-more" type="button" data-po-menu="${x.id}" data-po-code="${esc(x.code)}" aria-haspopup="menu" aria-expanded="false" aria-label="Thao tác khác với ${esc(x.code)}">…</button></td></tr>`).join('')}</tbody></table></div>`;
+      <td><span class="badge po-status ${String(x.status||'planned').toLowerCase()}">${esc(statusText(x.status))}</span></td><td>${esc(priorityText(x.priority))}</td><td>${esc(x.planned_start_at?fmt(x.planned_start_at):'Chưa đặt')}</td><td>${esc(x.planned_end_at?fmt(x.planned_end_at):(x.due_date||'Chưa đặt'))}</td><td class="po-actions">${canStartProductionOrder(x.status)?`<button class="btn primary po-start-btn" data-po-start="${x.id}" data-po-code="${esc(x.code)}">${String(x.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:''}<button class="btn po-action-more" type="button" data-po-menu="${x.id}" data-po-code="${esc(x.code)}" aria-haspopup="menu" aria-expanded="false" aria-label="Thao tác khác với ${esc(x.code)}">…</button></td></tr>`).join('')}</tbody></table></div>`;
     document.querySelectorAll('[data-po-start]').forEach(b=>b.onclick=()=>startProductionOrder(Number(b.dataset.poStart),b.dataset.poCode,'list'));
     document.querySelectorAll('[data-po-open]').forEach(b=>b.onclick=()=>openProductionOrder(Number(b.dataset.poOpen)));
     document.querySelectorAll('[data-po-edit]').forEach(b=>b.onclick=()=>editProductionOrder(Number(b.dataset.poEdit)));
@@ -718,9 +730,9 @@ async function renderProductionOrders(){
       tr.onclick=e=>{if(e.target.closest('button'))return;open()};
       tr.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();open()}};
     });
-    // Menu chỉ chứa thao tác phụ. Primary của từng trạng thái đã nằm ngoài,
-    // và không được lặp lại ở đây -- đó chính là chỗ người dùng thấy cùng một
-    // action lúc ngoài lúc trong menu.
+    // Không còn nút "Mở PO"/"Xem PO": bấm cả dòng đã mở PO rồi, để thêm một
+    // nút làm đúng việc đó là thừa. Chỉ trạng thái chạy được mới có primary
+    // ("Bắt đầu/Tiếp tục sản xuất"), còn lại chỉ có menu thao tác phụ.
     document.querySelectorAll('[data-po-menu]').forEach(b=>b.onclick=()=>MFUI.rowMenu(b,[
       {label:'Sửa thông tin',onSelect:()=>editProductionOrder(Number(b.dataset.poMenu))},
       {label:'Xóa PO',danger:true,onSelect:()=>removeProductionOrder(Number(b.dataset.poMenu))},
@@ -737,7 +749,7 @@ async function renderProductionOrders(){
   await load();
 }
 
-window.openProductionOrder=async function(id,{pushNav=true}={}){
+window.openProductionOrder=async function(id,{pushNav=true,pushUrl=true}={}){
   // pushNav=true records how to get back to whatever page the user drilled
   // in from (PO list, Overview, Gantt/Material Flow, Templates...) so the
   // "← Danh sách PO" button can return there with filters/scroll intact
@@ -746,6 +758,12 @@ window.openProductionOrder=async function(id,{pushNav=true}={}){
   // PO, etc.) pass pushNav:false so that refresh never becomes its own
   // extra Back step.
   if(pushNav)AppNav.push(()=>openPage(document.body.dataset.page||'production-orders'));
+  // Chi tiết PO là một màn thật, nên nó phải có URL thật. Trước đây nó chỉ
+  // thay nội dung mà không đụng history: nhấn Back sẽ nhảy về entry TRƯỚC cả
+  // danh sách PO (ví dụ Dashboard), bỏ qua đúng màn người dùng vừa rời. F5
+  // cũng rơi về danh sách. pushUrl=false dành cho popstate và cho những lần
+  // vẽ lại chính màn đang mở.
+  if(pushUrl)AppNav.setQuery({po_id:id},{replace:false});
   title.textContent='Mở Production Order';subtitle.textContent='Đang tải không gian quản lý PO';
   content.innerHTML='<div class="panel">Đang tải chi tiết PO...</div>';
   try{
@@ -776,7 +794,7 @@ function drawProductionOrderDetail(){
   <section class="po-tree">${d.parts.length?d.parts.map((p,i)=>poPartCard(p,i)).join(''):'<div class="panel empty">PO này chưa có Part. Bấm “+ Thêm Part” để bắt đầu.</div>'}</section>`;
   const supportToggle=document.getElementById('poSupportOps');
   if(supportToggle)supportToggle.onchange=()=>{window.poShowSupportOps=supportToggle.checked;drawProductionOrderDetail()};
-  document.getElementById('poBack').onclick=()=>AppNav.back(()=>renderProductionOrders());const startButton=document.getElementById('poStart');if(startButton)startButton.onclick=()=>startProductionOrder(po.id,po.code,'detail');document.getElementById('poEdit').onclick=()=>productionOrderModal(po).catch(e=>alert(`Không mở được form sửa PO: ${e.message}`));document.getElementById('poAddPart').onclick=()=>poPartModal(null);
+  document.getElementById('poBack').onclick=()=>{AppNav.setQuery({po_id:null});AppNav.back(()=>renderProductionOrders())};const startButton=document.getElementById('poStart');if(startButton)startButton.onclick=()=>startProductionOrder(po.id,po.code,'detail');document.getElementById('poEdit').onclick=()=>productionOrderModal(po).catch(e=>alert(`Không mở được form sửa PO: ${e.message}`));document.getElementById('poAddPart').onclick=()=>poPartModal(null);
 }
 // Support Operations (SETUP) are deliberately NOT peers of the routing steps:
 // they have no target and would muddle both the list and the eye's sense of
@@ -795,7 +813,7 @@ function poOperationRow(o,index){const src=window.poDetail?.ops?.find(x=>Number(
   // cột "Mã OP" + "Tên Operation" cũ đặt mã lên trước và cùng cỡ chữ, nên mắt
   // phải quét mã mới tìm ra việc.
   return `<div class="po-op-row ${String(o.control_state||'').toLowerCase()} ${isSetup?'is-setup':''}"><span>${isSetup?'↳':index+1}</span><div class="po-op-identity"><b class="po-op-name" title="${esc(o.name||'')}">${esc(o.name||'')||'—'}</b>${setupBadge}<code class="po-op-code" title="${esc(displayKey)}">${esc(displayKey)}</code>${flow}${warning}</div><span>${format(window.poDetail?.po?.planned_quantity||0)}</span><span>${format(o.done_qty||0)}</span><span>${format(o.defect_qty||0)}${Number(o.rework_qty||0)>0?` <small>· ${format(o.rework_qty)} sửa</small>`:''}</span><span><span class="badge po-status ${String(o.status||'').toLowerCase()}">${esc(o.status||'PLANNED')}</span>${Number(o.active_sessions||0)>0?`<small>${o.active_sessions} người đang làm</small>`:''}</span><code class="po-row-qr" title="${esc(o.qr||'')}">${esc(o.qr||'')}</code><span class="po-row-actions"><button class="btn" onclick="openMaterialFlowTrace(${o.id})">Dòng vật tư</button><button class="btn" onclick="poOperationModal(${o.id},${o.part_id})">Sửa cấu hình</button><button class="btn danger" onclick="removePoOperation(${o.id})">Xóa</button></span></div>`}
-window.poPartModal=function(id=null){const d=window.poDetail,item=id?d.parts.find(x=>Number(x.id)===Number(id)):null,box=document.createElement('div');box.className='modal-backdrop';box.innerHTML=`<div class="modal"><h2>${item?'Sửa':'Thêm'} Part trong ${esc(d.po.code)}</h2><form id="poPartForm"><label>Mã Part<input name="code" value="${esc(item?.code||'')}" required></label><label>Tên Part<input name="name" value="${esc(item?.name||'')}" required></label><label>Thứ tự<input name="sort_order" type="number" min="0" value="${Number(item?.sort_order??d.parts.length)}"></label><div class="modal-actions"><button type="button" class="btn" id="cancel">Hủy</button><button class="btn primary">Lưu Part</button></div></form></div>`;document.body.appendChild(box);box.querySelector('#cancel').onclick=()=>box.remove();box.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=e.target,p={production_order_id:d.po.id,code:f.code.value.trim().toUpperCase(),name:f.name.value.trim(),sort_order:Number(f.sort_order.value||0),active:true};try{await api(item?`/api/parts/${item.id}`:'/api/parts',{method:item?'PATCH':'POST',body:JSON.stringify(p)});box.remove();toast('Đã lưu Part');openProductionOrder(d.po.id,{pushNav:false})}catch(err){alert(err.message)}}}
+window.poPartModal=function(id=null){const d=window.poDetail,item=id?d.parts.find(x=>Number(x.id)===Number(id)):null,box=document.createElement('div');box.className='modal-backdrop';box.innerHTML=`<div class="modal"><h2>${item?'Sửa':'Thêm'} Part trong ${esc(d.po.code)}</h2><form id="poPartForm"><label>Mã Part<input name="code" value="${esc(item?.code||'')}" required></label><label>Tên Part<input name="name" value="${esc(item?.name||'')}" required></label><label>Thứ tự<input name="sort_order" type="number" min="0" value="${Number(item?.sort_order??d.parts.length)}"></label><div class="modal-actions"><button type="button" class="btn" id="cancel">Hủy</button><button class="btn primary">Lưu Part</button></div></form></div>`;document.body.appendChild(box);box.querySelector('#cancel').onclick=()=>box.remove();box.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=e.target,p={production_order_id:d.po.id,code:f.code.value.trim().toUpperCase(),name:f.name.value.trim(),sort_order:Number(f.sort_order.value||0),active:true};try{await api(item?`/api/parts/${item.id}`:'/api/parts',{method:item?'PATCH':'POST',body:JSON.stringify(p)});box.remove();toast('Đã lưu Part');openProductionOrder(d.po.id,{pushNav:false,pushUrl:false})}catch(err){alert(err.message)}}}
 window.poOperationModal=function(id=null,partId){const d=window.poDetail,item=id?d.ops.find(x=>Number(x.id)===Number(id)):null,part=d.parts.find(x=>Number(x.id)===Number(partId)),cycle=cycleTimeDisplay(item||{}),box=document.createElement('div');box.className='modal-backdrop';const sourceOptions=d.ops.filter(x=>Number(x.id)!==Number(item?.id)).map(x=>`<option value="${x.id}" ${String(item?.input_source_operation_id||'')===String(x.id)?'selected':''}>${esc(d.parts.find(p=>Number(p.id)===Number(x.part_id))?.code||'')} → ${esc(x.code)} · ${esc(x.name)}</option>`).join('');box.innerHTML=`<div class="modal po-op-modal"><h2>${item?'Sửa':'Thêm'} Operation</h2><p class="modal-note">PO ${esc(d.po.code)} → Part ${esc(part?.code||'')}</p><form id="poOpForm"><div class="form-grid"><label>Mã OP<input name="code" value="${esc(item?.code||'')}" required></label><label>Tên Operation<input name="name" value="${esc(item?.name||'')}" required></label><label>Thời gian / sản phẩm<span class="cycle-time-input"><input name="cycle_value" type="number" min="0" step="0.01" value="${cycle.value}"><select name="cycle_unit"><option value="second" ${cycle.unit==='second'?'selected':''}>giây/SP</option><option value="minute" ${cycle.unit==='minute'?'selected':''}>phút/SP</option></select></span></label><label>Đã đạt<input name="done_qty" type="number" min="0" value="${Number(item?.done_qty||0)}"></label><label>Số NG<input name="defect_qty" type="number" min="0" value="${Number(item?.defect_qty||0)}"></label><label>Lỗi sửa được<input name="rework_qty" type="number" min="0" value="${Number(item?.rework_qty||0)}"></label><label>Trạng thái<select name="status">${['PLANNED','READY','IN_PROGRESS','COMPLETED','CANCELLED'].map(v=>`<option ${String(item?.status||'PLANNED')===v?'selected':''}>${v}</option>`).join('')}</select></label><label>Thiết bị<select name="equipment_id"><option value="">Không gắn</option>${d.equipment.map(x=>`<option value="${x.id}" ${String(item?.equipment_id||'')===String(x.id)?'selected':''}>${esc(x.code)} · ${esc(x.name||'')}</option>`).join('')}</select></label><label>OP trước theo thời gian<select name="predecessor_operation_id"><option value="">Không phụ thuộc</option>${d.ops.filter(x=>Number(x.id)!==Number(item?.id)).map(x=>`<option value="${x.id}" ${String(item?.predecessor_operation_id||'')===String(x.id)?'selected':''}>${esc(x.code)} · ${esc(x.name)}</option>`).join('')}</select></label><label>Trễ sau OP trước (phút)<input name="lag_minutes" type="number" min="0" value="${Number(item?.lag_minutes||0)}"></label><label class="full-row form-check"><input class="form-check-input" name="input_flow_enabled" type="checkbox" ${item?.input_flow_enabled?'checked':''}><span class="form-check-label">Giới hạn đầu vào theo OP nguồn</span></label><label>OP nguồn cấp sản lượng<select name="input_source_operation_id"><option value="">Không giới hạn</option>${sourceOptions}</select></label><label>Loại sản lượng nguồn<select name="input_source_kind"><option value="GOOD" ${String(item?.input_source_kind||'GOOD')==='GOOD'?'selected':''}>Đạt</option><option value="REWORK" ${String(item?.input_source_kind||'GOOD')==='REWORK'?'selected':''}>Lỗi sửa được</option></select></label></div>${item?`<section class="op-setup-section" id="opSetupSection"><h3>Setup máy</h3><label class="form-check"><input class="form-check-input" type="checkbox" id="opSetupRequired"><span class="form-check-label">Có OP setup liên quan</span></label><div id="opSetupBody" hidden><div class="op-setup-status" id="opSetupState">Đang tải trạng thái setup...</div><div class="op-setup-facts" id="opSetupFacts"></div><label class="op-setup-minutes">Thời gian setup chuẩn<span><input type="number" min="0" id="opSetupMinutes" placeholder="—"> phút</span></label><label class="op-setup-note-label">Hướng dẫn setup (in ra giấy, để tại máy)<textarea id="opSetupNote" rows="10" placeholder="Ví dụ:&#10;1. Lắp khuôn số 3, siết đủ lực&#10;2. Căn tâm theo dưỡng, sai lệch tối đa 0.05mm&#10;3. Chạy thử 2 sản phẩm, đo kiểm trước khi chạy loạt"></textarea></label><div class="op-setup-actions"><button type="button" class="btn" id="opSetupPrint">In hướng dẫn + tem QR</button></div></div><p class="op-setup-hint">Lưu để hệ thống tạo OP setup và tem QR riêng cho Operation này. Công nhân quét tem SETUP như một Operation bình thường; người điều phối quyết định khi nào cần chạy setup. Nội dung hướng dẫn chỉ nằm trên tờ in tại máy.</p></section>`:'<p class="modal-note">Lưu Operation trước, sau đó mở lại để cấu hình phần chuẩn bị máy.</p>'}<div class="modal-actions"><button type="button" class="btn" id="cancel">Hủy</button><button class="btn primary">Lưu Operation</button></div></form></div>`;document.body.appendChild(box);box.querySelector('#cancel').onclick=()=>box.remove();box.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=e.target,p={production_order_id:d.po.id,part_id:Number(partId),code:f.code.value.trim().toUpperCase(),name:f.name.value.trim(),standard_seconds_per_unit:Number(f.cycle_value.value||0)*(f.cycle_unit.value==='minute'?60:1),done_qty:Number(f.done_qty.value||0),defect_qty:Number(f.defect_qty.value||0),rework_qty:Number(f.rework_qty.value||0),status:f.status.value,sort_order:Number(item?.sort_order??d.ops.filter(x=>Number(x.part_id)===Number(partId)).length),equipment_id:f.equipment_id.value?Number(f.equipment_id.value):null,predecessor_operation_id:f.predecessor_operation_id.value?Number(f.predecessor_operation_id.value):null,dependency_type:'FS',lag_minutes:Number(f.lag_minutes.value||0),input_flow_enabled:f.input_flow_enabled.checked,input_source_operation_id:f.input_flow_enabled.checked&&f.input_source_operation_id.value?Number(f.input_source_operation_id.value):null,input_source_kind:f.input_source_kind.value,defects_consume_input:true};try{const saved=await api(item?`/api/operations/${item.id}`:'/api/operations',{method:item?'PATCH':'POST',body:JSON.stringify(p)});
     // Setup config travels with the same Save: the user never creates a SETUP
     // operation by hand, ticking the box is the whole interaction.
@@ -803,7 +821,7 @@ window.poOperationModal=function(id=null,partId){const d=window.poDetail,item=id
       requires_setup:box.querySelector('#opSetupRequired').checked,
       expected_setup_minutes:box.querySelector('#opSetupMinutes').value||null,
       setup_note:box.querySelector('#opSetupNote').value})})}
-    box.remove();toast('Đã lưu Operation');openProductionOrder(d.po.id,{pushNav:false})}catch(err){alert(err.message)}};
+    box.remove();toast('Đã lưu Operation');openProductionOrder(d.po.id,{pushNav:false,pushUrl:false})}catch(err){alert(err.message)}};
   if(item)initOperationSetupSection(box,item.id);}
 
 // Setup config for the linked SETUP operation: one long instruction field,
@@ -1188,7 +1206,7 @@ async function renderUsers(){
     };
     ['userSearch','userRole','userState'].forEach(id=>document.getElementById(id).addEventListener(id==='userSearch'?'input':'change',draw));draw();
     const addUser=document.getElementById('addUser');if(addUser){addUser.disabled=!hasPermission('users.manage');addUser.onclick=()=>userModal()}
-    document.getElementById('rolePermissions').onclick=()=>{AppNav.push(()=>renderUsers());renderRolePermissions()};
+    document.getElementById('rolePermissions').onclick=()=>{AppNav.push(()=>renderUsers());AppNav.setQuery({roles:1},{replace:false});renderRolePermissions()};
     document.getElementById('ownPassword').onclick=changeOwnPasswordModal;
   }catch(e){content.innerHTML=`<div class="panel empty">Không tải được danh sách người dùng: ${esc(e.message)}</div>`}
 }
@@ -1449,6 +1467,8 @@ async function renderRolePermissions(){
   const roles=d.roles||[],perms=d.permissions||[],grants=d.grants||{};
   const grouped={};for(const p of perms)(grouped[p.module]??=[]).push(p);
   content.innerHTML=`<section class="panel rbac-panel"><div class="panel-head"><div><h2>Ma trận quyền theo vai trò</h2><p>Admin luôn toàn quyền. Thay đổi được áp dụng cho lần gọi API kế tiếp; menu cập nhật sau khi đăng nhập lại.</p></div>${AppNav.backButtonHtml('Người dùng','rbacBack')}</div><div class="rbac-scroll"><table class="rbac-table"><thead><tr><th>Module / quyền</th>${roles.map(r=>`<th>${esc(r.name)}<small>${esc(r.code)}</small></th>`).join('')}</tr></thead><tbody>${Object.entries(grouped).map(([module,items])=>`<tr class="rbac-module"><td colspan="${roles.length+1}">${esc(module)}</td></tr>${items.map(p=>`<tr><td><b>${esc(p.name)}</b><small>${esc(p.action)} · ${esc(p.code)}</small></td>${roles.map(r=>{const fixed=r.code==='admin'||r.code==='super_admin';const checked=fixed||(grants[r.code]||[]).includes(p.code);return `<td><input type="checkbox" data-role="${esc(r.code)}" data-perm="${esc(p.code)}" ${checked?'checked':''} ${fixed?'disabled':''}></td>`}).join('')}</tr>`).join('')}`).join('')}</tbody></table></div><div class="panel-actions rbac-actions"><span id="rbacState"></span>${hasPermission('roles.manage')?'<button class="btn primary" id="rbacSave">Lưu phân quyền</button>':''}</div></section>`;
-  document.getElementById('rbacBack').onclick=()=>AppNav.back(()=>renderUsers());
+  document.getElementById('rbacBack').onclick=()=>{AppNav.setQuery({roles:null});AppNav.back(()=>renderUsers())};
   const save=document.getElementById('rbacSave');if(save)save.onclick=async()=>{save.disabled=true;const state=document.getElementById('rbacState');state.textContent='Đang lưu…';try{for(const r of roles.filter(x=>x.code!=='admin'&&x.code!=='super_admin')){const permissions=[...document.querySelectorAll(`input[data-role="${r.code}"]:checked`)].map(x=>x.dataset.perm);await api(`/api/roles/${encodeURIComponent(r.code)}/permissions`,{method:'PUT',body:JSON.stringify({permissions})})}state.textContent='Đã lưu. Người dùng đang đăng nhập nên đăng xuất/đăng nhập lại để menu cập nhật.';toast('Đã cập nhật phân quyền')}catch(e){state.textContent=e.message||'Không lưu được phân quyền'}finally{save.disabled=false}};
 }
+// Boot deep link ?roles=1 cần gọi được từ template.
+window.renderRolePermissions=renderRolePermissions;

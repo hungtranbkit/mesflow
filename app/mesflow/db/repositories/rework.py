@@ -90,9 +90,22 @@ class ReworkQueueRepository:
                     raise NotFoundError('source session not found')
                 if source['status'] != 'CLOSED' or source.get('operation_type') != 'PRODUCTION':
                     raise ConflictError('Session nguồn không hợp lệ cho hàng chờ sửa')
-                pending = int(source.get('defect_qty') or 0) - int(source.get('rework_qty') or 0) - int(source.get('scrap_qty') or 0)
+                # "Còn chờ sửa" phải là số THẤP HƠN giữa hai nguồn: dòng
+                # session (tổng cộng dồn, có thể bị lệnh sửa số liệu ghi đè) và
+                # rework_ledger (bản ghi bất biến từng lần resolve). Trước đây
+                # chỉ đọc dòng session, nên một lệnh chỉnh số liệu đưa
+                # rework_qty về 0 sẽ làm chính những sản phẩm đã sửa quay lại
+                # hàng chờ -- resolve lần hai thì good_qty đếm hai lần cùng một
+                # sản phẩm vật lý, và Operation có thể lên COMPLETED bằng hàng
+                # không tồn tại. execution.py chặn ở chiều ghi; đây chặn ở
+                # chiều đọc, để dù có dữ liệu cũ lệch sẵn cũng không credit lại.
+                from mesflow.db.repositories.execution import _rework_ledger_floor
+                ledger_reworked, ledger_scrapped = _rework_ledger_floor(cur, source_session_id)
+                already_reworked = max(int(source.get('rework_qty') or 0), ledger_reworked)
+                already_scrapped = max(int(source.get('scrap_qty') or 0), ledger_scrapped)
+                pending = int(source.get('defect_qty') or 0) - already_reworked - already_scrapped
                 if repaired + scrapped > pending:
-                    raise ConflictError(f'Số lượng xử lý vượt Chờ sửa ({pending})')
+                    raise ConflictError(f'Số lượng xử lý vượt Chờ sửa ({max(pending,0)})')
                 cur.execute('SELECT id,active FROM employees WHERE id=%s FOR SHARE', (employee_id,))
                 worker = cur.fetchone()
                 if not worker or not worker['active']:

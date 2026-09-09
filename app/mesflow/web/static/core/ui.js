@@ -107,12 +107,24 @@ const MFUI=(()=>{
   // menu thì mọc thêm thanh cuộn dọc. Fixed + portal ra body thì không có
   // ancestor nào cắt được, và chiều cao dòng không đổi.
   let rowMenuState=null;
-  const closeRowMenuOnScroll=()=>{
-    // Bỏ qua scroll ngay sau khi mở: cú cuộn đưa dòng vào tầm nhìn (hoặc quán
-    // tính trên màn cảm ứng) có thể đọng lại SAU cú click, và sẽ đóng ngay
-    // menu vừa mở. Đo được: click dòng cuối bảng PO thì menu biến mất tức thì.
-    if(rowMenuState&&Date.now()-rowMenuState.openedAt<250)return;
-    closeRowMenu();
+  // Đặt menu ngay dưới trigger, lật lên trên khi không đủ chỗ, kẹp trong
+  // viewport theo chiều ngang.
+  const placeRowMenu=(el,trigger)=>{
+    const r=trigger.getBoundingClientRect(),h=el.offsetHeight,w=el.offsetWidth;
+    const top=(innerHeight-r.bottom>=h+8)?r.bottom+4:Math.max(8,r.top-h-4);
+    el.style.top=`${Math.round(top)}px`;
+    el.style.left=`${Math.round(Math.min(Math.max(8,r.right-w),innerWidth-w-8))}px`;
+  };
+  // Cuộn thì BÁM THEO trigger chứ không đóng. Bản trước đóng-khi-cuộn kèm một
+  // cửa sổ bỏ qua 250ms, và cửa sổ đó là một con số đoán: cú cuộn đưa dòng
+  // cuối vào tầm nhìn có thể đọng lại lâu hơn thế trên bảng dài, làm menu tự
+  // đóng ngay sau khi mở (đã thấy flaky ở 1920 và 1366). Bám theo thì không
+  // còn cuộc đua nào để thua; chỉ đóng khi chính trigger rời khỏi tầm nhìn.
+  const followRowMenu=()=>{
+    if(!rowMenuState)return;
+    const r=rowMenuState.trigger.getBoundingClientRect();
+    if(r.bottom<0||r.top>innerHeight){closeRowMenu();return}
+    placeRowMenu(rowMenuState.el,rowMenuState.trigger);
   };
   const closeRowMenu=()=>{
     if(!rowMenuState)return;
@@ -121,8 +133,8 @@ const MFUI=(()=>{
     rowMenuState=null;
     removeEventListener('keydown',onRowMenuKey,true);
     removeEventListener('click',onRowMenuOutside,true);
-    removeEventListener('scroll',closeRowMenuOnScroll,true);
-    removeEventListener('resize',closeRowMenu);
+    removeEventListener('scroll',followRowMenu,true);
+    removeEventListener('resize',followRowMenu);
   };
   function onRowMenuKey(e){
     if(!rowMenuState)return;
@@ -140,23 +152,19 @@ const MFUI=(()=>{
     el.className='ui-row-menu';el.setAttribute('role','menu');
     el.innerHTML=items.map((it,i)=>`<button type="button" role="menuitem" data-row-menu-index="${i}"${it.danger?' class="danger-text"':''}>${escHtml(it.label)}</button>`).join('');
     document.body.appendChild(el);
-    // Lật lên trên khi không đủ chỗ bên dưới, và kẹp trong viewport theo chiều ngang.
-    const r=trigger.getBoundingClientRect(),h=el.offsetHeight,w=el.offsetWidth;
-    const top=(innerHeight-r.bottom>=h+8)?r.bottom+4:Math.max(8,r.top-h-4);
-    el.style.top=`${Math.round(top)}px`;
-    el.style.left=`${Math.round(Math.min(Math.max(8,r.right-w),innerWidth-w-8))}px`;
+    placeRowMenu(el,trigger);
     trigger.setAttribute('aria-expanded','true');
     el.querySelectorAll('[data-row-menu-index]').forEach(b=>b.onclick=()=>{
       const item=items[Number(b.dataset.rowMenuIndex)];closeRowMenu();if(item&&item.onSelect)item.onSelect();
     });
-    rowMenuState={el,trigger,openedAt:Date.now()};
+    rowMenuState={el,trigger};
     // preventScroll: menu đã ở fixed đúng vị trí rồi; để trình duyệt tự cuộn
     // tới nó sẽ phát ra sự kiện scroll, và chính listener đóng-khi-cuộn bên
     // dưới sẽ đóng ngay menu vừa mở -- chỉ lộ ra ở những dòng gần đáy.
     el.querySelector('button')?.focus({preventScroll:true});
     addEventListener('keydown',onRowMenuKey,true);
-    addEventListener('scroll',closeRowMenuOnScroll,true);
-    addEventListener('resize',closeRowMenu);
+    addEventListener('scroll',followRowMenu,true);
+    addEventListener('resize',followRowMenu);
     // Ở tick sau: chính cú click mở menu vẫn đang lan, và nếu gắn ngay thì nó
     // tự bắt được cú click đó rồi đóng menu vừa mở.
     setTimeout(()=>{if(rowMenuState&&rowMenuState.el===el)addEventListener('click',onRowMenuOutside,true)},0);
