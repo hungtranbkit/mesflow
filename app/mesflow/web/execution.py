@@ -41,17 +41,16 @@ class KioskRepositoryLookup:
         fields=KioskRepositoryLookup.OPERATION_FIELDS
         base=(f"SELECT {fields} FROM operations o LEFT JOIN parts p ON p.id=o.part_id "
               "LEFT JOIN production_orders po ON po.id=o.production_order_id ")
-        raw=str(qr or '')
-        if raw.upper().startswith('WF|OPID|') and str(key or '').isdigit():
-            return fetch_one(base+"WHERE o.id=%s",(int(key),))
-        rows=fetch_all(base+"WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s) LIMIT 5",(qr,key))
-        if not rows:
+        # Hành vi ở đây vốn đã đúng (từ chối ca mơ hồ). Chuyển sang resolver
+        # chung không phải để sửa lỗi mà để ba đường quét không trôi ra xa nhau
+        # lần nữa -- lần trước chúng đã trôi, và hai trong ba đường kết thúc
+        # bằng LIMIT 1.
+        from mesflow.domain.qr_identity import resolve_operation_id
+        try:
+            operation_id=resolve_operation_id(str(qr or '') or str(key or ''))
+        except NotFoundError:
             return None
-        if len(rows)>1:
-            raise ConflictError(
-                f"Mã Operation {key} trùng ở nhiều Part, không xác định được nên quét mã nào. "
-                "In lại tem QR cho Operation này.")
-        return rows[0]
+        return fetch_one(base+"WHERE o.id=%s",(operation_id,))
     @staticmethod
     def station(code):
         from mesflow.db.connection import fetch_one

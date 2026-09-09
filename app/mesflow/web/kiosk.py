@@ -4,6 +4,7 @@ import uuid
 from flask import Blueprint, jsonify, request, render_template
 
 from mesflow import __version__
+from mesflow.domain.qr_identity import is_operation_qr, resolve_operation_id
 from mesflow.web.auth import login_required, production_client_required
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
@@ -165,10 +166,11 @@ def kiosk_scan():
     # already printed in the workshop carry; `WF|OPID|<id>` is what new labels
     # (every SETUP label included) carry, because an Operation code is only
     # unique within its Part and so cannot be a durable identifier.
-    upper = qr.upper()
-    if upper.startswith('WF|OP|') or upper.startswith('WF|OPID|'):
-        key = qr.split('|')[-1]
-        by_id = upper.startswith('WF|OPID|') and key.isdigit()
+    if is_operation_qr(qr):
+        # Trước đây chỗ này tự giải mã và kết thúc bằng LIMIT 1 -- tức là ĐOÁN
+        # khi một mã trùng ở nhiều Part. Nay dùng resolver chung, nó từ chối ca
+        # mơ hồ thay vì lấy đại một dòng (xem domain/qr_identity.py).
+        operation_id = resolve_operation_id(qr)
         operation = fetch_one(
             """SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
                       o.operation_type,o.requires_setup,o.setup_completed_at,o.parent_operation_id,
@@ -179,9 +181,8 @@ def kiosk_scan():
                FROM operations o
                LEFT JOIN parts p ON p.id=o.part_id
                LEFT JOIN production_orders po ON po.id=o.production_order_id
-               WHERE """ + ('o.id=%s' if by_id else 'upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s)') + """
-               LIMIT 1""",
-            (int(key),) if by_id else (qr, key),
+               WHERE o.id=%s""",
+            (operation_id,),
         )
         if not operation:
             return jsonify(ok=False, error='OPERATION_NOT_FOUND', error_code='OP-001', message='Không tìm thấy Operation', action='Kiểm tra QR Operation hoặc tạo lại QR từ PO.'), 404

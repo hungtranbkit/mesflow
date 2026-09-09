@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 from mesflow.db.connection import fetch_all, fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError, RepositoryError
 from mesflow.db.repositories.execution import WorkSessionRepository
+from mesflow.domain.qr_identity import resolve_operation_id
 from mesflow.services.kiosk_reconciliation import ReconciliationResult, compute_missing, ranges
 
 
@@ -237,7 +238,16 @@ class OfflineSyncRepository:
                 worker_qr = str(event.get('employee_qr') or event.get('worker_qr') or '')
                 operation_qr = str(event.get('operation_qr') or '')
                 employee = fetch_one("SELECT id FROM employees WHERE active=TRUE AND (upper(qr)=upper(%s) OR upper(employee_no)=upper(%s)) LIMIT 1", (worker_qr, worker_qr.split('|')[-1]))
-                operation = fetch_one("SELECT id FROM operations WHERE upper(qr)=upper(%s) OR upper(code)=upper(%s) LIMIT 1", (operation_qr, operation_qr.split('|')[-1]))
+                # LIMIT 1 cũ ở đây ĐOÁN khi một mã trùng ở nhiều Part -- và
+                # đường này còn nguy hiểm hơn kiosk trực tuyến: sự kiện offline
+                # được áp dụng hàng loạt, không ai đứng nhìn để phát hiện sản
+                # lượng vào nhầm công đoạn. Resolver chung từ chối ca mơ hồ, và
+                # ConflictError được phân loại là RETRYABLE nên sự kiện được giữ
+                # lại chờ người in lại tem thay vì mất luôn.
+                try:
+                    operation = {'id': resolve_operation_id(operation_qr)}
+                except NotFoundError:
+                    operation = None
                 if not employee:
                     raise NotFoundError('employee missing or inactive')
                 if not operation:

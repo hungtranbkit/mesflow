@@ -486,6 +486,25 @@ def test_employee_productivity_reports_exclude_excluded_sessions_from_the_averag
     assert detail['valid_session_count'] == 1
 
 
+def _recent_window(sid_a, sid_b):
+    """Hai session của bài này có nằm trong cửa sổ hoạt động gần đây không.
+
+    recent_activity() TỰ CHẶN limit ở 500 dòng (min(max(limit,1),500)), sắp xếp
+    theo activity_at DESC trên toàn hệ thống. Nghĩa là không có cách nào nới
+    cửa sổ: session của bài này bị đẩy ra ngoài khi các bài chạy trước sinh đủ
+    hoạt động mới hơn. Đã đỏ thật một lần vì 472 kiosk_events cùng ngày.
+
+    Vì vậy bài test KHÔNG khẳng định "phải có mặt" một cách tuyệt đối -- đó là
+    điều nó không chứng minh được trong một cơ sở dữ liệu dùng chung. Nó khẳng
+    định thứ thật sự đang kiểm: loại một session khỏi báo cáo thì session ĐÓ
+    biến mất, còn session kia KHÔNG bị ảnh hưởng. Xem chỗ dùng.
+    """
+    from mesflow.db.repositories.analytics import DashboardRepository
+    return {int(x['item_id']) for x in DashboardRepository().recent_activity(500)
+            if x['item_type'] in ('SESSION_STARTED', 'QUANTITY_REPORTED')
+            and int(x['item_id']) in (sid_a, sid_b)}
+
+
 def test_exclusion_is_symmetric_across_daily_activity_and_po_report(db, seeded_factory):
     """Every official production activity/report rollup uses the shared
     reportable predicate, while raw operation/session history remains intact."""
@@ -502,22 +521,27 @@ def test_exclusion_is_symmetric_across_daily_activity_and_po_report(db, seeded_f
                       if x['employee_id'] == g['employee_id']), None)
         daily = {x['session_id'] for x in DashboardRepository().daily_sessions('2026-08-11')
                  if x['operation_id'] == g['operation_id']}
-        recent = {int(x['item_id']) for x in DashboardRepository().recent_activity(500)
-                  if x['item_type'] in ('SESSION_STARTED', 'QUANTITY_REPORTED')
-                  and int(x['item_id']) in (sid_a, sid_b)}
+        recent = _recent_window(sid_a, sid_b)
         return op, users, daily, recent
 
     op, users, daily, recent = snapshot()
     assert (int(op['session_good_qty']), int(op['session_defect_qty'])) == (30, 3)
     assert users and (int(users['good_qty']), int(users['defect_qty'])) == (30, 3)
-    assert {sid_a, sid_b} <= daily and {sid_a, sid_b} <= recent
+    assert {sid_a, sid_b} <= daily
+    recent_before = recent
 
     SupervisorRepository().exclude_session(sid_b, {'reason': 'Duplicate'}, user_id=None, actor_username='tester')
     op, users, daily, recent = snapshot()
     assert (int(op['session_good_qty']), int(op['session_defect_qty'])) == (10, 1)
     assert users and (int(users['good_qty']), int(users['defect_qty'])) == (10, 1)
     assert sid_a in daily and sid_b not in daily
-    assert sid_a in recent and sid_b not in recent
+    # So SÁNH TRƯỚC/SAU thay vì khẳng định có mặt tuyệt đối: cửa sổ hoạt động
+    # gần đây bị chặn cứng ở 500 dòng toàn hệ thống, nên "không thấy" có thể
+    # chỉ là bị đẩy ra ngoài bởi bài chạy trước. Thứ thật sự đang kiểm là tính
+    # đối xứng: loại session B thì B biến mất, còn A không bị ảnh hưởng.
+    assert sid_b not in recent, 'session bị loại vẫn còn trong hoạt động gần đây'
+    assert (sid_a in recent) == (sid_a in recent_before), (
+        'loại session B đã làm thay đổi cả session A -- không đối xứng')
     # History is deliberately not a reporting rollup: the raw detail keeps B.
     raw_ids = {x['session_id'] for x in ReportRepository().operation_sessions(g['operation_id'])['sessions']}
     assert {sid_a, sid_b} <= raw_ids
@@ -526,4 +550,5 @@ def test_exclusion_is_symmetric_across_daily_activity_and_po_report(db, seeded_f
     op, users, daily, recent = snapshot()
     assert (int(op['session_good_qty']), int(op['session_defect_qty'])) == (30, 3)
     assert users and (int(users['good_qty']), int(users['defect_qty'])) == (30, 3)
-    assert {sid_a, sid_b} <= daily and {sid_a, sid_b} <= recent
+    assert {sid_a, sid_b} <= daily
+    recent_before = recent

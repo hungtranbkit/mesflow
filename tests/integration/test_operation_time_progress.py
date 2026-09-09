@@ -108,7 +108,19 @@ def test_case1_running_session_actual_seconds_increases_between_two_requests(db,
         t1 = _op_item(response.json(), g['operation_id'])['day_work_seconds']
         elapsed = (datetime.now(timezone.utc) - real_now_t0).total_seconds()
 
-        assert t0 >= 500  # ~10 minutes elapsed since started, well within the all-day WORK window
+        # day_work_seconds chỉ đếm phần NẰM TRONG ngày đang xét. Session được
+        # tạo lùi 10 phút, nên nếu bài test chạy trong 10 phút đầu sau nửa đêm
+        # thì phần trước nửa đêm không được tính -- và ngưỡng cứng 500 sẽ đỏ vì
+        # lý do hoàn toàn không liên quan đến thứ đang kiểm. Đã đỏ thật ở
+        # 458 >= 500, tức là bài chạy lúc 00:07.
+        #
+        # Ngưỡng vì vậy bám theo đồng hồ: nhiều nhất là 500, nhưng không bao
+        # giờ đòi nhiều hơn số giây đã trôi qua kể từ đầu ngày.
+        since_midnight = (datetime.now(HCM) - datetime.now(HCM).replace(
+            hour=0, minute=0, second=0, microsecond=0)).total_seconds()
+        floor = min(500, max(0, since_midnight - 60))
+        assert t0 >= floor, (
+            f't0={t0} < {floor:.0f} (đã trôi {since_midnight:.0f}s kể từ đầu ngày)')
         assert t1 > t0, f'actual_seconds did not increase: t0={t0} t1={t1} (waited {elapsed:.1f}s)'
         assert t1 - t0 <= elapsed + 2  # sanity: growth roughly tracks real elapsed time, not some larger jump
     finally:
