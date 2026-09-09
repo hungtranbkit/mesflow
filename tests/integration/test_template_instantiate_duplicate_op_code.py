@@ -102,9 +102,16 @@ def test_retrying_the_same_broken_template_stays_the_same_clean_error(db, api):
         _cleanup(db, template_id, [po_code])
 
 
-def test_clean_template_still_instantiates_and_codes_are_prefixed(db, api):
-    """The normal path is untouched: codes stay `<po>-<template op code>`."""
-    template_id, _suffix = _template(db, ops=['KM-OP01', 'KM-OP02', 'KM-OP03'])
+def test_clean_template_still_instantiates_and_codes_carry_the_part(db, api):
+    """An Operation code that does not name its Part gets the Part folded in.
+
+    Updated 2026-09-09: Operation codes are only unique WITHIN a Part now, so
+    a code like KM-OP01 that says nothing about its Part must carry it in the
+    generated code -- otherwise two Parts using the same short code would
+    collide on operations.code/operations.qr.
+    """
+    template_id, suffix = _template(db, ops=['KM-OP01', 'KM-OP02', 'KM-OP03'])
+    part_code = f'P-{suffix}'
     po_code = f'PO-OK-{uuid.uuid4().hex[:6].upper()}'
     try:
         response = _create_po(api, template_id, po_code)
@@ -112,7 +119,9 @@ def test_clean_template_still_instantiates_and_codes_are_prefixed(db, api):
         codes = [r['code'] for r in db.execute("""SELECT o.code FROM operations o
             JOIN production_orders po ON po.id=o.production_order_id
             WHERE po.code=%s ORDER BY o.sort_order,o.id""", (po_code,)).fetchall()]
-        assert codes == [f'{po_code}-KM-OP01', f'{po_code}-KM-OP02', f'{po_code}-KM-OP03']
+        assert codes == [f'{po_code}-{part_code}-KM-OP01',
+                         f'{po_code}-{part_code}-KM-OP02',
+                         f'{po_code}-{part_code}-KM-OP03']
         # Same PO code twice is still refused, on the PO's own constraint.
         again = _create_po(api, template_id, po_code)
         assert again.status_code == 409

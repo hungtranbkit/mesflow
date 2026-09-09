@@ -15,6 +15,8 @@ from mesflow.core.time_policy import site_now
 from mesflow.core.upload_policy import validate_excel_upload
 from mesflow.db.repositories.base import ConflictError,NotFoundError
 from mesflow.web.errors import api_error_response
+from mesflow.db.repositories.master_data import (_validate_template_part_codes,
+    _validate_template_operation_codes, TemplateValidationError)
 from mesflow.db.repositories.template_imports import (TemplateImportRepository,
     OUTCOME_CREATED, OUTCOME_REPLACED, OUTCOME_FAILED)
 
@@ -520,6 +522,25 @@ def import_template_workbook():
             # both there and by seed_demo_templates() just below: a code
             # collision now replaces the existing template's Parts/Operations
             # content instead of forking a second template under it.
+            # Same rules the Template editor enforces, applied before a single
+            # row is written: Part codes unique in the workbook, and no two
+            # Operations that would generate the same real Operation code.
+            # Excel used to write straight through, which is how TPL-6126's
+            # ten duplicates got in (2026-09-09).
+            try:
+                _validate_template_part_codes(parts)
+                part_code_by_key={p['key']:p['code'] for p in parts}
+                _validate_template_operation_codes(
+                    [(part_code_by_key.get(o['part_key']),o.get('code')) for o in operations])
+            except TemplateValidationError as verr:
+                if verr.code=='DUPLICATE_PART_CODE_IN_TEMPLATE':
+                    raise ValueError('File Excel có mã Part bị trùng: '
+                        +', '.join(verr.details.get('duplicate_codes') or [])
+                        +'. Mỗi Part phải có mã riêng.') from verr
+                raise ValueError('File Excel có Operation trùng mã trong cùng một Part: '
+                    +', '.join(verr.details.get('duplicate_codes') or [])
+                    +'. Mã Operation được phép trùng giữa các Part khác nhau, '
+                    'nhưng trong cùng một Part thì phải khác nhau.') from verr
             existing=conn.execute('SELECT id FROM templates WHERE UPPER(code)=UPPER(%s)',(code,)).fetchone()
             replaced=bool(existing)
             if existing:

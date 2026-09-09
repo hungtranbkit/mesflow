@@ -414,37 +414,50 @@ def _validate_template_part_codes(parts, *, template=None):
     return normalized
 
 
-def _validate_template_operation_codes(operations, *, template=None):
-    """An Operation code must be unique within its Template.
+def operation_code_suffix(part_code, op_code):
+    """The part-scoped tail of a real Operation code, minus the PO prefix.
 
-    Two reasons, both load-bearing rather than stylistic:
+    An Operation code only has to be unique WITHIN its Part -- two Parts may
+    each have their own OP01. But operations.code (and operations.qr, which is
+    derived from it) is globally unique, so the generated code has to carry
+    the Part when the Operation code does not already identify it.
 
-    1. TemplateTreeRepository.instantiate() derives every real Operation code
-       as `<po_code>-<template_op_code>`, and operations.code carries a GLOBAL
-       unique constraint (operations_code_key). Two template rows sharing a
-       code therefore generate the same Operation code and the second INSERT
-       dies -- which is exactly what happened on TEST 2026-09-09 with
-       TPL-6126: ten duplicated codes, e.g. KM-3172005-08-OP02 present twice
-       under the same part, surfacing to the user as a raw PostgreSQL
-       "duplicate key value violates unique constraint" popup.
-    2. input_source_code references an operation BY CODE. With a duplicate,
-       that reference is genuinely ambiguous -- instantiate()'s
-       template_to_actual map silently keeps whichever row it saw last, so
-       the material-flow wiring would be a coin toss even if the insert
-       succeeded.
+    Most existing templates name Operations after the Part they belong to
+    (KM-3172005-08-OP02 under Part KM-3172005-08), and those keep the exact
+    code they have today. A template using short codes (OP01 in every Part)
+    gets the Part folded in, which is what makes those codes safe to repeat.
+    Pure function of the two codes -- never of the sibling rows -- so the same
+    pair always yields the same result.
+    """
+    part=_normalize_part_code(part_code)
+    code=_normalize_part_code(op_code)
+    if not code:
+        return ''
+    if part and code.startswith(part):
+        return code
+    return f'{part}-{code}' if part else code
 
-    Deliberately not auto-renamed (e.g. appending -2): the code is the
-    customer's own routing identifier, and silently minting a different one
-    would put an Operation into production under a code that appears nowhere
-    in their template. The duplicate is reported instead, naming the codes so
-    it can be corrected at the source.
+
+def _validate_template_operation_codes(pairs, *, template=None):
+    """Reject anything that would produce two identical Operation codes.
+
+    `pairs` is (part_code, op_code). Checking the GENERATED code rather than
+    the raw pair matters: within one Part, `OP01` and `<part>-OP01` are two
+    different rows that collapse to the same generated code, and a template
+    mixing the two conventions in one Part would otherwise pass validation and
+    fail later against operations_code_key -- the exact failure this whole
+    guard exists to prevent (TPL-6126, 2026-09-09).
+
+    Duplicates are reported, never auto-renamed: the code is the customer's
+    own routing identifier, and minting a different one would put Operations
+    into production under a code that appears nowhere in their template.
     """
     counts={}
-    for op in operations:
-        code=_normalize_part_code(op.get('code'))
-        if not code:
+    for part_code,op_code in pairs:
+        suffix=operation_code_suffix(part_code,op_code)
+        if not suffix:
             continue
-        counts[code]=counts.get(code,0)+1
+        counts[suffix]=counts.get(suffix,0)+1
     duplicates=sorted(code for code,count in counts.items() if count>1)
     if duplicates:
         details={'duplicate_codes':duplicates}
@@ -501,7 +514,11 @@ class TemplateTreeRepository:
         if any(float(op.get('repair_cycle_time_seconds_per_unit') or 0) < 0 for op in operations):
             raise ValueError('repair_cycle_time_seconds_per_unit must be >= 0')
         # Set() below would silently swallow a duplicate, so check first.
-        _validate_template_operation_codes(operations)
+        # Scoped per Part: the same Operation code in two different Parts is
+        # allowed, and is what operation_code_suffix() keeps unambiguous.
+        part_code_by_key={str(p.get('key',idx)):p.get('code') for idx,p in enumerate(parts)}
+        _validate_template_operation_codes(
+            [(part_code_by_key.get(str(op.get('part_key'))),op.get('code')) for op in operations])
         op_codes={str(op.get('code') or '').strip().upper() for op in operations if str(op.get('code') or '').strip()}
         for item in operations:
             source=str(item.get('input_source_code') or '').strip().upper()
@@ -550,7 +567,10 @@ class TemplateTreeRepository:
         except TemplateValidationError as exc:
             errors.append({'code':exc.code.replace('_IN_TEMPLATE',''),'field':'parts.code','values':exc.details.get('duplicate_codes',[]),'details':exc.details})
         try:
-            _validate_template_operation_codes(operations,template=template)
+            part_code_by_id={p['id']:p.get('code') for p in parts}
+            _validate_template_operation_codes(
+                [(part_code_by_id.get(op.get('part_id')),op.get('code')) for op in operations],
+                template=template)
         except TemplateValidationError as exc:
             errors.append({'code':exc.code.replace('_IN_TEMPLATE',''),'field':'operations.code',
                            'values':exc.details.get('duplicate_codes',[]),'details':exc.details})
@@ -588,13 +608,16 @@ class TemplateTreeRepository:
             # partial clone back anyway, but the user must get a message that
             # says what to fix instead of a raw unique-constraint violation.
             try:
-                _validate_template_operation_codes(list(template_ops), template=template)
+                template_part_code={p['id']:p.get('code') for p in template_parts}
+                _validate_template_operation_codes(
+                    [(template_part_code.get(op.get('part_id')),op.get('code')) for op in template_ops],
+                    template=template)
             except TemplateValidationError as exc:
                 duplicates=', '.join(exc.details.get('duplicate_codes') or [])
                 raise ConflictError(
-                    f"Template {template['code']} có mã Operation bị trùng: {duplicates}. "
-                    "Mỗi Operation phải có mã riêng trong Template (mã PO sẽ được ghép vào mã này). "
-                    "Hãy sửa Template rồi tạo lại PO.") from exc
+                    f"Template {template['code']} có Operation trùng mã trong cùng một Part: {duplicates}. "
+                    "Mã Operation được phép trùng giữa các Part khác nhau, nhưng trong cùng một Part "
+                    "thì phải khác nhau. Hãy sửa Template rồi tạo lại PO.") from exc
             try:
                 po=conn.execute(
                     "INSERT INTO production_orders(code,sales_order_id,source_template_id,source_template_code,source_template_version,product,planned_quantity,status,priority,due_date,planned_start_at,planned_end_at,notes) VALUES(%s,%s,%s,%s,%s,%s,%s,'PLANNED',%s,%s,%s,%s,%s) RETURNING id",
@@ -617,7 +640,9 @@ class TemplateTreeRepository:
             for idx,op in enumerate(template_ops):
                 part_id=part_map.get(op['part_id'])
                 if not part_id: continue
-                op_code=f"{code}-{op['code'] or str(idx+1).zfill(2)}"
+                suffix=operation_code_suffix(template_part_code.get(op.get('part_id')),
+                                             op['code'] or str(idx+1).zfill(2))
+                op_code=f"{code}-{suffix}"
                 equipment_id=None
                 if op['equipment_code']:
                     eq=conn.execute('SELECT id FROM equipment WHERE UPPER(code)=UPPER(%s)',(op['equipment_code'],)).fetchone()
