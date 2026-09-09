@@ -231,3 +231,63 @@ def test_setup_time_still_counts_as_work_after_the_rollup_fix(api, db, seeded_fa
         'setup time disappeared from the employee day view'
     assert not [x for x in day['items'] if x['operation_id'] == setup['id']], \
         'setup appeared in production progress'
+
+
+def test_an_admin_can_issue_a_kiosk_token_and_that_token_works(api, db, seeded_factory):
+    """The enrollment path, end to end.
+
+    `POST /api/kiosk-identities/<id>/approve` already existed but nothing in
+    the app called it, so the credential the gate above requires could not be
+    minted through the product at all — a lock with no key. Kiosk Management
+    now issues it. This test walks the whole path an admin actually takes:
+    a terminal announces itself, the admin issues a token, the terminal writes
+    with it, and issuing again cuts the old one off.
+    """
+    graph = seeded_factory
+    device = f"WEB-ENROLL-{graph['suffix']}"
+
+    # 1. The terminal announces itself the way the browser kiosk does.
+    announced = requests.post(f'{BASE_URL}/api/kiosk-web/heartbeat',
+                              json={'device_uuid': device, 'device_name': 'Web kiosk enroll test'}, timeout=15)
+    assert announced.status_code == 200, announced.text
+    identity = db.execute('SELECT id,status,token_hash FROM kiosk_identities WHERE device_uuid=%s',
+                          (device,)).fetchone()
+    assert identity is not None, 'the terminal must appear in Kiosk Management'
+    # Stored as '' rather than NULL, which is just as safe: the lookup compares
+    # it to a sha256 hex digest, and no digest is ever empty.
+    assert not identity['token_hash'], \
+        'announcing itself must NOT hand a device a credential -- an admin issues it'
+
+    try:
+        # ...and until then it cannot write, even though its row says ACTIVE.
+        unenrolled = requests.post(f'{BASE_URL}/api/kiosk-web/scan',
+                                   json={'qr': f"WF|EMP|TEST-{graph['suffix']}"}, timeout=15)
+        assert unenrolled.status_code in (401, 403), unenrolled.text
+
+        # 2. The admin issues a token against a real station.
+        issued = api.post(f"{BASE_URL}/api/kiosk-identities/{identity['id']}/approve",
+                          json={'station_id': graph['station_id']}, timeout=15)
+        assert issued.status_code == 200, issued.text
+        token = issued.json()['token']
+        assert token, 'approve must return the plaintext token exactly once'
+
+        # 3. The terminal can now write.
+        client = requests.Session()
+        client.headers['X-Kiosk-Token'] = token
+        scan = client.post(f'{BASE_URL}/api/kiosk-web/scan',
+                           json={'qr': f"WF|EMP|TEST-{graph['suffix']}"}, timeout=15)
+        assert scan.status_code == 200, scan.text
+
+        # 4. Re-issuing replaces the credential — the dialog warns about this,
+        #    so the behaviour had better match the warning.
+        reissued = api.post(f"{BASE_URL}/api/kiosk-identities/{identity['id']}/approve",
+                            json={'station_id': graph['station_id']}, timeout=15)
+        assert reissued.status_code == 200, reissued.text
+        assert reissued.json()['token'] != token
+        stale = client.post(f'{BASE_URL}/api/kiosk-web/scan',
+                            json={'qr': f"WF|EMP|TEST-{graph['suffix']}"}, timeout=15)
+        assert stale.status_code in (401, 403), 'the previous token must stop working'
+    finally:
+        with db.cursor() as cur:
+            cur.execute('DELETE FROM kiosk_status WHERE device_uuid=%s', (device,))
+            cur.execute('DELETE FROM kiosk_identities WHERE device_uuid=%s', (device,))
