@@ -1646,3 +1646,9 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 .rq-resolve-preview b{color:#17212b}
 .rq-resolve-preview b.danger{color:#a62c2c}
 @media(max-width:900px){.rq-resolve-grid{grid-template-columns:1fr}}
+
+/* File Excel đã nhập (Template import history, 2026-09-09) */
+.tpl-import-failed{background:#fff8f8}
+.tpl-import-failed td{color:#7c2c2c}
+#tplImportHistory small{display:block;color:var(--muted);margin-top:3px}
+#tplImportHistory .badge.danger{background:#fee2e2;color:#991b1b}

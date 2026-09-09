@@ -4,7 +4,9 @@ from datetime import datetime
 from io import BytesIO
 import re
 
-from flask import Blueprint, jsonify, request, send_file
+import logging
+from pathlib import Path
+from flask import Blueprint, jsonify, request, send_file, session
 from openpyxl import Workbook, load_workbook
 
 from mesflow.db.connection import transaction
@@ -13,6 +15,8 @@ from mesflow.core.time_policy import site_now
 from mesflow.core.upload_policy import validate_excel_upload
 from mesflow.db.repositories.base import ConflictError,NotFoundError
 from mesflow.web.errors import api_error_response
+from mesflow.db.repositories.template_imports import (TemplateImportRepository,
+    OUTCOME_CREATED, OUTCOME_REPLACED, OUTCOME_FAILED)
 
 bp = Blueprint('excel_io', __name__, url_prefix='/api/operations')
 template_excel_bp = Blueprint('template_excel_io', __name__, url_prefix='/api/templates')
@@ -425,6 +429,15 @@ def export_template_workbook(template_id):
     return send_file(out,as_attachment=True,download_name=f"template_{template['code']}.xlsx",mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',max_age=0)
 
 
+def _duplicate_operation_codes(operations):
+    """Codes appearing more than once, so the archive says WHY a sheet is bad."""
+    counts={}
+    for op in operations or []:
+        code=str(op.get('code') or '').strip().upper()
+        if code: counts[code]=counts.get(code,0)+1
+    return ', '.join(sorted(c for c,n in counts.items() if n>1))
+
+
 @template_excel_bp.post('/import-workbook')
 @roles_required('admin','manager')
 def import_template_workbook():
@@ -433,8 +446,16 @@ def import_template_workbook():
         return jsonify(ok=False,message='Chưa chọn file Excel Template.'),400
     if not upload.filename.lower().endswith('.xlsx'):
         return jsonify(ok=False,message='Chỉ hỗ trợ file .xlsx.'),400
+    # Kept in scope for the archive below: whatever happens to the import, the
+    # workbook that caused it has to be recoverable (see
+    # db/repositories/template_imports.py).
+    archive=TemplateImportRepository()
+    raw_bytes=b''
+    actor_id=session.get('user_id'); actor_name=str(session.get('username') or '')
+    imported_code=''
     try:
         validated=validate_excel_upload(upload)
+        raw_bytes=validated.data
         wb=load_workbook(BytesIO(validated.data),data_only=True)
         standard={'Template','Parts','Operations'}.issubset(set(wb.sheetnames))
         source_format='template_workbook'
@@ -446,6 +467,7 @@ def import_template_workbook():
             def mv(name,default=''):
                 i=headers.get(name); return raw[i] if i is not None and i<len(raw) else default
             code=_text(mv('template code') or mv('template_code')).upper() or f'TPL-{site_now().strftime("%Y%m%d%H%M%S")}'
+            imported_code=code
             name=_text(mv('template name') or mv('template_name')) or code
             product=_text(mv('product')); version=_text(mv('version')) or '1.0'
             active=str(mv('active',1)).lower() not in {'0','false','no'}
@@ -482,6 +504,7 @@ def import_template_workbook():
                 return jsonify(ok=False,message='Không nhận diện được dữ liệu Template. File cần có 3 sheet chuẩn hoặc các dòng OPERATION # trong từng sheet.'),400
             source_format='go_router'
             code=parsed['code']; name=parsed['name']; product=parsed['product']; version=parsed['version']; active=parsed['active']
+            imported_code=code
             parts=parsed['parts']; operations=parsed['operations']
         with transaction() as conn:
             # Gate 19 (2026-08-26): real confirmed bug -- this used to silently
@@ -514,6 +537,60 @@ def import_template_workbook():
             for opitem in operations:
                 conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit) VALUES(%s,%s,%s,%s,%s,%s,%s)',(t['id'],ids[opitem['part_key']],opitem['code'],opitem['name'],opitem['sort_order'],opitem['equipment_code'],float(opitem.get('standard_seconds_per_unit') or 0)))
         verb='cập nhật' if replaced else 'tạo'
+        archive.record(data=raw_bytes,filename=upload.filename,
+            outcome=OUTCOME_REPLACED if replaced else OUTCOME_CREATED,
+            template_id=t['id'],template_code=code,part_count=len(parts),
+            operation_count=len(operations),
+            duplicate_operation_codes=_duplicate_operation_codes(operations),
+            actor_user_id=actor_id,actor_username=actor_name)
         return jsonify(ok=True,message=f'Đã {verb} Template {code}: {len(parts)} Part, {len(operations)} Operation.',template_id=t['id'],part_count=len(parts),operation_count=len(operations),source_format=source_format,replaced=replaced)
+    except Exception as exc:
+        # A rejected workbook is exactly the one someone needs to open, so the
+        # attempt is archived even though the import itself rolled back.
+        if raw_bytes:
+            try:
+                archive.record(data=raw_bytes,filename=upload.filename,outcome=OUTCOME_FAILED,
+                    template_code=imported_code,error_message=str(exc),
+                    actor_user_id=actor_id,actor_username=actor_name)
+            except Exception:
+                logging.getLogger(__name__).exception('Could not archive the rejected template workbook')
+        return api_error_response(exc,logger_name=__name__)
+
+
+@template_excel_bp.get('/<int:template_id>/import-history')
+@login_required
+def template_import_history(template_id:int):
+    """Which workbooks produced this Template -- successes and rejections."""
+    try:
+        return jsonify(ok=True,items=TemplateImportRepository().list(template_id=template_id))
+    except Exception as exc:
+        return api_error_response(exc,logger_name=__name__)
+
+
+@template_excel_bp.get('/import-history')
+@login_required
+def template_import_history_all():
+    try:
+        return jsonify(ok=True,items=TemplateImportRepository().list(
+            template_code=str(request.args.get('template_code') or ''),
+            limit=int(request.args.get('limit') or 200)))
+    except Exception as exc:
+        return api_error_response(exc,logger_name=__name__)
+
+
+@template_excel_bp.get('/import-history/<int:import_id>/download')
+@roles_required('admin','manager')
+def download_template_import(import_id:int):
+    """Hand back the exact bytes that were uploaded, under the original name."""
+    try:
+        row=TemplateImportRepository().file_for(import_id)
+        if not row:
+            raise NotFoundError('Không tìm thấy lần nhập Template này.')
+        path=Path(row['storage_path'])
+        if not path.exists():
+            raise NotFoundError('File Excel của lần nhập này không còn trên máy chủ.')
+        return send_file(path,as_attachment=True,
+            download_name=row['original_filename'] or path.name,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as exc:
         return api_error_response(exc,logger_name=__name__)
