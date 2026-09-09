@@ -10,3 +10,13 @@ button{min-height:48px;padding:11px 20px;border:1px solid var(--action);border-r
 .error-code{margin-top:8px;padding:7px 12px;border-radius:var(--radius-control);background:var(--danger);color:#fff;font-family:ui-monospace,Consolas,monospace;font-size:20px;font-weight:800;letter-spacing:.04em}.error-action{max-width:720px;padding:10px 12px;border:1px solid #e3cba5;border-radius:var(--radius-panel);background:#fff8ed;color:#754408!important;font-size:15px!important;font-weight:700}
 @media(max-width:650px){.kiosk-header{min-height:56px;padding:0 12px}.kiosk-header strong{font-size:17px}.header-actions{gap:8px}.demo-toggle{min-height:40px;padding:7px 9px;font-size:12px}.screen{min-height:380px;padding:20px 12px}.screen h1{font-size:clamp(27px,9vw,38px)}.screen p{font-size:16px}.icon{width:72px;height:72px}.icon svg{width:38px;height:38px}.qty-grid{grid-template-columns:1fr;gap:10px}.quantity-screen,.confirm-screen{padding-top:20px}.choice-grid{grid-template-columns:1fr;gap:8px}.two-choice{grid-template-columns:1fr 1fr}.choice-button{min-height:76px;flex-direction:row}.choice-button strong{font-size:26px}.actions{width:100%;max-width:620px}.actions button{flex:1}.demo-panel{width:100vw}footer{gap:8px;padding:6px 10px;flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* Setup máy (chuẩn bị máy) — chạy checklist trước khi mở sản xuất */
+.setup-screen{gap:14px}
+.setup-steps{display:grid;gap:10px;width:100%;max-width:900px;margin:0 auto;text-align:left}
+.setup-check{display:flex;align-items:flex-start;gap:14px;padding:14px 16px;border:2px solid #cfd8e0;border-radius:12px;background:#fff;font-size:26px;line-height:1.3}
+.setup-check.done{border-color:#2e9b60;background:#f2fbf6}
+.setup-check input{width:34px;height:34px;flex:none;margin-top:3px}
+.setup-check em{font-size:20px;color:#6b7885;font-style:normal}
+.setup-remaining{font-size:24px;color:#6b7885}
+.setup-empty{font-size:24px;color:#6b7885}

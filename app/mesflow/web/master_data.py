@@ -703,7 +703,7 @@ def qr_labels():
                 COALESCE(NULLIF(o.qr,''),'WF|OP|'||o.code) AS qr_payload,
                 po.code AS group_name,p.code||' · '||COALESCE(p.name,'') AS detail,
                 (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})
-                 AND NOT COALESCE(o.is_rework_op,FALSE)) AS active,
+                 AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION') AS active,
                 po.id AS production_order_id,po.code AS po_code
                 FROM operations o JOIN production_orders po ON po.id=o.production_order_id
                 JOIN parts p ON p.id=o.part_id
@@ -717,7 +717,7 @@ def qr_labels():
                 # unfiltered catalogue (active=false) so an already-printed
                 # label can still be audited.
                 sql+=f' AND o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})'
-                sql+=' AND COALESCE(o.is_rework_op,FALSE)=FALSE'
+                sql+=" AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'"
                 params+=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)
             if po_id: sql+=' AND po.id=%s'; params.append(int(po_id))
             sql+=' ORDER BY po.code,p.sort_order,o.sort_order,o.id LIMIT %s'; params.append(limit)

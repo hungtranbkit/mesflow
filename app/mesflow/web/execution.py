@@ -4,6 +4,7 @@ from mesflow.web.auth import login_required,permission_required,production_clien
 from mesflow.db.repositories.base import NotFoundError,ConflictError,RepositoryError
 from mesflow.db.repositories.execution import KioskRepository,WorkSessionRepository,QCRepository,SupervisorRepository,_json_safe
 from mesflow.db.repositories.rework import ReworkQueueRepository
+from mesflow.db.repositories.setup_ops import SetupRepository
 from mesflow.db.repositories.analytics import AuditRepository,KioskEventRepository
 from mesflow.db.connection import transaction,fetch_one
 from mesflow.db.repositories.production_state import reconcile_operation_and_po,reconcile_po_tree
@@ -19,10 +20,36 @@ class KioskRepositoryLookup:
     def employee(qr,key):
         from mesflow.db.connection import fetch_one
         return fetch_one("SELECT id,employee_no,name,qr FROM employees WHERE active=TRUE AND (upper(qr)=upper(%s) OR upper(employee_no)=upper(%s)) LIMIT 1",(qr,key))
+    OPERATION_FIELDS=("o.id,o.code,o.name,o.qr,o.is_rework_op,o.operation_type,o.parent_operation_id,"
+        "o.requires_setup,o.setup_completed_at,p.code part_code,po.code po_code,po.status po_status")
+
     @staticmethod
     def operation(qr,key):
-        from mesflow.db.connection import fetch_one
-        return fetch_one("SELECT o.id,o.code,o.name,o.qr,o.is_rework_op,p.code part_code,po.code po_code,po.status po_status FROM operations o LEFT JOIN parts p ON p.id=o.part_id LEFT JOIN production_orders po ON po.id=o.production_order_id WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s) LIMIT 1",(qr,key))
+        """Resolve a scanned Operation QR.
+
+        Two payload shapes. `WF|OPID|<id>` addresses the immutable row id and
+        is what new labels (SETUP included) carry -- Operation codes are only
+        unique within a Part now, so a code can no longer be a durable
+        identifier. `WF|OP|<code>` is the legacy shape still printed on labels
+        in the workshop and keeps working; if such a code is ambiguous the
+        scan is REFUSED rather than resolved to an arbitrary row, which is
+        what the old `LIMIT 1` silently did.
+        """
+        from mesflow.db.connection import fetch_all,fetch_one
+        fields=KioskRepositoryLookup.OPERATION_FIELDS
+        base=(f"SELECT {fields} FROM operations o LEFT JOIN parts p ON p.id=o.part_id "
+              "LEFT JOIN production_orders po ON po.id=o.production_order_id ")
+        raw=str(qr or '')
+        if raw.upper().startswith('WF|OPID|') and str(key or '').isdigit():
+            return fetch_one(base+"WHERE o.id=%s",(int(key),))
+        rows=fetch_all(base+"WHERE upper(o.qr)=upper(%s) OR upper(o.code)=upper(%s) LIMIT 5",(qr,key))
+        if not rows:
+            return None
+        if len(rows)>1:
+            raise ConflictError(
+                f"Mã Operation {key} trùng ở nhiều Part, không xác định được nên quét mã nào. "
+                "In lại tem QR cho Operation này.")
+        return rows[0]
     @staticmethod
     def station(code):
         from mesflow.db.connection import fetch_one
@@ -541,3 +568,63 @@ def legacy_group_finish():
             KioskEventRepository().ingest({'event_uuid':f'{token}-{idx}-FINISH','device_uuid':device or 'LEGACY','station_id':station['id'] if station else sess.get('station_id'),'event_type':'QUANTITY_REPORTED','severity':'ERROR' if int(item.get('defect_qty') or 0)>0 else 'INFO','message':f"Nhập SL đạt {item.get('good_qty',0)}, lỗi {item.get('defect_qty',0)}, sửa được {item.get('rework_qty',0)}",'session_id':sid,'operation_id':sess.get('operation_id'),'employee_id':sess.get('employee_id'),'payload':body})
         return jsonify(ok=True,group_id=body.get('session_group_id'),finished_session_ids=finished)
     except Exception as exc:return err(exc)
+
+
+# ---------------------------------------------------------------- setup (chuẩn bị máy)
+@bp.get('/operations/<int:operation_id>/setup')
+@login_required
+def get_operation_setup(operation_id:int):
+    try:
+        return jsonify(ok=True,**SetupRepository().get_for_operation(operation_id))
+    except Exception as exc:
+        return err(exc)
+
+
+@bp.put('/operations/<int:operation_id>/setup')
+@roles_required('admin','manager','supervisor')
+def configure_operation_setup(operation_id:int):
+    try:
+        return jsonify(**SetupRepository().configure(operation_id,request.get_json(silent=True) or {}))
+    except Exception as exc:
+        return err(exc)
+
+
+@bp.post('/operations/<int:operation_id>/setup/reset')
+@roles_required('admin','manager','supervisor')
+def reset_operation_setup(operation_id:int):
+    """Demand a fresh setup before the next production session."""
+    try:
+        return jsonify(**SetupRepository().reset(operation_id))
+    except Exception as exc:
+        return err(exc)
+
+
+@bp.get('/setup-sessions/<int:session_id>')
+@login_required
+def get_setup_session(session_id:int):
+    try:
+        return jsonify(ok=True,**SetupRepository().session_progress(session_id))
+    except Exception as exc:
+        return err(exc)
+
+
+@bp.post('/setup-sessions/<int:session_id>/steps/<int:step_id>')
+@login_required
+def mark_setup_step(session_id:int,step_id:int):
+    body=request.get_json(silent=True) or {}
+    try:
+        return jsonify(ok=True,**SetupRepository().mark_step(session_id,step_id,
+            employee_id=body.get('employee_id'),done=bool(body.get('done',True))))
+    except Exception as exc:
+        return err(exc)
+
+
+@bp.post('/setup-sessions/<int:session_id>/complete')
+@login_required
+def complete_setup_session(session_id:int):
+    """Finishing setup is what unlocks the production Operation."""
+    try:
+        return jsonify(**SetupRepository().complete(session_id,
+            actor_username=str(session.get('username') or '')))
+    except Exception as exc:
+        return err(exc)

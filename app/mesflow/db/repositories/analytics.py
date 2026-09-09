@@ -140,12 +140,12 @@ class DashboardRepository:
         return fetch_one(f"""SELECT
           (SELECT COUNT(*) FROM production_orders) po_total,
           (SELECT COUNT(*) FROM production_orders WHERE status IN ('IN_PROGRESS','ACTIVE')) po_active,
-          (SELECT COUNT(*) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) operation_total,
-          (SELECT COUNT(*) FROM operations WHERE status='COMPLETED' AND COALESCE(is_rework_op,FALSE)=FALSE) operation_completed,
-          (SELECT COALESCE(SUM(done_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_good_qty,
-          (SELECT COALESCE(SUM(defect_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_defect_qty,
-          (SELECT COALESCE(SUM(rework_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_rework_qty,
-          (SELECT COALESCE(SUM(scrap_qty),0) FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE) total_scrap_qty,
+          (SELECT COUNT(*) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') operation_total,
+          (SELECT COUNT(*) FROM operations WHERE status='COMPLETED' AND COALESCE(operation_type,'PRODUCTION')='PRODUCTION') operation_completed,
+          (SELECT COALESCE(SUM(done_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_good_qty,
+          (SELECT COALESCE(SUM(defect_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_defect_qty,
+          (SELECT COALESCE(SUM(rework_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_rework_qty,
+          (SELECT COALESCE(SUM(scrap_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_scrap_qty,
           (SELECT COUNT(*) FROM work_sessions WHERE status='OPEN' AND {reportable_session_sql('')}) active_sessions,
           -- spec section 5: "Dashboard phai co kha nang bao: Co N session
           -- chua xac nhan so lieu" -- quantity_confirmed=FALSE sessions are
@@ -180,7 +180,7 @@ class DashboardRepository:
           -- good_quantity=SUM(done_qty)/COUNT(*) collapsed to 0 (or halved)
           -- and progress_percent with it -- the whole PO read as zero the
           -- moment a single rework item was resolved. Reproduced live.
-          WHERE COALESCE(o.is_rework_op,FALSE)=FALSE
+          WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
         ), terminal_operations AS (
           SELECT * FROM ranked_operations
           WHERE (edge_count>0 AND graph_terminal) OR (edge_count=0 AND reverse_rank=1)
@@ -192,7 +192,7 @@ class DashboardRepository:
           -- 3/4, because the never-completed SỬA HÀNG row was being counted).
           SELECT production_order_id,COUNT(*) operation_count,
             COUNT(*) FILTER (WHERE status='COMPLETED') completed_count
-          FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE GROUP BY production_order_id
+          FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION' GROUP BY production_order_id
         ), part_rollup AS (
           SELECT production_order_id,COUNT(*) part_count FROM parts GROUP BY production_order_id
         ), terminal_rollup AS (
@@ -220,7 +220,7 @@ class DashboardRepository:
             COALESCE(SUM(GREATEST(defect_qty-rework_qty-scrap_qty,0)*repair_cycle_time_seconds_per_unit),0)::bigint estimated_repair_work_seconds,
             COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0) repair_operation_count,
             COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0 AND repair_cycle_time_seconds_per_unit<=0) repair_unconfigured_operation_count
-          FROM operations WHERE COALESCE(is_rework_op,FALSE)=FALSE GROUP BY production_order_id
+          FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION' GROUP BY production_order_id
         ) SELECT po.id,po.id po_id,po.code,po.code po_code,po.product,po.status,
           po.planned_quantity,po.due_date,po.planned_start_at,po.planned_end_at,
           COALESCE(pr.part_count,0) part_count,COALESCE(op.operation_count,0) operation_count,
@@ -271,7 +271,7 @@ class DashboardRepository:
         -- render it as a permanently zero row inside every PO's Operation list.
         -- It is a workbench: excluded here for the same reason it is excluded
         -- from every other production rollup.
-        WHERE COALESCE(o.is_rework_op,FALSE)=FALSE
+        WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
         GROUP BY po.id,p.id,o.id
         ORDER BY CASE WHEN COUNT(ws.id) FILTER (WHERE ws.status='OPEN')>0 THEN 0
           WHEN o.status='IN_PROGRESS' THEN 1 WHEN o.status='PAUSED' THEN 2 WHEN o.status='COMPLETED' THEN 4 ELSE 3 END,
@@ -853,7 +853,7 @@ class DashboardRepository:
             WHEN COALESCE(r.session_count,0)>0 THEN 'UPDATED' ELSE 'IDLE' END day_state
         FROM operations o JOIN parts p ON p.id=o.part_id JOIN production_orders po ON po.id=o.production_order_id
         LEFT JOIN rollup r ON r.operation_id=o.id
-        WHERE COALESCE(r.session_count,0)>0 AND COALESCE(o.is_rework_op,FALSE)=FALSE
+        WHERE COALESCE(r.session_count,0)>0 AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
         ORDER BY CASE WHEN COALESCE(r.unconfirmed_count,0)>0 THEN 0 WHEN COALESCE(r.open_session_count,0)>0 THEN 1 ELSE 2 END,
           r.last_report_at DESC NULLS LAST LIMIT %s""",params)
         for row in rows:
@@ -910,7 +910,7 @@ class DashboardRepository:
             0::integer good_qty,0::integer defect_qty
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
-          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')} AND COALESCE(o.is_rework_op,FALSE)=FALSE
+          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')} AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
           UNION ALL
           SELECT 'QUANTITY_REPORTED',ws.id::text,COALESCE(ws.ended_at,ws.updated_at),e.name,o.name,
             CASE WHEN ws.status='OPEN' THEN 'QUANTITY_UPDATED' ELSE 'FINISHED' END,po.code,o.code,
@@ -918,7 +918,7 @@ class DashboardRepository:
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
           WHERE COALESCE(ws.ended_at,ws.updated_at) >= %s AND COALESCE(ws.ended_at,ws.updated_at) < %s
-            AND {reportable_session_sql('ws')} AND COALESCE(o.is_rework_op,FALSE)=FALSE
+            AND {reportable_session_sql('ws')} AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
         ) activity ORDER BY activity_at DESC LIMIT %s""",(ctx['range_start'],ctx['range_end'],ctx['range_start'],ctx['range_end'],min(max(limit,1),500)))
 
     def shift_dashboard(self,shift_date:str|None=None,shift_id:int|None=None,limit:int=1000):
@@ -1568,7 +1568,8 @@ class ReportRepository:
             GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
-            COALESCE(o.is_rework_op,FALSE) is_repair
+            COALESCE(o.operation_type,'PRODUCTION')<>'PRODUCTION' is_repair,
+            COALESCE(o.operation_type,'PRODUCTION') operation_type
           FROM work_sessions ws
           JOIN employees e ON e.id=ws.employee_id
           JOIN operations o ON o.id=ws.operation_id
@@ -1643,7 +1644,8 @@ class ReportRepository:
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
             o.code operation_code,o.name operation_name,po.code po_code,p.code part_code,
-            COALESCE(o.is_rework_op,FALSE) is_repair,
+            COALESCE(o.operation_type,'PRODUCTION')<>'PRODUCTION' is_repair,
+            COALESCE(o.operation_type,'PRODUCTION') operation_type,
             ws.excluded_from_reports,ws.exclusion_reason
           FROM work_sessions ws
           JOIN operations o ON o.id=ws.operation_id

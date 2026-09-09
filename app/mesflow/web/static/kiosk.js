@@ -165,6 +165,14 @@
       } else if (state === 'operation') {
         if (result.type !== 'operation') { const e=new Error('Hãy quét QR Operation'); e.code='SCN-004'; e.action='Sau khi nhận diện nhân viên, quét QR Operation.'; throw e; }
         const op = result.operation;
+        // Setup handover: the worker scans the PRODUCTION QR as usual; if the
+        // machine still needs preparing the device runs the checklist first,
+        // so there is no second label to print or find. The backend blocks
+        // the start regardless -- this only saves the failed attempt.
+        if (result.next_action === 'SETUP_REQUIRED' && result.setup_operation) {
+          await enterSetupFlow(op, result.setup_operation, employee);
+          return;
+        }
         document.getElementById('starting-operation').textContent = `${op.code} · ${op.name}`;
         show('starting');
         if (tutorialMode) await new Promise(resolve => setTimeout(resolve, 9000));
@@ -177,6 +185,54 @@
     } catch (error) { setError(error.message, error.code, error.action); }
     finally { document.body.classList.remove('kiosk-busy'); }
   }
+
+  // ---- Setup máy: chạy checklist rồi mới mở sản xuất -------------------
+  let setupCtx = null;
+  async function enterSetupFlow(op, setupOp, employee) {
+    const started = await api('/api/kiosk-web/start', {method:'POST', body:JSON.stringify({
+      employee_id: employee.id, operation_id: setupOp.id, device_uuid: deviceUuid,
+      request_id: `${deviceUuid}-SETUP-${Date.now()}`})});
+    const sessionId = (started.session && started.session.id) || started.session_id;
+    setupCtx = {op, setupOp, employee, sessionId};
+    await drawSetupSteps();
+    show('setup');
+  }
+  async function drawSetupSteps() {
+    const d = await api(`/api/setup-sessions/${setupCtx.sessionId}`);
+    document.getElementById('setup-operation').textContent =
+      `${setupCtx.op.code} · ${setupCtx.op.name}`;
+    const host = document.getElementById('setup-steps');
+    host.innerHTML = (d.steps || []).map(st => `<label class="setup-check ${st.done ? 'done' : ''}">
+      <input type="checkbox" data-step="${st.id}" ${st.done ? 'checked' : ''}>
+      <span>${st.instruction}${st.required ? '' : ' <em>(không bắt buộc)</em>'}</span></label>`).join('')
+      || '<p class="setup-empty">Không có bước nào được khai báo. Bấm Hoàn tất setup để tiếp tục.</p>';
+    host.querySelectorAll('input[data-step]').forEach(cb => cb.onchange = async () => {
+      try {
+        await api(`/api/setup-sessions/${setupCtx.sessionId}/steps/${cb.dataset.step}`,
+          {method:'POST', body: JSON.stringify({done: cb.checked, employee_id: setupCtx.employee.id})});
+        await drawSetupSteps();
+      } catch (e) { setError(e.message); }
+    });
+    const done = document.getElementById('setup-complete');
+    done.disabled = !d.can_complete;
+    document.getElementById('setup-remaining').textContent = d.can_complete
+      ? 'Đã đủ các bước bắt buộc' : `Còn ${d.missing_required.length} bước bắt buộc`;
+  }
+  async function completeSetup() {
+    try {
+      await api(`/api/setup-sessions/${setupCtx.sessionId}/complete`, {method:'POST'});
+      const op = setupCtx.op, employee = setupCtx.employee;
+      document.getElementById('starting-operation').textContent = `${op.code} · ${op.name}`;
+      show('starting');
+      await api('/api/kiosk-web/start', {method:'POST', body: JSON.stringify({
+        employee_id: employee.id, operation_id: op.id, device_uuid: deviceUuid,
+        request_id: `${deviceUuid}-START-${Date.now()}`})});
+      document.getElementById('started-operation').textContent = `${op.code} · ${op.name}`;
+      setupCtx = null;
+      show('started'); scheduleReset(3500);
+    } catch (e) { setError(e.message, e.code, e.action); }
+  }
+
   function readQuantity(id, minimum=0) {
     const value = Number(document.getElementById(id).value);
     return Number.isSafeInteger(value) && value >= minimum ? value : null;
@@ -416,7 +472,10 @@
     close: closeDemo,
     reload: () => { demoLoaded=false; return loadDemoData(true); },
     scanEmployee: () => scan(employeeQr()),
-    scanOperation: () => scan(operationQr())
+    scanOperation: () => scan(operationQr()),
+    // Feed an arbitrary payload through the same path a scanner gun uses --
+    // the demo selects can only offer QRs that exist in the demo dataset.
+    scan: qr => scan(String(qr || ''))
   };
 
   demoToggle.addEventListener('click', openDemo);
@@ -425,6 +484,7 @@
   demoEmployee.addEventListener('change', updateDemoQr); demoOperation.addEventListener('change', updateDemoQr);
   setInterval(() => { if (demoIsOpen()) loadDemoData(true); }, 10000);
   document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr()));
+  document.getElementById('setup-complete').addEventListener('click', completeSetup);
   document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr()));
   document.getElementById('demo-copy-employee').addEventListener('click', () => copyText(employeeQr()));
   document.getElementById('demo-copy-operation').addEventListener('click', () => copyText(operationQr()));

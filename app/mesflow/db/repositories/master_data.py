@@ -182,7 +182,7 @@ class PartRepository(BaseRepository):
 
 class OperationRepository(BaseRepository):
     table='operations'; id_column='id'
-    selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','scrap_qty','is_rework_op','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
+    selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','scrap_qty','is_rework_op','operation_type','parent_operation_id','requires_setup','expected_setup_minutes','setup_completed_at','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
     writable_columns=('production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input')
 
     def list(self,*,limit=200,offset=0):
@@ -493,7 +493,15 @@ class TemplateTreeRepository:
             parts=conn.execute('SELECT * FROM template_parts WHERE template_id=%s ORDER BY sort_order,id',(template_id,)).fetchall()
             operations=conn.execute('SELECT * FROM template_operations WHERE template_id=%s ORDER BY part_id,sort_order,id',(template_id,)).fetchall()
             equipment=conn.execute('SELECT * FROM template_equipment WHERE template_id=%s ORDER BY id',(template_id,)).fetchall()
-            return {'template':template,'parts':list(parts),'operations':list(operations),'equipment':list(equipment)}
+            # The editor round-trips the checklist, so it has to come back out
+            # attached to the Operation it belongs to.
+            steps=conn.execute("""SELECT s.* FROM template_setup_steps s
+                JOIN template_operations o ON o.id=s.template_operation_id
+                WHERE o.template_id=%s ORDER BY s.template_operation_id,s.sort_order,s.id""",(template_id,)).fetchall()
+            by_op={}
+            for step in steps: by_op.setdefault(step['template_operation_id'],[]).append(dict(step))
+            operations=[{**dict(op),'setup_steps':by_op.get(op['id'],[])} for op in operations]
+            return {'template':template,'parts':list(parts),'operations':operations,'equipment':list(equipment)}
 
     def replace_tree(self,template_id:int,payload:dict[str,Any]):
         parts=list(payload.get('parts') or [])
@@ -546,8 +554,15 @@ class TemplateTreeRepository:
                 part_ids[str(part.get('key',idx))]=row['id']
             for idx,op in enumerate(operations):
                 part_id=part_ids.get(str(op.get('part_key')))
-                conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit,repair_cycle_time_seconds_per_unit,input_flow_enabled,input_source_code,input_source_kind,defects_consume_input) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                    (template_id,part_id,op.get('code',''),op.get('name',''),op.get('sort_order',idx),op.get('equipment_code',''),float(op.get('standard_seconds_per_unit') or 0),float(op.get('repair_cycle_time_seconds_per_unit') or 0),bool(op.get('input_flow_enabled')),str(op.get('input_source_code') or '').strip().upper() or None,str(op.get('input_source_kind') or 'GOOD').upper(),bool(op.get('defects_consume_input',True))))
+                row=conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit,repair_cycle_time_seconds_per_unit,input_flow_enabled,input_source_code,input_source_kind,defects_consume_input,requires_setup,expected_setup_minutes) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                    (template_id,part_id,op.get('code',''),op.get('name',''),op.get('sort_order',idx),op.get('equipment_code',''),float(op.get('standard_seconds_per_unit') or 0),float(op.get('repair_cycle_time_seconds_per_unit') or 0),bool(op.get('input_flow_enabled')),str(op.get('input_source_code') or '').strip().upper() or None,str(op.get('input_source_kind') or 'GOOD').upper(),bool(op.get('defects_consume_input',True)),bool(op.get('requires_setup')),(int(op['expected_setup_minutes']) if str(op.get('expected_setup_minutes') or '').strip() not in ('','None') else None))).fetchone()
+                # The setup checklist belongs to the Template, so a cloned PO
+                # arrives with the instructions already in place.
+                for s_idx,step in enumerate(op.get('setup_steps') or []):
+                    instruction=str(step.get('instruction') or '').strip()
+                    if not instruction: continue
+                    conn.execute('INSERT INTO template_setup_steps(template_operation_id,sort_order,instruction,required) VALUES(%s,%s,%s,%s)',
+                        (row['id'],int(step.get('sort_order',s_idx)),instruction,bool(step.get('required',True))))
             for item in equipment:
                 conn.execute('INSERT INTO template_equipment(template_id,equipment_id,quantity) VALUES(%s,%s,%s)',
                     (template_id,item.get('equipment_id'),int(item.get('quantity',1))))
@@ -652,6 +667,34 @@ class TemplateTreeRepository:
                     (po['id'],part_id,equipment_id,op_code,op['name'],op['sort_order'],f'WF|OP|{op_code}',float(op.get('standard_seconds_per_unit') or 0),float(op.get('repair_cycle_time_seconds_per_unit') or 0),None),
                 ).fetchone()
                 operation_ids.append(created['id'])
+                # A Template that asks for setup arrives ready to run: the
+                # linked SETUP support Operation and its checklist are cloned
+                # here, mapped to the NEW operation ids, inside the same
+                # transaction as the rest of the PO. Nobody creates SETUP rows
+                # by hand.
+                if op.get('requires_setup'):
+                    conn.execute('UPDATE operations SET requires_setup=TRUE WHERE id=%s',(created['id'],))
+                    setup_code=f"{op_code}-SETUP"
+                    setup=conn.execute(
+                        """INSERT INTO operations(production_order_id,part_id,code,name,done_qty,defect_qty,
+                            rework_qty,scrap_qty,status,sort_order,qr,operation_type,parent_operation_id,
+                            expected_setup_minutes)
+                           VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',%s,%s,'SETUP',%s,%s) RETURNING id""",
+                        (po['id'],part_id,setup_code,f"Setup {op['name']}",2147483646,
+                         f'PENDING-{created["id"]}',created['id'],op.get('expected_setup_minutes')),
+                    ).fetchone()
+                    # QR addresses the immutable row id: Operation codes are
+                    # only unique within a Part, so a code-derived payload
+                    # could not be a durable identifier.
+                    conn.execute('UPDATE operations SET qr=%s WHERE id=%s',
+                                 (f"WF|OPID|{setup['id']}",setup['id']))
+                    for step in conn.execute(
+                        """SELECT sort_order,instruction,required,active FROM template_setup_steps
+                           WHERE template_operation_id=%s ORDER BY sort_order,id""",(op['id'],)).fetchall():
+                        conn.execute(
+                            """INSERT INTO setup_steps(setup_operation_id,sort_order,instruction,required,active)
+                               VALUES(%s,%s,%s,%s,%s)""",
+                            (setup['id'],step['sort_order'],step['instruction'],step['required'],step['active']))
                 template_to_actual[str(op.get('code') or '').strip().upper()]=created['id']
                 pending_sources.append((created['id'], bool(op.get('input_flow_enabled')), str(op.get('input_source_code') or '').strip().upper(), str(op.get('input_source_kind') or 'GOOD').upper(), bool(op.get('defects_consume_input',True))))
             for actual_id,enabled,source_code,source_kind,consume_defects in pending_sources:

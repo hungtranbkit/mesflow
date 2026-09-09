@@ -150,6 +150,7 @@ def kiosk_scan():
     if qr.upper().startswith('WF|OP|'):
         operation = fetch_one(
             """SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
+                      o.operation_type,o.requires_setup,o.setup_completed_at,o.parent_operation_id,
                       o.part_id,o.production_order_id,p.code part_code,p.name part_name,
                       po.code po_code,po.product,po.status po_status
                FROM operations o
@@ -163,7 +164,24 @@ def kiosk_scan():
             return jsonify(ok=False, error='OPERATION_NOT_FOUND', error_code='OP-001', message='Không tìm thấy Operation', action='Kiểm tra QR Operation hoặc tạo lại QR từ PO.'), 404
         if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
             return jsonify(ok=False, error='PO_NOT_STARTED', error_code='PO-001', message=f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng", action='Nhờ quản đốc bấm Start/Tiếp tục PO trên màn hình quản lý.'), 409
-        return jsonify(ok=True, type='operation', operation=dict(operation))
+        # Setup handover: the worker scans the PRODUCTION QR as usual and the
+        # device is told to run the setup checklist first, so nobody has to
+        # print or find a second label. Purely informational -- the actual
+        # block lives in lock_startable_operation(), so a client that ignores
+        # this still cannot start production.
+        payload=dict(operation)
+        setup=None
+        if payload.get('requires_setup') and not payload.get('setup_completed_at'):
+            setup=fetch_one("""SELECT o.id,o.code,o.name,o.qr,o.expected_setup_minutes,
+                    (SELECT COUNT(*) FROM setup_steps s WHERE s.setup_operation_id=o.id AND s.active) step_count
+                FROM operations o WHERE o.parent_operation_id=%s AND o.operation_type='SETUP'""",
+                (payload['id'],))
+        if setup:
+            return jsonify(ok=True, type='operation', operation=payload,
+                next_action='SETUP_REQUIRED', setup_operation=dict(setup),
+                message='Cần setup máy trước khi sản xuất',
+                action='Bấm bắt đầu setup và làm theo các bước chuẩn bị máy.')
+        return jsonify(ok=True, type='operation', operation=payload)
 
     return jsonify(ok=False, error='UNSUPPORTED_QR', error_code='SCN-002', message='Sai định dạng QR', action='QR hợp lệ phải bắt đầu bằng WF|EMP| hoặc WF|OP|.'), 400
 

@@ -27,16 +27,21 @@ def test_workload_uses_explicit_repair_standard():
     assert "defect_qty-rework_qty-scrap_qty,0)*repair_cycle_time_seconds_per_unit" in repo
     assert "rework_qty*standard_seconds_per_unit" not in repo
 
-def test_rework_operation_excluded_from_po_progress():
+def test_support_operations_excluded_from_po_progress():
     """P0 regression guard (see tests/integration/test_rework_overview_rollup.py).
 
-    The SỬA HÀNG workbench must not reach the terminal-operation set, the
-    operation counts, or the repair rollup -- it has no target and is never
-    reconciled, so counting it collapsed PO progress to zero.
+    Neither support Operation -- the SỬA HÀNG workbench nor a SETUP row --
+    may reach the terminal-operation set, the operation counts or the repair
+    rollup: they have no target and are never reconciled, so counting one
+    collapsed PO progress to zero. Widened 2026-09-09 from the rework-only
+    flag to operation_type, which is now the single classification (0047).
     """
     repo=source("app/mesflow/db/repositories/analytics.py")
-    assert repo.count("COALESCE(is_rework_op,FALSE)=FALSE") >= 2
-    assert "COALESCE(o.is_rework_op,FALSE)=FALSE" in repo
+    assert repo.count("COALESCE(operation_type,'PRODUCTION')='PRODUCTION'") >= 2
+    assert "COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'" in repo
+    # The old rework-only filter would silently let SETUP through.
+    assert "COALESCE(is_rework_op,FALSE)=FALSE" not in repo
+    assert "COALESCE(o.is_rework_op,FALSE)=FALSE" not in repo
 
 def test_offline_retry_keeps_backlog_idempotent():
     offline=source("app/mesflow/db/repositories/offline_sync.py")

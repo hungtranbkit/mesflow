@@ -316,8 +316,8 @@ def test_repair_session_is_named_not_counted_as_missing_standard(db, api, seeded
     """
     g = seeded_factory
     with db.cursor() as cur:
-        cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,sort_order,qr,is_rework_op)
-            VALUES(%s,%s,%s,'SỬA HÀNG','PLANNED',2147483647,%s,TRUE) RETURNING id""",
+        cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,sort_order,qr,operation_type)
+            VALUES(%s,%s,%s,'SỬA HÀNG','PLANNED',2147483647,%s,'REWORK') RETURNING id""",
             (g['po_id'], g['part_id'], f"REWORK-{g['po_id']}-{g['suffix']}", f"WF|OP|REWORK-{g['suffix']}"))
         repair_op = cur.fetchone()['id']
     # One ordinary session that genuinely lacks a standard, one repair session.

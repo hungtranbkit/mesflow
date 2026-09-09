@@ -35,6 +35,17 @@
       <p id="starting-operation"></p>
     </section>
 
+    <!-- Setup máy: mở ra khi OP chính yêu cầu chuẩn bị máy và setup hiện tại
+         chưa hợp lệ. Thợ vẫn chỉ quét đúng QR OP chính. -->
+    <section id="screen-setup" class="screen setup-screen">
+      <div class="badge">CHUẨN BỊ MÁY</div>
+      <h1>CẦN SETUP TRƯỚC KHI SẢN XUẤT</h1>
+      <h2 id="setup-operation"></h2>
+      <div id="setup-steps" class="setup-steps"></div>
+      <p id="setup-remaining" class="setup-remaining"></p>
+      <button id="setup-complete" class="kiosk-button" type="button" disabled>HOÀN TẤT SETUP</button>
+    </section>
+
     <section id="screen-started" class="screen success">
       <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div>
       <h1>ĐÃ BẮT ĐẦU</h1>

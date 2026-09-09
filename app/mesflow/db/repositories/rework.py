@@ -43,8 +43,8 @@ def _rework_operation(cur, production_order_id: int, part_id: int):
     code = f"REWORK-{production_order_id}-{part['code']}"
     cur.execute("""INSERT INTO operations(
         production_order_id,part_id,code,name,done_qty,defect_qty,rework_qty,
-        scrap_qty,status,sort_order,qr,is_rework_op)
-        VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',2147483647,%s,TRUE)
+        scrap_qty,status,sort_order,qr,operation_type)
+        VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',2147483647,%s,'REWORK')
         RETURNING *""", (production_order_id, part_id, code, "SỬA HÀNG", f"WF|OP|{code}"))
     return cur.fetchone()
 
@@ -58,7 +58,7 @@ class ReworkQueueRepository:
             o.code operation_code,o.name operation_name,po.id production_order_id,po.code po_code,
             p.id part_id,p.code part_code,p.name part_name
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id
-          JOIN operations o ON o.id=ws.operation_id AND COALESCE(o.is_rework_op,FALSE)=FALSE
+          JOIN operations o ON o.id=ws.operation_id AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
           JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
           WHERE ws.status='CLOSED' AND COALESCE(ws.excluded_from_reports,FALSE)=FALSE
             AND ws.defect_qty > ws.rework_qty + ws.scrap_qty
@@ -81,14 +81,14 @@ class ReworkQueueRepository:
             with conn.cursor() as cur:
                 cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,2))', (f'rework-{source_session_id}',))
                 cur.execute("""SELECT ws.*,o.production_order_id,o.part_id,o.code operation_code,
-                    o.is_rework_op,po.code po_code
+                    o.operation_type,po.code po_code
                   FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id
                   JOIN production_orders po ON po.id=o.production_order_id
                   WHERE ws.id=%s FOR UPDATE""", (source_session_id,))
                 source = cur.fetchone()
                 if not source:
                     raise NotFoundError('source session not found')
-                if source['status'] != 'CLOSED' or source.get('is_rework_op'):
+                if source['status'] != 'CLOSED' or source.get('operation_type') != 'PRODUCTION':
                     raise ConflictError('Session nguồn không hợp lệ cho hàng chờ sửa')
                 pending = int(source.get('defect_qty') or 0) - int(source.get('rework_qty') or 0) - int(source.get('scrap_qty') or 0)
                 if repaired + scrapped > pending:

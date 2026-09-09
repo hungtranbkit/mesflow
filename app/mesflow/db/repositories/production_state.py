@@ -179,7 +179,7 @@ def reconcile_production_order(cur, po_id: int):
                  WHERE x.production_order_id=%s AND ws.status='OPEN') has_open_session,
           EXISTS(SELECT 1 FROM work_sessions ws JOIN operations x ON x.id=ws.operation_id
                  WHERE x.production_order_id=%s AND {reportable_session_sql("ws")}) has_history
-        FROM operations WHERE production_order_id=%s AND COALESCE(is_rework_op,FALSE)=FALSE''', (po_id, po_id, po_id))
+        FROM operations WHERE production_order_id=%s AND COALESCE(operation_type,'PRODUCTION')='PRODUCTION' ''', (po_id, po_id, po_id))
     facts = cur.fetchone() or {}
     current = str(po.get('status') or 'DRAFT').upper()
     total = int(facts.get('operation_count') or 0)
@@ -247,6 +247,7 @@ def lock_startable_operation(cur, operation_id: int):
     reconciled = reconcile_operation_and_po(cur, operation_id)
     cur.execute('''SELECT o.id,o.code,o.name,o.status,o.production_order_id,o.predecessor_operation_id,
                o.input_flow_enabled,o.input_source_operation_id,COALESCE(o.is_rework_op,FALSE) is_rework_op,
+               o.operation_type,o.requires_setup,o.setup_completed_at,o.parent_operation_id,
                po.status po_status,po.code po_code
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
         WHERE o.id=%s FOR UPDATE OF o,po''', (operation_id,))
@@ -269,6 +270,16 @@ def lock_startable_operation(cur, operation_id: int):
         raise ConflictError(
             f"{operation.get('name') or 'SỬA HÀNG'} là bàn sửa hàng, không Start bằng QR. "
             "Ghi nhận số sửa được / loại tại màn hình Hàng chờ sửa.")
+    # Setup prerequisite, enforced HERE rather than in the kiosk UI: kiosk v1,
+    # kiosk v2, the legacy batch path and the API all funnel through this
+    # guard, so a client that skips the setup screen still cannot start
+    # production. SETUP rows themselves are exempt -- starting one IS how the
+    # requirement gets satisfied.
+    if (operation.get('operation_type') or 'PRODUCTION') != 'SETUP' \
+            and operation.get('requires_setup') and not operation.get('setup_completed_at'):
+        raise ConflictError(
+            f"Operation {operation.get('code') or ''} cần setup máy trước khi sản xuất. "
+            "Hoàn tất các bước chuẩn bị máy rồi mới bắt đầu.")
     if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
         raise ConflictError(f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng")
     operation['reconciled'] = reconciled
