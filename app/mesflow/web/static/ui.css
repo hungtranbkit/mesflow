@@ -751,7 +751,7 @@ html{background:var(--surface-canvas);scrollbar-color:#9aa6b2 transparent}body{c
    .content-panel past the viewport instead of scrolling inside its own
    .table-wrap. */
 .page-shell>*{min-width:0;max-width:100%}
-.panel,.card,.daily-kpi,.catalog-summary article,.system-user-summary article,.template-old-list-panel,.qr-catalog-card{border:1px solid var(--border-default)!important;border-radius:var(--radius-panel)!important;background:var(--surface-default)!important;box-shadow:none!important}.panel,.card{padding:16px}.panel+.panel{margin-top:0}.panel-head{margin-bottom:12px;gap:16px}.panel-head h2,.panel h2{margin:0;color:var(--text-primary);font-size:15px;line-height:20px;font-weight:700}.panel-head p,.panel-head small,.panel p{color:var(--text-secondary)}.panel-head p{margin:3px 0 0;font-size:12px;line-height:17px}.panel-actions{gap:8px}.grid-2{gap:16px;margin-top:0}
+.panel,.panel,.card{padding:16px}.panel+.panel{margin-top:0}.panel-head{margin-bottom:12px;gap:16px}.panel-head h2,.panel h2{margin:0;color:var(--text-primary);font-size:15px;line-height:20px;font-weight:700}.panel-head p,.panel-head small,.panel p{color:var(--text-secondary)}.panel-head p{margin:3px 0 0;font-size:12px;line-height:17px}.panel-actions{gap:8px}.grid-2{gap:16px;margin-top:0}
 .cards,.daily-kpis,.catalog-summary,.system-user-summary{gap:12px;margin:0}.card,.daily-kpi,.catalog-summary article,.system-user-summary article{min-height:82px;padding:12px 14px}.metric small,.daily-kpi small,.catalog-summary span,.system-user-summary span{color:var(--text-secondary);font-size:12px;line-height:16px}.metric strong,.daily-kpi strong,.catalog-summary b,.system-user-summary b{margin-top:4px;color:var(--text-primary)!important;font-size:24px!important;line-height:30px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}.daily-kpi:before,.pc-kpi:before{width:1px!important}.daily-kpi.critical:before,.pc-kpi.critical:before{background:var(--status-danger)}.daily-kpi.warning:before,.pc-kpi.warning:before{background:var(--status-warning)}
 .btn,button.primary,.primary,.login-card button{min-height:36px;padding:7px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-control)!important;background:var(--surface-default);color:var(--text-primary);font-size:13px;font-weight:650;line-height:20px;box-shadow:none;transition:background-color .14s ease,border-color .14s ease,color .14s ease}.btn:hover{border-color:#8795a3;background:#f1f4f6}.btn.primary,button.primary,.primary,.login-card button{border-color:var(--action-primary);background:var(--action-primary);color:#fff}.btn.primary:hover,button.primary:hover,.primary:hover,.login-card button:hover{border-color:var(--action-hover);background:var(--action-hover)}.btn.danger,.danger-button{border-color:var(--status-danger);background:#fff;color:var(--status-danger)}.btn:disabled,button:disabled{opacity:.48;cursor:not-allowed}.btn.mini{min-height:32px;padding:5px 9px;font-size:12px}
 .toolbar,.panel-toolbar{gap:8px;margin:0 0 12px;padding:10px;border:1px solid var(--border-default);border-radius:var(--radius-panel);background:var(--surface-subtle)}.toolbar input,.toolbar select,input,select,textarea{min-height:36px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-control)!important;background:#fff;color:var(--text-primary)}input::placeholder,textarea::placeholder{color:#6b7784;opacity:1}label{color:#4a5866}.modal label,.equipment-form label,.catalog-modal-head label,.ui-filter-controls label>span{font-size:12px;font-weight:650;color:#4a5866}
@@ -791,7 +791,17 @@ html{background:var(--surface-canvas);scrollbar-color:#9aa6b2 transparent}body{c
    đứng sau nó và cướp luôn bo góc + đổ bóng của QR list, Kiosk, Session
    accordion. :where() luôn cộng 0 nên thứ tự nguồn vẫn quyết định như cũ.
    (Snapshot computed-style bắt được đúng 36 mẫu hồi quy này.) */
-.admin-body :where(.card,[class$="-card"],[class*="-card "]):where(:not(.part-block)){border-radius:var(--radius-panel)!important;box-shadow:none!important}.admin-body :where(.modal,.modal-card,[class$="-modal"],[class*="-modal "]){border-radius:var(--radius-overlay)!important;box-shadow:var(--shadow-overlay)!important}
+/* Rule quét theo hậu tố "-card" là NƠI DUY NHẤT quyết định hình khối thẻ.
+   Trước đây nó đặt --radius-panel + không bóng, rồi một danh sách LIỆT KÊ
+   TAY ở dưới ghi đè về --radius-card + bóng cho từng tên cụ thể. Ai quên
+   thêm tên vào danh sách thì thẻ đó lệch: đo trên TEST, .ec-card (Trung tâm
+   ngoại lệ) và .ba-card (Nhật ký nghiệp vụ) ra 8px không bóng, còn
+   .qr-catalog-card / .kiosk-card / .session-accordion-item ra 7px có bóng.
+   Đó chính là cảm giác "mỗi màn một radius/shadow".
+
+   Nay rule quét mang thẳng hình khối đúng, nên thẻ MỚI tự đúng mà không ai
+   phải nhớ mở rộng danh sách. .part-block vẫn loại trừ vì nó tự định nghĩa. */
+.admin-body :where(.card,[class$="-card"],[class*="-card "],.daily-kpi,.catalog-summary article,.system-user-summary article,.employee-summary article,.pc-kpi,.dash-metric,.template-old-list-panel,.shift-config-card,.session-accordion-item):where(:not(.part-block)){border:1px solid var(--border-default)!important;border-radius:var(--radius-card)!important;background:var(--surface-default)!important;box-shadow:var(--shadow-card)!important}.admin-body :where(.modal,.modal-card,[class$="-modal"],[class*="-modal "]){border-radius:var(--radius-overlay)!important;box-shadow:var(--shadow-overlay)!important}
 .sidebar-item-icon{display:block!important;width:18px!important;height:18px!important;min-width:18px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:#9fb3c2!important;font-size:0!important;box-shadow:none!important}.sidebar-item-icon:after{display:none!important}.sidebar-item-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.sidebar-item.active,.sidebar-item[aria-current="page"],.sidebar-group.has-active>.sidebar-group-trigger,.sidebar-group-trigger.active,.sidebar-collapsed .sidebar-item.active,.sidebar-collapsed .sidebar-group.has-active>.sidebar-group-trigger{box-shadow:inset 1px 0 #fff!important;border-color:transparent!important}.sidebar-item.active .sidebar-item-icon,.sidebar-item[aria-current="page"] .sidebar-item-icon,.sidebar-group.has-active>.sidebar-group-trigger .sidebar-item-icon{color:#fff!important}.sidebar-item:before{background:#fff!important;width:1px!important}
 .btn.success,button.success,.success.btn{border-color:var(--action-primary)!important;background:var(--action-primary)!important;color:#fff!important}.btn.success:hover,button.success:hover,.success.btn:hover{border-color:var(--action-hover)!important;background:var(--action-hover)!important}
 .employee-table-focused,.system-user-table{width:100%!important}.employee-table-focused{min-width:1040px}.system-user-table{min-width:900px}
@@ -803,7 +813,7 @@ html{background:var(--surface-canvas);scrollbar-color:#9aa6b2 transparent}body{c
 html,body,.app-layout,.app-workspace{background:var(--surface-canvas)}
 .workspace-header{border-color:var(--border-default);box-shadow:0 2px 7px rgba(16,43,63,.08)}
 .panel{border:1px solid var(--border-default)!important;border-radius:var(--radius-panel)!important;background:var(--surface-default)!important;box-shadow:var(--shadow-section)!important}
-.card,.daily-kpi,.catalog-summary article,.system-user-summary article,.employee-summary article,.pc-kpi,.dash-metric,.qr-catalog-card,.template-old-list-panel,.kiosk-card,.shift-config-card,.session-accordion-item{border:1px solid var(--border-default)!important;border-radius:var(--radius-card)!important;background:var(--surface-default)!important;box-shadow:var(--shadow-card)!important}
+
 .panel-head{border-bottom-color:var(--border-subtle)}
 .toolbar,.panel-toolbar{border-color:var(--border-default);background:var(--surface-subtle);box-shadow:inset 0 1px 2px rgba(16,43,63,.055)}
 
@@ -844,7 +854,7 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 .modal,.modal-card,.login-card,.shift-edit-card{border:1px solid var(--border-strong)!important;box-shadow:var(--shadow-overlay)!important}
 @media(max-width:520px){
   .panel{box-shadow:0 2px 7px rgba(16,43,63,.09)!important}
-  .card,.daily-kpi,.catalog-summary article,.system-user-summary article,.session-accordion-item{box-shadow:var(--shadow-row)!important}
+  
   :where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row):hover{transform:none}
   .schedule-po.gantt-po .schedule-po-head:after{content:"Kéo ngang timeline để xem đầy đủ →";grid-column:1/-1;padding-top:6px;border-top:1px solid var(--border-subtle);color:var(--text-secondary);font-size:11px;font-weight:650}
   .schedule-po.gantt-po .gantt-wrap{scrollbar-color:var(--action-primary) #dfe5ea;scrollbar-width:auto}
@@ -1474,7 +1484,7 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 
 /* Shared visual hierarchy. */
 .panel{padding:var(--panel-padding)!important;border-color:var(--border-default)!important;box-shadow:0 3px 9px rgba(16,43,63,.085)!important}
-.card,.daily-kpi,.catalog-summary article,.system-user-summary article,.employee-summary article,.pc-kpi,.dash-metric,.qr-catalog-card,.template-old-list-panel,.kiosk-card,.shift-config-card,.session-accordion-item{box-shadow:0 1px 3px rgba(16,43,63,.075)!important}
+
 .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border-subtle)}
 .panel-head:has(>h2:only-child){align-items:center}.panel-head h2,.panel h2{font-size:15px;line-height:20px;font-weight:700}.panel-head p{margin:3px 0 0;color:var(--text-secondary);font-size:12px;line-height:17px}
 .ui-page-header{gap:16px;padding-bottom:12px}.ui-page-header h2{font-size:22px;line-height:28px;letter-spacing:-.01em}.ui-page-header p{font-size:13px;line-height:18px}
