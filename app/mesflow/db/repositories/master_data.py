@@ -697,10 +697,24 @@ class TemplateTreeRepository:
                     # a code can be renamed, an id cannot.
                     conn.execute('UPDATE operations SET qr=%s WHERE id=%s',
                                  (f"WF|OPID|{setup['id']}",setup['id']))
-                template_to_actual[str(op.get('code') or '').strip().upper()]=created['id']
-                pending_sources.append((created['id'], bool(op.get('input_flow_enabled')), str(op.get('input_source_code') or '').strip().upper(), str(op.get('input_source_kind') or 'GOOD').upper(), bool(op.get('defects_consume_input',True))))
-            for actual_id,enabled,source_code,source_kind,consume_defects in pending_sources:
-                source_id=template_to_actual.get(source_code) if source_code else None
+                # Khoá theo (Part, mã) chứ không phải mã trần. Một Template
+                # được phép dùng lại một mã OP ở nhiều Part -- đó chính là mục
+                # đích của việc scope mã theo Part -- nên map khoá bằng mã trần
+                # sẽ để Part insert sau ghi đè Part trước, và OP nguồn của
+                # KM-08 âm thầm trỏ sang OP cùng mã của KM-09. Mọi session sau
+                # đó ghi operation_input_consumptions vào OP nguồn sai; không
+                # có lỗi nào bật ra, và chính guard phân bổ lại chặn không cho
+                # sửa.
+                op_key=str(op.get('code') or '').strip().upper()
+                template_to_actual[(op['part_id'],op_key)]=created['id']
+                template_to_actual.setdefault(op_key,created['id'])
+                pending_sources.append((created['id'], op['part_id'], bool(op.get('input_flow_enabled')), str(op.get('input_source_code') or '').strip().upper(), str(op.get('input_source_kind') or 'GOOD').upper(), bool(op.get('defects_consume_input',True))))
+            for actual_id,src_part_id,enabled,source_code,source_kind,consume_defects in pending_sources:
+                # Trong Part của chính nó trước; chỉ khi Part đó không có mã ấy
+                # mới nhìn ra toàn Template (giữ nguyên hành vi cho các Template
+                # cũ vốn trỏ chéo Part).
+                source_id=(template_to_actual.get((src_part_id,source_code))
+                           or template_to_actual.get(source_code)) if source_code else None
                 source_kind=source_kind if source_kind in ('GOOD','REWORK') else 'GOOD'
                 conn.execute('UPDATE operations SET input_flow_enabled=%s,input_source_operation_id=%s,input_source_kind=%s,defects_consume_input=%s WHERE id=%s',(enabled and bool(source_id),source_id,source_kind,consume_defects,actual_id))
             with conn.cursor() as cur:record_event(cur,event_type='PO_CREATED',category='PO',title='Production Order được tạo',po_id=po['id'],source='NATIVE',metadata={'template_id':template['id'],'template_code':template['code'],'planned_quantity':planned_quantity})

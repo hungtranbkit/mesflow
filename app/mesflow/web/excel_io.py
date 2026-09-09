@@ -180,6 +180,12 @@ def export_operations():
             FROM operations o
             JOIN production_orders po ON po.id=o.production_order_id
             JOIN parts p ON p.id=o.part_id
+            -- Chỉ OP sản xuất. Tem SETUP và bàn SỬA HÀNG không phải bước
+            -- routing: xuất chúng ra rồi import ngược lại sẽ tạo lại chúng
+            -- thành operation_type=PRODUCTION với parent_operation_id NULL --
+            -- check constraint cho qua vì nó là biconditional -- và từ đó
+            -- chúng lọt vào operation_count, khiến PO không bao giờ COMPLETED.
+            WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
             ORDER BY po.code, p.sort_order, o.sort_order, o.id
         ''').fetchall()
     wb = Workbook()
@@ -263,13 +269,30 @@ def import_operations():
         inserted = updated = po_created = part_created = 0
         with transaction() as conn:
             if mode == 'replace':
+                # Replace chỉ được đụng những PO CÓ TRONG FILE. Trước đây hai
+                # câu DELETE này không có WHERE: chúng xoá cấu trúc Operation
+                # của MỌI PO trong cơ sở dữ liệu, kể cả PO không liên quan gì
+                # tới file đang import. Điều kiện chặn bên dưới cũng là toàn
+                # cục, nên nó chỉ cứu được hệ thống đã chạy thật -- đúng lúc
+                # nguy hiểm nhất, hệ thống mới dựng đang import nhiều PO, thì
+                # nó cho qua.
+                po_codes=sorted({row['po_code'] for row in normalized if row.get('po_code')})
+                if not po_codes:
+                    raise ValueError('File không có mã PO nào để Replace.')
+                scope=conn.execute('''SELECT id FROM production_orders
+                    WHERE UPPER(code)=ANY(%s)''',([c.upper() for c in po_codes],)).fetchall()
+                scope_ids=[r['id'] for r in scope]
+                if not scope_ids:
+                    raise NotFoundError(f"Không tìm thấy PO nào trong file: {', '.join(po_codes)}")
                 counts=conn.execute('''SELECT
-                    (SELECT COUNT(*) FROM work_sessions) sessions,
-                    (SELECT COUNT(*) FROM operation_input_consumptions) ledgers''').fetchone()
+                    (SELECT COUNT(*) FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id
+                     WHERE o.production_order_id=ANY(%s)) sessions,
+                    (SELECT COUNT(*) FROM operation_input_consumptions c JOIN operations o ON o.id=c.target_operation_id
+                     WHERE o.production_order_id=ANY(%s)) ledgers''',(scope_ids,scope_ids)).fetchone()
                 if int(counts.get('sessions') or 0)>0 or int(counts.get('ledgers') or 0)>0:
-                    raise ConflictError('Không thể Replace cấu trúc Operation khi đã có Session hoặc Ledger dòng vật tư. Hãy dùng Merge hoặc tạo PO mới.')
-                conn.execute('DELETE FROM operations')
-                conn.execute('DELETE FROM parts')
+                    raise ConflictError('Không thể Replace cấu trúc Operation khi PO trong file đã có Session hoặc Ledger dòng vật tư. Hãy dùng Merge hoặc tạo PO mới.')
+                conn.execute('DELETE FROM operations WHERE production_order_id=ANY(%s)',(scope_ids,))
+                conn.execute('DELETE FROM parts WHERE production_order_id=ANY(%s)',(scope_ids,))
             for row in normalized:
                 po = conn.execute('SELECT id,planned_quantity FROM production_orders WHERE UPPER(code)=UPPER(%s)', (row['po_code'],)).fetchone()
                 if not po:
@@ -297,7 +320,13 @@ def import_operations():
                         VALUES(%s,%s,%s,%s,%s,true) RETURNING id
                     ''', (po['id'], part_code, row['part_name'], row['drawing'], row['part_order'])).fetchone()
                     part_created += 1
-                existing = conn.execute('SELECT id FROM operations WHERE UPPER(code)=UPPER(%s)', (row['code'],)).fetchone()
+                existing = conn.execute('''SELECT id,COALESCE(operation_type,'PRODUCTION') operation_type
+                    FROM operations WHERE UPPER(code)=UPPER(%s)''', (row['code'],)).fetchone()
+                if existing and existing['operation_type']!='PRODUCTION':
+                    # Một file xuất TRƯỚC bản vá vẫn còn dòng OP phụ trong đó.
+                    raise ValueError(
+                        f"Operation {row['code']} là OP phụ ({existing['operation_type']}), không sửa được bằng Excel. "
+                        'Xoá dòng này khỏi file rồi import lại.')
                 if existing:
                     guard=conn.execute('''SELECT o.production_order_id,o.part_id,o.done_qty,
                         COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=o.id),0) allocated,
@@ -579,8 +608,35 @@ def import_template_workbook():
                     parts,operations,verr.details.get('duplicate_codes') or [])) from verr
             existing=conn.execute('SELECT id FROM templates WHERE UPPER(code)=UPPER(%s)',(code,)).fetchone()
             replaced=bool(existing)
+            # Những cột KHÔNG có trong workbook nhưng người dùng đã cấu hình
+            # trên web. Import lại một Template đang tồn tại là xoá rồi chèn
+            # mới, nên trước bản vá này chúng biến mất im lặng -- kèm thông báo
+            # "Đã cập nhật Template" như thể mọi thứ bình thường. Một kỹ sư
+            # nhập file, cấu hình hướng dẫn setup và dòng vật tư cho 40 OP trên
+            # web, rồi đồng nghiệp upload lại file đã sửa một chữ: mất sạch.
+            PRESERVED=('requires_setup','expected_setup_minutes','setup_note',
+                       'repair_cycle_time_seconds_per_unit','input_flow_enabled',
+                       'input_source_code','input_source_kind','defects_consume_input')
+            # Dùng cho OP mới trong file, chưa từng được cấu hình trên web.
+            # Trùng đúng DEFAULT của bảng: chèn tường minh nên không còn
+            # DEFAULT nào đỡ, và bốn cột trong số này là NOT NULL.
+            PRESERVED_DEFAULTS={'requires_setup':False,'expected_setup_minutes':None,
+                'setup_note':'','repair_cycle_time_seconds_per_unit':0,
+                'input_flow_enabled':False,'input_source_code':None,
+                'input_source_kind':'GOOD','defects_consume_input':True}
+            keep={}
+            keep_drawings={}
             if existing:
                 t={'id':existing['id']}
+                for row in conn.execute(f'''SELECT p.code part_code,o.code,{','.join('o.'+c for c in PRESERVED)}
+                    FROM template_operations o JOIN template_parts p ON p.id=o.part_id
+                    WHERE o.template_id=%s''',(t['id'],)).fetchall():
+                    keep[(str(row['part_code'] or '').upper(),str(row['code'] or '').upper())]={
+                        c:row[c] for c in PRESERVED}
+                for row in conn.execute('SELECT code,drawing_path FROM template_parts WHERE template_id=%s',
+                                        (t['id'],)).fetchall():
+                    if row.get('drawing_path'):
+                        keep_drawings[str(row['code'] or '').upper()]=row['drawing_path']
                 conn.execute('UPDATE templates SET name=%s,product=%s,version=%s,active=%s,source_workbook=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s',
                     (name,product,version,active,upload.filename,t['id']))
                 conn.execute('DELETE FROM template_operations WHERE template_id=%s',(t['id'],))
@@ -589,10 +645,23 @@ def import_template_workbook():
                 t=conn.execute('INSERT INTO templates(code,name,product,version,active,source_workbook) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',(code,name,product,version,active,upload.filename)).fetchone()
             ids={}
             for pitem in parts:
-                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order) VALUES(%s,%s,%s,%s) RETURNING id',(t['id'],pitem['code'],pitem['name'],pitem['sort_order'])).fetchone()
+                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order,drawing_path) VALUES(%s,%s,%s,%s,%s) RETURNING id',
+                    (t['id'],pitem['code'],pitem['name'],pitem['sort_order'],
+                     keep_drawings.get(str(pitem['code'] or '').upper(),''))).fetchone()
                 ids[pitem['key']]=r['id']
             for opitem in operations:
-                conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit) VALUES(%s,%s,%s,%s,%s,%s,%s)',(t['id'],ids[opitem['part_key']],opitem['code'],opitem['name'],opitem['sort_order'],opitem['equipment_code'],float(opitem.get('standard_seconds_per_unit') or 0)))
+                # Khớp lại theo (mã Part, mã OP) -- cùng cặp mà editor Template
+                # dùng làm danh tính. Đổi mã OP trong file = OP khác, mất cấu
+                # hình cũ là đúng; giữ nguyên mã thì phải giữ nguyên cấu hình.
+                cfg=dict(PRESERVED_DEFAULTS)
+                cfg.update(keep.get((
+                    str(part_code_by_key.get(opitem['part_key']) or '').upper(),
+                    str(opitem['code'] or '').upper()),{}))
+                conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit,'
+                    +','.join(PRESERVED)+') VALUES('+','.join(['%s']*(7+len(PRESERVED)))+')',
+                    (t['id'],ids[opitem['part_key']],opitem['code'],opitem['name'],opitem['sort_order'],
+                     opitem['equipment_code'],float(opitem.get('standard_seconds_per_unit') or 0))
+                    +tuple(cfg[c] for c in PRESERVED))
         verb='cập nhật' if replaced else 'tạo'
         archive.record(data=raw_bytes,filename=upload.filename,
             outcome=OUTCOME_REPLACED if replaced else OUTCOME_CREATED,
