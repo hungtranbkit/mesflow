@@ -57,8 +57,10 @@ test('QR lấy dữ liệu thật và giữ thao tác chọn rõ ràng', async (
   await login(page);
   await page.evaluate(() => openPage('qr-print'));
   await expect(page.locator('.qr-catalog-card').first()).toBeVisible();
-  await page.locator('.qr-item-check').first().check();
+  // Bấm vào cả thẻ là chọn — ô tick nhỏ ở góc đã bỏ (2026-09-09).
+  await page.locator('.qr-catalog-card').first().locator('.qr-item-name').click();
   await expect(page.locator('#qrSummary')).toContainText('Đã chọn 1 tem');
+  await expect(page.locator('.qr-catalog-card').first()).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#qrClear').click();
   await expect(page.locator('#qrSummary')).toContainText('Đã chọn 0 tem');
 });

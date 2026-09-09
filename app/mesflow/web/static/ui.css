@@ -218,7 +218,18 @@ body.drawer-open{overflow:hidden}
    nhóm theo PO -> Part, OP phụ tách riêng. */
 .qr-catalog-card{grid-template-rows:auto auto;gap:8px 12px;align-content:start}
 .qr-catalog-card .qr-preview-box{grid-row:1 / span 2;margin-top:0}
-.qr-catalog-card .qr-pick{position:absolute;right:10px;top:8px;font-size:12px;display:flex;gap:5px;align-items:center}
+/* Cả thẻ là vùng chọn: ô tick 16px ở góc còn nhỏ hơn chính thứ nó chọn, và
+   trên màn cảm ứng thì gần như chắc chắn bấm trượt. Dấu tick chỉ để BÁO
+   trạng thái, không phải để bấm. */
+.qr-catalog-card{cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.qr-catalog-card:hover{border-color:var(--action-primary,#23658b)}
+.qr-catalog-card:focus-visible{outline:2px solid var(--action-primary,#23658b);outline-offset:2px}
+.qr-catalog-card .qr-pick-mark{position:absolute;right:9px;top:9px;width:20px;height:20px;border-radius:50%;
+  border:1.5px solid var(--border-strong,#b7c0ca);background:var(--surface-default,#fff)}
+.qr-catalog-card.selected .qr-pick-mark{border-color:#23658b;background:#23658b}
+.qr-catalog-card.selected .qr-pick-mark::after{content:'';position:absolute;left:6px;top:2.5px;
+  width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.qr-catalog-card .qr-card-actions button{position:relative;z-index:1}
 .qr-catalog-card .qr-card-copy{padding-top:20px;gap:3px}
 .qr-catalog-card .qr-item-name{font-size:15.5px;font-weight:600;line-height:1.32;color:var(--text-primary,#17212b);
   overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -737,7 +748,7 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 :where(.schedule-po,.gantt-po,.ct-po,.dash-po-card,.pc-po-card){border:1px solid var(--border-strong)!important;border-radius:var(--radius-panel)!important;background:#fff!important;box-shadow:var(--shadow-section-strong)!important}
 :where(.schedule-po-head,.dash-po-head){border-bottom:1px solid var(--border-strong)!important;background:#eef3f6!important}
 :where(.po-part-card,.ct-part,.gantt-part,.schedule-part,.template-old-part){border:1px solid var(--border-default)!important;border-radius:var(--radius-card)!important;background:#f8fafb!important;box-shadow:var(--shadow-card)!important}
-:where(.po-part-head,.template-old-part-head){border-bottom:1px solid var(--border-default)!important;background:#f1f4f6!important}
+:where(.po-part-head,.template-old-part-head){border-bottom:1px solid #b9c6d2!important;background:#d6e1ea!important}
 :where(.po-op-row,.ct-op,.schedule-op,.operation-row,.template-old-op-row){border-color:var(--border-subtle)!important;background:#fff;box-shadow:var(--shadow-row)}
 
 .modal,.modal-card,.login-card,.shift-edit-card{border:1px solid var(--border-strong)!important;box-shadow:var(--shadow-overlay)!important}
@@ -1729,4 +1740,17 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 .po-op-identity .po-op-code{font-size:11px;color:var(--text-secondary,#556170);background:#f3f5f7;
   border-radius:3px;padding:1px 6px;user-select:all;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .po-op-identity .po-flow-note,.po-op-identity .po-op-warning{flex:1 1 100%}
+
+/* Template editor: phân tầng Part > Operation cho rõ (2026-09-09).
+   Trước đây dải Part là #edf2f5 -- gần trùng nền xung quanh, nên nhìn vào một
+   Template nhiều Part thì không thấy đâu là ranh giới giữa các Part, đâu là
+   phần chính và đâu là phần phụ. Ba mức: Part (đậm nhất) > tiêu đề bảng
+   Operation (vừa) > dòng nhập liệu (trắng). */
+.template-old-part{border:1px solid #b9c6d2!important;box-shadow:0 1px 2px rgba(24,50,74,.06)}
+.template-old-part+.template-old-part{margin-top:16px}
+.template-old-part-head{border-left:4px solid #23658b;padding:13px 14px}
+.template-old-part-head>label{font-size:11.5px;font-weight:600;color:#33526b;letter-spacing:.01em}
+.template-old-part-head input{font-weight:600;color:#16283a}
+.template-part-number{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;
+  background:#23658b;color:#fff;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 

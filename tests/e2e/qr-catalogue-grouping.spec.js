@@ -124,3 +124,35 @@ for (const [label, width, height] of [['1920', 1920, 1080], ['1366', 1366, 768],
     await expect(page.locator('.qr-part-head').first()).toBeVisible();
   });
 }
+
+test('bấm vào cả thẻ là chọn, và nút trong thẻ không làm chọn nhầm', async ({ page }) => {
+  await openCatalogue(page);
+  const card = page.locator('.qr-catalog-card').first();
+  // Không còn ô tick nhỏ ở góc.
+  expect(await page.locator('.qr-item-check').count()).toBe(0);
+
+  // Bấm vào phần nội dung của thẻ (tên việc) — vùng lớn nhất và tự nhiên nhất.
+  await card.locator('.qr-item-name').click();
+  await expect(card).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#qrSummary')).toContainText('Đã chọn 1 tem');
+
+  await card.locator('.qr-item-name').click();
+  await expect(card).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#qrSummary')).toContainText('Đã chọn 0 tem');
+
+  // "Xem QR" mở chi tiết chứ không chọn thẻ.
+  await card.locator('[data-show-payload]').click();
+  await expect(page.locator('.qr-detail')).toBeVisible();
+  await expect(card).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#qrSummary')).toContainText('Đã chọn 0 tem');
+});
+
+test('chọn được bằng bàn phím', async ({ page }) => {
+  await openCatalogue(page);
+  const card = page.locator('.qr-catalog-card').first();
+  await card.focus();
+  await page.keyboard.press('Enter');
+  await expect(card).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press(' ');
+  await expect(card).toHaveAttribute('aria-pressed', 'false');
+});

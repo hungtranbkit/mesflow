@@ -28,7 +28,13 @@ async function renderQrPrintCenter(){
     })).filter(x=>x.code||x.qr_payload);
   };
   const itemKey=x=>`${x.qr_type}:${x.id}`;
-  const sync=()=>{$('qrSummary').textContent=`Hiển thị ${items.length.toLocaleString('vi-VN')} QR · Đã chọn ${selected.size} tem`;document.querySelectorAll('.qr-item-check').forEach(c=>c.checked=selected.has(c.dataset.key))};
+  const sync=()=>{
+    $('qrSummary').textContent=`Hiển thị ${items.length.toLocaleString('vi-VN')} QR · Đã chọn ${selected.size} tem`;
+    document.querySelectorAll('.qr-catalog-card').forEach(el=>{
+      const on=selected.has(el.dataset.key);
+      el.classList.toggle('selected',on);el.setAttribute('aria-pressed',String(on));
+    });
+  };
 
   // Người ở xưởng tìm một công đoạn bằng TÊN của nó ("Chấn mép"), không bằng
   // mã. Trước đây mã là dòng đầu tiên và to nhất trên mỗi thẻ, còn tên là
@@ -51,8 +57,10 @@ async function renderQrPrintCenter(){
     const context=x.qr_type==='OPERATION'
       ? [x.part_code,x.part_name].filter(Boolean).join(' · ')
       : [x.group_name,x.detail].filter(Boolean).join(' · ');
-    return `<article class="qr-catalog-card ${selected.has(key)?'selected':''}" data-key="${esc(key)}">
-      <label class="qr-pick"><input class="qr-item-check" type="checkbox" data-key="${esc(key)}"><span>Chọn</span></label>
+    return `<article class="qr-catalog-card ${selected.has(key)?'selected':''}" data-key="${esc(key)}"
+      role="button" tabindex="0" aria-pressed="${selected.has(key)}"
+      aria-label="Chọn tem ${esc(displayName(x))}">
+      <span class="qr-pick-mark" aria-hidden="true"></span>
       <div class="qr-preview-box"><img loading="lazy" src="${img(x)}" alt="QR ${esc(x.name||x.code)}" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="qr-image-error" hidden>Không tải được ảnh QR</span></div>
       <div class="qr-card-copy">
         <b class="qr-item-name">${esc(displayName(x))}</b>
@@ -101,7 +109,15 @@ async function renderQrPrintCenter(){
     host.innerHTML=$('qrType').value==='OPERATION'
       ? groupedHtml()
       : `<div class="qr-catalog-grid">${items.map(cardHtml).join('')}</div>`;
-    document.querySelectorAll('.qr-item-check').forEach(c=>{c.checked=selected.has(c.dataset.key);c.onchange=()=>{const x=items.find(i=>itemKey(i)===c.dataset.key);if(c.checked&&x)selected.set(c.dataset.key,x);else selected.delete(c.dataset.key);c.closest('.qr-catalog-card')?.classList.toggle('selected',c.checked);sync()}});
+    const toggle=el=>{
+      const key=el.dataset.key,x=items.find(i=>itemKey(i)===key);
+      if(selected.has(key))selected.delete(key);else if(x)selected.set(key,x);
+      sync();
+    };
+    document.querySelectorAll('.qr-catalog-card').forEach(el=>{
+      el.onclick=e=>{if(e.target.closest('button'))return;toggle(el)};
+      el.onkeydown=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();toggle(el)}};
+    });
     document.querySelectorAll('[data-copy-code]').forEach(b=>b.onclick=async()=>{
       const code=b.dataset.copyCode;if(!code)return;
       try{await navigator.clipboard.writeText(code);toast(`Đã sao chép ${code}`)}catch(_){toast(code)}
