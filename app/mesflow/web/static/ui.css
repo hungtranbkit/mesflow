@@ -1171,6 +1171,52 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 .ui-modal{position:relative;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;border-radius:var(--ui-radius-md);background:#fff;box-shadow:0 24px 70px rgba(6,16,28,.28)}.ui-modal-sm{width:min(420px,calc(100vw - 32px))}.ui-modal-lg{width:min(760px,calc(100vw - 32px))}.ui-modal>header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border-default)}.ui-modal>header h2{margin:0;font-size:18px}.ui-modal-body{padding:16px}.ui-modal>footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--border-default)}.ui-field{display:grid;gap:6px;margin-top:12px;font-weight:700}.ui-field textarea{width:100%;resize:vertical}
 @media(max-width:900px){.ui-page-header,.ui-filter-bar{align-items:stretch;flex-direction:column}.ui-page-actions,.ui-filter-meta{justify-content:flex-start}.ui-toolbar{align-items:stretch}.ui-drawer-lg,.ui-drawer-xl{width:min(92vw,var(--ui-drawer-lg))}}
 @media(max-width:600px){.ui-drawer{width:100vw}.ui-drawer-footer{display:grid}.ui-page-actions>.btn,.ui-drawer-footer>.btn{width:100%}}
+/* FilterBar trên máy điện thoại: cột đều nhau, không phải hàng flex-wrap.
+   .ui-filter-controls là flex-wrap, mỗi <label> tự co theo nội dung rộng nhất
+   của nó -- nên cùng một bộ lọc cho ra các ô 105 / 267 / 175 / 125px CẢ ở
+   390px lẫn 1920px (đo được). Trên màn rộng chỗ thừa che đi sự lệch đó; ở
+   390px thì thành các dòng ngắn dài so le, ô ngày bị bóp còn 125px, và cả dải
+   cao 509px trước khi tới ngoại lệ đầu tiên. Grid cột đều cho mọi trường cùng
+   một bề rộng dùng được, và trường ngày cuối cùng đủ rộng để bấm.
+
+   Hai cột chứ không phải một: một cột cho 8 trường là 8 hàng, cao 655px --
+   CAO HƠN cả bản lỗi (509px) và đẩy ngoại lệ đầu tiên xuống tận 886px. Hai
+   cột còn 4 hàng, mỗi ô 162px ở 390px -- đủ rộng cho select và ô số. Riêng ô
+   NGÀY chiếm trọn hàng: 162px là bấm được nhưng chật, và yêu cầu nói rõ ô
+   ngày phải rộng dùng được.
+
+   Chỉ áp dụng <=700px. Đã đo ở 834px: flex xếp 8 trường vừa 2 hàng (192px),
+   còn lưới 2 cột đẩy lên 453px -- tablet KÉM đi. Ở bề rộng đó các ô so le
+   không còn đọc như lỗi nữa, nên tablet và desktop giữ nguyên flex. */
+@media(max-width:700px){
+  .ui-filter-bar>.ui-filter-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end}
+  .ui-filter-bar>.ui-filter-controls>label,
+  .ui-filter-bar>.ui-filter-controls>input,
+  .ui-filter-bar>.ui-filter-controls>select,
+  .ui-filter-bar>.ui-filter-controls>details,
+  .ui-filter-bar>.ui-filter-controls>.btn{width:auto;min-width:0}
+  .ui-filter-bar>.ui-filter-controls input,
+  .ui-filter-bar>.ui-filter-controls select{width:100%;min-width:0}
+  /* Ô chiếm trọn hàng: thanh tìm kiếm tự do và mọi bộ lọc con có lưới riêng
+     (ví dụ .session-manage-filter) vốn đã là flex-basis:100% ở bản flex. */
+  .ui-filter-bar>.ui-filter-controls>.session-manage-filter,
+  .ui-filter-bar>.ui-filter-controls>[data-filter-full],
+  .ui-filter-bar>.ui-filter-controls>label.ui-filter-check{grid-column:1/-1}
+  /* Nút hành động của bộ lọc trải hết chiều ngang, không nép phải nửa vời. */
+  .ui-filter-bar>.ui-filter-meta{width:100%}
+  .ui-filter-bar-actions{width:100%;margin-left:0}
+  .ui-filter-bar-actions>.btn{flex:1 1 auto}
+}
+/* :has() ĐỨNG RIÊNG một rule, không gộp vào danh sách trên: một selector mà
+   trình duyệt không hiểu sẽ vô hiệu hoá TOÀN BỘ danh sách chứa nó, kéo theo
+   cả .session-manage-filter và .ui-filter-check vốn không cần :has(). Tách ra
+   thì nơi thiếu :has() chỉ mất phần ô ngày trọn hàng, phần còn lại vẫn chạy. */
+@media(max-width:700px){
+  .ui-filter-bar>.ui-filter-controls>label:has(input[type=date]),
+  .ui-filter-bar>.ui-filter-controls>label:has(input[type=datetime-local]),
+  .ui-filter-bar>.ui-filter-controls>label:has(input[type=search]){grid-column:1/-1}
+}
+@media(max-width:560px){.ui-filter-bar-actions>.btn{width:100%}}
 /* Nhật ký nghiệp vụ (Business Audit Trail) -- human-readable cards, see
    mesflow.domain.audit_presentation for the data these render. */
 /* Filter chips (audit category), not navigation tabs -- they narrow
@@ -1429,6 +1475,11 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
 
 /* Empty/loading states should look intentional but stay compact. */
 .empty,.empty-hint,.overview-empty,.ui-state{min-height:112px;padding:22px;color:var(--text-secondary);background:var(--surface-subtle);border-radius:var(--radius-panel)}
+/* .empty gần như luôn là <b>tiêu đề</b><span>giải thích</span>. Không có
+   layout khối, hai thẻ dính liền nhau thành "Không có ngoại lệ trong nhóm
+   nàyHệ thống vẫn tiếp tục đối soát định kỳ." ở mọi bề rộng. .empty.danger và
+   .ui-state đã là grid từ trước -- đây chỉ là cho .empty theo cùng hình. */
+.empty{display:grid;place-content:center;gap:6px;text-align:center}
 
 @media(max-width:1400px){
   .app-layout{grid-template-columns:228px minmax(0,1fr)}.app-sidebar{width:228px}
@@ -1511,7 +1562,14 @@ tbody tr:nth-child(even) td{background:#fbfcfd}tbody tr:hover{box-shadow:none!im
 .mf-tab{display:inline-flex;align-items:center;border:0;background:transparent;padding:11px 15px;white-space:nowrap;border-bottom:3px solid transparent;font-weight:700;font-size:13px;color:var(--text-secondary);cursor:pointer}
 .mf-tab:hover{color:var(--text-primary)}
 .mf-tab.active{color:var(--action-primary);border-color:var(--action-primary)}
-@media(max-width:520px){.mf-tab{width:100%;justify-content:center}}
+/* KHÔNG đặt width:100% cho .mf-tab trên mobile. Nó vô nghĩa ở dải tab không
+   wrap (flex-shrink mặc định co lại đúng bằng nội dung -- đo được: tab rộng
+   nhất của Production Trace là 96px ở cả 390px lẫn 1366px), nhưng ở dải CÓ
+   wrap thì mỗi tab chiếm trọn một dòng: Trung tâm ngoại lệ biến 5 tab thành
+   một cột cao 255px, gạch active kéo hết chiều ngang nên đọc như đường kẻ
+   phân cách chứ không phải chỉ báo tab (screenshot iPhone 2026-09-09).
+   .mf-tabs đã có overflow-x:auto -- đó mới là cách xử lý dải tab hẹp. */
+@media(max-width:520px){.mf-tab{justify-content:center;padding:11px 13px}}
 
 /* StatsRow: plain counts strip directly under PageHeader (Production
    Order's "3 lệnh đang hiển thị · 0 đang lập kế hoạch · ..."). Text-only by
