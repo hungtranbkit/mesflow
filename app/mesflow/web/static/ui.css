@@ -508,7 +508,7 @@ body[data-page="session-exceptions"] #seSummary b,
 body[data-page="kiosk-management"] #kmSummary b{color:#18324a;font-size:24px;line-height:1}
 .session-exception-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 14px;border-bottom:1px solid #e1e5eb}.session-exception-actions>label{margin-right:auto}.session-exception-actions #seSelectedCount{min-width:78px;color:#667382;font-weight:700}
 
-body[data-page="system-logs"] #slView{display:grid;gap:12px;min-width:0}body[data-page="system-logs"] #slView>.cards{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+body[data-page="system-logs"] #slView{display:grid;gap:12px;min-width:0}body[data-page="system-logs"] #slView>*{min-width:0}body[data-page="system-logs"] #slView>.cards{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
 body[data-page="system-logs"] #slView>.cards .card{min-height:72px;padding:13px 14px;display:flex;flex-direction:column;justify-content:space-between}body[data-page="system-logs"] #slView>.cards small{color:#667382}body[data-page="system-logs"] #slView>.cards b{font-size:22px;color:#18324a}
 @media(max-width:1400px){body[data-page="kiosk-management"] #kmSummary{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:900px){body[data-page="session-exceptions"] #seSummary{grid-template-columns:1fr 1fr}body[data-page="kiosk-management"] #kmSummary{grid-template-columns:1fr 1fr}body[data-page="system-logs"] #slView>.cards{grid-template-columns:1fr 1fr}}
@@ -578,7 +578,7 @@ body[data-page="system-logs"] .workspace-main,body[data-page="system-logs"] #con
   color:#17212b;background:#f3f5f7;
   --brand:#23658b;--card:#fff;--line:#d6dce3;--muted:#647180;
   --surface-canvas:#f3f5f7;--surface-default:#fff;--surface-subtle:#f8fafc;
-  --text-primary:#17212b;--text-secondary:#647180;--border-default:#d6dce3;--border-strong:#b7c0ca;
+  --text-primary:#17212b;--text-secondary:#556170;--border-default:#d6dce3;--border-strong:#b7c0ca;
   --bg-command:#18364e;--bg-command-strong:#102b3f;--action-primary:#23658b;--action-hover:#1b5274;
   --status-info:#2563a6;--status-success:#177451;--status-warning:#a85f08;--status-danger:#c43232;--status-offline:#56616d;
   --radius-control:4px;--radius-panel:6px;--radius-overlay:8px;--shadow-overlay:0 12px 32px rgba(16,43,63,.18);
