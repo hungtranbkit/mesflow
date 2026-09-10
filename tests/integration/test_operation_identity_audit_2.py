@@ -564,3 +564,129 @@ def test_the_setup_suffix_cannot_silently_collide_with_a_real_operation(db):
                     sort_order,operation_type,parent_operation_id)
                 VALUES(%s,%s,%s,'Setup','PLANNED',%s,2147483646,'SETUP',%s)""",
                 (po, part, f'OP-{sfx}-SU', f'PENDING-{sfx}', parent_id))
+
+
+# ---------------------------------------------------------------- Ma trận đổi tên
+
+def test_renaming_a_code_holds_every_table_that_references_the_operation(db):
+    """Ma trận đổi tên: MỌI bảng trỏ vào operations phải giữ nguyên liên kết.
+
+    Bài test_renaming_a_code_breaks_no_id_based_link ở trên đi qua đường
+    nghiệp vụ chính (session, ledger vật tư, OP nguồn, event kiosk). Bài này
+    đi theo danh sách khoá ngoại của schema thay vì theo trí nhớ: mỗi bảng
+    tham chiếu operations(id) đều có một dòng thật, rồi mã bị đổi, rồi kiểm
+    lại từng dòng.
+
+    Cách viết này quan trọng hơn nội dung: nó lấy danh sách bảng TỪ
+    information_schema, nên ngày ai đó thêm một bảng mới trỏ vào operations mà
+    quên nghĩ tới chuyện đổi mã, bài này đỏ và nói đúng tên bảng còn thiếu.
+    """
+    sfx = _suffix()
+    with db.cursor() as cur:
+        po = _po(cur, f'PO-MTX-{sfx}')
+        part = _part(cur, po, f'P-{sfx}')
+        source_id = _op(cur, po, part, f'MSRC-{sfx}', done=80, sort_order=0)
+        op_id = _op(cur, po, part, f'MOP-{sfx}', done=10, sort_order=1)
+        setup_id = None
+        emp = _employee(cur, f'M{sfx}'[:12])
+        session_id = _session(cur, emp, op_id, f'REQM-{sfx}', good=10)
+        rework_session_id = _session(cur, emp, op_id, f'REQR-{sfx}', good=0)
+
+        cur.execute("""UPDATE operations SET input_flow_enabled=true,input_source_operation_id=%s,
+            predecessor_operation_id=%s WHERE id=%s""", (source_id, source_id, op_id))
+        cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,qr,
+                sort_order,operation_type,parent_operation_id)
+            VALUES(%s,%s,%s,'Setup','PLANNED',%s,2147483646,'SETUP',%s) RETURNING id""",
+            (po, part, f'MOP-{sfx}-SU', f'WF|OPID|PENDING-{sfx}', op_id))
+        setup_id = cur.fetchone()['id']
+        cur.execute('UPDATE operations SET qr=%s WHERE id=%s', (f'{OPID_PREFIX}{setup_id}', setup_id))
+
+        cur.execute("""INSERT INTO operation_input_consumptions(source_operation_id,target_operation_id,
+            session_id,good_qty_consumed,defect_qty_consumed) VALUES(%s,%s,%s,10,0)""",
+            (source_id, op_id, session_id))
+        cur.execute("""INSERT INTO kiosk_events(event_uuid,device_uuid,event_type,severity,message,operation_id)
+            VALUES(%s,'DEV','SCAN_OPERATION','INFO','quét',%s)""", (f'EVTM-{sfx}', op_id))
+        cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,
+            old_defect_qty,new_defect_qty,reason) VALUES(%s,%s,5,10,0,0,'sửa số')""", (session_id, op_id))
+        cur.execute("""INSERT INTO rework_ledger(source_session_id,source_operation_id,rework_session_id,
+            rework_operation_id,employee_id,qty_reworked,qty_scrapped)
+            VALUES(%s,%s,%s,%s,%s,1,0)""", (session_id, op_id, rework_session_id, op_id, emp))
+        cur.execute("""INSERT INTO quantity_movements(movement_type,delta,previous_value,new_value,
+            production_order_id,operation_id,session_id,source,reason)
+            VALUES('GOOD',10,0,10,%s,%s,%s,'TEST','test')""", (po, op_id, session_id))
+        cur.execute("""INSERT INTO production_trace_events(event_type,category,production_order_id,
+            part_id,operation_id,session_id,title,source)
+            VALUES('SESSION_FINISHED','SESSION',%s,%s,%s,%s,'xong','TEST')""",
+            (po, part, op_id, session_id))
+        cur.execute("""INSERT INTO penalty_tickets(employee_id,operation_id,session_id,points,reason,status)
+            VALUES(%s,%s,%s,1,'test','OPEN')""", (emp, op_id, session_id))
+        cur.execute("""INSERT INTO exception_records(exception_type,severity,status,entity_type,entity_id,
+            operation_id,session_id,employee_id,title,message,fingerprint)
+            VALUES('TEST','LOW','OPEN','OPERATION',%s,%s,%s,%s,'test','test',%s)""",
+            (op_id, op_id, session_id, emp, f'FP-{sfx}'))
+
+        # Ảnh chụp trước khi đổi tên: bảng nào đang có bao nhiêu dòng trỏ vào op_id.
+        cur.execute("""SELECT c.conrelid::regclass::text tbl, a.attname col
+            FROM pg_constraint c JOIN unnest(c.conkey) k(attnum) ON TRUE
+            JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum
+            WHERE c.contype='f' AND c.confrelid='operations'::regclass""")
+        references = [(r['tbl'], r['col']) for r in cur.fetchall()]
+
+        before = {}
+        for table, column in references:
+            cur.execute(f'SELECT COUNT(*) n FROM {table} WHERE {column}=%s', (op_id,))
+            before[(table, column)] = cur.fetchone()['n']
+
+        cur.execute("UPDATE operations SET code=%s WHERE id=%s", (f'MOP-RENAMED-{sfx}', op_id))
+
+        after = {}
+        for table, column in references:
+            cur.execute(f'SELECT COUNT(*) n FROM {table} WHERE {column}=%s', (op_id,))
+            after[(table, column)] = cur.fetchone()['n']
+
+    assert before == after, f'đổi mã làm lệch số dòng tham chiếu: {before} -> {after}'
+    # Không phải bài test rỗng: ít nhất mỗi bảng dưới đây phải có dòng thật.
+    touched = {table for (table, _), n in before.items() if n}
+    for required in ('work_sessions', 'operation_input_consumptions', 'kiosk_events',
+                     'operation_adjustments', 'rework_ledger', 'quantity_movements',
+                     'production_trace_events', 'penalty_tickets', 'exception_records',
+                     'operations'):
+        assert required in touched, (
+            f'bảng {required} không có dòng nào trỏ vào Operation -- ma trận này đang '
+            f'kiểm một cái rỗng. Đang có: {sorted(touched)}')
+
+    with db.cursor() as cur:
+        # Liên kết cha SETUP và OP nguồn/tiền nhiệm vẫn trỏ đúng id.
+        cur.execute("SELECT parent_operation_id FROM operations WHERE id=%s", (setup_id,))
+        assert cur.fetchone()['parent_operation_id'] == op_id
+        cur.execute("SELECT input_source_operation_id,predecessor_operation_id FROM operations WHERE id=%s",
+                    (op_id,))
+        row = cur.fetchone()
+        assert row['input_source_operation_id'] == source_id
+        assert row['predecessor_operation_id'] == source_id
+
+
+def test_any_table_storing_an_operation_code_also_stores_the_id(db):
+    """Mã được lưu lại ở đâu thì chỉ được là ẢNH CHỤP ĐỂ HIỂN THỊ.
+
+    Không đòi khoá ngoại: kiosk_v2_projection cố ý không có, nó là bản chiếu
+    trạng thái của MỘT thiết bị, dựng lại sau mỗi sự kiện và xoá cùng thiết bị.
+    Điều thật sự phải đúng nhẹ hơn nhưng đúng chỗ hơn: bảng nào lưu mã thì phải
+    lưu kèm ``operation_id``, để khi mã đổi vẫn còn một đường tìm lại đúng dòng
+    và không nơi nào BUỘC phải giải lại theo mã.
+
+    Bài này lấy danh sách cột từ information_schema, nên bảng mới nào lưu mã mà
+    quên id sẽ làm nó đỏ, kèm đúng tên bảng.
+    """
+    with db.cursor() as cur:
+        cur.execute("""SELECT table_name,column_name FROM information_schema.columns
+            WHERE table_schema='public' AND column_name IN ('operation_code','op_code')
+            ORDER BY table_name,column_name""")
+        stored_codes = [(r['table_name'], r['column_name']) for r in cur.fetchall()]
+        cur.execute("""SELECT table_name FROM information_schema.columns
+            WHERE table_schema='public' AND column_name='operation_id'""")
+        has_id = {r['table_name'] for r in cur.fetchall()}
+    for table, column in stored_codes:
+        assert table in has_id, (
+            f'{table}.{column} lưu mã Operation nhưng bảng này không có operation_id -- '
+            'sau khi đổi mã thì không còn đường nào tìm lại đúng dòng.')
