@@ -4,7 +4,8 @@ import uuid
 from flask import Blueprint, jsonify, request, render_template
 
 from mesflow import __version__
-from mesflow.domain.qr_identity import is_operation_qr, resolve_operation_id
+from mesflow.domain.qr_identity import (AmbiguousEmployeeQR, AmbiguousOperationQR,
+                                        is_operation_qr, resolve_employee_id, resolve_operation_id)
 from mesflow.web.auth import login_required, production_client_required
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
@@ -136,13 +137,22 @@ def kiosk_scan():
         return jsonify(ok=False, error='QR_REQUIRED', error_code='SCN-001', message='Chưa nhận được mã quét', action='Kiểm tra nguồn và dây máy quét, rồi quét lại.'), 400
 
     if qr.upper().startswith('WF|EMP|'):
+        # Cùng lý do như nhánh Operation bên dưới: LIMIT 1 ở đây từng ĐOÁN khi
+        # một chuỗi khớp hai nhân viên, và cái giá là công của cả ca ghi sang
+        # tên người khác.
+        try:
+            employee_id = resolve_employee_id(qr)
+        except AmbiguousEmployeeQR as exc:
+            return jsonify(ok=False, error='AMBIGUOUS_QR', error_code='EMP-002',
+                           message=str(exc),
+                           action='Sửa mã QR của các nhân viên bị trùng trong Danh mục rồi in lại thẻ.'), 409
+        except NotFoundError:
+            employee_id = None
         employee = fetch_one(
             """SELECT id,employee_no,name,department,position,active,employment_status,qr
-               FROM employees
-               WHERE upper(qr)=upper(%s) OR upper(employee_no)=upper(%s)
-               LIMIT 1""",
-            (qr, qr.split('|')[-1]),
-        )
+               FROM employees WHERE id=%s""",
+            (employee_id,),
+        ) if employee_id else None
         if not employee or not employee['active']:
             return jsonify(ok=False, error='EMPLOYEE_NOT_FOUND', error_code='EMP-001', message='Không tìm thấy nhân viên đang hoạt động', action='Quét đúng thẻ nhân viên hoặc nhờ quản đốc kiểm tra trạng thái nhân viên.'), 404
         opened = fetch_one(
@@ -170,7 +180,17 @@ def kiosk_scan():
         # Trước đây chỗ này tự giải mã và kết thúc bằng LIMIT 1 -- tức là ĐOÁN
         # khi một mã trùng ở nhiều Part. Nay dùng resolver chung, nó từ chối ca
         # mơ hồ thay vì lấy đại một dòng (xem domain/qr_identity.py).
-        operation_id = resolve_operation_id(qr)
+        try:
+            operation_id = resolve_operation_id(qr)
+        except AmbiguousOperationQR as exc:
+            # Không để lọt ra trình xử lý lỗi chung của Flask: ở đó nó thành
+            # HTTP 500 INTERNAL_ERROR không có error_code, và kiosk.js không
+            # tra được câu hướng dẫn nào -- màn hình xưởng chỉ hiện "Hệ thống
+            # gặp lỗi", đúng lúc thứ cần nói là "in lại tem".
+            return jsonify(ok=False, error='AMBIGUOUS_QR', error_code='OP-002',
+                           message=str(exc),
+                           action='In lại tem QR cho Operation này (tem mới dùng mã theo id), '
+                                  'hoặc chọn Operation trên màn hình quản lý.'), 409
         operation = fetch_one(
             """SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
                       o.operation_type,o.requires_setup,o.setup_completed_at,o.parent_operation_id,

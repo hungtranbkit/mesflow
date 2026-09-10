@@ -56,6 +56,7 @@ from mesflow.db.repositories.execution import WorkSessionRepository, KioskReposi
 from mesflow.db.repositories.analytics import KioskEventRepository
 from mesflow.db.repositories.exceptions import ExceptionRepository
 from mesflow.domain.errors import PermissionDeniedError
+from mesflow.domain.qr_identity import AmbiguousEmployeeQR, AmbiguousOperationQR
 from mesflow.web.execution import _legacy_kiosk_identity, KioskRepositoryLookup
 
 bp = Blueprint('kiosk_v2', __name__, url_prefix='/api/kiosk/v2')
@@ -330,6 +331,11 @@ def _canonical_error(exc) -> tuple[str, str]:
         if 'operation' in msg.lower():
             return 'OPERATION_NOT_FOUND', 'Công đoạn không hợp lệ'
         return 'NOT_FOUND', msg
+    # Trước ConflictError chung: tem trùng KHÔNG phải đụng độ trạng thái, nó
+    # không tự hết theo thời gian. Firmware phân loại theo mã lỗi này, nên nó
+    # phải là một mã riêng chứ không phải BUSINESS_CONFLICT.
+    if isinstance(exc, (AmbiguousOperationQR, AmbiguousEmployeeQR)):
+        return 'AMBIGUOUS_QR', str(exc)
     if isinstance(exc, ConflictError):
         msg = str(exc)
         if 'chưa Start' in msg or 'tạm dừng' in msg or 'sẵn sàng' in msg:
@@ -402,7 +408,10 @@ def _apply_event(device_id: str, event_id: str, event_type: str, payload: dict, 
             return False, 'STATE_INVALID_TRANSITION', 'Không thể quét mã ở trạng thái này', proj
 
         if kind == 'EMP':
-            emp = KioskRepositoryLookup.employee(raw, key)
+            try:
+                emp = KioskRepositoryLookup.employee(raw, key)
+            except AmbiguousEmployeeQR as exc:
+                return (False,) + _canonical_error(exc) + (proj,)
             if timer: timer.lap('employee_lookup_ms')
             if emp is None:
                 return False, 'EMPLOYEE_NOT_FOUND', 'Nhân viên không hợp lệ', proj
@@ -492,7 +501,16 @@ def _apply_event(device_id: str, event_id: str, event_type: str, payload: dict, 
         # design, not a bug.
         if state != _STATE_WAIT_OPERATION:
             return False, 'STATE_INVALID_TRANSITION', 'Cần quét thẻ nhân viên trước', proj
-        op = KioskRepositoryLookup.operation(raw, key)
+        # Bắt NGAY ở đây. Nếu để AmbiguousOperationQR bay ra khỏi _apply_event
+        # thì nó rơi vào nhánh bắt-tất-cả của /events, và thiết bị nhận
+        # INTERNAL_ERROR + action=RETRY + HTTP 503: bị bảo hãy thử lại một
+        # việc không bao giờ thành công, quay vòng tới lúc hết lượt, còn người
+        # ở xưởng thì không biết thứ cần làm là in lại tem.
+        try:
+            op = KioskRepositoryLookup.operation(raw, key)
+        except AmbiguousOperationQR as exc:
+            if timer: timer.lap('operation_lookup_ms')
+            return (False,) + _canonical_error(exc) + (proj,)
         if timer: timer.lap('operation_lookup_ms')
         if op is None:
             return False, 'OPERATION_NOT_FOUND', 'Công đoạn không hợp lệ', proj

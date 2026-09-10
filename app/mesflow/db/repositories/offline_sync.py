@@ -11,7 +11,22 @@ from psycopg.types.json import Jsonb
 from mesflow.db.connection import fetch_all, fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError, RepositoryError
 from mesflow.db.repositories.execution import WorkSessionRepository
-from mesflow.domain.qr_identity import resolve_operation_id
+from mesflow.domain.qr_identity import (AmbiguousEmployeeQR, AmbiguousOperationQR,
+                                        resolve_employee_id, resolve_operation_id)
+
+
+def _retryable_reason_code(exc: Exception) -> str:
+    """Nhãn cho một sự kiện được giữ lại chờ thử lại.
+
+    Tem trùng có nhãn riêng vì việc cần làm khác hẳn: mọi
+    RETRYABLE_CONFLICT khác tự đúng lại khi công đoạn trước nhập số hoặc người
+    khác kết thúc việc của họ, còn cái này chỉ hết khi có người in lại tem.
+    """
+    if isinstance(exc, AmbiguousOperationQR):
+        return 'AMBIGUOUS_OPERATION_QR'
+    if isinstance(exc, AmbiguousEmployeeQR):
+        return 'AMBIGUOUS_EMPLOYEE_QR'
+    return 'RETRYABLE_CONFLICT'
 from mesflow.services.kiosk_reconciliation import ReconciliationResult, compute_missing, ranges
 
 
@@ -237,7 +252,14 @@ class OfflineSyncRepository:
             if kind == 'START':
                 worker_qr = str(event.get('employee_qr') or event.get('worker_qr') or '')
                 operation_qr = str(event.get('operation_qr') or '')
-                employee = fetch_one("SELECT id FROM employees WHERE active=TRUE AND (upper(qr)=upper(%s) OR upper(employee_no)=upper(%s)) LIMIT 1", (worker_qr, worker_qr.split('|')[-1]))
+                # LIMIT 1 cũ ở đây cũng ĐOÁN, y như đường Operation ngay bên
+                # dưới, và ở chế độ offline thì cả một lô sự kiện được áp dụng
+                # hàng loạt: không ai đứng nhìn để thấy công vừa ghi sang tên
+                # người khác.
+                try:
+                    employee = {'id': resolve_employee_id(worker_qr)}
+                except NotFoundError:
+                    employee = None
                 # LIMIT 1 cũ ở đây ĐOÁN khi một mã trùng ở nhiều Part -- và
                 # đường này còn nguy hiểm hơn kiosk trực tuyến: sự kiện offline
                 # được áp dụng hàng loạt, không ai đứng nhìn để phát hiện sản
@@ -311,11 +333,19 @@ class OfflineSyncRepository:
                 # được), còn thiết bị nhận 'transient' -- đúng thứ firmware
                 # hiện tại đã hiểu là "giữ lại và gửi lại". Không đổi ESP.
                 result = {'client_event_id': event_id, 'status': 'transient',
-                          'reason_code': 'RETRYABLE_CONFLICT', 'reason': str(exc)}
+                          'reason_code': _retryable_reason_code(exc), 'reason': str(exc)}
                 self._record(kiosk_id, event, payload_hash, 'retryable', result,
-                             reason_code='RETRYABLE_CONFLICT', reason=str(exc))
+                             reason_code=_retryable_reason_code(exc), reason=str(exc))
                 return result
-            reason_code = 'RETRY_EXHAUSTED' if _is_retryable(exc) else 'BUSINESS_REJECT'
+            # Tem trùng vẫn GIỮ LẠI sự kiện (mất một sự kiện offline là mất
+            # công có thật của một người đã làm), nhưng phải có nhãn riêng:
+            # 'RETRYABLE_CONFLICT' chung chung trộn nó lẫn với "OP nguồn chưa
+            # có hàng", và người trực không tìm ra được những sự kiện chỉ chờ
+            # một việc duy nhất -- in lại tem.
+            if isinstance(exc, (AmbiguousOperationQR, AmbiguousEmployeeQR)):
+                reason_code = _retryable_reason_code(exc)
+            else:
+                reason_code = 'RETRY_EXHAUSTED' if _is_retryable(exc) else 'BUSINESS_REJECT'
             result = {'client_event_id': event_id, 'status': 'rejected',
                       'reason_code': reason_code, 'reason': str(exc)}
             self._record(kiosk_id, event, payload_hash, 'rejected', result,
