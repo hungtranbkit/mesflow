@@ -17,7 +17,7 @@ phase, per the same request's rule: "After every chaos/load phase run:
 audit-sessions / audit-integrity."
 """
 from __future__ import annotations
-from mesflow.domain.policy import support_only_sql
+from mesflow.domain.policy import REWORK_TYPE, SETUP_TYPE, support_only_sql, type_is_sql
 
 from typing import Any
 
@@ -352,10 +352,10 @@ def _setup_parent_wrong_scope() -> list[dict[str, Any]]:
     nhưng nó VẪN có thể trỏ sang Part khác -- và khi đó thời gian setup được
     tính cho sai chỗ.
     """
-    return fetch_all("""SELECT s.id setup_id,s.code setup_code,s.part_id setup_part_id,
+    return fetch_all(f"""SELECT s.id setup_id,s.code setup_code,s.part_id setup_part_id,
             pa.id parent_id,pa.code parent_code,pa.part_id parent_part_id
         FROM operations s JOIN operations pa ON pa.id=s.parent_operation_id
-        WHERE COALESCE(s.operation_type,'PRODUCTION')='SETUP'
+        WHERE {type_is_sql(SETUP_TYPE, 's')}
           AND (s.part_id<>pa.part_id OR s.production_order_id<>pa.production_order_id)
         ORDER BY s.id""")
 
@@ -367,9 +367,9 @@ def _rework_bench_duplicated() -> list[dict[str, Any]]:
     khi có hai bàn thì một nửa số lượng sửa chạy vào bàn này, nửa kia vào bàn
     kia, và không tổng nào đúng. Không có unique index nào cấm điều này.
     """
-    return fetch_all("""SELECT production_order_id,part_id,COUNT(*) n,
+    return fetch_all(f"""SELECT production_order_id,part_id,COUNT(*) n,
             array_agg(id ORDER BY id) operation_ids
-        FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='REWORK'
+        FROM operations o WHERE {type_is_sql(REWORK_TYPE, 'o')}
         GROUP BY production_order_id,part_id HAVING COUNT(*)>1 ORDER BY 3 DESC""")
 
 
