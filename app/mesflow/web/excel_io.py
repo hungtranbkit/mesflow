@@ -31,9 +31,14 @@ PRODUCTION_ONLY_O = production_only_sql('o')
 bp = Blueprint('excel_io', __name__, url_prefix='/api/operations')
 template_excel_bp = Blueprint('template_excel_io', __name__, url_prefix='/api/templates')
 
+# 'operation_id' ở đây là MÃ NGHIỆP VỤ, không phải operations.id -- tên cột đã
+# đi vào file của khách từ lâu và đổi nó sẽ làm hỏng mọi workbook đang dùng.
+# 'operation_row_id' là danh tính thật (operations.id), thêm vào cuối để file
+# cũ (không có cột này) vẫn nhập được y như trước: _parse_operations_sheet map
+# theo TÊN CỘT, nên cột thiếu chỉ đơn giản là rỗng.
 HEADERS = [
     'operation_id', 'product', 'po', 'part', 'part_order', 'operation_name',
-    'drawing', 'plan', 'done', 'defect', 'status', 'qr'
+    'drawing', 'plan', 'done', 'defect', 'status', 'qr', 'operation_row_id'
 ]
 ALIASES = {
     'operation_id': {'operation_id','operation id','op_id','op id','ma operation','mã operation','ma op','mã op','code'},
@@ -48,6 +53,7 @@ ALIASES = {
     'defect': {'defect','defect_qty','loi','lỗi'},
     'status': {'status','trang thai','trạng thái'},
     'qr': {'qr','qr_code','qr code'},
+    'operation_row_id': {'operation_row_id','operation row id','row_id','row id','id he thong','id hệ thống'},
 }
 
 
@@ -146,6 +152,26 @@ def _parse_process_workbook(workbook):
     return items
 
 
+def _optional_row_id(value, row_number):
+    """operations.id lấy từ file, hoặc None nếu dòng không mang nó.
+
+    Cố ý khắt khe. Một ô rỗng nghĩa là "file cũ, cứ tra theo mã" -- đó là ca
+    thường gặp và phải im lặng đi qua. Nhưng một ô CÓ nội dung mà không phải
+    số nguyên dương thì không được lặng lẽ rơi về mã: người dùng rõ ràng đã
+    định nói điều gì đó, và đoán hộ họ là cách nhanh nhất để sửa nhầm dòng.
+    """
+    text = _text(value)
+    if not text:
+        return None
+    try:
+        number = int(float(text))
+    except (TypeError, ValueError):
+        raise ValueError(f'Dòng {row_number}: operation_row_id không phải số: {text}')
+    if number <= 0:
+        raise ValueError(f'Dòng {row_number}: operation_row_id phải là số dương: {text}')
+    return number
+
+
 def _normalize_item(item, row_number):
     code = _text(item.get('operation_id')).upper()
     po_code = _text(item.get('po')).upper()
@@ -173,6 +199,7 @@ def _normalize_item(item, row_number):
         'defect_qty': _integer(item.get('defect'), f'Dòng {row_number} defect'),
         'status': status,
         'qr': _text(item.get('qr')) or f'WF|OP|{code}',
+        'row_id': _optional_row_id(item.get('operation_row_id'), row_number),
     }
 
 
@@ -204,9 +231,9 @@ def export_operations():
         ws.append([
             row['code'], row['product'], row['po_code'], row['part_name'], row['part_order'],
             row['name'], row['drawing_path'], row['plan_qty'], row['done_qty'],
-            row['defect_qty'], row['status'], row['qr'],
+            row['defect_qty'], row['status'], row['qr'], row['id'],
         ])
-    widths = [27,18,18,28,12,32,28,12,12,12,18,48]
+    widths = [27,18,18,28,12,32,28,12,12,12,18,48,16]
     for idx, width in enumerate(widths, 1):
         ws.column_dimensions[ws.cell(1, idx).column_letter].width = width
     ws.freeze_panes = 'A2'
@@ -220,6 +247,10 @@ def export_operations():
         ['4', 'plan là số lượng kế hoạch của PO; done/defect/part_order phải là số nguyên không âm.'],
         ['5', 'Chế độ Gộp cập nhật theo operation_id. Chế độ Thay toàn bộ xóa dữ liệu Operation hiện tại trước khi nhập.'],
         ['6', 'Cột qr có thể để trống; hệ thống tự sinh WF|OP|<operation_id>.'],
+        ['7', 'operation_row_id là ID hệ thống của Operation. ĐỪNG SỬA và đừng xoá cột này: '
+              'nó là thứ giúp nhập lại đúng dòng kể cả khi mã đã đổi. File cũ không có cột '
+              'này vẫn nhập được bình thường (hệ thống tra theo operation_id trong phạm vi PO).'],
+        ['8', 'Import KHÔNG đổi mã Operation. Muốn đổi mã thì sửa trên màn hình quản lý.'],
     ]
     for row in guide_rows:
         guide.append(row)
@@ -344,9 +375,32 @@ def import_operations():
                 # Guard cũ chỉ chặn khi Operation đã có
                 # operation_input_consumptions, nên ca phổ biến nhất -- đã có
                 # Session, chưa có ledger dòng vật tư -- lọt hết.
-                existing = conn.execute('''SELECT id,COALESCE(operation_type,'PRODUCTION') operation_type
-                    FROM operations WHERE UPPER(code)=UPPER(%s) AND production_order_id=%s''',
-                    (row['code'], po['id'])).fetchone()
+                if row.get('row_id'):
+                    # Danh tính thật đi trước. Nhưng KHÔNG được tin nó một cách
+                    # mù quáng: nếu id trỏ vào một dòng có mã khác, thì file và
+                    # cơ sở dữ liệu đang bất đồng về việc dòng này LÀ AI, và
+                    # đoán hộ một trong hai bên là cách ghi đè nhầm Operation.
+                    existing = conn.execute('''SELECT o.id,COALESCE(o.operation_type,'PRODUCTION') operation_type,
+                            o.code,o.production_order_id,po2.code po_code
+                        FROM operations o JOIN production_orders po2 ON po2.id=o.production_order_id
+                        WHERE o.id=%s''', (row['row_id'],)).fetchone()
+                    if not existing:
+                        raise NotFoundError(
+                            f"Dòng có operation_row_id={row['row_id']} không còn tồn tại trong hệ thống. "
+                            'Xuất lại file Excel mới rồi sửa trên file đó.')
+                    if str(existing['code']).upper() != str(row['code']).upper():
+                        raise ConflictError(
+                            f"operation_row_id={row['row_id']} đang là Operation {existing['code']}, "
+                            f"nhưng dòng này ghi mã {row['code']}. Import không đổi mã Operation; "
+                            'hãy sửa mã trên màn hình quản lý, hoặc xuất lại file Excel mới.')
+                    if int(existing['production_order_id']) != int(po['id']):
+                        raise ConflictError(
+                            f"Operation {existing['code']} đang thuộc PO {existing['po_code']}, "
+                            f"không phải {row['po_code']}. Import không chuyển Operation giữa các PO.")
+                else:
+                    existing = conn.execute('''SELECT id,COALESCE(operation_type,'PRODUCTION') operation_type
+                        FROM operations WHERE UPPER(code)=UPPER(%s) AND production_order_id=%s''',
+                        (row['code'], po['id'])).fetchone()
                 if not existing:
                     # Không có trong PO này. Vì mã unique toàn cục, INSERT bên
                     # dưới sẽ đâm vào operations_code_key -- nói thẳng ra vấn
@@ -367,6 +421,13 @@ def import_operations():
                     raise ValueError(
                         f"Operation {row['code']} là OP phụ ({existing['operation_type']}), không sửa được bằng Excel. "
                         'Xoá dòng này khỏi file rồi import lại.')
+                # Cột `qr` của file đi thẳng vào bảng, nên đường này vòng qua
+                # guard mà OperationRepository.create/update đang giữ.
+                # operations_qr_key chỉ cấm hai `qr` GIỐNG HỆT nhau; nó không
+                # nói gì về ca chéo cột -- `qr` của dòng này trùng với `code`
+                # của dòng khác -- và đó chính là ca làm tem cũ hoá mơ hồ.
+                _assert_excel_qr_unambiguous(conn, row['code'], row['qr'],
+                                             operation_id=existing['id'] if existing else None)
                 if existing:
                     guard=conn.execute('''SELECT o.production_order_id,o.part_id,o.done_qty,
                         COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=o.id),0) allocated,
@@ -394,6 +455,38 @@ def import_operations():
     except Exception as exc:
         return api_error_response(exc,logger_name=__name__)
 
+
+
+
+def _assert_excel_qr_unambiguous(conn, code, qr, *, operation_id=None):
+    """Không cho một dòng Excel làm tem cũ ngoài xưởng hoá mơ hồ.
+
+    Cùng bất biến mà OperationRepository giữ, viết lại ở đây vì đường Excel
+    ghi thẳng bằng SQL trong transaction của chính nó chứ không đi qua
+    repository. Kiểm cả hai chiều: mã của dòng này có đang bị `qr` của dòng
+    khác đòi không, và `qr` của dòng này có đòi mã của dòng khác không.
+    """
+    code = _text(code)
+    qr = _text(qr)
+    if code:
+        clash = conn.execute(
+            'SELECT id,code FROM operations WHERE upper(qr)=upper(%s) AND id<>COALESCE(%s,-1) LIMIT 1',
+            (f'WF|OP|{code}', operation_id)).fetchone()
+        if clash:
+            raise ConflictError(
+                f"Mã {code} vẫn đang được tem QR cũ của Operation {clash['code']} sử dụng. "
+                'Nếu dùng lại mã này thì tem cũ sẽ trỏ tới hai Operation và không quét được nữa.')
+    upper = qr.upper()
+    if upper.startswith('WF|OP|') and not upper.startswith('WF|OPID|'):
+        claimed = qr[len('WF|OP|'):].strip()
+        if claimed and claimed.upper() != code.upper():
+            clash = conn.execute(
+                'SELECT id,code FROM operations WHERE upper(code)=upper(%s) AND id<>COALESCE(%s,-1) LIMIT 1',
+                (claimed, operation_id)).fetchone()
+            if clash:
+                raise ConflictError(
+                    f"Tem {qr} trùng với mã của Operation {clash['code']}, nên tem này sẽ trỏ tới "
+                    'hai Operation và không quét được.')
 
 
 def _find_labeled_value(rows, labels, max_rows=12):
