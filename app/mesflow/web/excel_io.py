@@ -328,8 +328,40 @@ def import_operations():
                         VALUES(%s,%s,%s,%s,%s,true) RETURNING id
                     ''', (po['id'], part_code, row['part_name'], row['drawing'], row['part_order'])).fetchone()
                     part_created += 1
+                # Tìm trong ĐÚNG PO của dòng đang import, không phải toàn bảng.
+                #
+                # operations.code unique TOÀN CỤC, nên `WHERE UPPER(code)=?`
+                # không kèm PO vẫn luôn tìm thấy đúng một dòng -- kể cả khi
+                # dòng đó thuộc một PO khác hẳn. Câu UPDATE bên dưới ghi lại
+                # production_order_id và part_id, nên một dòng Excel ghi sai
+                # cột po (hoặc dán từ file của PO khác) LẶNG LẼ CHUYỂN
+                # Operation đó sang PO trong file, mang theo done_qty và toàn
+                # bộ work_sessions của nó: PO cũ mất một công đoạn đã có sản
+                # lượng, PO mới nhận số nó chưa từng làm, và API trả về
+                # {"ok":true,"updated":1}. Dựng lại được: 42 SP và 1 session
+                # nhảy từ PO-ONE sang PO-TWO chỉ bằng một dòng file.
+                #
+                # Guard cũ chỉ chặn khi Operation đã có
+                # operation_input_consumptions, nên ca phổ biến nhất -- đã có
+                # Session, chưa có ledger dòng vật tư -- lọt hết.
                 existing = conn.execute('''SELECT id,COALESCE(operation_type,'PRODUCTION') operation_type
-                    FROM operations WHERE UPPER(code)=UPPER(%s)''', (row['code'],)).fetchone()
+                    FROM operations WHERE UPPER(code)=UPPER(%s) AND production_order_id=%s''',
+                    (row['code'], po['id'])).fetchone()
+                if not existing:
+                    # Không có trong PO này. Vì mã unique toàn cục, INSERT bên
+                    # dưới sẽ đâm vào operations_code_key -- nói thẳng ra vấn
+                    # đề thay vì để người dùng đọc một lỗi ràng buộc Postgres.
+                    owner = conn.execute('''SELECT o.id,po2.code po_code,p2.code part_code
+                        FROM operations o JOIN production_orders po2 ON po2.id=o.production_order_id
+                        LEFT JOIN parts p2 ON p2.id=o.part_id
+                        WHERE UPPER(o.code)=UPPER(%s)''', (row['code'],)).fetchone()
+                    if owner:
+                        raise ConflictError(
+                            f"Operation {row['code']} đang thuộc PO {owner['po_code']}"
+                            f" (Part {owner.get('part_code') or '?'}), không phải {row['po_code']}. "
+                            'Mã Operation là duy nhất trên toàn hệ thống, nên nhập file này sẽ chuyển '
+                            'Operation đó sang PO khác cùng toàn bộ sản lượng và Session của nó. '
+                            'Hãy sửa cột po cho đúng, hoặc đặt mã khác cho Operation mới.')
                 if existing and not is_production(existing['operation_type']):
                     # Một file xuất TRƯỚC bản vá vẫn còn dòng OP phụ trong đó.
                     raise ValueError(
