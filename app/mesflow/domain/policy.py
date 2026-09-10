@@ -66,9 +66,23 @@ def po_status_sql(statuses: frozenset[str]) -> str:
 #: WIP và điều kiện hoàn thành PO.
 PRODUCTION_TYPE = 'PRODUCTION'
 
-#: Operation hỗ trợ: SETUP là chuẩn bị máy, REWORK là bàn sửa hàng. Cả hai đều
-#: ghi nhận CÔNG (thời gian lao động vẫn tính) nhưng KHÔNG ghi nhận sản lượng.
-SUPPORT_TYPES: frozenset[str] = frozenset({'SETUP', 'REWORK'})
+#: Chuẩn bị máy. Gắn với một OP sản xuất qua parent_operation_id.
+SETUP_TYPE = 'SETUP'
+
+#: Bàn sửa hàng. Ghi nhận CÔNG của người sửa; số lượng thuộc về session nguồn.
+REWORK_TYPE = 'REWORK'
+
+#: Operation hỗ trợ. Cả hai đều ghi nhận CÔNG (thời gian lao động vẫn tính)
+#: nhưng KHÔNG ghi nhận sản lượng.
+SUPPORT_TYPES: frozenset[str] = frozenset({SETUP_TYPE, REWORK_TYPE})
+
+#: Loại Operation ĐƯỢC in tem QR.
+#:
+#: REWORK bị loại ra vì lock_startable_operation() từ chối mở session trên bàn
+#: sửa hàng -- in tem cho nó là đưa cho xưởng một mã QR mà kiosk không nhận,
+#: và người quét sẽ tưởng máy hỏng. SETUP thì ngược lại, BẮT BUỘC phải có tem:
+#: quét tem đó là cách duy nhất để ghi nhận việc chuẩn bị máy.
+LABELLED_TYPES: frozenset[str] = frozenset({PRODUCTION_TYPE, SETUP_TYPE})
 
 ALL_OPERATION_TYPES: frozenset[str] = frozenset({PRODUCTION_TYPE}) | SUPPORT_TYPES
 
@@ -94,3 +108,44 @@ def production_only_sql(alias: str = 'o') -> str:
 
 def support_only_sql(alias: str = 'o') -> str:
     return f"COALESCE({alias}.operation_type,'{PRODUCTION_TYPE}')<>'{PRODUCTION_TYPE}'"
+
+
+def type_in_sql(types: frozenset[str], alias: str = 'o') -> str:
+    """Điều kiện SQL "loại Operation nằm trong tập này".
+
+    Dùng cho các tập không phải nhị phân sản-xuất/hỗ-trợ -- ví dụ LABELLED_TYPES
+    của danh mục QR. Kiểm tên loại trước khi nhúng, cùng lý do với
+    po_status_sql(): đây là hằng số của miền nghiệp vụ, không phải dữ liệu
+    người dùng, nhưng vẫn không có đường cho chuỗi lạ lọt vào.
+    """
+    unknown = set(types) - set(ALL_OPERATION_TYPES)
+    if unknown:
+        raise ValueError(f'loại Operation không tồn tại: {sorted(unknown)}')
+    listed = ','.join(f"'{t}'" for t in sorted(types))
+    return f"COALESCE({alias}.operation_type,'{PRODUCTION_TYPE}') IN ({listed})"
+
+
+def type_is_sql(operation_type: str, alias: str = 'o') -> str:
+    """Điều kiện SQL "Operation này thuộc đúng loại X".
+
+    Khác type_in_sql ở chỗ nó cho một loại duy nhất, dùng trong CASE WHEN chứ
+    không phải WHERE. Có mặt để không ai phải tự gõ lại phần
+    COALESCE(...,'PRODUCTION') -- phần mặc-định-là-sản-xuất mới là chỗ dễ quên,
+    không phải tên loại.
+    """
+    if operation_type not in ALL_OPERATION_TYPES:
+        raise ValueError(f'loại Operation không tồn tại: {operation_type}')
+    return f"COALESCE({alias}.operation_type,'{PRODUCTION_TYPE}')='{operation_type}'"
+
+
+def is_setup(operation_type: str | None) -> bool:
+    return str(operation_type or PRODUCTION_TYPE).upper() == SETUP_TYPE
+
+
+def is_rework(operation_type: str | None) -> bool:
+    return str(operation_type or PRODUCTION_TYPE).upper() == REWORK_TYPE
+
+
+def is_labelled(operation_type: str | None) -> bool:
+    """Operation này có được in tem QR không?"""
+    return str(operation_type or PRODUCTION_TYPE).upper() in LABELLED_TYPES

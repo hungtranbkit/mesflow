@@ -37,6 +37,7 @@ identity audit. The PRINTED text on that label is the display key instead
 """
 from __future__ import annotations
 
+from mesflow.domain.policy import SETUP_TYPE, is_production, is_setup
 from mesflow.db.connection import fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError
 
@@ -112,7 +113,7 @@ class SetupRepository:
         setup = fetch_one(f"""SELECT o.id,o.code,o.name,o.expected_setup_minutes,o.qr,o.setup_note,
                 {display_key_sql('o','p')} display_key
             FROM operations o LEFT JOIN parts p ON p.id=o.part_id
-            WHERE o.parent_operation_id=%s AND o.operation_type='SETUP'""",
+            WHERE o.parent_operation_id=%s AND o.operation_type='{SETUP_TYPE}'""",
             (int(operation_id),))
         session = None
         if setup:
@@ -156,10 +157,10 @@ class SetupRepository:
         with transaction() as conn:
             with conn.cursor() as cur:
                 main = _load_operation(cur, operation_id)
-                if main['operation_type'] != 'PRODUCTION':
+                if not is_production(main['operation_type']):
                     raise ConflictError('Chỉ Operation sản xuất mới cấu hình được setup.')
-                cur.execute("""SELECT id FROM operations
-                    WHERE parent_operation_id=%s AND operation_type='SETUP' FOR UPDATE""", (main['id'],))
+                cur.execute(f"""SELECT id FROM operations
+                    WHERE parent_operation_id=%s AND operation_type='{SETUP_TYPE}' FOR UPDATE""", (main['id'],))
                 existing = cur.fetchone()
                 if not requires:
                     # Keep the SETUP row and its instructions: switching the
@@ -187,9 +188,9 @@ class SetupRepository:
         this endpoint exists only so the browser kiosk does not have to
         invent a request_id/quantity payload for a session that has neither.
         """
-        session = fetch_one("""SELECT ws.id,ws.status FROM work_sessions ws
+        session = fetch_one(f"""SELECT ws.id,ws.status FROM work_sessions ws
             JOIN operations o ON o.id=ws.operation_id
-            WHERE ws.id=%s AND o.operation_type='SETUP'""", (int(session_id),))
+            WHERE ws.id=%s AND o.operation_type='{SETUP_TYPE}'""", (int(session_id),))
         if not session:
             raise NotFoundError('Không tìm thấy phiên setup')
         if session['status'] != 'OPEN':
@@ -215,7 +216,7 @@ class SetupRepository:
             FROM operations o WHERE o.id=%s""", (int(operation_id),))
         if not row:
             raise NotFoundError('Không tìm thấy Operation')
-        main_id = row['parent_operation_id'] if row['operation_type'] == 'SETUP' else row['id']
+        main_id = row['parent_operation_id'] if is_setup(row['operation_type']) else row['id']
         sheet = fetch_one(f"""SELECT m.id main_id,m.code main_code,m.name main_name,
                 m.requires_setup,m.setup_completed_at,
                 {display_key_sql('m','p')} main_display_key,
@@ -225,7 +226,7 @@ class SetupRepository:
                 p.code part_code,p.name part_name,po.code po_code,po.product,
                 e.code equipment_code,e.name equipment_name
             FROM operations m
-            LEFT JOIN operations s ON s.parent_operation_id=m.id AND s.operation_type='SETUP'
+            LEFT JOIN operations s ON s.parent_operation_id=m.id AND s.operation_type='{SETUP_TYPE}'
             LEFT JOIN parts p ON p.id=m.part_id
             LEFT JOIN production_orders po ON po.id=m.production_order_id
             LEFT JOIN equipment e ON e.id=m.equipment_id

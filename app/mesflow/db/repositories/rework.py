@@ -6,6 +6,7 @@ original operation's GOOD result, while scrapped pieces enter SCRAP.  The
 ledger is an audit/history record, never a second quantity source.
 """
 from __future__ import annotations
+from mesflow.domain.policy import is_production, production_only_sql
 
 from mesflow.db.connection import transaction, fetch_all
 from mesflow.db.repositories.base import ConflictError, NotFoundError
@@ -15,6 +16,13 @@ from mesflow.domain.audit import record_audit
 from mesflow.domain.trace import record_event, record_quantities
 from psycopg.types.json import Jsonb
 from datetime import date, datetime, time
+
+# Bộ lọc loại Operation lấy từ mesflow.domain.policy -- KHÔNG chép lại chuỗi
+# COALESCE(...) ở từng câu truy vấn. Trước 2026-09-10 mỗi module tự viết một
+# bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
+# PO, hoặc PO không bao giờ đạt COMPLETED.
+PRODUCTION_ONLY_O = production_only_sql('o')
+
 
 
 def _json_safe(value):
@@ -52,14 +60,14 @@ def _rework_operation(cur, production_order_id: int, part_id: int):
 
 class ReworkQueueRepository:
     def queue(self, limit: int = 1000):
-        rows = fetch_all("""SELECT ws.id source_session_id, ws.operation_id source_operation_id,
+        rows = fetch_all(f"""SELECT ws.id source_session_id, ws.operation_id source_operation_id,
             ws.defect_qty,ws.rework_qty,ws.scrap_qty,
             (ws.defect_qty-ws.rework_qty-ws.scrap_qty) pending_qty,
             ws.ended_at source_finished_at,e.id employee_id,e.employee_no,e.name employee_name,
             o.code operation_code,o.name operation_name,po.id production_order_id,po.code po_code,
             p.id part_id,p.code part_code,p.name part_name
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id
-          JOIN operations o ON o.id=ws.operation_id AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+          JOIN operations o ON o.id=ws.operation_id AND {PRODUCTION_ONLY_O}
           JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
           WHERE ws.status='CLOSED' AND COALESCE(ws.excluded_from_reports,FALSE)=FALSE
             AND ws.defect_qty > ws.rework_qty + ws.scrap_qty
@@ -97,7 +105,7 @@ class ReworkQueueRepository:
                 source = cur.fetchone()
                 if not source:
                     raise NotFoundError('source session not found')
-                if source['status'] != 'CLOSED' or source.get('operation_type') != 'PRODUCTION':
+                if source['status'] != 'CLOSED' or not is_production(source.get('operation_type')):
                     raise ConflictError('Session nguồn không hợp lệ cho hàng chờ sửa')
                 # "Còn chờ sửa" phải là số THẤP HƠN giữa hai nguồn: dòng
                 # session (tổng cộng dồn, có thể bị lệnh sửa số liệu ghi đè) và

@@ -13,9 +13,17 @@ from mesflow.db.repositories.production_state import reconcile_production_order,
 from mesflow.db.repositories.setup_ops import display_key_sql
 from mesflow.db.repositories.analytics import AuditRepository
 from mesflow.db.repositories.scheduling import RUNNABLE_STATUSES,RUNNABLE_PO_STATUSES
+from mesflow.domain.policy import LABELLED_TYPES,SETUP_TYPE,type_in_sql,type_is_sql
 from mesflow.core.upload_policy import validate_drawing_upload
 from mesflow.web.errors import api_error_response
 from mesflow.domain.trace import record_event
+
+# Loại Operation ĐƯỢC in tem QR, lấy từ mesflow.domain.policy. Trước đây
+# danh sách ('PRODUCTION','SETUP') được viết tay ở hai chỗ trong chính hàm
+# này -- đủ gần nhau để thấy, nhưng vẫn là hai bản chép, và chúng quyết
+# định thứ được in ra tem dán ngoài xưởng.
+LABELLED_ONLY_O = type_in_sql(LABELLED_TYPES, 'o')
+IS_SETUP_O = type_is_sql(SETUP_TYPE, 'o')
 
 bp=Blueprint('master_data',__name__,url_prefix='/api')
 RESOURCES={
@@ -733,9 +741,9 @@ def qr_labels():
                 COALESCE(o.operation_type,'PRODUCTION') AS operation_type,o.parent_operation_id,
                 parent.name AS parent_name,
                 p.code||' · '||COALESCE(p.name,'')||
-                  CASE WHEN COALESCE(o.operation_type,'PRODUCTION')='SETUP' THEN ' · Setup máy' ELSE '' END AS detail,
+                  CASE WHEN {IS_SETUP_O} THEN ' · Setup máy' ELSE '' END AS detail,
                 (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})
-                 AND COALESCE(o.operation_type,'PRODUCTION') IN ('PRODUCTION','SETUP')) AS active,
+                 AND {LABELLED_ONLY_O}) AS active,
                 po.id AS production_order_id,po.code AS po_code
                 FROM operations o JOIN production_orders po ON po.id=o.production_order_id
                 JOIN parts p ON p.id=o.part_id
@@ -752,7 +760,7 @@ def qr_labels():
                 # audited. SETUP is the opposite case and MUST be listed:
                 # scanning that label is the only way setup gets done.
                 sql+=f' AND o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})'
-                sql+=" AND COALESCE(o.operation_type,'PRODUCTION') IN ('PRODUCTION','SETUP')"
+                sql+=f' AND {LABELLED_ONLY_O}'
                 params+=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)
             if po_id: sql+=' AND po.id=%s'; params.append(int(po_id))
             sql+=' ORDER BY po.code,p.sort_order,p.code,o.sort_order,o.id LIMIT %s'; params.append(limit)

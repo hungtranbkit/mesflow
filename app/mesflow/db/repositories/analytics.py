@@ -5,6 +5,7 @@
 # PO vừa phát hành đơn giản là không xuất hiện trên dashboard mà không báo gì.
 # test_po_status_policy_is_single_sourced.py khoá hai bên lại với nhau.
 from __future__ import annotations
+from mesflow.domain.policy import production_only_sql, support_only_sql
 import json
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
@@ -16,6 +17,16 @@ from mesflow.db.repositories.scheduling import priority_for_operation,priority_s
 from mesflow.core.config import settings
 from mesflow.domain.audit_presentation import ACTION_CATALOG,CATEGORY_LABELS,present as present_audit_row
 from psycopg.types.json import Jsonb
+
+# Bộ lọc loại Operation lấy từ mesflow.domain.policy -- KHÔNG chép lại chuỗi
+# COALESCE(...) ở từng câu truy vấn. Trước 2026-09-10 mỗi module tự viết một
+# bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
+# PO, hoặc PO không bao giờ đạt COMPLETED.
+PRODUCTION_ONLY_O = production_only_sql('o')
+PRODUCTION_ONLY_BARE = production_only_sql('')[:len("COALESCE(")] + \
+    production_only_sql('')[len("COALESCE(."):]
+SUPPORT_ONLY_O = support_only_sql('o')
+
 
 class AuditRepository:
     def log(self,actor_username:str,action:str,entity_type:str='',entity_id:str='',details:dict[str,Any]|None=None):
@@ -146,12 +157,12 @@ class DashboardRepository:
         return fetch_one(f"""SELECT
           (SELECT COUNT(*) FROM production_orders) po_total,
           (SELECT COUNT(*) FROM production_orders WHERE status IN ('RELEASED','IN_PROGRESS','PAUSED')) po_active,
-          (SELECT COUNT(*) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') operation_total,
-          (SELECT COUNT(*) FROM operations WHERE status='COMPLETED' AND COALESCE(operation_type,'PRODUCTION')='PRODUCTION') operation_completed,
-          (SELECT COALESCE(SUM(done_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_good_qty,
-          (SELECT COALESCE(SUM(defect_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_defect_qty,
-          (SELECT COALESCE(SUM(rework_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_rework_qty,
-          (SELECT COALESCE(SUM(scrap_qty),0) FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') total_scrap_qty,
+          (SELECT COUNT(*) FROM operations WHERE {PRODUCTION_ONLY_BARE}) operation_total,
+          (SELECT COUNT(*) FROM operations WHERE status='COMPLETED' AND {PRODUCTION_ONLY_BARE}) operation_completed,
+          (SELECT COALESCE(SUM(done_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_good_qty,
+          (SELECT COALESCE(SUM(defect_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_defect_qty,
+          (SELECT COALESCE(SUM(rework_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_rework_qty,
+          (SELECT COALESCE(SUM(scrap_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_scrap_qty,
           (SELECT COUNT(*) FROM work_sessions WHERE status='OPEN' AND {reportable_session_sql('')}) active_sessions,
           -- spec section 5: "Dashboard phai co kha nang bao: Co N session
           -- chua xac nhan so lieu" -- quantity_confirmed=FALSE sessions are
@@ -170,7 +181,7 @@ class DashboardRepository:
         # the final sort-order operation. Because the schema has one PO-level
         # plan (no Part-level quantity), multiple terminal Parts are weighted
         # equally and expressed as equivalent finished PO units.
-        return fetch_all("""WITH ranked_operations AS (
+        return fetch_all(f"""WITH ranked_operations AS (
           SELECT o.*,
             ROW_NUMBER() OVER (PARTITION BY o.part_id ORDER BY o.sort_order DESC,o.id DESC) reverse_rank,
             COUNT(*) FILTER (WHERE o.predecessor_operation_id IS NOT NULL) OVER (PARTITION BY o.part_id) edge_count,
@@ -186,7 +197,7 @@ class DashboardRepository:
           -- good_quantity=SUM(done_qty)/COUNT(*) collapsed to 0 (or halved)
           -- and progress_percent with it -- the whole PO read as zero the
           -- moment a single rework item was resolved. Reproduced live.
-          WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+          WHERE {PRODUCTION_ONLY_O}
         ), terminal_operations AS (
           SELECT * FROM ranked_operations
           WHERE (edge_count>0 AND graph_terminal) OR (edge_count=0 AND reverse_rank=1)
@@ -198,7 +209,7 @@ class DashboardRepository:
           -- 3/4, because the never-completed SỬA HÀNG row was being counted).
           SELECT production_order_id,COUNT(*) operation_count,
             COUNT(*) FILTER (WHERE status='COMPLETED') completed_count
-          FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION' GROUP BY production_order_id
+          FROM operations WHERE {PRODUCTION_ONLY_BARE} GROUP BY production_order_id
         ), part_rollup AS (
           SELECT production_order_id,COUNT(*) part_count FROM parts GROUP BY production_order_id
         ), terminal_rollup AS (
@@ -226,7 +237,7 @@ class DashboardRepository:
             COALESCE(SUM(GREATEST(defect_qty-rework_qty-scrap_qty,0)*repair_cycle_time_seconds_per_unit),0)::bigint estimated_repair_work_seconds,
             COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0) repair_operation_count,
             COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0 AND repair_cycle_time_seconds_per_unit<=0) repair_unconfigured_operation_count
-          FROM operations WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION' GROUP BY production_order_id
+          FROM operations WHERE {PRODUCTION_ONLY_BARE} GROUP BY production_order_id
         ) SELECT po.id,po.id po_id,po.code,po.code po_code,po.product,po.status,
           po.planned_quantity,po.due_date,po.planned_start_at,po.planned_end_at,
           COALESCE(pr.part_count,0) part_count,COALESCE(op.operation_count,0) operation_count,
@@ -279,7 +290,7 @@ class DashboardRepository:
         -- render it as a permanently zero row inside every PO's Operation list.
         -- It is a workbench: excluded here for the same reason it is excluded
         -- from every other production rollup.
-        WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+        WHERE {PRODUCTION_ONLY_O}
         GROUP BY po.id,p.id,o.id
         ORDER BY CASE WHEN COUNT(ws.id) FILTER (WHERE ws.status='OPEN')>0 THEN 0
           WHEN o.status='IN_PROGRESS' THEN 1 WHEN o.status='PAUSED' THEN 2 WHEN o.status='COMPLETED' THEN 4 ELSE 3 END,
@@ -332,7 +343,7 @@ class DashboardRepository:
           SELECT po.id,COALESCE(po.planned_quantity,0) planned_quantity,COUNT(o.id) operation_count,
             COALESCE(SUM(o.done_qty),0) done_qty,COALESCE(SUM(o.defect_qty),0) defect_qty
           FROM production_orders po LEFT JOIN operations o ON o.production_order_id=po.id
-            AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+            AND {PRODUCTION_ONLY_O}
           WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED') GROUP BY po.id
         ), completed_due AS (
           SELECT COUNT(*) FILTER (WHERE (updated_at AT TIME ZONE %s)::date<=due_date) on_time_count,COUNT(*) total_count
@@ -373,7 +384,7 @@ class DashboardRepository:
             COUNT(*) FILTER (WHERE COALESCE(o.standard_seconds_per_unit,0)<=0) unconfigured_cycle_count,
             COUNT(*) FILTER (WHERE o.predecessor_operation_id IS NOT NULL AND COALESCE(pred.status,'')<>'COMPLETED') blocked_operation_count
           FROM operations o LEFT JOIN operations pred ON pred.id=o.predecessor_operation_id
-          WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+          WHERE {PRODUCTION_ONLY_O}
           GROUP BY o.production_order_id
         ), active_rollup AS (
           SELECT o.production_order_id,COUNT(ws.id) active_sessions,
@@ -554,7 +565,7 @@ class DashboardRepository:
             COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=src.id AND c.source_qty_kind=o.input_source_kind),0),0) input_available_qty,
           MIN(ws.started_at) actual_start_at,MAX(ws.ended_at) actual_end_at,COUNT(ws.id) FILTER (WHERE ws.status='OPEN') active_sessions
         FROM production_orders po JOIN parts p ON p.production_order_id=po.id
-          JOIN operations o ON o.part_id=p.id AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+          JOIN operations o ON o.part_id=p.id AND {PRODUCTION_ONLY_O}
         LEFT JOIN operations src ON src.id=o.input_source_operation_id
         LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
         WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
@@ -873,7 +884,7 @@ class DashboardRepository:
             WHEN COALESCE(r.session_count,0)>0 THEN 'UPDATED' ELSE 'IDLE' END day_state
         FROM operations o JOIN parts p ON p.id=o.part_id JOIN production_orders po ON po.id=o.production_order_id
         LEFT JOIN rollup r ON r.operation_id=o.id
-        WHERE COALESCE(r.session_count,0)>0 AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+        WHERE COALESCE(r.session_count,0)>0 AND {PRODUCTION_ONLY_O}
         ORDER BY CASE WHEN COALESCE(r.unconfirmed_count,0)>0 THEN 0 WHEN COALESCE(r.open_session_count,0)>0 THEN 1 ELSE 2 END,
           r.last_report_at DESC NULLS LAST LIMIT %s""",params)
         for row in rows:
@@ -930,7 +941,7 @@ class DashboardRepository:
             0::integer good_qty,0::integer defect_qty
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
-          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')} AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')} AND {PRODUCTION_ONLY_O}
           UNION ALL
           SELECT 'QUANTITY_REPORTED',ws.id::text,COALESCE(ws.ended_at,ws.updated_at),e.name,o.name,
             CASE WHEN ws.status='OPEN' THEN 'QUANTITY_UPDATED' ELSE 'FINISHED' END,po.code,o.code,
@@ -938,7 +949,7 @@ class DashboardRepository:
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
           WHERE COALESCE(ws.ended_at,ws.updated_at) >= %s AND COALESCE(ws.ended_at,ws.updated_at) < %s
-            AND {reportable_session_sql('ws')} AND COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+            AND {reportable_session_sql('ws')} AND {PRODUCTION_ONLY_O}
         ) activity ORDER BY activity_at DESC LIMIT %s""",(ctx['range_start'],ctx['range_end'],ctx['range_start'],ctx['range_end'],min(max(limit,1),500)))
 
     def shift_dashboard(self,shift_date:str|None=None,shift_id:int|None=None,limit:int=1000):
@@ -1588,7 +1599,7 @@ class ReportRepository:
             GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
-            COALESCE(o.operation_type,'PRODUCTION')<>'PRODUCTION' is_repair,
+            {SUPPORT_ONLY_O} is_repair,
             COALESCE(o.operation_type,'PRODUCTION') operation_type
           FROM work_sessions ws
           JOIN employees e ON e.id=ws.employee_id
@@ -1664,7 +1675,7 @@ class ReportRepository:
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
             o.code operation_code,o.name operation_name,po.code po_code,p.code part_code,
-            COALESCE(o.operation_type,'PRODUCTION')<>'PRODUCTION' is_repair,
+            {SUPPORT_ONLY_O} is_repair,
             COALESCE(o.operation_type,'PRODUCTION') operation_type,
             ws.excluded_from_reports,ws.exclusion_reason
           FROM work_sessions ws
@@ -1833,7 +1844,7 @@ class KPIRepository:
           COUNT(ws.id) session_count
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
         LEFT JOIN work_sessions ws ON ws.operation_id=o.id AND {reportable_session_sql('ws')}
-        WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION' GROUP BY o.id,po.id
+        WHERE {PRODUCTION_ONLY_O} GROUP BY o.id,po.id
         ORDER BY o.updated_at DESC LIMIT %s""",(min(max(limit,1),1000),))
     def snapshot(self,snapshot_date:date|None=None):
         snapshot_date=snapshot_date or business_date(timezone_name=settings.timezone_name)

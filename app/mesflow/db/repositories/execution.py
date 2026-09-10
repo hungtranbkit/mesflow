@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 from psycopg.types.json import Jsonb
 from typing import Any
+from mesflow.domain.policy import PRODUCTION_TYPE, SETUP_TYPE, is_production
 from mesflow.db.connection import transaction,fetch_all,fetch_one
 from .base import NotFoundError,ConflictError,RepositoryError,SessionChangedError
 from .production_state import lock_idempotency_key,lock_startable_operation,reconcile_operation_and_po,lock_production_order_for_operation_first
@@ -396,7 +397,7 @@ def _guard_rework_ledger(cur,session_id,*,rework,scrap):
 
 def _setup_parent_operation(cur,operation_id):
     """The production Operation a SETUP row prepares, or None for anything else."""
-    cur.execute("SELECT parent_operation_id FROM operations WHERE id=%s AND operation_type='SETUP'",(operation_id,))
+    cur.execute(f"SELECT parent_operation_id FROM operations WHERE id=%s AND operation_type='{SETUP_TYPE}'",(operation_id,))
     row=cur.fetchone()
     return row['parent_operation_id'] if row and row['parent_operation_id'] else None
 
@@ -960,8 +961,8 @@ class SupervisorRepository:
                 # lượng, OP đích không nhận, tổng không cân. Chặn ở tầng
                 # service chứ không phải ở giao diện: kiosk, API và Excel đều
                 # đi qua đây.
-                target_type=str(target_op.get('operation_type') or 'PRODUCTION').upper()
-                if target_type!='PRODUCTION':
+                target_type=str(target_op.get('operation_type') or PRODUCTION_TYPE).upper()
+                if not is_production(target_type):
                     carried=sum(int(old.get(f) or 0) for f in ('good_qty','defect_qty','rework_qty','scrap_qty'))
                     if carried>0:
                         raise ConflictError(

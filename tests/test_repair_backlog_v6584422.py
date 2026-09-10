@@ -37,9 +37,15 @@ def test_support_operations_excluded_from_po_progress():
     flag to operation_type, which is now the single classification (0047).
     """
     repo=source("app/mesflow/db/repositories/analytics.py")
-    assert repo.count("COALESCE(operation_type,'PRODUCTION')='PRODUCTION'") >= 2
-    assert "COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'" in repo
-    # The old rework-only filter would silently let SETUP through.
+    # Từ 2026-09-10 bộ lọc không còn viết tay ở đây nữa: nó được sinh ra từ
+    # mesflow.domain.policy và nhúng vào truy vấn qua hằng số. Bài test vì vậy
+    # kiểm ĐÚNG hình mới -- vẫn là "OP hỗ trợ bị loại khỏi tiến độ PO", chỉ
+    # khác chỗ câu trả lời đến từ đâu. Chuỗi COALESCE viết tay bây giờ là dấu
+    # hiệu SAI, và test_po_status_policy_is_single_sourced.py cấm nó.
+    assert "from mesflow.domain.policy import" in repo
+    assert repo.count("{PRODUCTION_ONLY_BARE}") >= 2
+    assert "{PRODUCTION_ONLY_O}" in repo
+    # Bộ lọc chỉ-theo-rework cũ sẽ để SETUP lọt qua.
     assert "COALESCE(is_rework_op,FALSE)=FALSE" not in repo
     assert "COALESCE(o.is_rework_op,FALSE)=FALSE" not in repo
 

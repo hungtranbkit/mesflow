@@ -1,4 +1,5 @@
 from __future__ import annotations
+from mesflow.domain.policy import is_production, production_only_sql
 
 from datetime import datetime
 from io import BytesIO
@@ -18,7 +19,14 @@ from mesflow.web.errors import api_error_response
 from mesflow.db.repositories.master_data import (_validate_template_part_codes,
     _validate_template_operation_codes, TemplateValidationError)
 from mesflow.db.repositories.template_imports import (TemplateImportRepository,
+
     OUTCOME_CREATED, OUTCOME_REPLACED, OUTCOME_FAILED)
+
+# Bộ lọc loại Operation lấy từ mesflow.domain.policy -- KHÔNG chép lại chuỗi
+# COALESCE(...) ở từng câu truy vấn. Trước 2026-09-10 mỗi module tự viết một
+# bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
+# PO, hoặc PO không bao giờ đạt COMPLETED.
+PRODUCTION_ONLY_O = production_only_sql('o')
 
 bp = Blueprint('excel_io', __name__, url_prefix='/api/operations')
 template_excel_bp = Blueprint('template_excel_io', __name__, url_prefix='/api/templates')
@@ -172,7 +180,7 @@ def _normalize_item(item, row_number):
 @roles_required('admin','manager')
 def export_operations():
     with transaction() as conn:
-        rows = conn.execute('''
+        rows = conn.execute(f'''
             SELECT o.id, o.code, po.product, po.code AS po_code,
                    p.code AS part_code, p.name AS part_name, p.sort_order AS part_order,
                    p.drawing_path, o.name, po.planned_quantity AS plan_qty, o.done_qty, o.defect_qty,
@@ -185,7 +193,7 @@ def export_operations():
             -- thành operation_type=PRODUCTION với parent_operation_id NULL --
             -- check constraint cho qua vì nó là biconditional -- và từ đó
             -- chúng lọt vào operation_count, khiến PO không bao giờ COMPLETED.
-            WHERE COALESCE(o.operation_type,'PRODUCTION')='PRODUCTION'
+            WHERE {PRODUCTION_ONLY_O}
             ORDER BY po.code, p.sort_order, o.sort_order, o.id
         ''').fetchall()
     wb = Workbook()
@@ -322,7 +330,7 @@ def import_operations():
                     part_created += 1
                 existing = conn.execute('''SELECT id,COALESCE(operation_type,'PRODUCTION') operation_type
                     FROM operations WHERE UPPER(code)=UPPER(%s)''', (row['code'],)).fetchone()
-                if existing and existing['operation_type']!='PRODUCTION':
+                if existing and not is_production(existing['operation_type']):
                     # Một file xuất TRƯỚC bản vá vẫn còn dòng OP phụ trong đó.
                     raise ValueError(
                         f"Operation {row['code']} là OP phụ ({existing['operation_type']}), không sửa được bằng Excel. "

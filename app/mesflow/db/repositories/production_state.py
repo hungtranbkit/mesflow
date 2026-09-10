@@ -1,7 +1,16 @@
 from __future__ import annotations
+from mesflow.domain.policy import production_only_sql
 
 from .base import ConflictError, NotFoundError, reportable_session_sql
 from mesflow.domain.trace import record_event
+
+# Bộ lọc loại Operation lấy từ mesflow.domain.policy -- KHÔNG chép lại chuỗi
+# COALESCE(...) ở từng câu truy vấn. Trước 2026-09-10 mỗi module tự viết một
+# bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
+# PO, hoặc PO không bao giờ đạt COMPLETED.
+PRODUCTION_ONLY_BARE = production_only_sql('')[:len("COALESCE(")] + \
+    production_only_sql('')[len("COALESCE(."):]
+
 
 
 TERMINAL_OPERATION_STATUSES = {'COMPLETED', 'CANCELLED'}
@@ -179,7 +188,7 @@ def reconcile_production_order(cur, po_id: int):
                  WHERE x.production_order_id=%s AND ws.status='OPEN') has_open_session,
           EXISTS(SELECT 1 FROM work_sessions ws JOIN operations x ON x.id=ws.operation_id
                  WHERE x.production_order_id=%s AND {reportable_session_sql("ws")}) has_history
-        FROM operations WHERE production_order_id=%s AND COALESCE(operation_type,'PRODUCTION')='PRODUCTION' ''', (po_id, po_id, po_id))
+        FROM operations WHERE production_order_id=%s AND {PRODUCTION_ONLY_BARE} ''', (po_id, po_id, po_id))
     facts = cur.fetchone() or {}
     current = str(po.get('status') or 'DRAFT').upper()
     total = int(facts.get('operation_count') or 0)

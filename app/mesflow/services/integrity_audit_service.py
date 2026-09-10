@@ -17,10 +17,18 @@ phase, per the same request's rule: "After every chaos/load phase run:
 audit-sessions / audit-integrity."
 """
 from __future__ import annotations
+from mesflow.domain.policy import support_only_sql
 
 from typing import Any
 
 from mesflow.db.connection import fetch_all
+
+# Bộ lọc loại Operation lấy từ mesflow.domain.policy -- KHÔNG chép lại chuỗi
+# COALESCE(...) ở từng câu truy vấn. Trước 2026-09-10 mỗi module tự viết một
+# bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
+# PO, hoặc PO không bao giờ đạt COMPLETED.
+SUPPORT_ONLY_O = support_only_sql('o')
+
 
 
 def _status_ended_at_mismatch() -> list[dict[str, Any]]:
@@ -195,10 +203,10 @@ def _support_operation_with_production_quantity() -> list[dict[str, Any]]:
     dòng ở đây nghĩa là sản lượng đã bị ghi vào chỗ không đường nào cộng nó
     vào tiến độ PO -- số đó biến mất khỏi mọi báo cáo mà không có dấu vết.
     """
-    return fetch_all("""SELECT o.id operation_id,o.code,o.operation_type,
+    return fetch_all(f"""SELECT o.id operation_id,o.code,o.operation_type,
             o.done_qty,o.defect_qty,o.rework_qty,po.code po_code
         FROM operations o JOIN production_orders po ON po.id=o.production_order_id
-        WHERE COALESCE(o.operation_type,'PRODUCTION')<>'PRODUCTION'
+        WHERE {SUPPORT_ONLY_O}
           AND (COALESCE(o.done_qty,0)>0 OR COALESCE(o.defect_qty,0)>0 OR COALESCE(o.rework_qty,0)>0)
         ORDER BY o.id""")
 

@@ -1,11 +1,20 @@
 """V68 normalized read model over native trace, quantity, audit, kiosk and exceptions."""
 from __future__ import annotations
+from mesflow.domain.policy import production_only_sql
 import json
 from dataclasses import asdict,dataclass
 from datetime import datetime
 from typing import Any
 from mesflow.db.connection import fetch_all,fetch_one
 from mesflow.db.repositories.base import NotFoundError
+
+# Bộ lọc loại Operation lấy từ mesflow.domain.policy -- KHÔNG chép lại chuỗi
+# COALESCE(...) ở từng câu truy vấn. Trước 2026-09-10 mỗi module tự viết một
+# bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
+# PO, hoặc PO không bao giờ đạt COMPLETED.
+PRODUCTION_ONLY_BARE = production_only_sql('')[:len("COALESCE(")] + \
+    production_only_sql('')[len("COALESCE(."):]
+
 
 @dataclass(frozen=True)
 class TraceEvent:
@@ -83,7 +92,7 @@ class ProductionTraceService:
         elif kind=='operation':
             current=fetch_one('SELECT done_qty good_qty,defect_qty,rework_qty,scrap_qty FROM operations WHERE id=%s',(id,));where='operation_id=%s';params=(id,)
         else:
-            current=fetch_one("SELECT COALESCE(SUM(done_qty),0) good_qty,COALESCE(SUM(defect_qty),0) defect_qty,COALESCE(SUM(rework_qty),0) rework_qty,COALESCE(SUM(scrap_qty),0) scrap_qty FROM operations WHERE production_order_id=%s AND COALESCE(operation_type,'PRODUCTION')='PRODUCTION'",(id,));where='production_order_id=%s';params=(id,)
+            current=fetch_one(f"SELECT COALESCE(SUM(done_qty),0) good_qty,COALESCE(SUM(defect_qty),0) defect_qty,COALESCE(SUM(rework_qty),0) rework_qty,COALESCE(SUM(scrap_qty),0) scrap_qty FROM operations WHERE production_order_id=%s AND {PRODUCTION_ONLY_BARE}",(id,));where='production_order_id=%s';params=(id,)
         sums=fetch_one(f"SELECT COALESCE(SUM(delta) FILTER(WHERE movement_type='GOOD'),0) good_qty,COALESCE(SUM(delta) FILTER(WHERE movement_type='DEFECT'),0) defect_qty,COALESCE(SUM(delta) FILTER(WHERE movement_type='REPAIRABLE'),0) rework_qty FROM quantity_movements WHERE {where}",params)
         # Pre-V68 quantities are outside ledger coverage; mismatch is evidence,
         # not automatically corruption.

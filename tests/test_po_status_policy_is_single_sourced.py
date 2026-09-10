@@ -131,3 +131,136 @@ def test_po_status_sql_refuses_a_status_that_does_not_exist():
     assert po_status_sql(frozenset({'RELEASED', 'IN_PROGRESS'})) == "('IN_PROGRESS','RELEASED')"
     with pytest.raises(ValueError, match='không tồn tại'):
         po_status_sql(frozenset({'ACTIVE'}))
+
+
+# --- Loại Operation: cấm chép lại bộ lọc ---------------------------------
+
+#: Mọi file được phép nhắc tới operation_type. File nào KHÔNG có trong danh
+#: sách này mà tự viết bộ lọc thì bài test dưới sẽ đỏ -- đó là cách ngăn bản
+#: chép thứ hai ra đời, chứ không phải cách liệt kê cho đủ.
+POLICY_MODULE = 'app/mesflow/domain/policy.py'
+
+OPERATION_TYPE_CONSUMERS = (
+    'app/mesflow/db/repositories/analytics.py',
+    'app/mesflow/db/repositories/rework.py',
+    'app/mesflow/db/repositories/production_state.py',
+    'app/mesflow/db/repositories/execution.py',
+    'app/mesflow/db/repositories/setup_ops.py',
+    'app/mesflow/web/excel_io.py',
+    'app/mesflow/web/master_data.py',
+    'app/mesflow/services/integrity_audit_service.py',
+    'app/mesflow/services/production_trace_service.py',
+)
+
+
+def test_no_consumer_writes_its_own_operation_type_filter():
+    """Bộ lọc loại Operation chỉ được sinh ra từ policy.
+
+    Đây là bài test có giá trị nhất trong file: nó không kiểm hành vi hiện tại
+    (hành vi đang đúng), nó ngăn bản chép TIẾP THEO. Mỗi lần một module tự viết
+    lại COALESCE(operation_type,...) là một lần có thể quên, và quên ở đây
+    nghĩa là sản lượng của OP phụ lọt vào tiến độ PO -- không lỗi, không log,
+    chỉ là số sai.
+    """
+    offenders = []
+    for rel in OPERATION_TYPE_CONSUMERS:
+        source = _code_only(_read(rel))
+        for match in re.finditer(r"COALESCE\(\w*\.?operation_type,'PRODUCTION'\)\s*(?:=|<>|!=|IN)", source):
+            line = source[:match.start()].count('\n') + 1
+            offenders.append(f'{rel}:{line}')
+    assert not offenders, (
+        'bộ lọc operation_type viết tay -- phải dùng policy.production_only_sql / '
+        'support_only_sql / type_in_sql:\n  ' + '\n  '.join(offenders))
+
+
+def test_every_consumer_actually_imports_the_policy():
+    """Dùng policy, không phải chỉ tránh viết chuỗi."""
+    missing = [rel for rel in OPERATION_TYPE_CONSUMERS
+               if 'mesflow.domain.policy' not in _read(rel)]
+    assert not missing, ('file có nhắc operation_type nhưng không nhập policy:\n  '
+                         + '\n  '.join(missing))
+
+
+def test_no_module_hardcodes_a_support_type_name():
+    """'SETUP' / 'REWORK' viết cứng cũng là một bản chép.
+
+    Chỉ soi các so sánh trong Python (== 'SETUP'), không soi SQL: một vài câu
+    truy vấn tra riêng bảng SETUP theo parent_operation_id, ở đó tên loại là
+    một phần của câu hỏi chứ không phải một bộ lọc chính sách.
+    """
+    offenders = []
+    for rel in OPERATION_TYPE_CONSUMERS:
+        source = _code_only(_read(rel))
+        for match in re.finditer(r"operation_type'?\]?\s*(?:==|!=)\s*'(SETUP|REWORK|PRODUCTION)'", source):
+            line = source[:match.start()].count('\n') + 1
+            offenders.append(f'{rel}:{line} -> {match.group(0)}')
+    assert not offenders, (
+        'so sánh loại Operation viết tay -- dùng policy.is_production / is_setup / '
+        'is_rework:\n  ' + '\n  '.join(offenders))
+
+
+def test_labelled_types_exclude_the_rework_bench():
+    """Bàn SỬA HÀNG không được in tem: kiosk từ chối mở session trên nó."""
+    from mesflow.domain.policy import LABELLED_TYPES, REWORK_TYPE, SETUP_TYPE, PRODUCTION_TYPE
+
+    assert PRODUCTION_TYPE in LABELLED_TYPES
+    assert SETUP_TYPE in LABELLED_TYPES, 'quét tem SETUP là cách duy nhất ghi nhận chuẩn bị máy'
+    assert REWORK_TYPE not in LABELLED_TYPES, (
+        'in tem cho bàn sửa hàng là đưa cho xưởng một QR mà kiosk không nhận')
+
+
+def test_type_in_sql_refuses_an_unknown_type():
+    from mesflow.domain.policy import type_in_sql
+
+    assert type_in_sql(frozenset({'SETUP'}), 'o') == \
+        "COALESCE(o.operation_type,'PRODUCTION') IN ('SETUP')"
+    with pytest.raises(ValueError, match='không tồn tại'):
+        type_in_sql(frozenset({'ASSEMBLY'}), 'o')
+
+
+def test_every_policy_name_used_in_sql_is_actually_imported():
+    """Tên policy nhúng trong f-string SQL phải có trong scope của file.
+
+    compile() KHÔNG bắt được lỗi này -- một cái tên chưa import trong f-string
+    chỉ nổ lúc CHẠY, dưới dạng NameError, và Flask biến nó thành HTTP 500. Đã
+    xảy ra: quét SETUP_TYPE vào bốn câu truy vấn của setup_ops.py nhưng quên
+    thêm nó vào dòng import; 22 bài integration đỏ, và phải mất một vòng gate
+    đầy đủ mới thấy.
+
+    Bài test này chạy trong một giây và bắt đúng lớp lỗi đó.
+    """
+    import ast
+
+    policy_names = {
+        'SETUP_TYPE', 'REWORK_TYPE', 'PRODUCTION_TYPE',
+        'PRODUCTION_ONLY_O', 'PRODUCTION_ONLY_BARE', 'SUPPORT_ONLY_O',
+        'LABELLED_ONLY_O', 'IS_SETUP_O',
+    }
+    offenders = []
+    for rel in OPERATION_TYPE_CONSUMERS:
+        tree = ast.parse(_read(rel))
+        bound = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    bound.add(alias.asname or alias.name.split('.')[0])
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                bound.add(node.id)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.add(node.name)
+            elif isinstance(node, ast.arg):
+                bound.add(node.arg)
+        used = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.JoinedStr):
+                for value in node.values:
+                    if isinstance(value, ast.FormattedValue):
+                        for sub in ast.walk(value.value):
+                            if isinstance(sub, ast.Name):
+                                used.add(sub.id)
+        missing = sorted((used & policy_names) - bound)
+        if missing:
+            offenders.append(f'{rel}: {missing}')
+    assert not offenders, ('tên policy dùng trong f-string nhưng chưa import '
+                           '(sẽ là NameError -> HTTP 500 lúc chạy):\n  '
+                           + '\n  '.join(offenders))

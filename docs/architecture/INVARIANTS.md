@@ -45,6 +45,26 @@ Nguồn sự thật: `mesflow/domain/policy.py`.
 `operation_type` là cột thêm sau. `NULL` và chuỗi rỗng đều là `PRODUCTION` —
 dữ liệu cũ có trước cột này và tất cả đều là OP sản xuất.
 
+**Nguồn duy nhất, đã quét hết consumer (2026-09-10).** Không module nào còn tự
+viết `COALESCE(operation_type,'PRODUCTION')=...` hay so sánh `== 'SETUP'`. Tất
+cả đi qua:
+
+| Dùng khi | Hàm |
+|---|---|
+| lọc OP sản xuất trong SQL | `production_only_sql(alias)` |
+| lọc OP hỗ trợ trong SQL | `support_only_sql(alias)` |
+| lọc theo một tập loại | `type_in_sql(types, alias)` |
+| so đúng một loại trong SQL | `type_is_sql(type, alias)` |
+| nhánh Python | `is_production` / `is_support` / `is_setup` / `is_rework` |
+| loại được in tem QR | `LABELLED_TYPES` (`is_labelled`) |
+
+`LABELLED_TYPES` = PRODUCTION + SETUP. REWORK bị loại vì
+`lock_startable_operation()` từ chối mở session trên bàn sửa hàng — in tem cho
+nó là đưa cho xưởng một QR mà kiosk không nhận.
+
+`tests/test_po_status_policy_is_single_sourced.py` cấm bản chép mới: bất kỳ
+bộ lọc `operation_type` viết tay nào trong 9 file consumer đều làm test đỏ.
+
 Hệ quả bắt buộc:
 
 - Mọi rollup sản lượng phải lọc `PRODUCTION`. Quên một chỗ là sản lượng của OP
