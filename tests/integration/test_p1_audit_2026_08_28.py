@@ -217,7 +217,14 @@ def test_non_excluded_long_open_session_still_detected_control(db, seeded_factor
     try:
         conditions = ExceptionRepository().detected_conditions()
         match = [c for c in conditions if c['session_id'] == sid]
-        assert match and match[0]['exception_type'] == 'LONG_OPEN_SESSION'
+        types = {c['exception_type'] for c in match}
+        # Xét CÓ MẶT, không xét vị trí đầu. Một session mở 13 giờ có thể trúng
+        # nhiều điều kiện cùng lúc: chạy bài này sau nửa đêm thì nó cũng là
+        # SESSION_PAST_SHIFT_END, và thứ tự trả về đẩy cái đó lên trước. Bài
+        # test đỏ vì giờ chạy chứ không vì phát hiện sai -- đúng thứ nó đang
+        # muốn chứng minh thì vẫn đúng.
+        assert 'LONG_OPEN_SESSION' in types, (
+            f'không phát hiện LONG_OPEN_SESSION; chỉ thấy {sorted(types)}')
     finally:
         with db.cursor() as cur:
             cur.execute('DELETE FROM work_sessions WHERE id=%s', (sid,))

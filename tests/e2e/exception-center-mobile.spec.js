@@ -20,6 +20,7 @@
 // primitive mà làm hỏng chỗ khác thì phải đỏ ở đây, không phải ngoài hiện
 // trường.
 const { test, expect } = require('@playwright/test');
+const { openFilters } = require('./helpers/filters');
 
 const PHONES = [['iPhone 12/13/14', 390, 844], ['iPhone X', 375, 812],
                 ['iPhone 14 Pro Max', 430, 932]];
@@ -85,6 +86,9 @@ for (const [label, width, height] of PHONES) {
   test(`${label} (${width}px): bộ lọc là lưới đều, ô ngày rộng dùng được`, async ({ page }) => {
     await login(page);
     await open(page, 'session-exceptions', { width, height });
+    // Từ 2026-09-10 bộ lọc GẬP mặc định ở <=700px. Bố cục lưới bên trong vẫn
+    // là thứ đang kiểm -- chỉ cần mở ra mới đo được.
+    await openFilters(page);
     const g = await page.evaluate(geometry);
 
     // Bản lỗi cho ra 105/267/175/175/175/125/125/134 -- so le ở mọi viewport.
@@ -158,6 +162,7 @@ for (const [key, marker] of SHARED) {
   test(`${key} dùng chung primitive: không tràn ngang, không tab chiếm trọn hàng (390px)`, async ({ page }) => {
     await login(page);
     await open(page, key, { width: 390, height: 844 });
+    await openFilters(page);
     await expect(page.locator(marker).first()).toBeVisible();
     const g = await page.evaluate(geometry);
     expect(g.overflow, `${key} tràn ngang ${g.overflow}px`).toBeLessThanOrEqual(1);

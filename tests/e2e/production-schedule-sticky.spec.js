@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { openFilters } = require('./helpers/filters');
 
 async function login(page) {
   await page.goto('/login');
@@ -104,6 +105,9 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 76
     await login(page);
     await mockSchedule(page);
     await page.evaluate(() => openPage('production-schedule'));
+    // Bộ lọc gập mặc định ở <=700px (MFUI.filterBar). Mở bằng helper dùng
+    // chung thay vì tự bấm ở đây -- ngưỡng đổi thì chỉ sửa một chỗ.
+    await openFilters(page);
     await expect(page.locator('#schedulePoFilter')).toBeVisible();
     await expect(page.locator('.schedule-po')).toHaveCount(3);
     expect(await page.locator('body').evaluate(body => body.scrollWidth > body.clientWidth)).toBe(false);

@@ -29,7 +29,19 @@ const MFUI=(()=>{
   // ever needed the one built-in "Xóa bộ lọc" clear button, so this stays
   // backward compatible: omitting clearLabel/actions reproduces the exact
   // markup those callers already depend on.
-  const filterBar=({content='',count='',activeCount=0,clearId='',clearLabel='Xóa bộ lọc',actions=''})=>`<div class="ui-filter-bar" role="search"><div class="ui-filter-controls">${content}</div><div class="ui-filter-meta">${activeCount?`<span class="ui-filter-active">Bộ lọc (${Number(activeCount)})</span>`:''}${clearId?`<button class="btn tertiary" id="${escHtml(clearId)}" type="button">${escHtml(clearLabel)}</button>`:''}${count!==''?`<span aria-live="polite">${escHtml(count)} kết quả</span>`:''}${actions?`<div class="ui-filter-bar-actions">${actions}</div>`:''}</div></div>`;
+  // Trên máy điện thoại, bộ lọc GẬP LẠI mặc định.
+  //
+  // Lý do đo được: Trung tâm ngoại lệ có 8 trường lọc; ở 390px chúng chiếm
+  // 509px và đẩy ngoại lệ đầu tiên xuống 740px -- gần một màn hình rưỡi cuộn
+  // trước khi thấy nội dung chính. Không cách sắp xếp nào cứu được: 8 trường
+  // không vừa một màn hình dọc. Thứ duy nhất còn lại là đừng hiện chúng cho
+  // tới khi người dùng cần.
+  //
+  // Dùng <details>/<summary> THẬT chứ không phải div giả: bàn phím, trình đọc
+  // màn hình và cả nút tìm-trong-trang của trình duyệt đều đã hiểu nó sẵn.
+  // Thuộc tính `open` nằm sẵn trong markup, nên nếu JS chết thì desktop vẫn
+  // thấy đủ bộ lọc -- hỏng về phía an toàn.
+  const filterBar=({content='',count='',activeCount=0,clearId='',clearLabel='Xóa bộ lọc',actions=''})=>`<div class="ui-filter-bar" role="search"><details class="ui-filter-disclosure" open><summary class="ui-filter-summary"><span>Bộ lọc</span>${activeCount?`<span class="ui-filter-active">${Number(activeCount)}</span>`:''}</summary><div class="ui-filter-controls">${content}</div></details><div class="ui-filter-meta">${activeCount?`<span class="ui-filter-active">Bộ lọc (${Number(activeCount)})</span>`:''}${clearId?`<button class="btn tertiary" id="${escHtml(clearId)}" type="button">${escHtml(clearLabel)}</button>`:''}${count!==''?`<span aria-live="polite">${escHtml(count)} kết quả</span>`:''}${actions?`<div class="ui-filter-bar-actions">${actions}</div>`:''}</div></div>`;
   // ContentPanel: the one shared "PanelHeader (title/meta left, actions
   // right) + PanelBody" wrapper for a Golden Reference page's actual data
   // region -- a table, a card list, or a standard empty/loading state. Only
@@ -176,6 +188,48 @@ const MFUI=(()=>{
   const formatQuantity=value=>new Intl.NumberFormat('vi-VN',{maximumFractionDigits:2}).format(Number(value||0));
   const formatDateTime=value=>value?new Intl.DateTimeFormat('vi-VN',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Ho_Chi_Minh'}).format(new Date(value)):'—';
   const formatDuration=seconds=>{seconds=Math.max(0,Number(seconds||0));const min=Math.floor(seconds/60),h=Math.floor(min/60);return h?`${h} giờ ${min%60} phút`:`${min} phút`};
-  return {statusBadge,pageHeader,pageShell,filterBar,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
+  // --- gập/mở bộ lọc theo bề rộng màn hình -------------------------------
+  //
+  // <details> không tự biết viewport, nên phải có người đặt trạng thái ban
+  // đầu. Quy tắc: <=700px thì gập, rộng hơn thì mở -- cùng ngưỡng với lưới 2
+  // cột của bộ lọc trong ui.css, để hai thứ không nói hai chuyện khác nhau.
+  //
+  // Tôn trọng lựa chọn của người dùng: ai đã tự bấm mở/đóng thì lần đồng bộ
+  // sau không giật lại. Cờ đánh dấu nằm trên chính phần tử nên khi trang vẽ
+  // lại (mọi trang ở đây đều dựng lại innerHTML) nó biến mất cùng phần tử --
+  // đúng ý: trang mới thì bắt đầu lại từ mặc định.
+  const FILTER_COLLAPSE_MQ = window.matchMedia('(max-width:700px)');
+  const syncFilterDisclosures = (root=document) => {
+    const wantClosed = FILTER_COLLAPSE_MQ.matches;
+    root.querySelectorAll?.('.ui-filter-disclosure').forEach(node => {
+      if (node.dataset.userToggled === '1') return;
+      node.open = !wantClosed;
+    });
+  };
+  document.addEventListener('toggle', event => {
+    const node = event.target;
+    if (node instanceof HTMLElement && node.classList?.contains('ui-filter-disclosure')) {
+      node.dataset.userToggled = '1';
+    }
+  }, true);
+  FILTER_COLLAPSE_MQ.addEventListener('change', () => syncFilterDisclosures());
+  // Trang được vẽ lại bằng innerHTML nên không có sự kiện nào báo; theo dõi
+  // cây DOM là cách duy nhất bắt được phần tử mới mà không bắt mỗi trang phải
+  // nhớ gọi hàm này.
+  new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.classList?.contains('ui-filter-disclosure') ||
+            node.querySelector?.('.ui-filter-disclosure')) {
+          syncFilterDisclosures(node.parentNode || document);
+          return;
+        }
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  syncFilterDisclosures();
+
+  return {statusBadge,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
 })();
 window.MFUI=MFUI;

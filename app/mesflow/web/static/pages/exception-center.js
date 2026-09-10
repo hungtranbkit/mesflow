@@ -1,7 +1,17 @@
 /* V67 operational Exception Center. Loaded after the legacy renderer so the
    navigation/API contract stays backward compatible while the page upgrades. */
 const ExceptionCenter=(()=>{
-  const state={view:'action',items:[],selected:null,scroll:0,timer:null,resolution:null};
+  const state={view:'action',items:[],selected:null,scroll:0,timer:null,resolution:null,filters:{}};
+  // Mọi ô lọc, khai báo một chỗ: query() đọc, captureFilters() lưu,
+  // filterFields() dựng lại. Ba nơi trước đây tự liệt kê riêng, nên thêm một
+  // ô lọc mới mà quên một trong ba là ô đó âm thầm không hoạt động.
+  const FILTER_IDS=['ecSeverity','ecType','ecPo','ecEmployee','ecOperation','ecFrom','ecTo','ecSort'];
+  // Đổi tab là vẽ lại toàn bộ innerHTML, nên các ô lọc bị thay mới và giá trị
+  // người dùng vừa gõ biến mất. Không ai yêu cầu điều đó -- đổi tab là đổi
+  // NHÓM ngoại lệ đang xem, không phải bỏ điều kiện lọc. Lưu trước khi vẽ,
+  // đặt lại sau khi vẽ.
+  const captureFilters=()=>{for(const id of FILTER_IDS){const el=document.getElementById(id);if(el)state.filters[id]=el.value}};
+  const restoreFilters=()=>{for(const id of FILTER_IDS){const el=document.getElementById(id);if(el&&state.filters[id]!=null)el.value=state.filters[id]}};
   const labels={LONG_OPEN_SESSION:'Session mở quá lâu',ZERO_QUANTITY_LONG:'Sản lượng bất thường',MISSING_STATION:'Thiếu thông tin trạm',INVALID_DURATION:'Thời gian không hợp lệ',OPERATION_COMPLETED_SESSION_OPEN:'Operation hoàn tất nhưng Session còn mở',EMPLOYEE_SESSION_CONFLICT:'Session xung đột',INTERRUPTED_QUANTITY_ENTRY:'Quét thẻ mới trong khi chưa nhập số liệu'};
   const statusLabel={OPEN:'Cần xử lý',ACKNOWLEDGED:'Đã xác nhận',RESOLVED:'Đã giải quyết',AUTO_IGNORED:'Tự động bỏ qua',MANUAL_IGNORED:'Đã bỏ qua'};
   // §3 of the 2026-08-28 Session Exception Resolution modal task: presentation
@@ -222,7 +232,7 @@ const ExceptionCenter=(()=>{
     openPage('session-management',document.querySelector('[data-page="session-management"]'));
   }
 
-  async function render(){if(state.timer)clearTimeout(state.timer);title.textContent='Trung tâm ngoại lệ';subtitle.textContent='Việc cần xử lý, xác nhận và lịch sử bất thường sản xuất';content.innerHTML=`<div class="page-shell"><nav class="ec-tabs mf-tabs">${[['action','Cần xử lý'],['all','Tất cả'],['resolved','Đã giải quyết'],['ignored','Đã bỏ qua'],['history','Lịch sử']].map(([v,l])=>`<button data-view="${v}" class="mf-tab ${state.view===v?'active':''}">${l}</button>`).join('')}<div id="ecSummary" class="ec-summary-compact">Đang đối soát…</div></nav>${MFUI.filterBar({content:filterFields(),actions:'<button class="btn primary" id="ecApply">Áp dụng</button>'})}<section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách ngoại lệ</h3></div></div><div class="content-panel-body ec-list" id="ecList">Đang tải…</div></section></div>`;document.querySelectorAll('.ec-tabs button').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;render()});document.getElementById('ecApply').onclick=()=>load();await load();const poll=async()=>{if(document.body.dataset.page!=='session-exceptions')return;if(!state.resolution)await load(true);state.timer=setTimeout(poll,15000)};state.timer=setTimeout(poll,15000)}
+  async function render(){if(state.timer)clearTimeout(state.timer);title.textContent='Trung tâm ngoại lệ';subtitle.textContent='Việc cần xử lý, xác nhận và lịch sử bất thường sản xuất';content.innerHTML=`<div class="page-shell"><nav class="ec-tabs mf-tabs">${[['action','Cần xử lý'],['all','Tất cả'],['resolved','Đã giải quyết'],['ignored','Đã bỏ qua'],['history','Lịch sử']].map(([v,l])=>`<button data-view="${v}" class="mf-tab ${state.view===v?'active':''}">${l}</button>`).join('')}<div id="ecSummary" class="ec-summary-compact">Đang đối soát…</div></nav>${MFUI.filterBar({content:filterFields(),actions:'<button class="btn primary" id="ecApply">Áp dụng</button>'})}<section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách ngoại lệ</h3></div></div><div class="content-panel-body ec-list" id="ecList">Đang tải…</div></section></div>`;document.querySelectorAll('.ec-tabs button').forEach(b=>b.onclick=()=>{captureFilters();state.view=b.dataset.view;render()});restoreFilters();document.getElementById('ecApply').onclick=()=>load();await load();const poll=async()=>{if(document.body.dataset.page!=='session-exceptions')return;if(!state.resolution)await load(true);state.timer=setTimeout(poll,15000)};state.timer=setTimeout(poll,15000)}
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('ecDrawer'))closeResolution()});return {render,closeDrawer:closeResolution};
 })();
 renderSessionExceptions=ExceptionCenter.render;

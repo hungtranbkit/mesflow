@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { openFilters } = require('./helpers/filters');
 
 test.beforeEach(async ({ page }) => {
   const errors=[];
@@ -82,6 +83,8 @@ test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page })
   await page.getByRole('button', { name: 'Video hướng dẫn' }).click();
   await expect(page.getByRole('button', { name: 'Video hướng dẫn' })).toHaveClass(/active/);
   await expect(page.getByRole('button', { name: 'KIMEX', exact: true })).toHaveClass(/active/);
+  // #tutorialSearch nằm trong bộ lọc, gập mặc định ở <=700px.
+  await openFilters(page);
   await expect(page.locator('#tutorialSearch')).toBeVisible();
   expect(await page.locator('#nav').evaluate(x=>x.scrollWidth<=x.clientWidth)).toBeTruthy();
   await page.getByRole('button', { name: 'ESP Kiosk', exact: true }).click();
@@ -126,6 +129,7 @@ test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page })
   // KIMEX restores its own content, and ESP Kiosk is reachable again from
   // there without a page reload losing state.
   await page.getByRole('button', { name: 'KIMEX', exact: true }).click();
+  await openFilters(page);
   await expect(page.locator('#tutorialSearch')).toBeVisible();
   await page.getByRole('button', { name: 'ESP Kiosk', exact: true }).click();
   await expect(page.getByRole('button', { name: 'ESP Kiosk', exact: true })).toHaveClass(/active/);

@@ -8,6 +8,7 @@
 // sắp xếp trong qr-print.js. Hợp đồng của chính API đó được kiểm riêng, bằng
 // dữ liệu thật, ở tests/integration/test_qr_catalogue_grouping.py.
 const { test, expect } = require('@playwright/test');
+const { openFilters } = require('./helpers/filters');
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/login');
@@ -47,6 +48,9 @@ async function openCatalogue(page, rows = OPERATIONS) {
   await page.route(/\/api\/qr-image/, route =>
     route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>' }));
   await page.goto('/app?page=qr-print');
+  // Bộ lọc gập mặc định ở <=700px (MFUI.filterBar), và #qrType nằm trong đó.
+  // Helper tự bỏ qua khi màn rộng, nên gọi vô điều kiện là an toàn.
+  await openFilters(page);
   await page.locator('#qrType').selectOption('OPERATION');
   await expect(page.locator('.qr-catalog-card').first()).toBeVisible({ timeout: 15000 });
 }
