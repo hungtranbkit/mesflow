@@ -1,5 +1,5 @@
 from __future__ import annotations
-from mesflow.domain.policy import production_only_sql
+from mesflow.domain.policy import is_rework, production_only_sql
 
 from .base import ConflictError, NotFoundError, reportable_session_sql
 from mesflow.domain.trace import record_event
@@ -289,7 +289,7 @@ def lock_startable_operation(cur, operation_id: int):
     # without ever being real production. Refused here rather than at each
     # caller: kiosk v1/v2, the legacy batch path and the API all funnel through
     # this one guard.
-    if operation.get('is_rework_op'):
+    if is_rework(operation.get('operation_type')):
         raise ConflictError(
             f"{operation.get('name') or 'SỬA HÀNG'} là bàn sửa hàng, không Start bằng QR. "
             "Ghi nhận số sửa được / loại tại màn hình Hàng chờ sửa.")

@@ -6,7 +6,7 @@ original operation's GOOD result, while scrapped pieces enter SCRAP.  The
 ledger is an audit/history record, never a second quantity source.
 """
 from __future__ import annotations
-from mesflow.domain.policy import is_production, production_only_sql
+from mesflow.domain.policy import REWORK_TYPE, is_production, production_only_sql, type_is_sql
 
 from mesflow.db.connection import transaction, fetch_all
 from mesflow.db.repositories.base import ConflictError, NotFoundError
@@ -22,6 +22,7 @@ from datetime import date, datetime, time
 # bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
 # PO, hoặc PO không bao giờ đạt COMPLETED.
 PRODUCTION_ONLY_O = production_only_sql('o')
+IS_REWORK_O = type_is_sql(REWORK_TYPE, 'o')
 
 
 
@@ -39,8 +40,13 @@ def _rework_operation(cur, production_order_id: int, part_id: int):
     cur.execute("SELECT id FROM production_orders WHERE id=%s FOR UPDATE", (production_order_id,))
     if not cur.fetchone():
         raise NotFoundError("production order not found")
-    cur.execute("""SELECT o.* FROM operations o
-        WHERE o.production_order_id=%s AND o.part_id=%s AND o.is_rework_op=TRUE
+    # Dùng operation_type qua policy chứ không dùng cột sinh is_rework_op.
+    # Đã kiểm bằng EXPLAIN: hai dạng cho kế hoạch tương đương (cost 8.16 vs
+    # 8.17, cả hai đều Index Scan theo (production_order_id, part_id) rồi Filter
+    # -- is_rework_op KHÔNG được dùng làm điều kiện index), nên không có lý do
+    # hiệu năng để giữ hai cách phân loại song song.
+    cur.execute(f"""SELECT o.* FROM operations o
+        WHERE o.production_order_id=%s AND o.part_id=%s AND {IS_REWORK_O}
         ORDER BY o.id LIMIT 1 FOR UPDATE""", (production_order_id, part_id))
     row = cur.fetchone()
     if row:
