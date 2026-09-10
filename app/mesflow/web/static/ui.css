@@ -2361,3 +2361,31 @@ th,td{padding:10px 12px;white-space:nowrap;border-bottom:1px solid var(--border-
   .ui-filter-summary .ui-filter-active{margin-left:auto}
   .ui-filter-disclosure[open] .ui-filter-controls{margin-top:var(--ui-space-2)}
 }
+
+/* ==========================================================================
+   THỨ BẬC CHỮ TRONG HÀNG NGHIỆP VỤ (GĐ5.1)
+
+   Quy ước đã chốt: TÊN tiếng Việt là chữ chính, MÃ là chữ phụ. Người vận hành
+   tìm việc theo tên công đoạn, không theo mã -- mã chỉ dùng để đối chiếu khi
+   đã tìm thấy.
+
+   Trước đây hai màn ghép cả hai vào MỘT thẻ <b>, mã đứng trước:
+   "111-THAN-THUNG-R-01 · CẮT PHÔI CHO THÂN THÙNG RÁC". Đọc lướt thì thấy một
+   dãy ký tự vô nghĩa trước, tên thật bị đẩy ra sau và thường bị cắt.
+
+   Dùng chung với .op-row của khối Part, để cùng một quy ước ở mọi nơi.
+   ========================================================================== */
+/* Viết là b.row-title / small.row-code chứ không phải .row-title / .row-code:
+   các màn có sẵn luật riêng cho thẻ trần bên trong hàng -- .overview-op-row
+   small đặt 10px với độ ưu tiên (0,1,1), cao hơn .row-code (0,1,0). Nếu để
+   nguyên thì cùng một primitive ra 11px ở Hàng chờ sửa và 10px ở Tổng quan,
+   đúng kiểu lệch âm thầm mà primitive sinh ra để dẹp. Bám đúng (0,1,1) rồi
+   đứng sau trong file là đủ, không cần !important. */
+b.row-title,.row-title{font-size:13px;font-weight:650;color:var(--text-primary);
+  overflow:hidden;text-overflow:ellipsis}
+small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-secondary);
+  font-variant-numeric:tabular-nums;letter-spacing:.01em}
+/* Nội dung thật của hàng (mã Part + tên Part) từng nằm ở 10px -- đó là chữ để
+   đọc, không phải nhãn. Nhãn cột (.overview-op-head) vẫn giữ 10px vì nó là
+   nhãn viết hoa, đọc một lần rồi thôi. */
+.overview-op-row small{font-size:11px}

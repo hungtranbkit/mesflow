@@ -24,7 +24,8 @@ function rqRow(item) {
   const canResolve = hasPermission('rework.resolve');
   return `<div class="rq-row" data-rq-row="${Number(item.source_session_id)}">
     <span class="rq-cell rq-what">
-      <b>${esc(item.operation_code || '')} · ${esc(item.operation_name || '')}</b>
+      <b class="row-title">${esc(item.operation_name || '')}</b>
+      <small class="row-code">${esc(item.operation_code || '')}</small>
       <small>${esc(item.po_code || '')} · ${esc(item.part_code || '')} ${esc(item.part_name || '')}</small>
     </span>
     <span class="rq-cell rq-who">

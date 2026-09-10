@@ -35,7 +35,7 @@ async function renderSystemOverview(){
 
 async function renderSystemErrors(){
   title.textContent='Lỗi hệ thống';subtitle.textContent='HTTP 500, kết nối DB, dịch vụ gián đoạn — khác với NG sản phẩm và ngoại lệ Session (không dùng chung).';
-  content.innerHTML=`${MFUI.filterBar({content:'',actions:'<button class="btn primary" id="scErrLoad">Làm mới</button>'})}<div id="scErrRows">${MFUI.loadingState()}</div>`;
+  content.innerHTML=`${MFUI.filterBar({content:'',actions:'<button class="btn" id="scErrLoad">Làm mới</button>'})}<div id="scErrRows">${MFUI.loadingState()}</div>`;
   const rows=document.getElementById('scErrRows');
   async function run(){
     rows.innerHTML=MFUI.loadingState();

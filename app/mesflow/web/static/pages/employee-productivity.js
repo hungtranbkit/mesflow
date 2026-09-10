@@ -52,7 +52,7 @@ async function renderEmployeeProductivity() {
   title.textContent = 'Báo cáo năng suất nhân viên';
   subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các Session đã kết thúc của từng nhân viên trong khoảng ngày.';
   content.innerHTML = `<div class="page-shell">
-    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn primary" id="epReload">Làm mới</button>' })}
+    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epReload">Làm mới</button>' })}
     <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
     <!-- Section 21: giữ tách biệt khỏi filter bar phía trên -- panel riêng,
     không dùng chung state với bộ lọc bảng (epFrom/epTo/epDept chỉ ảnh hưởng
