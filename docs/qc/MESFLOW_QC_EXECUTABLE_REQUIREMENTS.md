@@ -506,6 +506,35 @@ this was verified against).
 - **Safety**: local_dev+demo+prodtest
 - **Source Reference**: STATE_MACHINES.yaml kiosk_v2_device (QR wire format, master doc §7.2)
 
+### QC-EXEC-QR-002 — a printed Operation label is scannable and names the right Operation
+- **Feature**: qr_print
+- **Role**: viewer
+- **Preconditions**: seed a PO with one Part, then build the stale-label case
+  **by renaming, not by duplicating** — `operations_code_key` is globally
+  unique, so two Operations can never share a code and any attempt to seed the
+  ambiguity that way is rejected by the database:
+  1. create Operation with code `X` (its `qr` becomes `WF|OP|X`);
+  2. rename that Operation's code to `X-OLD` — `operations.qr` is deliberately
+     NOT rewritten, so it still reads `WF|OP|X`;
+  3. create a second Operation now taking code `X`.
+- **Action**: `GET /api/qr-labels?type=OPERATION&production_order_id=<po>&active_only=0`
+- **Expected Result**: for the renamed Operation, `qr_payload` is
+  `WF|OPID|<id>` — never `WF|OP|X`, because `X` is both a code it no longer has
+  and a string that now resolves to two rows (the scan resolver refuses it, so
+  printing it hands the shop floor a dead label). For an Operation nobody
+  touched, `qr_payload` is unchanged (`WF|OP|<code>`), so reprinting matches the
+  labels already stuck on the machines. A SETUP row keeps its `WF|OPID|<id>`.
+  The human-readable `code` column is always the display key `<part>-<code>`
+  and must name the SAME Operation the payload resolves to.
+- **Executor**: ui
+- **Priority**: P1 — printing an unscannable label stops a work centre; the
+  worker cannot start the job and nothing on screen says why
+- **Safety**: local_dev+demo (seeds and renames Operations — never against a
+  target carrying real production history)
+- **Source Reference**: MESFLOW_MASTER_REQUIREMENTS_VI.md REQ-QR-001 (all four
+  payload branches, in order); docs/architecture/OPERATION_IDENTITY.md (why
+  `operations.qr` is not resynced on rename); tests/integration/test_qr_label_payload_is_scannable.py
+
 ### QC-EXEC-XLSX-001 — Excel import rejects done/defect/status columns
 - **Feature**: import_export_excel
 - **Role**: admin
@@ -631,7 +660,7 @@ this was verified against).
 
 ## Coverage summary
 
-- **Total executable requirements in this file**: 53 (verified by
+- **Total executable requirements in this file**: 54 (verified by
   `scripts/qc_dry_run.py`, which also produces the live breakdown below
   every time it's run — treat these numbers as a snapshot, re-run for
   the current truth after any edit)
