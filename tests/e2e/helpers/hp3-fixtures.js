@@ -104,6 +104,46 @@ const BUSINESS_AUDIT = (date) => ({ ok:true, total:2, items:[
     entity:'session', entity_id:'2', summary:'Xác nhận 40 sản phẩm đạt', changes:[] }
 ] });
 
+
+const SCHEDULE = (date) => ({ ok:true, items:[
+  { po_id:1, po_code:'PO-HP3-1', product:'Thùng rác inox', po_status:'IN_PROGRESS', due_date:'2026-09-30',
+    po_end:at(date,17,0), part_id:1, part_code:'PART-1', part_name:'Thân thùng',
+    operation_id:11, operation_code:'111-THAN-THUNG-R-04', operation_name:'Hàn thùng rác inox',
+    operation_status:'IN_PROGRESS', planned_start_at:at(date,7,30), planned_end_at:at(date,12,0),
+    actual_start_at:at(date,8,0), actual_end_at:null, calculated_start_at:at(date,8,0),
+    calculated_end_at:at(date,12,0), planned_quantity:500, done_qty:300, defect_qty:12,
+    progress_percent:60, blocked:false, active_sessions:1, predecessor_code:null,
+    input_flow_enabled:false, defects_consume_input:false },
+  { po_id:1, po_code:'PO-HP3-1', product:'Thùng rác inox', po_status:'IN_PROGRESS', due_date:'2026-09-30',
+    po_end:at(date,17,0), part_id:1, part_code:'PART-1', part_name:'Thân thùng',
+    operation_id:12, operation_code:'OP-SON-02', operation_name:'Sơn tĩnh điện',
+    operation_status:'PLANNED', planned_start_at:at(date,12,0), planned_end_at:at(date,17,0),
+    actual_start_at:null, actual_end_at:null, calculated_start_at:at(date,12,0),
+    calculated_end_at:at(date,17,0), planned_quantity:500, done_qty:150, defect_qty:2,
+    progress_percent:30, blocked:false, active_sessions:0, predecessor_code:'111-THAN-THUNG-R-04',
+    input_flow_enabled:true, defects_consume_input:false, input_source_code:'111-THAN-THUNG-R-04',
+    input_source_operation_id:11, input_source_done_qty:300, input_available_qty:300, input_consumed_qty:150 },
+  { po_id:2, po_code:'PO-HP3-2', product:'Khung inox', po_status:'IN_PROGRESS', due_date:'2026-10-05',
+    po_end:at(date,16,0), part_id:2, part_code:'PART-2', part_name:'Khung đỡ',
+    operation_id:21, operation_code:'OP-CAT-01', operation_name:'Cắt laser',
+    operation_status:'COMPLETED', planned_start_at:at(date,8,0), planned_end_at:at(date,10,0),
+    actual_start_at:at(date,8,0), actual_end_at:at(date,10,0), calculated_start_at:at(date,8,0),
+    calculated_end_at:at(date,10,0), planned_quantity:200, done_qty:200, defect_qty:0,
+    progress_percent:100, blocked:false, active_sessions:0, predecessor_code:null,
+    input_flow_enabled:false, defects_consume_input:false },
+]});
+
+const REWORK = (date) => ({ ok:true, items:[
+  { source_session_id:1, operation_id:11, operation_code:'111-THAN-THUNG-R-04',
+    operation_name:'Hàn thùng rác inox', po_code:'PO-HP3-1', part_id:1, part_code:'PART-1',
+    part_name:'Thân thùng', employee_name:'Nguyễn Văn A', employee_no:'EMP-001',
+    source_finished_at:at(date,9,0), defect_qty:18, rework_qty:4, scrap_qty:2, pending_qty:12 },
+  { source_session_id:2, operation_id:12, operation_code:'OP-SON-02',
+    operation_name:'Sơn tĩnh điện', po_code:'PO-HP3-1', part_id:1, part_code:'PART-1',
+    part_name:'Thân thùng', employee_name:'Trần Thị B', employee_no:'EMP-002',
+    source_finished_at:at(date,11,0), defect_qty:6, rework_qty:0, scrap_qty:0, pending_qty:6 },
+]});
+
 async function mockAll(page) {
   const date = hcmDate();
   const json = (data) => (r) => r.fulfill({ json: data });
@@ -116,8 +156,13 @@ async function mockAll(page) {
   await page.route('**/api/session-exceptions?**', json(EXCEPTIONS(date)));
   await page.route('**/api/exceptions?**', json(EXCEPTIONS(date)));
   await page.route('**/api/audit-logs**', json(BUSINESS_AUDIT(date)));
+  await page.route('**/api/production-schedule**', json(SCHEDULE(date)));
+  await page.route('**/api/rework/queue**', json(REWORK(date)));
+  await page.route('**/api/employees**', json({ ok:true, items:[
+    { id:1, name:'Nguyễn Văn A', employee_no:'EMP-001' },
+    { id:2, name:'Trần Thị B', employee_no:'EMP-002' }] }));
   await page.route('**/api/business-audit**', json(BUSINESS_AUDIT(date)));
 }
 
-module.exports = { mockAll, hcmDate, at, dayPayload, SHIFTS, OVERVIEW, CONTROL,
+module.exports = { mockAll, SCHEDULE, REWORK, hcmDate, at, dayPayload, SHIFTS, OVERVIEW, CONTROL,
   SESSION_MGMT, SESSION_MGMT_OPS, EXCEPTIONS, BUSINESS_AUDIT };

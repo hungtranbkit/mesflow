@@ -259,6 +259,9 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
   lại nằm ở thân thẻ. Dải màu trạng thái dùng `::before`, KHÔNG `border-left` --
   rule quét surface đặt `border:...!important` nên `border-left` trên một thẻ
   bị quét không bao giờ hiển thị.
+- Áp dụng REQ-UI-016 hiện có: danh sách Operation của Dashboard theo ngày, và
+  "Hàng chờ sửa" (mỗi sản phẩm chờ sửa là một thẻ, số chờ sửa là dữ kiện chính
+  bên phải). Cả hai dùng LẠI `.op-card`/`.op-card-list`, không dựng thẻ riêng.
 
 ### 5.5b Tab và segmented control
 
