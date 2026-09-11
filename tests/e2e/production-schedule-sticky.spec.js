@@ -51,6 +51,15 @@ test('filter và PO group header sticky đúng tầng, không duplicate', async 
 
   await expect(page.locator('.schedule-po')).toHaveCount(3);
   await expect(page.locator('.schedule-po-head')).toHaveCount(3);
+  // Từ REQ-UI-019, mặc định chỉ MỘT PO mở sẵn. Hợp đồng của bài này là thứ tự
+  // TẦNG sticky giữa toolbar và header PO -- chỉ có nghĩa khi PO đang mở, vì
+  // một PO thu gọn không có nội dung nào để header phải bám. Nên mở hết trước
+  // rồi mới đo; ý nghĩa của bài không đổi.
+  await openFilters(page);
+  await page.locator('#scheduleExpandAll').click();
+  await expect.poll(async () => page.evaluate(() =>
+    [...document.querySelectorAll('details.schedule-po')].every(d => d.open)),
+    { timeout: 8000 }).toBe(true);
   await expect(page.locator('.schedule-po').first().locator('.gantt-row')).toHaveCount(22);
   await expect(page.locator('.schedule-po-head').first()).toContainText('7/22 OP hoàn thành');
 

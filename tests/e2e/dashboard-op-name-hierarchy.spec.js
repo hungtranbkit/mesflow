@@ -93,7 +93,7 @@ async function openDashboard(page, tab, width = 1366) {
 
 // Khối nhận dạng của cả hai tab, đọc bằng đúng một selector dùng chung.
 const BLOCKS = [
-  ['overview', '.op-time-row:not(.head) .op-identity', 'Tổng quan Operation'],
+  ['overview', '#opTimeProgress .op-card .op-identity', 'Tổng quan Operation'],
   ['people', '.employee-day-summary .op-identity', 'Nhân viên / Session · khối tổng hợp'],
   ['people', '.employee-session-chips .op-identity', 'Nhân viên / Session · chip timeline'],
 ];
@@ -129,7 +129,7 @@ for (const [tab, selector, label] of BLOCKS) {
 
 test('tên OP thật nằm trên bề mặt, không chỉ trong title=', async ({ page }) => {
   await openDashboard(page, 'overview');
-  const first = page.locator('.op-time-row:not(.head)').first();
+  const first = page.locator('#opTimeProgress .op-card').first();
   await expect(first.locator('.row-title')).toHaveText(OP_NAME);
   await expect(first.locator('.row-code')).toHaveText(OP_CODE);
 
@@ -151,7 +151,7 @@ test('tên OP thật nằm trên bề mặt, không chỉ trong title=', async (
 test('thiếu operation_name thì mã lên làm chữ chính, không để trống', async ({ page }) => {
   await openDashboard(page, 'overview');
   // Hàng thứ hai trong payload cố ý có operation_name=null.
-  const fallbackRow = page.locator('.op-time-row:not(.head)', { hasText: OP2_CODE }).first();
+  const fallbackRow = page.locator('#opTimeProgress .op-card', { hasText: OP2_CODE }).first();
   await expect(fallbackRow).toBeVisible({ timeout: 15000 });
   const shape = await fallbackRow.locator('.op-identity').first().evaluate(el => ({
     title: el.querySelector('.row-title')?.textContent.trim() ?? null,

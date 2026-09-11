@@ -107,8 +107,8 @@ const MOCKS = {
 // [khóa mock, selector hàng, đường dẫn mở trang]
 const SCREENS = [
   ['overview', '.overview-op-row', 'overview'],
-  ['rework-queue', '.rq-row:not(.head)', 'rework-queue'],
-  ['dashboard-overview', '.op-time-row:not(.head)', 'dashboard&tab=overview'],
+  ['rework-queue', '.rq-card', 'rework-queue'],
+  ['dashboard-overview', '.op-card', 'dashboard&tab=overview'],
   ['dashboard-people', '.employee-day-summary', 'dashboard&tab=people'],
 ];
 
