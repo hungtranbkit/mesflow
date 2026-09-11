@@ -1747,7 +1747,14 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-panel-foot{margin:9px 0 0;font-size:11px;color:var(--k-dim);border-top:1px solid var(--k-line);padding-top:8px}
 .kiosk-chart-panel{flex:0 0 auto}
 .kiosk-station-panel{flex:1 1 auto}
-.kiosk-station-panel .kiosk-panel-body{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2b3747 transparent}
+.kiosk-station-panel .kiosk-panel-body{overflow:hidden}
+/* .kiosk-tr sets `display:grid`, which OUTRANKS the UA stylesheet's
+   `[hidden]{display:none}` -- without this rule a row the whole-row trim
+   marks hidden keeps painting, and the panel still shows a half-cut row.
+   Found live on the deployed preview, not by a unit test. */
+.kiosk-tr[hidden]{display:none}
+.kiosk-tr.kiosk-more{display:block;grid-template-columns:none;text-align:center;font-size:12.5px;
+  color:var(--k-dim);border-bottom:0;padding:6px 4px 0}
 .kiosk-col-side{overflow:hidden}
 
 /* hourly chart ------------------------------------------------------------ */
@@ -1872,7 +1879,13 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
   .kiosk-panel{padding:11px 13px}
   .kiosk-panel-head{padding-bottom:8px;margin-bottom:8px}
   .kiosk-panel-head h2{font-size:15px}
-  .kiosk-chart-plot{height:118px;padding-top:14px}
+  .kiosk-chart-plot{height:76px;padding-top:11px}
+  /* The colour key is how the chart is read from across a room -- it must
+     survive the tighter height, so it shrinks rather than being squeezed out
+     of the panel by `overflow:hidden`. */
+  .kiosk-chart-legend{font-size:10.5px;gap:11px}
+  .kiosk-chart-legend .sw{width:9px;height:9px;margin-right:4px}
+  .kiosk-chart-panel .kiosk-panel-body{overflow:visible}
   .kiosk-tr{grid-template-columns:minmax(0,2.2fr) 104px minmax(0,1fr) minmax(0,1.15fr) 54px 92px;gap:9px;padding:7px 3px}
   .kiosk-op b{font-size:14.5px}
   .kiosk-alert{padding:7px 10px}
@@ -1884,9 +1897,12 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
      three-column grid: the dispatch panel keeps a tall column of its own and
      the three small panels move to a full-width strip along the bottom.
      Nothing is hidden -- only re-placed. */
+  /* Height budget at 768px is tight: reserve a floor for the Operation table
+     so the whole-row trim can never starve it down to zero rows, and let the
+     chart and the three small panels give up the space instead. */
   .kiosk-body{gap:10px;
     grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr);
-    grid-template-rows:auto minmax(0,1fr) auto;
+    grid-template-rows:auto minmax(264px,1fr) auto;
     grid-template-areas:"chart chart attention" "stations stations attention" "ng people repair"}
   .kiosk-col-main,.kiosk-col-side{display:contents}
   .kiosk-chart-panel{grid-area:chart}
@@ -1897,7 +1913,10 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
   .kiosk-panel-people{grid-area:people}
   .kiosk-panel-repair{grid-area:repair}
   .kiosk-mini-panel{flex:0 0 auto}
-  .kiosk-mini-panel .kiosk-list li:nth-child(n+4){display:none}
+  .kiosk-mini-panel .kiosk-list li:nth-child(n+3){display:none}
+  .kiosk-mini-panel .kiosk-list{gap:4px}
+  .kiosk-mini-panel .kiosk-list b{font-size:13px}
+  .kiosk-mini-panel .kiosk-list small{font-size:11px}
 }
 /* Mobile is a graceful fallback only -- this screen is designed for a TV. */
 @media(max-width:900px){
@@ -1906,7 +1925,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
   .kiosk-col-side{overflow:visible}
   .kiosk-col-main,.kiosk-col-side{display:flex}
   .kiosk-body{grid-template-areas:none;grid-template-rows:auto}
-  .kiosk-mini-panel .kiosk-list li:nth-child(n+4){display:flex}
+  .kiosk-mini-panel .kiosk-list li:nth-child(n+3){display:flex}
   .kiosk-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
   .kiosk-body{grid-template-columns:minmax(0,1fr)}
   .kiosk-live{margin-left:0}

@@ -238,6 +238,7 @@
     // dashboard already uses (total_good_qty/planned_quantity for product
     // progress, day_work_seconds/planned_work_seconds for time efficiency), so
     // the two screens can never disagree.
+    let lastStationFit=null;
     const stateLabel=s=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý',UPDATED:'Đã cập nhật',IDLE:'Không có người'}[s]||s||'—');
     const paintStations=day=>{
       const box=document.getElementById('kioskStations'),note=document.getElementById('kioskStationNote');if(!box)return;
@@ -265,8 +266,43 @@
             <span class="kiosk-ng ${Number(x.day_defect_qty)>0?'has':''}">${N(x.day_defect_qty)}</span>
             <span class="kiosk-eff ${timeState}">${timePct===null?'<u>Chưa có định mức</u>':`${timePct}%`}</span>
           </div>`}).join('')}
+        <div class="kiosk-tr kiosk-more" hidden></div>
       </div>`;
+      lastStationFit={box,total:rows.length};
+      fitWholeRows(box,rows.length);
     };
+    // The panel's usable height changes with the viewport (a TV switched to a
+    // different mode, a browser window resized), so the whole-row trim has to
+    // be re-measured then too -- not only when new data is painted.
+    window.addEventListener('resize',()=>{
+      if(!alive()||!lastStationFit)return;
+      fitWholeRows(lastStationFit.box,lastStationFit.total);
+    });
+    // A wall display nobody can scroll must never show half a row: a row cut
+    // through the middle reads as a broken layout, not as "there is more".
+    // Measured after layout (the panel's height depends on the viewport, the
+    // KPI strip and the chart above it), then trimmed to whole rows with an
+    // honest "+N" count of what did not fit.
+    const fitWholeRows=(box,total)=>requestAnimationFrame(()=>{
+      const table=box.querySelector('.kiosk-table');if(!table)return;
+      const more=table.querySelector('.kiosk-more');
+      const rows=[...table.querySelectorAll('.kiosk-tr')].filter(el=>!el.classList.contains('kiosk-th')&&el!==more);
+      rows.forEach(el=>{el.hidden=false});
+      if(more)more.hidden=true;
+      const limit=box.getBoundingClientRect().bottom;
+      // Reserve room for the "+N" line itself, otherwise adding it would push
+      // the last kept row back out of view.
+      const reserve=more?22:0;
+      let hidden=0;
+      for(const el of rows){
+        if(el.getBoundingClientRect().bottom>limit-reserve){el.hidden=true;hidden++}
+      }
+      if(hidden&&more){
+        const shown=rows.length-hidden;
+        more.textContent=`+${(total-shown).toLocaleString('vi-VN')} Operation khác`;
+        more.hidden=false;
+      }
+    });
 
     // ---- "Cần xử lý ngay" --------------------------------------------------
     // Assembled from signals that already exist. Nothing here invents a new

@@ -115,6 +115,42 @@ function watchConsole(page) {
 const noHorizontalOverflow = async page => page.evaluate(() =>
   document.documentElement.scrollWidth <= window.innerWidth + 1);
 
+// A wall display cannot be scrolled, so a row sliced through the middle is a
+// layout defect, not "there is more below". Every rendered Operation row must
+// sit fully inside its panel.
+const noClippedRow = async page => page.evaluate(() => {
+  const body = document.querySelector('#kioskStations');
+  if (!body) return true;
+  const limit = body.getBoundingClientRect().bottom + 1;
+  // Measure what is PAINTED, not what is flagged: `.kiosk-tr{display:grid}`
+  // outranks the UA `[hidden]` rule, so `el.hidden` alone is not proof a row
+  // is off screen.
+  return [...body.querySelectorAll('.kiosk-tr')]
+    .filter(el => !el.classList.contains('kiosk-more'))
+    .filter(el => el.offsetParent !== null && el.getBoundingClientRect().height > 0)
+    .every(el => el.getBoundingClientRect().bottom <= limit);
+});
+
+// The whole-row trim must never starve the table down to zero Operation rows:
+// a panel whose entire content is "+N khác" tells the quản đốc nothing.
+const paintedRowCount = async page => page.evaluate(() => {
+  const body = document.querySelector('#kioskStations');
+  if (!body) return 0;
+  return [...body.querySelectorAll('.kiosk-tr')]
+    .filter(el => !el.classList.contains('kiosk-more') && !el.classList.contains('kiosk-th'))
+    .filter(el => el.offsetParent !== null && el.getBoundingClientRect().height > 0).length;
+});
+
+// The colour key is the only thing that says which bar means what; a tighter
+// viewport must shrink it, never squeeze it out of the panel.
+const legendVisible = async page => page.evaluate(() => {
+  const el = document.querySelector('.kiosk-chart-legend');
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  const panel = el.closest('.kiosk-panel').getBoundingClientRect();
+  return r.height > 0 && r.bottom <= panel.bottom + 1;
+});
+
 test.describe('Kiosk điều hành', () => {
   test('mở từ Dashboard theo ngày, giữ đúng date qua refresh và Back/Forward', async ({ page }) => {
     const errors = watchConsole(page);
@@ -191,6 +227,7 @@ test.describe('Kiosk điều hành', () => {
     // The whole display fits the first viewport at TV size -- no vertical
     // scrolling for something meant to be read passively from a distance.
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 2)).toBe(true);
+    expect(await noClippedRow(page)).toBe(true);
 
     // 8 + 9: the smaller wall/laptop size keeps ALL eight KPI tiles and still
     // fits one screen -- a display nobody can scroll must not hide half itself.
@@ -200,6 +237,9 @@ test.describe('Kiosk điều hành', () => {
     expect(await noHorizontalOverflow(page)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 2)).toBe(true);
     await expect(page.locator('#kioskStations .kiosk-tr').first()).toBeVisible();
+    expect(await noClippedRow(page)).toBe(true);
+    expect(await paintedRowCount(page)).toBeGreaterThanOrEqual(2);
+    expect(await legendVisible(page)).toBe(true);
     // The side column's dispatch panel must still be on screen at this size.
     await expect(page.locator('#kioskAttention')).toBeVisible();
 
