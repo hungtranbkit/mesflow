@@ -2189,6 +2189,78 @@ Chưa có nguồn đáng tin nên **chưa hiển thị** (không bịa):
   trang, tạm dừng khi hover), responsive 1366/1920/4K.
 
 
+### REQ-KIOSK-012 — Kiosk điều hành: mật độ phòng điều hành cho TV/màn lớn
+
+> **Nguồn sự thật:** Kiosk điều hành phải hiển thị ĐỒNG THỜI đủ nhiều chuyển động
+> của một PO để người đứng trước TV nắm được tình hình mà không phải chờ vòng lật
+> trang: ở 1920×1080 tối thiểu 10 hàng task, ở 1366×768 tối thiểu 6, kèm 4–6 sự
+> kiện gần nhất, và KHÔNG hàng nào bị cắt ngang thân.
+
+- **Mô-đun**: Kiosk điều hành (màn hình lớn treo tường, chỉ đọc) — cùng màn với
+  REQ-KIOSK-010, yêu cầu này nói về MẬT ĐỘ hiển thị, không đổi ngữ nghĩa nghiệp
+  vụ nào của nó.
+- **Mục đích**: bản trước đúng về hành vi nhưng THƯA. Đo được ở 1366×768: header
+  cao 127px vì hộp chọn PO rơi xuống hàng hai, dải KPI để trống hai cột (lưới
+  khai 8 cột trong khi luôn chỉ có 6 thẻ), panel "Cần xử lý ngay" hiện 0 cảnh báo
+  nguyên vẹn (9/9 bị cắt ngang), dòng hoạt động hiện 1 sự kiện nguyên vẹn (9/10
+  bị cắt), và panel "Sản lượng theo giờ" bị ẩn hẳn. Ở 1920×1080: 8 hàng task,
+  header+KPI ăn 21% chiều cao, và panel biểu đồ chiếm 272px mà KHÔNG vẽ được cột
+  nào (`paintHourly` dựng `<i style="height:N%">` thẳng trong `.kiosk-bar` còn
+  CSS chỉ có luật cho `.kiosk-bar-stack i` — một cấu trúc markup không còn tồn
+  tại; mọi cột đo ra `width:0 height:0`, nền trong suốt).
+- **Đối tượng thực hiện**: mọi role đăng nhập được (chỉ xem).
+- **Điều kiện tiên quyết**: như REQ-KIOSK-010.
+- **Kích hoạt bởi**: mở màn hình lớn ở bất kỳ bề rộng nào.
+
+**Luồng chính (những gì màn hình phải bảo đảm)**
+
+1. **Một thang mật độ duy nhất.** Mọi khoảng cách, cỡ chữ, chiều cao biểu đồ và
+   số hàng của panel phụ đọc từ MỘT khối token `--kd-*` khai trên `.kiosk-display`
+   trong `ui.css`. Media query chỉ đổi GIÁ TRỊ token, không viết lại rule cho
+   từng phần tử. JS đọc `--kd-attn-rows` / `--kd-other-rows` / `--kd-feed-max`
+   qua `getComputedStyle` nên số hàng vẽ ra và bố cục không thể lệch nhau.
+2. **Header một hàng.** Không `flex-wrap` ở bề rộng ≥ 901px; ô co được (tên sản
+   phẩm, hộp chọn PO) cắt bằng ellipsis thay vì xuống dòng. Header + dải KPI
+   không được vượt **20% chiều cao viewport**.
+3. **Dải KPI vừa khít số thẻ.** Lưới `auto-fit`, không cột rỗng.
+4. **Hàng task gọn 1–2 hàng chữ**: TÊN Operation là dòng chính, mã là dòng phụ
+   nhỏ hơn và mờ hơn; trạng thái, người làm, tiến độ và NG nằm trên cùng một
+   hàng. Nhãn "Vừa hoàn thành" kèm người cập nhật nằm CÙNG DÒNG với chip trạng
+   thái, để hàng vừa xong không cao hơn các hàng khác và danh sách không giật.
+5. **Không hàng nào bị cắt ngang thân** ở cả bốn danh sách (task, sự kiện, cảnh
+   báo, biến động PO khác). Panel phụ cao theo nội dung nên số hàng do JS quyết
+   định: vẽ giảm dần tới khi phần tử cuối nằm trọn khung. Phần không vẽ ra phải
+   được NÓI RA bằng số ("+N điểm cần xử lý khác"), và nhãn đếm ở đầu panel luôn
+   là TỔNG chứ không phải số dòng đang vẽ.
+6. **Biểu đồ giờ vẽ ra cột thật**, chiều cao theo token (không chiếm hơn ~15%
+   chiều cao màn), và **không bị ẩn ở 1366** nữa.
+7. **Ngân sách cột phải**: dòng hoạt động là panel co giãn duy nhất; hai panel
+   thông báo cao theo nội dung với số hàng chốt bởi token, tổng hai panel đó
+   không quá 50% chiều cao viewport.
+
+**Luồng phụ / ngoại lệ**
+
+- ≤ 900px (điện thoại) không phải màn hình đích: header được `flex-wrap` trở lại
+  và trang cuộn dọc bình thường. Ràng buộc duy nhất là **không tràn ngang**.
+- Thu nhỏ chữ KHÔNG được tính là mật độ: tên Operation có SÀN cỡ chữ (15px ở
+  1920, 13.5px ở 1366) bên cạnh TRẦN bước nhảy hàng.
+
+- **Dữ liệu / API**: không đổi. Vẫn đúng hai endpoint chỉ-đọc của REQ-KIOSK-010.
+- **Quy tắc nghiệp vụ**: không đổi. Cô lập PO, phân trang tự động, snapshot
+  trang, giữ task vừa hoàn thành 5–10s, chỉ báo trang, không sắp xếp lại giữa
+  chu kỳ — tất cả giữ nguyên như REQ-KIOSK-010.
+- **Quyền**: như REQ-KIOSK-010 (`dashboard.view`).
+- **Đồng thời**: N/A (chỉ đọc).
+- **Audit**: N/A (chỉ đọc).
+- **Liên quan**: REQ-KIOSK-010 (hành vi màn này), REQ-UI-* (thang bo góc dùng
+  chung — hàng task/sự kiện/cảnh báo là `--radius-surface-row`).
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: mật độ ở 1920/1366 (số hàng nguyên vẹn, số hàng bị
+  cắt = 0), trần bước nhảy hàng + sàn cỡ chữ, ngân sách header+KPI, cột biểu đồ
+  có chiều cao theo dữ liệu, không tràn ngang ở 1920/1366/390, nhãn đếm cảnh báo
+  là tổng chứ không phải số dòng vẽ ra.
+
+
 ### REQ-KIOSK-011 — Kiosk web đồng nhất luồng kết thúc session với ESP v2
 
 > **Nguồn sự thật:** luồng nhập sản lượng của Kiosk web phải cho ra cùng kết quả
@@ -2860,6 +2932,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — module được test nhiều nhất hệ thống |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 case), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
+| REQ-KIOSK-012 (kiosk điều hành, mật độ phòng điều hành) | `tests/e2e/kiosk-density-contract.spec.js`, `tests/test_kiosk_density_scale.py`, `tests/test_daily_dashboard_kiosk_contract.py` | A |
 | REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |

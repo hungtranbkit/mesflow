@@ -42,8 +42,17 @@
   const INTERACT_PAUSE_MS=15000; // chạm/rê chuột thì dừng lật trang để đọc
   const COMPLETION_HOLD_MS=8000; // giữ task vừa xong trên màn (khoảng 5-10s)
   const NEW_EVENT_HIGHLIGHT_MS=2500;
-  const FEED_MAX=15;             // giữ 8-15 sự kiện gần nhất
-  const OTHER_MAX=5;             // "Biến động PO khác": 3-5 dòng
+  const FEED_MAX=15;             // giữ 8-15 sự kiện gần nhất TRONG BỘ NHỚ
+  const OTHER_MAX=5;             // giữ tối đa 5 biến động PO khác trong bộ nhớ
+
+  // SỐ HÀNG VẼ RA LÀ CHUYỆN KHÁC VỚI SỐ HÀNG GIỮ TRONG BỘ NHỚ. Ba panel phụ
+  // cao theo nội dung, nên nếu cứ vẽ hết những gì đang giữ rồi để CSS cắt bằng
+  // `overflow:hidden` thì hàng cuối bị cắt NGANG THÂN -- đo được ở bản trước:
+  // ở 1366 panel "Cần xử lý ngay" hiện đúng một cảnh báo và cảnh báo đó bị cắt
+  // đôi, đọc như layout vỡ chứ không như "còn nữa".
+  // Nên số hàng vẽ ra đọc từ chính thang mật độ của Kiosk trong ui.css
+  // (`--kd-*-rows`, REQ-KIOSK-012): một chỗ duy nhất quyết định mật độ, và
+  // media query đổi bậc màn hình thì JS đi theo mà không cần biết breakpoint.
 
   const E=v=>window.esc?window.esc(v??''):String(v??'');
   const N=v=>Number(v||0).toLocaleString('vi-VN');
@@ -114,6 +123,61 @@
     return p!==null&&p>=100?`đạt ${N(done)}/${N(plan)}, hoàn thành`:`đạt ${N(done)}/${N(plan)}`;
   }
 
+  /** Đọc một token mật độ (số nguyên) của Kiosk từ CSS. */
+  function density(el,name,dflt){
+    if(!el)return dflt;
+    const v=parseInt(getComputedStyle(el).getPropertyValue(name),10);
+    return Number.isFinite(v)?v:dflt;
+  }
+
+  /** Số hàng vừa một khung, đo THẬT trên DOM đã render.
+   *
+   * Đo BƯỚC NHẢY giữa hai hàng liền nhau, không phải chiều cao một hàng: giữa
+   * hai hàng còn có `gap`, bỏ qua nó thì phép chia ra thừa một hàng và hàng
+   * cuối bị cắt ngang đáy panel. Trên màn treo tường không ai cuộn được, một
+   * hàng cắt đôi đọc như layout vỡ chứ không như "còn nữa".
+   *
+   * Dùng chung cho danh sách task và dòng hoạt động -- hai panel co giãn duy
+   * nhất của màn này.
+   */
+  function fitRows(box,sel,min,max,fallback){
+    if(!box)return fallback;
+    const rows=box.querySelectorAll(sel);
+    if(!rows.length)return fallback;
+    const first=rows[0].getBoundingClientRect();
+    const pitch=rows.length>1
+      ?rows[1].getBoundingClientRect().top-first.top
+      :first.height+6;
+    if(!(pitch>0))return fallback;
+    const usable=box.getBoundingClientRect().height;
+    // +gap vì hàng CUỐI không có gap phía sau nó.
+    return Math.max(min,Math.min(max,Math.floor((usable+(pitch-first.height))/pitch)));
+  }
+
+  /** Vẽ giảm dần cho tới khi PHẦN TỬ CUỐI nằm trọn trong khung.
+   *
+   * Khác `fitRows` ở một điểm quyết định: `fitRows` chia chiều cao cho bước
+   * nhảy, nên nó chỉ đúng khi MỌI hàng cao bằng nhau. Hàng task thì đúng như
+   * vậy (một dòng, cắt bằng ellipsis), nhưng dòng hoạt động thì KHÔNG: câu
+   * "Hệ thống tự đóng session cuối ca OP ... → chưa xác nhận số liệu" xuống
+   * hai dòng còn "Trần Thị C nhận việc OP ..." chỉ một dòng. Đo được ở 1366:
+   * `fitRows` trả 4 trong khi khung chỉ chứa 3 -- hàng thứ tư bị cắt ngang.
+   * Vòng lặp này không giả định gì về chiều cao hàng, và nó còn tự tính cả
+   * dòng "+N ... khác" vì dòng đó cũng là phần tử cuối.
+   *
+   * Số vòng tối đa bằng `max` (<=6 ở đây) và mỗi vòng chỉ dựng vài hàng.
+   */
+  function fitDown(box,draw,max,min){
+    for(let n=max;n>min;n--){
+      draw(n);
+      const last=box.lastElementChild;
+      if(!last)return n;
+      if(last.getBoundingClientRect().bottom<=box.getBoundingClientRect().bottom+1)return n;
+    }
+    draw(min);
+    return min;
+  }
+
   async function renderDailyDashboardKiosk(){
     if(typeof dashboardTimer!=='undefined'&&dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
     const query=new URLSearchParams(location.search);
@@ -136,6 +200,8 @@
       perPage:8,
       pauseUntil:0,
       feed:[],
+      feedShow:0,         // số sự kiện ĐANG vẽ; đo lại khi khung đổi
+      budget:{},          // số hàng đang vẽ của hai panel cao-theo-nội-dung
       seen:new Set(),
       latestId:null,
       lastOk:null,
@@ -287,26 +353,10 @@
     const orderTasks=list=>[...list].sort((a,b)=>
       rank(a)-rank(b)||Number(b.day_good_qty||0)-Number(a.day_good_qty||0)||Number(a.operation_id)-Number(b.operation_id));
 
-    /** Số hàng vừa một trang, đo THẬT trên DOM đã render.
-     *
-     * Đo BƯỚC NHẢY giữa hai hàng liền nhau, không phải chiều cao một hàng: giữa
-     * hai hàng còn có `gap`, bỏ qua nó thì phép chia ra thừa một hàng và hàng
-     * cuối bị cắt ngang đáy panel. Trên màn treo tường không ai cuộn được, một
-     * hàng cắt đôi đọc như layout vỡ chứ không như "còn nữa".
-     */
-    function measurePerPage(){
-      const box=$('kioskTasks');if(!box)return S.perPage;
-      const rows=box.querySelectorAll('.kiosk-task');
-      if(!rows.length)return S.perPage;
-      const first=rows[0].getBoundingClientRect();
-      const pitch=rows.length>1
-        ?rows[1].getBoundingClientRect().top-first.top
-        :first.height+6;
-      if(!(pitch>0))return S.perPage;
-      const usable=box.getBoundingClientRect().height;
-      // +gap vì hàng CUỐI không có gap phía sau nó.
-      return Math.max(4,Math.min(12,Math.floor((usable+(pitch-first.height))/pitch)));
-    }
+    /** Số hàng task vừa một trang. Trần 16 (bản trước là 12): hàng nay thấp
+     * hơn nên ở 1920 một trang chứa được hơn 12 hàng thật -- giữ trần cũ là tự
+     * tay bắt màn hình phải lật trang trong khi chỗ trống vẫn còn. */
+    const measurePerPage=()=>fitRows($('kioskTasks'),'.kiosk-task',4,16,S.perPage);
 
     /** Danh sách hiển thị = task active + task vừa hoàn thành còn trong thời gian giữ. */
     function displayList(){
@@ -354,8 +404,8 @@
           <b>${E(t.operation_name||'—')}</b>
           <small>${E(t.operation_code||'')}</small>
         </div>
-        <div class="kiosk-task-state"><em class="kiosk-state ${E(state)}">${E(stateText)}</em>
-          ${just&&just.actor?`<small>${E(just.actor)}${just.delta?` · ${just.delta>0?'+':''}${N(just.delta)} SP`:''}</small>`:''}</div>
+        <div class="kiosk-task-state"><em class="kiosk-state ${E(state)}">${E(stateText)}</em>${
+          just&&just.actor?`<small>${E(just.actor)}${just.delta?` · ${just.delta>0?'+':''}${N(just.delta)} SP`:''}</small>`:''}</div>
         <div class="kiosk-task-people">${workers.length?E(workers.slice(0,2).join(', ')):'—'}${workers.length>2?` <u>+${workers.length-2}</u>`:''}</div>
         <div class="kiosk-task-qty"><b>${N(done)}</b>${plan?` / ${N(plan)}`:''}
           ${p===null?'':`<i class="kiosk-meter"><u style="width:${Math.min(100,p)}%"></u></i>`}</div>
@@ -429,19 +479,48 @@
     function paintAttention(list){
       const box=$('kioskAttention'),count=$('kioskAttentionCount'),foot=$('kioskAttentionFoot');
       if(!box)return;
+      // Con số trên nhãn là TỔNG, không phải số dòng vẽ ra -- người xem phải
+      // biết ngay quy mô kể cả khi màn chỉ đủ chỗ cho vài dòng đầu.
       if(count)count.textContent=list.length?N(list.length):'Sạch';
       if(foot)foot.textContent='Cảnh báo thiết bị/kiosk và ngoại lệ chưa xử lý chưa có nguồn dữ liệu ở màn này.';
-      box.innerHTML=list.length
-        ?list.map(x=>`<article class="kiosk-attn sev-${x.sev}"><em>${E(x.tag)}</em><b>${E(x.title)}</b><small>${E(x.sub)}</small></article>`).join('')
-        :'<div class="kiosk-empty"><b>Không có điểm cần xử lý</b><span>Mọi Operation của PO này đang bình thường.</span></div>';
+      if(!list.length){
+        box.innerHTML='<div class="kiosk-empty"><b>Không có điểm cần xử lý</b><span>Mọi Operation của PO này đang bình thường.</span></div>';
+        return;
+      }
+      const max=density(root(),'--kd-attn-rows',3);
+      const draw=n=>{
+        const rest=list.length-n;
+        box.innerHTML=list.slice(0,n).map(x=>
+          `<article class="kiosk-attn sev-${x.sev}"><em>${E(x.tag)}</em><b>${E(x.title)}</b><small>${E(x.sub)}</small></article>`).join('')
+          +(rest>0?`<p class="kiosk-attn-more">+${N(rest)} điểm cần xử lý khác</p>`:'');
+      };
+      const drew=fitDown(box,draw,Math.min(max,list.length),1);
+      budgetChanged('attn',drew);
+    }
+
+    /** Hai panel thông báo cao theo NỘI DUNG, nên mỗi lần số hàng của chúng đổi
+     * là chiều cao còn lại cho dòng hoạt động đổi theo. Bắt được ca này là điều
+     * kiện để "không có hàng nào bị cắt" còn đúng sau lần tải thứ hai:
+     * lần đầu `#kioskOther` rỗng nên panel đó chỉ cao bằng tiêu đề, dòng hoạt
+     * động đo được 5 hàng; ngay sau đó biến động PO khác về, panel cao thêm
+     * 80px và 2 trong 5 hàng vừa đo rơi ra ngoài khung.
+     */
+    function budgetChanged(key,rows){
+      if(S.budget[key]===rows)return;
+      S.budget[key]=rows;
+      S.feedShow=0;   // buộc paintFeed đo lại trên khung mới
     }
 
     // ---- activity feed ------------------------------------------------------
     function paintFeed(){
       const box=$('kioskFeed');if(!box)return;
-      if(!S.feed.length){box.innerHTML='<div class="kiosk-empty"><b>Chưa có hoạt động</b><span>Sự kiện hiện ra ngay khi xưởng thao tác.</span></div>';return}
+      if(!S.feed.length){
+        S.feedShow=0;
+        box.innerHTML='<div class="kiosk-empty"><b>Chưa có hoạt động</b><span>Sự kiện hiện ra ngay khi xưởng thao tác.</span></div>';
+        return;
+      }
       const now=Date.now();
-      box.innerHTML=S.feed.map(ev=>{
+      const eventHtml=ev=>{
         const {action,impact}=phraseOf(ev);
         const fresh=ev.__at&&now-ev.__at<NEW_EVENT_HIGHLIGHT_MS;
         return `<article class="kiosk-event tone-${E(TONE[ev.event_type]||'neutral')}${fresh?' is-new':''}" data-event="${E(ev.id)}">
@@ -451,21 +530,45 @@
             ${objectOf(ev)?`<i>${E(objectOf(ev))}</i>`:''}
             ${impact?`<u>→ ${E(impact)}</u>`:''}</p>
         </article>`;
-      }).join('');
-      $('kioskFeedNote').textContent=`${S.feed.length} sự kiện gần nhất · ${hhmmss(new Date())}`;
+      };
+      const max=density(root(),'--kd-feed-max',6);
+      const draw=n=>{box.innerHTML=S.feed.slice(0,Math.max(1,n)).map(eventHtml).join('')};
+      // Số hàng đã biết từ lần trước thì vẽ thẳng; chỉ đo lại khi chưa biết
+      // (lần đầu, hoặc sau khi đổi cỡ cửa sổ). Nhịp 1 giây vì thế chỉ vẽ một
+      // lần, không phải đo lại cả panel mỗi giây.
+      //
+      // Sàn của vòng vẽ là 1: thà hiện ít sự kiện hơn còn hơn hiện một dòng bị
+      // cắt ngang thân. Sàn NGHIỆP VỤ ("4-6 sự kiện gần nhất") là một ràng buộc
+      // của BỐ CỤC, không phải của vòng vẽ -- nó được canh ở
+      // tests/e2e/kiosk-density-contract.spec.js, nơi bố cục hụt ngân sách sẽ
+      // báo đỏ, thay vì âm thầm vỡ một hàng trên màn hình xưởng.
+      if(S.feedShow){
+        draw(S.feedShow);
+        // Hàng sự kiện KHÔNG cao cố định: "vừa xong" thành "2 phút trước" là
+        // câu dài thêm, và một câu dài thêm có thể xuống dòng. Nên số hàng đã
+        // đo vẫn phải được kiểm lại mỗi lần vẽ -- chỉ MỘT phép đo, và chỉ khi
+        // hàng cuối thật sự rơi ra ngoài mới vẽ lại.
+        const b=box.getBoundingClientRect(),last=box.lastElementChild;
+        if(last&&last.getBoundingClientRect().bottom>b.bottom+1)
+          S.feedShow=fitDown(box,draw,Math.max(1,S.feedShow-1),1);
+      }else S.feedShow=fitDown(box,draw,Math.min(max,S.feed.length),1);
+      const shown=Math.min(S.feedShow,S.feed.length);
+      $('kioskFeedNote').textContent=`${shown} sự kiện gần nhất · ${hhmmss(new Date())}`;
     }
 
     function paintOther(events){
       const box=$('kioskOther');if(!box)return;
       if(!events.length){box.innerHTML='<div class="kiosk-empty"><b>Không có biến động</b><span>Các PO khác chưa có thay đổi mới.</span></div>';return}
-      box.innerHTML=events.slice(0,OTHER_MAX).map(ev=>{
+      const rowHtml=ev=>{
         const {action,impact}=phraseOf(ev);
         return `<article class="kiosk-other-row tone-${E(TONE[ev.event_type]||'neutral')}">
           <div><b>${E(hhmm(ev.occurred_at))}</b> · <span class="kiosk-other-po">${E(ev.po_code||'—')}</span></div>
           <p>${E(actorOf(ev))} ${E(action)}${objectOf(ev)?` · ${E(objectOf(ev))}`:''}${impact?` → ${E(impact)}`:''}</p>
           <button class="kiosk-btn kiosk-btn-sm" type="button" data-view-po="${E(ev.po_id)}">Xem PO</button>
         </article>`;
-      }).join('');
+      };
+      const max=Math.min(density(root(),'--kd-other-rows',2),events.length);
+      budgetChanged('other',fitDown(box,n=>{box.innerHTML=events.slice(0,n).map(rowHtml).join('')},max,1));
       box.querySelectorAll('[data-view-po]').forEach(b=>b.onclick=()=>switchPo(Number(b.dataset.viewPo)));
     }
 
@@ -491,7 +594,8 @@
         paintSelector(S.options);
         paintKpis(data.kpis||{});
         paintHourly(data.sessions||[]);
-        paintAttention(buildAttention(S.tasks,data.sessions||[]));
+        S.attention=buildAttention(S.tasks,data.sessions||[]);
+        paintAttention(S.attention);
         reconcilePages();
         S.lastOk=new Date();
         setLive('live',`Trực tiếp · cập nhật ${clock(S.lastOk)}`);
@@ -541,12 +645,15 @@
         }
         if(S.feed.length>FEED_MAX)S.feed.length=FEED_MAX;
         if(data.latest_id)S.latestId=data.latest_id;
-        if(added||!$('kioskFeed').children.length)paintFeed();
+        // "Biến động PO khác" TRƯỚC "Hoạt động vừa xảy ra": panel kia cao theo
+        // nội dung, panel này là panel co giãn duy nhất của cột. Vẽ panel co
+        // giãn sau cùng thì nó đo trên khung đã chốt, không phải khung sắp đổi.
         if((data.other_events||[]).length||!$('kioskOther').children.length){
           S.otherFeed=[...(data.other_events||[]).reverse(),...(S.otherFeed||[])]
             .filter((e,i,a)=>a.findIndex(x=>x.id===e.id)===i).slice(0,OTHER_MAX);
           paintOther(S.otherFeed||[]);
         }
+        if(added||!$('kioskFeed').children.length||!S.feedShow)paintFeed();
       }catch(_e){/* feed hỏng không được làm sập cả màn hình */}
     }
 
@@ -577,7 +684,15 @@
       if(!alive())return;
       if(!document.hidden){loadBoard();loadActivity()}
     });
-    window.addEventListener('resize',()=>{if(alive()){S.perPage=measurePerPage();paintTasks()}});
+    // Đổi cỡ cửa sổ là đổi bậc mật độ (media query) -- cả hai panel co giãn
+    // phải đo lại, không chỉ danh sách task.
+    window.addEventListener('resize',()=>{
+      if(!alive())return;
+      S.perPage=measurePerPage();paintTasks();
+      if(S.attention)paintAttention(S.attention);
+      paintOther(S.otherFeed||[]);
+      S.feedShow=0;if(S.feed.length)paintFeed();
+    });
 
     await loadBoard();
     await loadActivity();

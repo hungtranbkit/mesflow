@@ -209,12 +209,17 @@ test('PO hết task active thì có empty state và gợi ý PO khác', async ({
 // --------------------------------------------------------------- mật độ
 
 // Ngưỡng là SỐ ĐO THẬT trên layout hiện tại, không phải con số mong muốn:
-// 1920 chứa 9 hàng/trang, 1366 chứa 5. So với bản cũ (hiển thị ~7 hàng rồi bỏ
-// phần còn lại sau dòng "+N Operation khác"), cái được không chỉ là 9>7 mà là
-// MỌI task đều có lượt lên màn qua phân trang. Hạ ngưỡng xuống dưới số đo thật
-// sẽ làm bài test ngừng bảo vệ mật độ, nên để sát mép và sửa khi layout đổi.
-for (const vp of [{ name: '1920x1080', width: 1920, height: 1080, minRows: 9 },
-                  { name: '1366x768', width: 1366, height: 768, minRows: 5 }]) {
+// sau bản mật độ REQ-KIOSK-012 thì 1920 chứa 12 hàng/trang và 1366 chứa 9 (bản
+// trước: 8 và 7). Cái được không chỉ là con số lớn hơn mà là MỌI task đều có
+// lượt lên màn qua phân trang. Hạ ngưỡng xuống dưới số đo thật sẽ làm bài test
+// ngừng bảo vệ mật độ, nên để sát mép và sửa khi layout đổi.
+//
+// Phần mật độ ĐẦY ĐỦ (trần cỡ hàng/cỡ chữ, số sự kiện, hàng bị cắt, ngân sách
+// header+KPI, cột biểu đồ) nằm ở tests/e2e/kiosk-density-contract.spec.js. Ở
+// đây chỉ giữ đúng phần gắn với phân trang: một trang phải chứa đủ nhiều hàng
+// để vòng lật không biến thành một cuốn sách.
+for (const vp of [{ name: '1920x1080', width: 1920, height: 1080, minRows: 10 },
+                  { name: '1366x768', width: 1366, height: 768, minRows: 6 }]) {
   test(`${vp.name}: đủ mật độ, không tràn ngang, không cắt hàng`, async ({ page }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await mockKiosk(page, { taskCount: 24 });

@@ -2471,43 +2471,158 @@ body[data-page="daily-dashboard-kiosk"] .app-layout{grid-template-columns:1fr;di
 body[data-page="daily-dashboard-kiosk"] .workspace-main,
 body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width:none;background:#0b1018}
 
+/* `.sr-only` được dùng ở hai chỗ (hộp chọn PO của Kiosk điều hành và ô tìm
+   trong modal "Mở màn hình lớn") nhưng CHƯA TỪNG được định nghĩa trong bất kỳ
+   stylesheet nào -- nên cả hai nhãn đáng lẽ chỉ dành cho trình đọc màn hình
+   đang hiện ra như chữ thường. Đo được ở header Kiosk 1366: dòng "Chọn
+   Production Order" ăn ~150px của một header vốn đã phải nhét vào một hàng.
+   Cả hai phần tử đều đã có `aria-label`/`<label>` đúng, nên ẩn đi không mất
+   khả năng truy cập -- đây là khôi phục ý định sẵn có của markup. */
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+
 .kiosk-display{--k-bg:#0b1018;--k-panel:#141c28;--k-line:#25313f;--k-text:#e8eef7;--k-dim:#8fa3bb;
   --k-ok:#2fbf71;--k-warn:#e8a13a;--k-bad:#e2544c;--k-run:#3d8ede;
-  height:100vh;overflow:hidden;padding:16px 20px 20px;display:flex;flex-direction:column;gap:14px;
+  height:100vh;overflow:hidden;padding:var(--kd-pad-screen);display:flex;flex-direction:column;gap:var(--kd-gap);
   background:var(--k-bg);color:var(--k-text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}
 
+/* --- THANG MẬT ĐỘ CỦA RIÊNG KIOSK (REQ-KIOSK-012) -------------------------
+   Mọi khoảng cách / cỡ chữ / số hàng của màn này đọc từ MỘT khối token, và
+   khối đó chỉ đổi giá trị theo bậc màn hình. Lý do không phải là gọn gàng:
+   trước bản này, cùng một con số (padding hàng task, cỡ chữ tên Operation,
+   chiều cao biểu đồ) nằm rải ở bốn khối rule khác nhau, khối sau đè khối
+   trước, nên "giảm 2px" phải sửa bốn chỗ và bỏ sót một chỗ là không ai thấy.
+
+   Hai token cuối cùng (`--kd-*-rows`) KHÔNG phải để CSS đọc: JS đọc chúng qua
+   getComputedStyle để biết vẽ bao nhiêu hàng. Panel phụ có chiều cao theo nội
+   dung, nên nếu để CSS cắt bằng `overflow:hidden` thì hàng cuối bị cắt ngang --
+   đo được ở bản trước: 1366 chỉ hiện ĐÚNG MỘT cảnh báo và nó bị cắt đôi. Cắt
+   bằng số hàng ở JS thì hàng cuối luôn nguyên vẹn, và phần dư nói thẳng "+N".
+
+   Bậc mặc định là bậc HẸP (laptop 1366). TV >= 1501px nới ra ở khối media bên
+   dưới. Viết theo chiều này vì màn hẹp là chỗ ngân sách chiều cao căng nhất --
+   quên override thì ra bản chặt, không phải bản tràn. */
+.kiosk-display{
+  --kd-pad-screen:8px 10px 10px;
+  --kd-gap:8px;
+  --kd-pad-panel:8px 10px;
+  --kd-pad-head:6px 13px;
+  --kd-head-pb:6px;
+  --kd-row-py:4px;
+  --kd-row-px:9px;
+  --kd-row-gap:4px;
+  --kd-lh:1.18;
+  --kd-fs-panel:14px;
+  --kd-fs-title:14.5px;
+  --kd-fs-meta:11px;
+  --kd-fs-kpi:22px;
+  --kd-fs-kpi-label:10.5px;
+  --kd-fs-event:12.5px;
+  --kd-fs-event-meta:10.5px;
+  --kd-fs-brand:17px;
+  --kd-fs-headline:15px;
+  --kd-fs-clock:17px;
+  --kd-fs-label:9.5px;
+  --kd-chart-h:78px;
+  /* 768px là ngân sách bão hoà: cột phải phải chứa cảnh báo + dòng hoạt động +
+     biến động PO khác. Hai con số dưới đây là phần MỖI panel thông báo được
+     phép lấy; phần dư của danh sách cảnh báo nói bằng "+N điểm cần xử lý khác",
+     còn nhãn đếm ở đầu panel luôn là TỔNG. */
+  /* Ở bậc hẹp panel cảnh báo lùi về 2 dòng, KHÔNG phải 3. Đây là chỗ ngân sách
+     thật sự chạm trần: 3 dòng cảnh báo + 2 dòng biến động PO khác + dòng chân
+     panel để dòng hoạt động chỉ còn 159px, tức 3 sự kiện -- dưới mức "4-6 sự
+     kiện gần nhất" đã chốt. Thứ tự nhường là có chủ ý: cảnh báo còn nhãn đếm
+     TỔNG ở đầu panel và dòng "+N điểm cần xử lý khác", còn dòng hoạt động mất
+     một sự kiện là mất hẳn một chuyển động không có chỗ nào khác nói lại. */
+  --kd-attn-rows:2;
+  --kd-other-rows:2;
+  --kd-feed-max:6;
+}
+@media(min-width:1501px){
+  .kiosk-display{
+    --kd-pad-screen:12px 14px 14px;
+    --kd-gap:10px;
+    --kd-pad-panel:9px 14px;
+    --kd-pad-head:8px 16px;
+    --kd-head-pb:7px;
+    --kd-row-py:5px;
+    --kd-row-px:12px;
+    --kd-row-gap:5px;
+    --kd-fs-panel:15px;
+    --kd-fs-title:16px;
+    --kd-fs-meta:11.5px;
+    --kd-fs-kpi:26px;
+    --kd-fs-kpi-label:11.5px;
+    --kd-fs-event:13px;
+    --kd-fs-event-meta:11px;
+    --kd-fs-brand:20px;
+    --kd-fs-headline:17px;
+    --kd-fs-clock:20px;
+    --kd-fs-label:10px;
+    --kd-chart-h:104px;
+    --kd-attn-rows:4;
+    --kd-other-rows:3;
+    --kd-feed-max:8;
+  }
+}
+/* 4K: gấp đôi bề rộng nhưng cũng gấp đôi khoảng cách đứng nhìn, nên chữ to lại
+   chứ không dày thêm hàng. */
+@media(min-width:3000px){
+  .kiosk-display{
+    --kd-fs-title:22px;--kd-fs-meta:15px;--kd-fs-kpi:40px;--kd-fs-kpi-label:15px;
+    --kd-fs-event:17px;--kd-fs-event-meta:14px;--kd-fs-panel:20px;--kd-fs-brand:28px;
+    --kd-fs-headline:23px;--kd-fs-clock:28px;--kd-row-py:8px;--kd-row-px:16px;--kd-chart-h:160px;
+    --kd-feed-max:10;
+  }
+}
+
 /* header ------------------------------------------------------------------ */
-.kiosk-header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
-  background:var(--k-panel);border:1px solid var(--k-line);border-radius:12px;padding:12px 20px}
-.kiosk-identity{display:flex;flex-direction:column;min-width:0}
-.kiosk-identity b{font-size:24px;letter-spacing:.02em;line-height:1.1}
-.kiosk-identity span{font-size:13px;color:var(--k-dim)}
-.kiosk-header>div>small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--k-dim)}
-.kiosk-header>div>strong{display:block;font-size:20px;font-weight:700;margin-top:2px;white-space:nowrap}
-.kiosk-clock>strong{font-variant-numeric:tabular-nums;font-size:26px}
-.kiosk-shift>strong{font-size:17px;color:#cbd8e8}
-.kiosk-live{margin-left:auto;display:flex;align-items:center;gap:9px;padding:9px 15px;border-radius:999px;
-  border:1px solid var(--k-line);background:#101824;font-size:14px;font-weight:600;white-space:nowrap}
-.kiosk-live i{width:10px;height:10px;border-radius:50%;background:var(--k-dim);flex:none}
+/* MỘT HÀNG, KHÔNG XUỐNG DÒNG. `flex-wrap:wrap` của bản trước là nguyên nhân
+   đo được của header cao 127px ở 1366 (so với 90px ở 1920): hộp chọn PO + hai
+   nút rơi xuống hàng hai, để trống gần nửa hàng một. Ở màn treo tường, 127px
+   là ba hàng task bị mất cho một thanh nhận dạng.
+   Đổi sang `nowrap` thì mọi ô phải CO ĐƯỢC, nếu không sẽ tràn ngang -- nên mỗi
+   ô có `min-width:0` và phần chữ dài tự cắt bằng ellipsis. */
+.kiosk-header{display:flex;align-items:center;gap:14px;flex-wrap:nowrap;
+  background:var(--k-panel);border:1px solid var(--k-line);border-radius:12px;padding:var(--kd-pad-head)}
+.kiosk-header>*{min-width:0}
+.kiosk-identity{display:flex;flex-direction:column;min-width:0;flex:0 0 auto}
+.kiosk-identity b{font-size:var(--kd-fs-brand);letter-spacing:.02em;line-height:1.1}
+.kiosk-identity span{font-size:var(--kd-fs-label);color:var(--k-dim);white-space:nowrap}
+.kiosk-header>div>small{display:block;font-size:var(--kd-fs-label);text-transform:uppercase;
+  letter-spacing:.08em;color:var(--k-dim);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kiosk-header>div>strong{display:block;font-size:var(--kd-fs-headline);font-weight:700;margin-top:1px;
+  line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kiosk-clock>strong{font-variant-numeric:tabular-nums;font-size:var(--kd-fs-clock)}
+.kiosk-clock{flex:0 0 auto}
+.kiosk-shift>strong{font-size:var(--kd-fs-headline);color:#cbd8e8}
+.kiosk-live{margin-left:auto;display:flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;
+  border:1px solid var(--k-line);background:#101824;font-size:var(--kd-fs-meta);font-weight:600;
+  white-space:nowrap;flex:0 0 auto}
+.kiosk-live i{width:8px;height:8px;border-radius:50%;background:var(--k-dim);flex:none}
 .kiosk-live[data-state="live"]{color:#9fe9c1;border-color:#1d4a35}
 .kiosk-live[data-state="live"] i{background:var(--k-ok);box-shadow:0 0 0 4px #2fbf7126}
 .kiosk-live[data-state="stale"]{color:#f2c98e;border-color:#5a4423}
 .kiosk-live[data-state="stale"] i{background:var(--k-warn)}
-.kiosk-actions{display:flex;gap:8px}
+.kiosk-actions{display:flex;gap:6px;flex:0 1 auto;min-width:0;align-items:center}
 .kiosk-btn{border:1px solid var(--k-line);background:#101824;color:#cfdcec;border-radius:var(--radius-control);
-  padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+  padding:6px 11px;font-size:var(--kd-fs-meta);font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
 .kiosk-btn:hover{background:#1a2534;color:#fff}
 
 /* KPI strip --------------------------------------------------------------- */
-.kiosk-kpis{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}
-.kiosk-kpi{background:var(--k-panel);border:1px solid var(--k-line);border-top:4px solid var(--k-dim);
-  border-radius:11px;padding:12px 14px;min-width:0}
-.kiosk-kpi small{display:block;font-size:12px;color:var(--k-dim);font-weight:600;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kiosk-kpi strong{display:block;font-size:36px;line-height:1.15;font-weight:800;margin:4px 0 2px;
+/* `repeat(8,...)` cứng là một lỗi đo được, không phải lựa chọn: paintKpis()
+   vẽ ĐÚNG 6 thẻ, nên hai cột cuối luôn rỗng -- một phần tư chiều ngang của
+   dải KPI bỏ không ở cả 1920 lẫn 1366. `auto-fit` xoá track rỗng, nên dải
+   luôn vừa khít đúng số thẻ đang có, kể cả khi số KPI đổi sau này. */
+.kiosk-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:var(--kd-gap)}
+.kiosk-kpi{background:var(--k-panel);border:1px solid var(--k-line);border-top:3px solid var(--k-dim);
+  border-radius:10px;padding:var(--kd-row-py) var(--kd-row-px);min-width:0}
+.kiosk-kpi small{display:block;font-size:var(--kd-fs-kpi-label);color:var(--k-dim);font-weight:600;
+  line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kiosk-kpi strong{display:block;font-size:var(--kd-fs-kpi);line-height:1.05;font-weight:800;margin:1px 0 0;
   font-variant-numeric:tabular-nums;white-space:nowrap}
-.kiosk-kpi strong u{font-size:14px;font-weight:600;color:var(--k-dim);text-decoration:none;margin-left:5px}
-.kiosk-kpi span{display:block;font-size:11.5px;color:var(--k-dim);
+.kiosk-kpi strong u{font-size:var(--kd-fs-meta);font-weight:600;color:var(--k-dim);text-decoration:none;margin-left:4px}
+.kiosk-kpi span{display:block;font-size:var(--kd-fs-meta);color:var(--k-dim);line-height:1.2;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kiosk-kpi.good{border-top-color:var(--k-ok)}
 .kiosk-kpi.run{border-top-color:var(--k-run)}
@@ -2518,16 +2633,17 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-kpi-error{grid-column:1/-1}
 
 /* body grid --------------------------------------------------------------- */
-.kiosk-body{display:grid;grid-template-columns:minmax(0,2.05fr) minmax(320px,1fr);gap:14px;flex:1;min-height:0}
-.kiosk-col-main,.kiosk-col-side{display:flex;flex-direction:column;gap:14px;min-width:0;min-height:0}
+.kiosk-body{display:grid;grid-template-columns:minmax(0,2.05fr) minmax(320px,1fr);gap:var(--kd-gap);flex:1;min-height:0}
+.kiosk-col-main,.kiosk-col-side{display:flex;flex-direction:column;gap:var(--kd-gap);min-width:0;min-height:0}
 .kiosk-panel{background:var(--k-panel);border:1px solid var(--k-line);border-radius:var(--radius-surface);
-  padding:14px 16px;display:flex;flex-direction:column;min-width:0;min-height:0}
+  padding:var(--kd-pad-panel);display:flex;flex-direction:column;min-width:0;min-height:0}
 .kiosk-panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-  padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--k-line)}
-.kiosk-panel-head h2{margin:0;font-size:17px;font-weight:700;letter-spacing:.01em}
-.kiosk-panel-note{font-size:12px;color:var(--k-dim);text-align:right}
+  padding-bottom:var(--kd-head-pb);margin-bottom:var(--kd-head-pb);border-bottom:1px solid var(--k-line)}
+.kiosk-panel-head h2{margin:0;font-size:var(--kd-fs-panel);font-weight:700;letter-spacing:.01em;line-height:1.2}
+.kiosk-panel-note{font-size:var(--kd-fs-event-meta);color:var(--k-dim);text-align:right}
 .kiosk-panel-body{flex:1;min-height:0;overflow:hidden}
-.kiosk-panel-foot{margin:9px 0 0;font-size:11px;color:var(--k-dim);border-top:1px solid var(--k-line);padding-top:8px}
+.kiosk-panel-foot{margin:var(--kd-head-pb) 0 0;font-size:var(--kd-fs-event-meta);color:var(--k-dim);
+  border-top:1px solid var(--k-line);padding-top:var(--kd-head-pb);line-height:1.25}
 .kiosk-chart-panel{flex:0 0 auto}
 .kiosk-station-panel{flex:1 1 auto}
 .kiosk-station-panel .kiosk-panel-body{overflow:hidden}
@@ -2542,11 +2658,30 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 
 /* hourly chart ------------------------------------------------------------ */
 .kiosk-chart{display:flex;flex-direction:column;gap:8px}
+/* Chiều cao đọc từ token chứ không cố định 196px: panel này là phụ trợ, nó
+   phải nhường chiều cao cho danh sách task chứ không giữ một phần tư màn. */
 .kiosk-chart-plot{position:relative;display:grid;grid-template-columns:repeat(24,minmax(0,1fr));
-  gap:5px;align-items:end;height:196px;padding-top:16px}
-.kiosk-bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
-  height:100%;min-width:0;gap:3px}
-.kiosk-bar-value{font-size:11px;color:var(--k-dim);font-variant-numeric:tabular-nums;line-height:1}
+  gap:4px;align-items:end;height:100%}
+/* Lưới ba hàng [số · vùng cột · nhãn giờ] chứ không phải flex-column: `height`
+   của cột là PHẦN TRĂM, mà phần trăm luôn tính trên chiều cao của khối chứa.
+   Với flex-column, khối chứa là cả ô -- kể cả phần dành cho con số và nhãn giờ
+   -- nên cột 100% cao bằng cả ô rồi đội hai thứ kia ra ngoài và bị `overflow:
+   hidden` của panel cắt ngang đầu. Hàng giữa `minmax(0,1fr)` là một vùng có
+   chiều cao xác định của RIÊNG cột, nên 100% đúng bằng đỉnh vùng vẽ. */
+.kiosk-bar{display:grid;grid-template-rows:auto minmax(0,1fr) auto;justify-items:center;
+  align-items:end;height:100%;min-width:0;gap:2px}
+/* CỘT THẬT SỰ CỦA BIỂU ĐỒ. paintHourly() vẽ `<i style="height:N%">` NẰM THẲNG
+   trong `.kiosk-bar`, nhưng CSS chỉ có luật cho `.kiosk-bar-stack i` -- một cấu
+   trúc markup không còn ai dựng. Hệ quả đo được trên màn thật (getBoundingClientRect
+   của `.kiosk-bar i` ra w=0 h=0, background transparent): panel "Sản lượng theo
+   giờ" chiếm 272px ở 1920 mà KHÔNG có cột nào được vẽ -- chỉ còn dãy số lơ lửng
+   và nhãn giờ. Đây là phần chiều cao lãng phí lớn nhất của bản trước. */
+.kiosk-bar>i{display:block;width:100%;flex:0 0 auto;min-height:2px;
+  background:var(--k-run);border-radius:3px 3px 0 0}
+.kiosk-bar>small{font-size:var(--kd-fs-event-meta);color:var(--k-dim);line-height:1.1;
+  font-variant-numeric:tabular-nums;flex:0 0 auto}
+.kiosk-bar-value{font-size:var(--kd-fs-event-meta);color:var(--k-dim);font-variant-numeric:tabular-nums;
+  line-height:1;flex:0 0 auto}
 .kiosk-bar-stack{display:flex;flex-direction:column-reverse;width:100%;border-radius:4px 4px 0 0;
   overflow:hidden;min-height:2px;background:#1b2532}
 .kiosk-bar-stack i{display:block;width:100%}
@@ -2643,26 +2778,9 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 
 /* 1366x768: same layout, smaller type. No column is dropped and nothing may
    overflow horizontally -- the KPI strip halves into two rows of four. */
+/* Mọi con số kích thước của bậc này nay nằm trong khối token `.kiosk-display`
+   (bậc mặc định là bậc hẹp), nên khối media này chỉ còn phần BỐ CỤC. */
 @media(max-width:1500px){
-  .kiosk-display{padding:10px 12px 12px;gap:9px}
-  .kiosk-kpis{gap:7px}
-  .kiosk-kpi{padding:8px 10px;border-top-width:3px}
-  .kiosk-kpi small{font-size:10.5px}
-  .kiosk-kpi strong{font-size:25px;margin:2px 0 1px}
-  .kiosk-kpi strong u{font-size:11px;margin-left:3px}
-  .kiosk-kpi span{font-size:10px}
-  .kiosk-header{gap:14px;padding:8px 13px}
-  .kiosk-identity b{font-size:19px}
-  .kiosk-identity span{font-size:11.5px}
-  .kiosk-header>div>small{font-size:10px}
-  .kiosk-header>div>strong{font-size:16px}
-  .kiosk-clock>strong{font-size:20px}
-  .kiosk-live{font-size:12.5px;padding:7px 12px}
-  .kiosk-btn{padding:7px 11px;font-size:12.5px}
-  .kiosk-panel{padding:11px 13px}
-  .kiosk-panel-head{padding-bottom:8px;margin-bottom:8px}
-  .kiosk-panel-head h2{font-size:15px}
-  .kiosk-chart-plot{height:76px;padding-top:11px}
   /* The colour key is how the chart is read from across a room -- it must
      survive the tighter height, so it shrinks rather than being squeezed out
      of the panel by `overflow:hidden`. */
@@ -2683,11 +2801,18 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
   /* Height budget at 768px is tight: reserve a floor for the Operation table
      so the whole-row trim can never starve it down to zero rows, and let the
      chart and the three small panels give up the space instead. */
-  .kiosk-body{gap:10px;
+  /* `:not(.kiosk-body-focus)` KHÔNG phải trang trí. Khối này mô tả bố cục của
+     bản v0 (bảng Operation + ba panel nhỏ) mà JS không còn dựng; nhưng class
+     `.kiosk-body` vẫn nằm trên chính phần tử của màn focus, nên `grid-template-
+     areas` và `grid-template-rows:auto minmax(264px,1fr) auto` ở đây vẫn rơi
+     vào màn đang chạy và chỉ tình cờ bị một rule sau trong file ghi đè. Đó là
+     một quả mìn: đổi thứ tự file là layout 1366 vỡ. Khoanh vùng cho tường minh. */
+  .kiosk-body:not(.kiosk-body-focus){gap:10px;
     grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr);
     grid-template-rows:auto minmax(264px,1fr) auto;
     grid-template-areas:"chart chart attention" "stations stations attention" "ng people repair"}
-  .kiosk-col-main,.kiosk-col-side{display:contents}
+  .kiosk-body:not(.kiosk-body-focus) .kiosk-col-main,
+  .kiosk-body:not(.kiosk-body-focus) .kiosk-col-side{display:contents}
   .kiosk-chart-panel{grid-area:chart}
   .kiosk-station-panel{grid-area:stations}
   .kiosk-attention-panel{grid-area:attention;overflow:hidden}
@@ -2704,6 +2829,12 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 /* Mobile is a graceful fallback only -- this screen is designed for a TV. */
 @media(max-width:900px){
   .kiosk-display{height:auto;min-height:100vh;overflow:visible}
+  /* Header một hàng là luật của màn TREO TƯỜNG. Trên điện thoại không có bề
+     rộng nào nhét vừa tám ô, nên `nowrap` ở đó chỉ đẻ ra tràn ngang -- đo được
+     162px scrollWidth thừa ở 390px. Trả lại `wrap` đúng ở bậc này. */
+  .kiosk-header{flex-wrap:wrap;gap:8px 14px}
+  .kiosk-actions{flex:1 1 100%}
+  .kiosk-focus .kiosk-po-pick select{max-width:none}
   .kiosk-station-panel .kiosk-panel-body{overflow-y:visible}
   .kiosk-col-side{overflow:visible}
   .kiosk-col-main,.kiosk-col-side{display:flex}
@@ -2733,13 +2864,15 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
    nhỏ hơn và mờ hơn. Thu nhỏ đồng loạt sẽ phá thứ bậc đó, nên hai dòng co
    theo hai tỉ lệ khác nhau.
    =========================================================================== */
-.kiosk-focus .kiosk-po{display:flex;flex-direction:column;gap:2px;min-width:0}
-.kiosk-focus .kiosk-po strong{font-size:22px;line-height:1.1;letter-spacing:.01em}
-.kiosk-focus .kiosk-po span{color:#9fb0cc;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kiosk-focus .kiosk-po-progress{display:flex;flex-direction:column;gap:3px;min-width:150px}
-.kiosk-focus .kiosk-po-progress strong{font-size:19px}
-.kiosk-focus .kiosk-po-pick select{background:#16243c;color:#e8eefb;border:1px solid #2a3c5c;border-radius:var(--radius-control);
-  padding:7px 10px;font-size:13px;max-width:330px}
+.kiosk-focus .kiosk-po{display:flex;flex-direction:column;gap:0;min-width:0;flex:0 1 auto}
+.kiosk-focus .kiosk-po strong{font-size:var(--kd-fs-brand);line-height:1.1;letter-spacing:.01em}
+.kiosk-focus .kiosk-po span{color:#9fb0cc;font-size:var(--kd-fs-meta);line-height:1.2;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-focus .kiosk-po-progress{display:flex;flex-direction:column;gap:2px;min-width:132px;flex:0 0 auto}
+.kiosk-focus .kiosk-po-progress strong{font-size:var(--kd-fs-headline)}
+.kiosk-focus .kiosk-po-pick{display:block;min-width:0}
+.kiosk-focus .kiosk-po-pick select{background:#16243c;color:#e8eefb;border:1px solid #2a3c5c;
+  border-radius:var(--radius-control);padding:5px 9px;font-size:var(--kd-fs-meta);max-width:240px;width:100%}
 
 /* Panel task phải CHIẾM HẾT chiều cao còn lại, nếu không nó co theo nội dung
    và phép đo "một trang chứa được bao nhiêu hàng" sẽ đo nhầm khung đã co --
@@ -2755,7 +2888,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-focus .kiosk-task-panel .kiosk-panel-body{flex:1;min-height:0;overflow:hidden}
 
 /* --- một hàng task ------------------------------------------------------- */
-.kiosk-task-list{display:flex;flex-direction:column;gap:6px}
+.kiosk-task-list{display:flex;flex-direction:column;gap:var(--kd-row-gap)}
 /* BẬC BO GÓC CHỌN THEO NGHĨA, KHÔNG THEO GIÁ TRỊ ĐANG KHỚP.
    Bản đầu của khối này dùng --radius-overlay cho .kiosk-task chỉ vì lúc đó
    overlay = 9px, đúng con số đang muốn. Thang chuẩn sau đó đổi overlay thành
@@ -2769,22 +2902,31 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
    hàng task trên TV. Nên mọi thứ trong hàng đều một dòng, line-height chặt, và
    thanh tiến độ mỏng đi (5px -> 3px) với margin nhỏ. Ở 1920 hàng ~46px, tức
    ~13 hàng/trang thay vì 8 như bản đầu. */
-.kiosk-task{display:grid;grid-template-columns:minmax(0,2.1fr) 148px minmax(0,1fr) 168px 70px;
-  gap:10px;align-items:center;padding:5px 12px;border-radius:var(--radius-surface-row);background:#131f33;
-  border-left:3px solid #2b3b57;line-height:1.2;
+/* Cột hẹp lại vì bề rộng thừa không mua được gì: ở 1920 cột tên rộng ~430px
+   cho một dòng chữ 16px, còn giữa trạng thái / người làm / sản lượng là những
+   khoảng trống 60-80px. Thu cột lại thì hàng ngắn hơn theo chiều NGANG, mắt
+   quét một hàng bằng một lần nhìn thay vì ba. */
+.kiosk-task{display:grid;grid-template-columns:minmax(0,2fr) 104px minmax(0,1.05fr) 146px 52px;
+  gap:10px;align-items:center;padding:var(--kd-row-py) var(--kd-row-px);
+  border-radius:var(--radius-surface-row);background:#131f33;
+  border-left:3px solid #2b3b57;line-height:var(--kd-lh);
   transition:background .25s ease,border-color .25s ease}
-.kiosk-task .kiosk-meter{height:3px;margin-top:3px}
-.kiosk-task .kiosk-state{display:inline-block;padding:1px 7px;border-radius:999px;font-size:12px;line-height:1.5}
-.kiosk-task-main{min-width:0;display:flex;flex-direction:column;gap:1px}
-.kiosk-task-main b{font-size:16px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kiosk-task-main small{font-size:12px;color:#8194b4;letter-spacing:.02em}
-.kiosk-task-people{color:#c6d3e8;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kiosk-task-qty{display:flex;flex-direction:column;gap:0;font-size:14px;line-height:1.2}
-.kiosk-task-qty b{font-size:16px}
-.kiosk-task-ng{text-align:right;font-size:16px;color:#8194b4}
+.kiosk-task .kiosk-meter{height:3px;margin-top:2px}
+.kiosk-task .kiosk-state{display:inline-block;padding:0 7px;border-radius:999px;
+  font-size:var(--kd-fs-meta);line-height:1.55}
+.kiosk-task-main{min-width:0;display:flex;flex-direction:column;gap:0}
+.kiosk-task-main b{font-size:var(--kd-fs-title);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-task-main small{font-size:var(--kd-fs-meta);line-height:1.15;color:#8194b4;letter-spacing:.02em}
+.kiosk-task-people{color:#c6d3e8;font-size:var(--kd-fs-meta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-task-qty{display:flex;flex-direction:column;gap:0;font-size:var(--kd-fs-meta);line-height:1.15}
+.kiosk-task-qty b{font-size:var(--kd-fs-title)}
+.kiosk-task-ng{text-align:right;font-size:var(--kd-fs-title);color:#8194b4}
 .kiosk-task-ng.has{color:#ff8a8a;font-weight:700}
-.kiosk-task-state small{display:block;font-size:11px;line-height:1.25;color:#93a6c4;margin-top:1px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Người vừa hoàn thành nằm CÙNG DÒNG với chip trạng thái, không phải dòng thứ
+   hai: dòng thứ hai làm đúng hàng vừa xong CAO HƠN các hàng khác, tức danh sách
+   giật một nhịp ngay lúc người xem đang nhìn nó. Giữ nguyên nội dung, đổi chỗ. */
+.kiosk-task-state{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-task-state small{font-size:var(--kd-fs-event-meta);line-height:1.2;color:#93a6c4;margin-left:5px}
 .kiosk-task.state-running{border-left-color:#3d7dff}
 .kiosk-task.state-needs_review{border-left-color:#ffb020}
 /* Vừa hoàn thành: xanh NHẸ, giữ vài giây rồi mới rời danh sách. Không nháy,
@@ -2793,7 +2935,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-task.state-justdone .kiosk-state{background:#1d5c3d;color:#8ef0be}
 
 /* --- chỉ báo trang ------------------------------------------------------- */
-.kiosk-pager{display:flex;align-items:center;gap:10px;font-size:13px;color:#9fb0cc}
+.kiosk-pager{display:flex;align-items:center;gap:9px;font-size:var(--kd-fs-event-meta);color:#9fb0cc}
 .kiosk-page-count{font-weight:700;color:#dbe5f5}
 .kiosk-dots{display:inline-flex;gap:4px}
 .kiosk-dots i{width:7px;height:7px;border-radius:50%;background:#33455f;display:block}
@@ -2801,14 +2943,24 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-paused{color:#ffce6b}
 
 /* --- dòng sự kiện -------------------------------------------------------- */
-.kiosk-focus .kiosk-feed-panel{flex:1.25;display:flex;flex-direction:column;min-height:0}
-.kiosk-focus .kiosk-feed-panel .kiosk-panel-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:5px}
-.kiosk-event{display:grid;grid-template-columns:62px minmax(0,1fr);gap:9px;padding:6px 9px;border-radius:var(--radius-surface-row);
-  background:#132034;border-left:3px solid #33455f}
-.kiosk-event time{display:flex;flex-direction:column;line-height:1.15}
-.kiosk-event time b{font-size:14px}
-.kiosk-event time small{font-size:11px;color:#8194b4}
-.kiosk-event p{margin:0;font-size:13.5px;line-height:1.35;color:#dbe5f5}
+/* Dòng hoạt động là panel co giãn duy nhất của cột phải: cảnh báo và biến động
+   PO khác có số hàng chốt bởi token, phần dư dồn hết cho chỗ sự kiện MỚI xuất
+   hiện. `flex:0 0 auto` trên từng dòng là bắt buộc -- không có nó, flex column
+   sẽ bóp các dòng nhỏ lại khi tràn thay vì để JS cắt đúng số hàng vừa khung. */
+.kiosk-focus .kiosk-feed-panel{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+.kiosk-focus .kiosk-feed-panel .kiosk-panel-body{flex:1;min-height:0;overflow:hidden;
+  display:flex;flex-direction:column;gap:var(--kd-row-gap);justify-content:flex-start}
+/* Cột giờ `auto` chứ không phải bề rộng cố định: "10 phút trước" là nhãn dài
+   nhất và nó `white-space:nowrap`, nên một cột 46px cứng làm chữ tràn đè sang
+   phần nội dung -- đo được ở 1366. `auto` co theo nhãn dài nhất, phần còn lại
+   vẫn thuộc về câu chữ nhờ `minmax(0,1fr)`. */
+.kiosk-event{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;
+  padding:var(--kd-row-py) var(--kd-row-px);border-radius:var(--radius-surface-row);
+  background:#132034;border-left:3px solid #33455f;flex:0 0 auto}
+.kiosk-event time{display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.kiosk-event time b{font-size:var(--kd-fs-event)}
+.kiosk-event time small{font-size:var(--kd-fs-event-meta);color:#8194b4;white-space:nowrap}
+.kiosk-event p{margin:0;font-size:var(--kd-fs-event);line-height:1.3;color:#dbe5f5}
 .kiosk-event p i{font-style:normal;color:#a9bcdd}
 .kiosk-event p u{text-decoration:none;color:#8ef0be}
 .kiosk-actor{color:#fff}
@@ -2825,48 +2977,39 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-event.is-new{animation:kioskEventIn .22s ease-out;background:#17304a}
 
 /* --- biến động PO khác --------------------------------------------------- */
-.kiosk-other-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;
-  padding:6px 9px;border-radius:var(--radius-surface-row);background:#132034;border-left:3px solid #33455f;margin-bottom:5px}
-.kiosk-other-row>div{grid-column:1/-1;font-size:12px;color:#9fb0cc}
+/* Hai dòng, nút bám phải và trải hết chiều cao thẻ -- bản trước để nút thành
+   hàng thứ ba nên mỗi thông báo PO khác cao 66px, tức hai thông báo ăn hết chỗ
+   của bốn sự kiện. */
+.kiosk-other-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px;align-items:center;
+  grid-template-areas:"meta act" "text act";
+  padding:var(--kd-row-py) var(--kd-row-px);border-radius:var(--radius-surface-row);
+  background:#132034;border-left:3px solid #33455f;margin-bottom:var(--kd-row-gap)}
+.kiosk-other-row>div{grid-area:meta;font-size:var(--kd-fs-event-meta);color:#9fb0cc;line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kiosk-other-row>[data-view-po]{grid-area:act}
 .kiosk-other-po{color:#dbe5f5;font-weight:700}
-.kiosk-other-row p{margin:0;font-size:13px;color:#c6d3e8;min-width:0}
+.kiosk-other-row p{grid-area:text;margin:0;font-size:var(--kd-fs-event);line-height:1.3;color:#c6d3e8;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kiosk-other-row.tone-ok{border-left-color:#35c98a}
 .kiosk-other-row.tone-bad{border-left-color:#ff6b6b}
 .kiosk-other-row.tone-warn{border-left-color:#ffb020}
 .kiosk-other-row.tone-start{border-left-color:#4f8dff}
-.kiosk-btn-sm{padding:4px 9px;font-size:12px}
+.kiosk-btn-sm{padding:3px 8px;font-size:var(--kd-fs-event-meta)}
 .kiosk-empty-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px;justify-content:center}
 .kiosk-empty-note{color:#8194b4;font-size:13px}
 .kiosk-empty-done b{color:#8ef0be}
 
 /* --- kiosk-large: 1920 trở lên ------------------------------------------- */
 /* Mục tiêu đo được: ở 1920x1080 chứa >= 12 hàng task thay vì 6-7 như bản cũ. */
-@media(min-width:1800px){
-  .kiosk-focus .kiosk-task{padding:4px 12px;gap:9px}
-  .kiosk-focus .kiosk-task-main b{font-size:16px}
-  .kiosk-focus .kiosk-task-main small{font-size:11.5px}
-  .kiosk-focus .kiosk-task-qty b{font-size:17px}
-  .kiosk-focus .kiosk-task-list{gap:5px}
-  .kiosk-focus .kiosk-panel-head{padding-block:7px}
-  .kiosk-focus .kiosk-panel-head h2{font-size:15px}
-  .kiosk-focus .kiosk-kpi strong{font-size:30px}
-  .kiosk-focus .kiosk-event{padding:5px 9px}
-  .kiosk-focus .kiosk-event p{font-size:13px;line-height:1.3}
-}
-/* --- 4K: rộng gấp đôi nên vẫn giảm tiếp, nhưng có sàn để còn đọc được xa --- */
-@media(min-width:3000px){
-  .kiosk-focus .kiosk-task-main b{font-size:22px}
-  .kiosk-focus .kiosk-task-main small{font-size:15px}
-  .kiosk-focus .kiosk-event p{font-size:17px}
-  .kiosk-focus .kiosk-task{padding:8px 16px}
-  .kiosk-focus .kiosk-kpi strong{font-size:42px}
-}
-/* --- laptop/1366: giữ đọc được, bỏ cột ít giá trị nhất trước ------------- */
+/* Bậc >=1501px và bậc 4K nay chỉ đổi TOKEN (xem khối `.kiosk-display` ở trên),
+   không lặp lại rule cho từng phần tử nữa. */
+/* --- laptop/1366: giữ đọc được, cột hẹp lại theo bề rộng thật ------------ */
 @media(max-width:1500px){
-  .kiosk-body-focus{grid-template-columns:minmax(0,1.35fr) minmax(280px,.9fr)}
-  .kiosk-task{grid-template-columns:minmax(0,1.9fr) 128px minmax(0,.9fr) 140px 56px;gap:8px}
-  .kiosk-task-main b{font-size:15px}
-  .kiosk-focus .kiosk-po strong{font-size:18px}
+  .kiosk-body-focus{grid-template-columns:minmax(0,1.42fr) minmax(300px,.88fr)}
+  .kiosk-task{grid-template-columns:minmax(0,1.9fr) 92px minmax(0,.92fr) 122px 44px;gap:8px}
+  /* Hộp chọn PO là ô co được duy nhất đủ rộng để cứu header một-hàng ở 1366. */
+  .kiosk-focus .kiosk-po-pick select{max-width:170px;padding:5px 8px;font-size:11.5px}
+  .kiosk-focus .kiosk-po-progress{min-width:112px}
 }
 @media(max-width:1100px){
   .kiosk-body-focus{grid-template-columns:minmax(0,1fr)}
@@ -2878,33 +3021,57 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
    trợ nên cao cố định. Nếu để cả ba cùng co giãn thì đúng thứ quan trọng nhất
    (danh sách task) lại là thứ bị bóp trước. */
 .kiosk-focus .kiosk-chart-panel{flex:0 0 auto}
-.kiosk-focus .kiosk-chart-panel .kiosk-panel-body{height:118px}
-.kiosk-focus .kiosk-attention-panel{flex:0 0 auto;max-height:34%}
-.kiosk-focus .kiosk-attention-panel .kiosk-panel-body{overflow:hidden}
-.kiosk-focus .kiosk-other-panel{flex:0 0 auto}
-.kiosk-attn{display:flex;flex-direction:column;gap:1px;padding:5px 9px;border-radius:var(--radius-surface-row);
-  background:#132034;border-left:3px solid #ffb020;margin-bottom:5px}
+/* `height` KHÔNG đủ: `.kiosk-panel-body` là flex item với `flex:1` (tức
+   flex-basis:0), nên thuật toán flex lấy basis 0 làm cỡ ban đầu và `height`
+   chỉ còn là gợi ý -- đo được: panel body ra 40px trong khi token nói 78px,
+   và cột biểu đồ không còn chỗ để cao. Nói bằng chính flex-basis thì token là
+   con số duy nhất quyết định. */
+.kiosk-focus .kiosk-chart-panel .kiosk-panel-body{flex:0 0 var(--kd-chart-h);height:var(--kd-chart-h)}
+/* NGÂN SÁCH CHIỀU CAO CỦA CỘT PHẢI, nói bằng trần phần trăm.
+   Bản trước cũng có `max-height` ở đây và nó CẮT ĐÔI hàng cuối -- nhưng lỗi
+   không nằm ở trần, mà ở chỗ số hàng vẽ ra không biết gì về trần đó. Nay JS
+   vẽ giảm dần cho tới khi hàng cuối nằm trọn khung (`fitDown`), nên trần làm
+   đúng việc của nó: giữ cho hai panel thông báo không nuốt chỗ của dòng hoạt
+   động. Không có trần thì một ngày nhiều NG đẩy panel cảnh báo lên 243px ở
+   1366 và dòng hoạt động chỉ còn chỗ cho 3 sự kiện -- dưới mức 4-6 đã chốt. */
+/* NGÂN SÁCH CHIỀU CAO CỦA CỘT PHẢI, nói bằng SỐ HÀNG chứ không bằng phần trăm.
+   Hai lần trước đều hỏng vì cùng một chỗ: `.kiosk-panel-body` mang `flex:1`,
+   tức `flex-basis:0%`, mà phần trăm không giải được khi chiều cao panel chưa
+   xác định -- nên chiều cao panel thông báo KHÔNG phải chiều cao nội dung của
+   nó, và cả `max-height:%` lẫn `flex-shrink:0` đều không cứu được: đo ở 1366
+   ra panel 161px trong khi nội dung cần 217px, thân panel còn 75px và chỉ chứa
+   nổi MỘT dòng cảnh báo.
+   Nói thẳng `flex:0 0 auto` trên THÂN panel thì panel cao đúng bằng nội dung,
+   không còn chỗ nào để hiểu nhầm. Trần thật sự là `--kd-attn-rows` /
+   `--kd-other-rows`: JS chỉ vẽ đúng ngần ấy hàng, nên nội dung có trần, nên
+   panel có trần. Phần co giãn còn lại dồn hết cho dòng hoạt động -- panel duy
+   nhất mang `flex-grow`. */
+.kiosk-focus .kiosk-attention-panel,.kiosk-focus .kiosk-other-panel{flex:0 0 auto}
+.kiosk-focus .kiosk-attention-panel .kiosk-panel-body,
+.kiosk-focus .kiosk-other-panel .kiosk-panel-body{flex:0 0 auto;overflow:hidden}
+/* HAI dòng thay vì ba: nhãn mức độ đứng CÙNG DÒNG với tên Operation (nó ngắn
+   và đọc như một tiền tố), dữ kiện xuống dòng dưới. Ba dòng x 9 cảnh báo là
+   thứ đã đẩy panel này tràn ra ngoài khung ở 1366. */
+.kiosk-attn{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 7px;align-items:baseline;
+  grid-template-areas:"tag title" "sub sub";
+  padding:var(--kd-row-py) var(--kd-row-px);border-radius:var(--radius-surface-row);
+  background:#132034;border-left:3px solid #ffb020;margin-bottom:var(--kd-row-gap)}
 .kiosk-attn.sev-0{border-left-color:#ff6b6b}
-.kiosk-attn em{font-style:normal;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#ffce6b}
+.kiosk-attn em{grid-area:tag;font-style:normal;font-size:var(--kd-fs-event-meta);letter-spacing:.04em;
+  text-transform:uppercase;color:#ffce6b;font-weight:700;white-space:nowrap;line-height:1.3}
 .kiosk-attn.sev-0 em{color:#ff9a9a}
-.kiosk-attn b{font-size:14px;line-height:1.25}
-.kiosk-attn small{font-size:11.5px;color:#93a6c4}
-@media(min-width:1800px){
-  .kiosk-focus .kiosk-chart-panel .kiosk-panel-body{height:150px}
-}
-@media(max-width:1500px){
-  .kiosk-focus .kiosk-chart-panel .kiosk-panel-body{height:96px}
-  /* Màn hẹp thì panel phụ phải nhường trước. Danh sách cảnh báo dài ra theo số
-     Operation có NG, nên nếu không chặn, một ngày nhiều NG sẽ tự bóp danh sách
-     task xuống còn vài hàng -- đúng lúc người ta cần nhìn task nhất. */
-  .kiosk-focus .kiosk-attention-panel{max-height:24%}
-  /* Dưới 1500px không còn là màn treo tường mà là bản xem trước trên laptop.
-     Ở đó biểu đồ giờ là thứ hy sinh được -- nó có sẵn nguyên vẹn ở "Dashboard
-     theo ngày" -- còn danh sách task thì không: bóp nó xuống 4 hàng biến màn
-     điều hành thành một ô cửa sổ hẹp. Ẩn hẳn thay vì thu nhỏ, vì một biểu đồ
-     cao 60px không đọc được cũng chẳng giúp ai. */
-  .kiosk-focus .kiosk-chart-panel{display:none}
-}
+.kiosk-attn b{grid-area:title;font-size:var(--kd-fs-event);line-height:1.3;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-attn small{grid-area:sub;font-size:var(--kd-fs-event-meta);line-height:1.25;color:#93a6c4;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Phần cảnh báo không vẽ ra nói thẳng bằng số, không im lặng biến mất. */
+.kiosk-attn-more{font-size:var(--kd-fs-event-meta);color:#93a6c4;text-align:center;padding-top:2px}
+/* Bản trước ẩn hẳn biểu đồ giờ ở <=1500px, lý do ghi lại là "một biểu đồ cao
+   60px không đọc được cũng chẳng giúp ai". Lý do đó đúng cho bản trước vì cột
+   biểu đồ KHÔNG HỀ ĐƯỢC VẼ (xem `.kiosk-bar>i` ở trên) -- panel chỉ còn dãy số.
+   Nay cột đã vẽ thật, 66px đủ để đọc hình dáng ca làm, và ngân sách chiều cao
+   ở 1366 vẫn còn dư sau khi header về một hàng: panel task đo được vẫn trên
+   mức 6-8 hàng yêu cầu. Nên hiện lại thay vì giấu một dữ kiện. */
 
 /* Bộ chọn PO dùng chung ở Dashboard theo ngày (REQ-DASH-006) và hộp chọn PO
    khi mở màn hình lớn từ trạng thái "Tất cả PO". */

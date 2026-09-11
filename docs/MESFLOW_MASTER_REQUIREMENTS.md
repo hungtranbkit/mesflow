@@ -1870,6 +1870,84 @@ are the test-entry-points into it.
 - **Priority**: P0 — this is the tutorial's explicitly required "Kiosk năng suất nhân viên" chapter subject (video 10_employee_productivity of the 15-video set — not its own chapter, but the closing portion of the "Employee Productivity Report" chapter; confirmed by a 2026-09-06 audit to actually open the real kiosk/slideshow UI, both via Preview and the real published Kiosk, and to wait for and assert one real auto-page-flip cycle via `#wbPageIndicator` changing value — not narration alone).
 - **Dimensions**: positive, boundary (preview-does-not-mutate), unauth access (confirm intended), the 3 special states above (not-configured/empty-data/connection-lost), multi-page auto-flip.
 
+### REQ-KIOSK-012 — Control-room display: wallboard density for TV / large screens
+
+> **Source of truth:** the control-room display must show ENOUGH SIMULTANEOUS
+> movement of one PO that a supervisor standing in front of the TV reads the
+> situation without waiting for a page flip: at least **10 task rows at
+> 1920×1080**, at least **6 at 1366×768**, plus **4–6 most-recent activity
+> events**, and **no row cut through its body**.
+
+- **Module**: control-room display (wall-mounted, read-only) — same screen as
+  REQ-KIOSK-010. This requirement is about DISPLAY DENSITY only; it changes no
+  business semantics of that screen.
+- **Purpose**: the previous build behaved correctly but read SPARSE. Measured at
+  1366×768: header 127px tall because the PO picker wrapped onto a second row;
+  the KPI strip left two columns empty (grid declared 8 columns while exactly 6
+  cards are ever rendered); "Cần xử lý ngay" showed **0 intact alerts** (9 of 9
+  clipped mid-row); the activity feed showed **1 intact event** (9 of 10
+  clipped); and the hourly chart panel was hidden outright. At 1920×1080: 8 task
+  rows, header+KPI consuming 21% of screen height, and the chart panel occupying
+  272px while drawing **no bars at all** — `paintHourly` builds
+  `<i style="height:N%">` directly inside `.kiosk-bar` while the stylesheet only
+  had rules for `.kiosk-bar-stack i`, a markup structure nothing builds any
+  more; every bar measured `width:0 height:0` with a transparent background.
+- **Actor**: any authenticated role (view only).
+- **Preconditions**: as REQ-KIOSK-010.
+- **Trigger**: opening the control-room display at any viewport width.
+
+**Main flow (what the screen must guarantee)**
+
+1. **One density scale.** Every spacing, font size, chart height and secondary-
+   panel row count is read from a SINGLE `--kd-*` token block declared on
+   `.kiosk-display` in `ui.css`. Media queries change token VALUES only; they do
+   not restate per-element rules. The page JS reads `--kd-attn-rows`,
+   `--kd-other-rows` and `--kd-feed-max` through `getComputedStyle`, so the
+   number of rows drawn and the layout cannot drift apart.
+2. **Single-row header.** No `flex-wrap` at widths ≥ 901px; shrinkable cells
+   (product name, PO picker) ellipsize instead of wrapping. Header + KPI strip
+   must not exceed **20% of viewport height**.
+3. **KPI strip fits its card count** — `auto-fit` grid, no empty tracks.
+4. **Task row is 1–2 text lines**: Operation NAME is the headline, the code is
+   the smaller, dimmer supporting line; state, worker, progress and NG all sit on
+   the same row. The "Vừa hoàn thành" label with its actor sits INLINE with the
+   state chip so a just-finished row is not taller than its neighbours and the
+   list does not jump.
+5. **No row clipped mid-body** in any of the four lists (tasks, events, alerts,
+   other-PO activity). Secondary panels are content-height, so the row count is
+   decided in JS: draw downwards until the last element fits inside the box. What
+   is not drawn must be STATED as a number ("+N điểm cần xử lý khác"), and the
+   panel's count badge is always the TOTAL, never the drawn-row count.
+6. **The hourly chart draws real bars**, height from the token (never more than
+   ~15% of screen height), and is **no longer hidden at 1366**.
+7. **Right-column budget**: the activity feed is the only flexible panel; the two
+   notification panels are content-height with a token-capped row count, and
+   together must not exceed 50% of viewport height.
+
+**Alternate / exception flows**
+
+- ≤ 900px (phone) is not the target screen: the header may `flex-wrap` again and
+  the page scrolls vertically. The only hard constraint there is **no horizontal
+  overflow**.
+- Shrinking type does NOT count as density: the Operation name carries a font-size
+  FLOOR (15px at 1920, 13.5px at 1366) alongside the row-pitch CEILING.
+
+- **Data / API**: unchanged — still exactly the two read-only endpoints of
+  REQ-KIOSK-010.
+- **Business rules**: unchanged. PO isolation, auto-paging, page snapshotting,
+  the 5–10s hold on a just-completed task, the page indicator, and "no reordering
+  mid-cycle" all stay exactly as REQ-KIOSK-010 specifies.
+- **Permission**: as REQ-KIOSK-010 (`dashboard.view`).
+- **Concurrency**: N/A (read-only).
+- **Audit**: N/A (read-only).
+- **Related**: REQ-KIOSK-010 (this screen's behaviour), REQ-UI-* (shared radius
+  scale — task/event/alert rows use `--radius-surface-row`).
+- **Priority**: P1.
+- **Dimensions**: density at 1920/1366 (intact row counts, clipped rows = 0),
+  row-pitch ceiling + font-size floor, header+KPI budget, chart bars sized from
+  real data, no horizontal overflow at 1920/1366/390, alert badge is the total
+  rather than the drawn-row count.
+
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 
 Full detail in §6.4 and §4.10's `work_shifts`/`work_shift_intervals`
@@ -2446,6 +2524,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-001 (v1) | indirect only, via `tests/e2e/mesflow.spec.js` | P |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — most heavily tested module in the system |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
+| REQ-KIOSK-012 (control-room display density) | `tests/e2e/kiosk-density-contract.spec.js`, `tests/test_kiosk_density_scale.py`, `tests/test_daily_dashboard_kiosk_contract.py` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |

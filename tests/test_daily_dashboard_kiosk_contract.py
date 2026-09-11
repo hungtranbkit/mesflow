@@ -84,8 +84,12 @@ def test_kiosk_layout_css_exists():
     assert '.kiosk-kpis{display:grid' in css
     assert '.kiosk-body{display:grid' in css
     assert '.kiosk-chart-plot{' in css
-    # Operation NAME is the headline, code is the secondary line.
+    # Operation NAME is the headline, code is the secondary line -- kiểm trên
+    # selector ĐANG ĐƯỢC DỰNG (`.kiosk-task-main`, renderTask), không chỉ trên
+    # `.kiosk-op` của bản bảng v0: bản v0 không còn phần tử nào mang class đó,
+    # nên một mình nó sẽ vẫn xanh kể cả khi hàng task thật mất thứ bậc.
     assert '.kiosk-op b{' in css and '.kiosk-op small{' in css
+    assert '.kiosk-task-main b{' in css and '.kiosk-task-main small{' in css
     # 1366x768 must be an explicit step, not an accident.
     assert '@media(max-width:1500px)' in css
 
