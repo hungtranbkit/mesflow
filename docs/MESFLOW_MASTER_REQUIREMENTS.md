@@ -2324,6 +2324,7 @@ pixel-perfect subjective judgment.
 | REQ-UI-010 | Empty states show an explicit Vietnamese message (e.g. "Không có Session hoàn thành trong khoảng ngày đã chọn") rather than a blank container. |
 | REQ-UI-011 | Any async auto-action (e.g. autologin's POST) gives the user explicit status text during the wait, not a silent unlabeled delay. |
 | REQ-UI-012 | Interface language is Vietnamese throughout the admin app — an English string in a user-facing label/error/toast is a defect. |
+| REQ-UI-013 | Every list card, panel, control and table container takes its corner radius from a design token (`--radius-card` 7px, `--radius-panel` 8px, `--radius-control` 5px, `--radius-overlay` 9px), never from a hard-coded px value. Surfaces whose class ends in `-card` are governed by the `.admin-body :where(.card,[class$="-card"],...)` sweep with `!important`; a per-name `border-radius` on such a class is dead code and must not be added. A surface not covered by the sweep declares the token directly. |
 
 **Not covered / not asserted**: keyboard-navigation/focus-order
 accessibility audit, screen-reader labeling, color-contrast ratios — no
@@ -2431,6 +2432,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-AUDIT-* | `test_v66_session_service.py`, `test_v72_audit_operations_separation.py`, `test_v74_audit_presentation.py`, `tests/e2e/audit-operations-v72.spec.js`, `business-audit-v74.spec.js` | A |
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, offline-sync tests above | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
+| REQ-UI-013 (token-driven radius) | `tests/e2e/card-surface-contract.spec.js` (card face comes from a token, not a hard-coded value) | A |
 | Part D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Part A §14 (NFR) | concurrency/idempotency: A; security/CSRF, browser support, performance SLA: — | P |
 

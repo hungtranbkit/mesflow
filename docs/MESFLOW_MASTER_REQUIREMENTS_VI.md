@@ -2505,6 +2505,7 @@ Chỉ giới hạn ở **hành vi mà một agent QC có thể kiểm tra máy m
 | REQ-UI-010 | Trạng thái rỗng hiển thị thông báo tiếng Việt tường minh (ví dụ "Không có Session hoàn thành trong khoảng ngày đã chọn") thay vì một khung trống. |
 | REQ-UI-011 | Bất kỳ hành động tự động bất đồng bộ nào (ví dụ POST của autologin) đều phải hiện văn bản trạng thái tường minh trong lúc chờ, không phải một khoảng chờ im lặng không nhãn. |
 | REQ-UI-012 | Ngôn ngữ giao diện là tiếng Việt xuyên suốt app quản trị — một chuỗi tiếng Anh trong label/lỗi/toast hướng người dùng là một lỗi. |
+| REQ-UI-013 | Mọi thẻ danh sách, panel, control và khung bao ngoài của bảng đều lấy bo góc từ design token (`--radius-card` 7px, `--radius-panel` 8px, `--radius-control` 5px, `--radius-overlay` 9px), không bao giờ từ giá trị px viết cứng. Bề mặt có class kết thúc bằng `-card` do rule quét `.admin-body :where(.card,[class$="-card"],...)` với `!important` quyết định; đặt `border-radius` theo tên riêng cho class đó là code chết và không được thêm. Bề mặt không thuộc rule quét thì khai báo token trực tiếp. |
 
 **Không bao phủ / không khẳng định**: audit khả năng tiếp cận
 (accessibility) về điều hướng bàn phím/thứ tự focus, gắn nhãn cho
@@ -2618,6 +2619,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-AUDIT-* | `test_v66_session_service.py`, `test_v72_audit_operations_separation.py`, `test_v74_audit_presentation.py`, `tests/e2e/audit-operations-v72.spec.js`, `business-audit-v74.spec.js` | A |
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, các test offline-sync ở trên | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
+| REQ-UI-013 (bo góc theo token) | `tests/e2e/card-surface-contract.spec.js` (mặt thẻ lấy từ token, không phải giá trị viết cứng) | A |
 | Phần D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Phần A §14 (NFR) | concurrency/idempotency: A; security/CSRF, hỗ trợ trình duyệt, SLA hiệu năng: — | P |
 
