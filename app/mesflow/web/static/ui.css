@@ -2449,6 +2449,49 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
    không màn nào phải tự hạ cỡ chữ của primitive bằng luật riêng. */
 .op-identity.compact>b.row-title{font-size:11px;-webkit-line-clamp:1}
 .op-identity.compact>small.row-code,.op-identity.compact>small.op-identity-meta{font-size:10px;margin-top:1px}
+/* Biến thể inline -- dùng cho HÀNG của danh sách nhiều cột (Quản lý Session).
+   Mặc định .op-identity xếp mã xuống dòng riêng; trong một hàng lưới mà các
+   cột bên cạnh chỉ cao 2 dòng thì cột Operation thành 3 dòng, hàng cao lên và
+   chân chữ không còn thẳng với các cột khác.
+
+   Ở đây tên và mã nằm CÙNG một dòng, mã là một chip nhỏ trung tính (viền +
+   nền xám nhạt, KHÔNG dùng nền màu thương hiệu): nó vẫn đối chiếu được nhưng
+   không còn là phần nổi bật nhất của hàng. Chip cố ý đặt line-height 16px +
+   viền 1px = 18px, thấp hơn line-box 19px của tên 13px, nên nó KHÔNG làm dày
+   dòng -- đó là điều kiện để các hàng còn thẳng nhau.
+
+   Dòng meta (PO / Part) vẫn nằm riêng ở dòng dưới, chiếm cả hai cột.
+
+   Grid CHỨ KHÔNG phải flex-wrap: với flex-wrap, một tên dài sẽ đẩy chip mã
+   xuống dòng riêng TRƯỚC khi tên chịu co lại -- cột Operation thành 3 dòng và
+   hàng đó cao hơn các hàng khác (đúng lỗi "hàng không thẳng"). Cột 1
+   minmax(0,auto) cho phép tên co xuống dưới max-content rồi cắt bằng ellipsis,
+   nên chip luôn ở lại đúng dòng của tên. Cột 3 (1fr) chỉ để NUỐT phần thừa:
+   không có nó thì ở màn rộng, phần trống được chia cho hai cột auto và chip bị
+   đẩy ra tít bên phải, rời khỏi cái tên mà nó đang chú thích. */
+.op-identity.inline{
+  display:grid;grid-template-columns:minmax(0,auto) auto 1fr;
+  align-items:baseline;column-gap:6px}
+.op-identity.inline>b.row-title{
+  grid-column:1;grid-row:1;min-width:0;
+  display:block;-webkit-line-clamp:none;white-space:nowrap;overflow-wrap:normal}
+.op-identity.inline>small.row-code{
+  grid-column:2;grid-row:1;justify-self:start;margin-top:0;
+  /* Nét chữ giữ nguyên 600 của .row-code: chip nhỏ hơn và nhạt hơn tên là đủ
+     để đọc ra thứ bậc, đậm hơn tên (650) thì mã lại giành lại trọng lượng. */
+  font-size:10.5px;line-height:16px;
+  padding:0 5px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--ui-radius-sm);
+  background:var(--surface-subtle);
+  color:var(--text-secondary)}
+/* Dòng meta trong hàng danh sách phải đọc y hệt <small> của các cột bên cạnh
+   (Nhân viên, Thời gian, Sản lượng): 11px, nét thường. Bản card của primitive
+   để 600/--muted vì ở đó nó là dòng duy nhất dưới tiêu đề; giữ nguyên cỡ đó
+   trong hàng thì chữ phụ lại nặng ngang chữ chính. */
+.op-identity.inline>small.op-identity-meta{
+  grid-column:1/-1;grid-row:2;margin-top:3px;font-weight:400;color:var(--text-secondary)}
+
 /* Chip timeline vốn là pill một dòng (.employee-session-chips>span đặt
    nowrap + ellipsis cho CẢ chip). Khi chip là một .op-identity thì việc cắt
    thuộc về từng dòng con bên trong, không phải cả chip. */

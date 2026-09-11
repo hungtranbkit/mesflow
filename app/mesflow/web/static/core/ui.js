@@ -115,13 +115,19 @@ const MFUI=(()=>{
   // của nhân viên ngay phía trên đã mang mã, và chip chỉ rộng vài chục pixel)
   // -- nhưng `code` VẪN phải truyền vào, vì nó là nguồn fallback khi thiếu
   // tên và là phần không thể thiếu của title=.
-  const opIdentity=({name='',code='',meta='',metaHtml='',compact=false,tooltip='',className='',showCode=true}={})=>{
+  // inline: biến thể cho HÀNG danh sách nhiều cột (Quản lý Session). Mặc định
+  // mã xuống dòng riêng, tức khối nhận dạng cao 3 dòng trong khi các cột bên
+  // cạnh chỉ có 2 -- hàng lệch chân và cao lên. Biến thể này giữ tên + mã trên
+  // CÙNG một dòng, mã thu về một chip nhỏ không làm dày line-box của tên, nên
+  // cột Operation cao đúng bằng cột Nhân viên/Thời gian/Sản lượng. Vẫn đúng
+  // một thứ bậc với mọi nơi khác: tên là chữ chính, mã là chữ phụ.
+  const opIdentity=({name='',code='',meta='',metaHtml='',compact=false,inline=false,tooltip='',className='',showCode=true}={})=>{
     const n=String(name??'').trim(),c=String(code??'').trim();
     const primary=n||c||'—';
     const secondary=n&&showCode?c:'';
     const hint=String(tooltip||'').trim()||opIdentityText({name,code});
     const metaBody=metaHtml||(meta?escHtml(meta):'');
-    const cls=['op-identity',compact?'compact':'',String(className||'').trim()].filter(Boolean).join(' ');
+    const cls=['op-identity',compact?'compact':'',inline?'inline':'',String(className||'').trim()].filter(Boolean).join(' ');
     return `<span class="${escHtml(cls)}" title="${escHtml(hint)}">`+
       `<b class="row-title">${escHtml(primary)}</b>`+
       (secondary?`<small class="row-code">${escHtml(secondary)}</small>`:'')+

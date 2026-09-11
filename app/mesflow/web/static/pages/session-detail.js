@@ -74,7 +74,7 @@ function sessionCoreFieldRows(x){
     {label:'Mã nhân viên',value:esc(x.employee_code||'—')},
     {label:'Production Order',value:esc(x.po_code||'—')},
     {label:'Part',value:esc(`${x.part_code||'—'}${x.part_name?' · '+x.part_name:''}`)},
-    {label:'Operation',value:esc(`${x.operation_code||'—'}${x.operation_name?' · '+x.operation_name:''}`)},
+    {label:'Operation',value:esc(MFUI.opIdentityText({name:x.operation_name,code:x.operation_code}))},
     {label:'Trạm',value:esc(x.station_code||x.station_name||'Chưa gán')},
     {label:'Device / kiosk',value:esc(x.device_uuid||'—')},
     {label:'Nguồn',value:sourceBadgeHtml(x.data_source)},
@@ -150,7 +150,7 @@ const SessionDetailDrawer=(()=>{
     drawer.header.innerHTML=`
       <div>
         <h2>Session #${esc(x.session_id)}</h2>
-        <p>${esc(x.employee_name||'')} · ${esc(x.operation_code||'')} ${esc(x.operation_name||'')}</p>
+        <p>${esc(x.employee_name||'')} · ${esc(MFUI.opIdentityText({name:x.operation_name,code:x.operation_code}))}</p>
         <div class="drawer-badges">${sourceBadgeHtml(x.data_source)}${x.status==='OPEN'?'<span class="badge warning">Đang chạy</span>':'<span class="badge success">Đã kết thúc</span>'}${activeException?`<span class="workflow-badge ${String(activeException.workflow_status||'NEW').toLowerCase()}">${esc(MF_WORKFLOW_LABELS[activeException.workflow_status]||activeException.workflow_status)}</span>`:''}</div>
       </div>
       <button class="ui-icon-button" id="sdClose" type="button" aria-label="Đóng chi tiết">×</button>`;
