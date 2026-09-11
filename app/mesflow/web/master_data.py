@@ -17,6 +17,7 @@ from mesflow.domain.policy import (LABELLED_TYPES,SETUP_TYPE,production_only_sql
                                    type_in_sql,type_is_sql,type_value_sql)
 from mesflow.core.upload_policy import validate_drawing_upload
 from mesflow.web.errors import api_error_response
+from mesflow.domain.qr_identity import printable_qr_payload_sql
 from mesflow.domain.trace import record_event
 
 # Loại Operation ĐƯỢC in tem QR, lấy từ mesflow.domain.policy. Trước đây
@@ -730,11 +731,11 @@ def qr_labels():
             # The printed code is the DISPLAY KEY, never the bare one: an
             # Operation code is only unique within its Part, so two labels
             # could otherwise carry the same text and nobody could tell the
-            # machines apart. The payload keeps whatever the row already has
-            # (legacy WF|OP|<code> labels in the workshop must keep working);
-            # only a row with no payload of its own gets one derived, and then
-            # by id whenever its code is ambiguous, because the scan resolver
-            # refuses an ambiguous code rather than guessing.
+            # machines apart. The payload rule lives in ONE place
+            # (domain/qr_identity.printable_qr_payload_sql) so that what we
+            # print and what the scanner accepts can never drift apart again --
+            # they did drift: the safety net here tested d.code=o.code, which
+            # operations_code_key makes impossible, so it never once fired.
             # The catalogue is read by people looking for a job by its Vietnamese
             # name, so the screen groups by PO -> Part and sorts by routing
             # order. That needs the Part and the sequence as real fields, not
@@ -744,9 +745,7 @@ def qr_labels():
             # the FROM clause -- nothing new is joined, nothing is migrated.
             sql=f"""SELECT o.id,'OPERATION' AS qr_type,
                 {display_key_sql('o','p')} AS code,o.name,
-                COALESCE(NULLIF(o.qr,''),
-                  CASE WHEN EXISTS(SELECT 1 FROM operations d WHERE upper(d.code)=upper(o.code) AND d.id<>o.id)
-                       THEN 'WF|OPID|'||o.id ELSE 'WF|OP|'||o.code END) AS qr_payload,
+                {printable_qr_payload_sql('o')} AS qr_payload,
                 po.code AS group_name,
                 p.code AS part_code,COALESCE(p.name,'') AS part_name,
                 COALESCE(p.sort_order,0) AS part_sort,COALESCE(o.sort_order,0) AS operation_sort,

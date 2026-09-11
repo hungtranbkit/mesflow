@@ -1727,6 +1727,47 @@ không bao giờ ở bên ngoài.
 - **Độ ưu tiên**: P2.
 - **Khía cạnh kiểm thử**: positive, boundary.
 
+### REQ-QR-001 — Payload in ra trên nhãn QR Operation phải quét được và nói đúng Operation
+
+- **Mô-đun**: Danh mục QR (`qr-print`) / Operation
+- **Mục đích**: Một nhãn VỪA IN không được mang mã đã chết, và không được mang
+  payload mà chính bộ giải mã sẽ từ chối.
+- **Đối tượng thực hiện**: mọi role có `qr.view` (§3.2).
+- **Điều kiện tiên quyết**: Operation tồn tại.
+- **Đầu vào**: `GET /api/qr-labels?type=OPERATION` (kèm `production_order_id`,
+  `active_only`, `q`, `limit`).
+- **Luồng chính**: với mỗi Operation, chữ in ra là **display key**
+  `<part>-<mã>` (mã Operation chỉ unique trong phạm vi Part), còn `qr_payload`
+  theo đúng bốn nhánh dưới đây.
+- **Kết quả mong đợi** — `qr_payload` được quyết định như sau, theo thứ tự:
+  1. `operations.qr` rỗng → `WF|OPID|<id>`;
+  2. `operations.qr` là tem cũ `WF|OP|<X>` và `X` **khác** `operations.code`
+     hiện tại (tức Operation đã được đổi mã) → `WF|OPID|<id>`;
+  3. `operations.qr` là tem cũ `WF|OP|<X>` và `X` đang là `code` của **một
+     Operation khác** (mơ hồ chéo cột) → `WF|OPID|<id>`;
+  4. còn lại → giữ nguyên `operations.qr` (kể cả `WF|OPID|…` lẫn payload tự
+     đặt), để in lại một nhãn bình thường ra đúng chuỗi đang dán ngoài xưởng.
+- **Kiểm tra hợp lệ**: payload in ra luôn phải giải được về **đúng một**
+  Operation qua bộ giải mã chung (§7.2). Không nhánh nào được in ra một chuỗi
+  mà bộ giải mã từ chối.
+- **Ranh giới**:
+  - Operation đã đổi mã → nhãn mới dùng id; tem CŨ đã in vẫn quét được, vì
+    `operations.qr` **cố ý không bị viết lại** khi đổi mã.
+  - Nhãn SETUP vốn đã dùng `WF|OPID|<id>` → không đổi.
+  - Bàn SỬA HÀNG (`REWORK`) không nằm trong danh mục khi `active_only=1`.
+- **Lỗi**: N/A (đường đọc).
+- **Quyền**: `qr.view`.
+- **Nhật ký kiểm toán**: N/A.
+- **Liên quan**: §7.2 (định dạng dây QR); `docs/architecture/OPERATION_IDENTITY.md`
+  (vì sao `operations.qr` không được đồng bộ lại khi đổi mã).
+- **Độ ưu tiên**: P1 — in ra một nhãn không quét được là chặn đứng công đoạn
+  tại xưởng.
+- **Khía cạnh kiểm thử**: positive, boundary, negative.
+- **Ghi chú cho tester**: ca 2 và 3 KHÔNG dựng được bằng cách thêm hai Operation
+  cùng mã — `operations_code_key` là unique toàn cục nên chặn. Phải dựng bằng
+  ĐỔI TÊN: tạo OP mã `X`, đổi mã nó thành `X-OLD` (lúc này `qr` vẫn là
+  `WF|OP|X`), rồi tạo OP khác mang mã `X`.
+
 ## 15.7 Phiên làm việc (`REQ-SESS-*`)
 
 Chi tiết quy tắc nghiệp vụ đầy đủ nằm ở §6 (Vòng đời Session) và §5.1
