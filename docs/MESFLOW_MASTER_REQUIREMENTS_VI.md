@@ -2688,7 +2688,7 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Quyền**: N/A.
 - **Đồng thời**: các GET trùng nhau đang bay được gộp làm một; một request bị thay chỗ bởi request mới hơn trong cùng slot (đổi bộ lọc) hoặc thuộc về màn người dùng đã rời sẽ bị huỷ và kết thúc bằng **không gì cả** — không thành công cũng không lỗi, nên một phản hồi về muộn không thể vẽ đè mà cũng không thể báo động.
 - **Nhật ký kiểm toán**: N/A — một lần replay idempotent không sinh dòng audit trùng (REQ-API-001).
-- **Liên quan**: REQ-API-001 (dedupe phía server là ĐIỀU KIỆN TIÊN QUYẾT để được thử lại một lệnh ghi), REQ-UI-018 (thứ người dùng nhìn thấy), NFR-001.
+- **Liên quan**: REQ-API-001 (dedupe phía server là ĐIỀU KIỆN TIÊN QUYẾT để được thử lại một lệnh ghi), REQ-UI-020 (thứ người dùng nhìn thấy), NFR-001.
 - **Độ ưu tiên**: P1.
 - **Khía cạnh kiểm thử**: positive, negative, boundary, concurrency.
 
@@ -2749,7 +2749,7 @@ Chỉ giới hạn ở **hành vi mà một agent QC có thể kiểm tra máy m
 | REQ-UI-014 | **Thang bo góc là canonical, ba bậc, không có bậc thứ tư tuỳ hứng**: `--radius-surface` (12px — khối nội dung ngoài cùng: card, list item, panel, section, vỏ bảng), `--radius-surface-row` (8px — khối LỒNG bên trong một surface: row của card-list, subrow, ô inset), `--radius-control` (8px — input, select, button, chip). Lớp phủ (modal/sheet) dùng bậc riêng `--radius-overlay` (16px) vì nó nổi trên mặt phẳng khác. Một surface KHÔNG được tự phát minh giá trị bo góc bằng số cứng. |
 | REQ-UI-015 | **Cái gì PHẢI giống và cái gì ĐƯỢC khác, quyết định bởi ngữ nghĩa chứ không bởi màn hình**: (a) mọi card/list item = cùng một mặt, bo `--radius-surface`; (b) row của BẢNG dữ liệu dày có thể phẳng bên trong, nhưng vỏ ngoài của bảng phải cùng ngôn ngữ bo tròn; (c) khối lồng / subrow / nguồn-đầu-vào dùng `--radius-surface-row` và inset (thụt lề hoặc `border-left`), không tự bo như khối ngoài; (d) khối Part cố ý dùng viền đậm hơn (`--border-block`) để thấy ranh giới giữa các Part; (e) thứ bậc chữ thống nhất: tiêu đề là chữ chính, metadata nhỏ và mờ, hành động nằm bên phải. |
 | REQ-UI-016 | Nhóm sidebar có thể chứa tiêu đề nhóm con (ví dụ `Quản trị › Theo dõi & Nhật ký`). Tiêu đề nhóm con chỉ hiện khi role hiện tại mở được ít nhất một mục bên dưới nó — role không có quyền nào trong nhóm con sẽ không thấy cả mục lẫn tiêu đề. Chuyển một trang sang nhóm nav khác KHÔNG bao giờ đổi ai được mở nó: hiển thị vẫn do đúng `PAGE_PERMISSION` sẵn có của trang đó quyết định. |
-| REQ-UI-018 | Lỗi mạng tạm thời KHÔNG BAO GIỜ được hiện ra dưới dạng exception thô của trình duyệt. Trong lúc một request đọc đang được thử lại, màn **giữ nguyên dữ liệu đang hiển thị** và chỉ hiện một chỉ báo nhỏ `Đang kết nối lại…` — một nhịp tự làm mới hỏng không bao giờ được thay nội dung đã vẽ bằng khối lỗi. Chỉ khi hết lượt thử lại mới có thông báo, và nó là đúng một trong ba câu tiếng Việt: `Mất kết nối mạng` (trình duyệt báo offline), `Máy chủ tạm thời không phản hồi` (500/502/503/504), `Kết nối chưa ổn định, vui lòng thử lại` (mọi lỗi mạng/quá thời gian chờ còn lại). `Failed to fetch` — hay bất kỳ chuỗi exception thô nào — lọt ra bề mặt người dùng là một defect (REQ-UI-012). Lỗi nghiệp vụ 4xx giữ nguyên câu tiếng Việt của server. Trạng thái lỗi cuối cùng có nút `Thử lại` và tự nạp lại khi trình duyệt online trở lại. |
+| REQ-UI-020 | Lỗi mạng tạm thời KHÔNG BAO GIỜ được hiện ra dưới dạng exception thô của trình duyệt. Trong lúc một request đọc đang được thử lại, màn **giữ nguyên dữ liệu đang hiển thị** và chỉ hiện một chỉ báo nhỏ `Đang kết nối lại…` — một nhịp tự làm mới hỏng không bao giờ được thay nội dung đã vẽ bằng khối lỗi. Chỉ khi hết lượt thử lại mới có thông báo, và nó là đúng một trong ba câu tiếng Việt: `Mất kết nối mạng` (trình duyệt báo offline), `Máy chủ tạm thời không phản hồi` (500/502/503/504), `Kết nối chưa ổn định, vui lòng thử lại` (mọi lỗi mạng/quá thời gian chờ còn lại). `Failed to fetch` — hay bất kỳ chuỗi exception thô nào — lọt ra bề mặt người dùng là một defect (REQ-UI-012). Lỗi nghiệp vụ 4xx giữ nguyên câu tiếng Việt của server. Trạng thái lỗi cuối cùng có nút `Thử lại` và tự nạp lại khi trình duyệt online trở lại. |
 
 **Không bao phủ / không khẳng định**: audit khả năng tiếp cận
 (accessibility) về điều hướng bàn phím/thứ tự focus, gắn nhãn cho
@@ -2867,7 +2867,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, các test offline-sync ở trên | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
 | REQ-UI-016 (nhóm con sidebar + quyền) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
-| REQ-UI-018 (UX lỗi mạng) | `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
+| REQ-UI-020 (UX lỗi mạng) | `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
 | REQ-API-004 (chính sách thử lại phía client) | `tests/e2e/request-layer-unit.spec.js`, `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
 | Phần D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Phần A §14 (NFR) | concurrency/idempotency: A; security/CSRF, hỗ trợ trình duyệt, SLA hiệu năng: — | P |
