@@ -93,7 +93,10 @@ test('mặt thẻ lấy từ token, không phải giá trị viết cứng', asy
     const root = getComputedStyle(document.documentElement);
     const out = {
       radius: cs.borderTopLeftRadius, shadow: cs.boxShadow, border: cs.borderTopColor,
-      tokenRadius: root.getPropertyValue('--radius-card').trim(),
+      // Bậc canonical của khối nội dung (2026-09-11). Trước đây là
+      // --radius-card = 7px; tên đó nay phục vụ phần tử NHỎ (icon sidebar,
+      // thanh gantt), còn thẻ/panel/section lấy --radius-surface.
+      tokenRadius: root.getPropertyValue('--radius-surface').trim(),
       tokenBorder: root.getPropertyValue('--border-default').trim(),
     };
     el.remove();

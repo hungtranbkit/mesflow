@@ -46,11 +46,28 @@ FOUNDATION = {
     '--border-strong': '#9eabb7',
     '--border-emphasis': '#7f909f',
     '--action-primary': '#23658b',
-    '--radius-control': '5px',
+    # Thang bo góc canonical (2026-09-11). Ba bậc dưới đây là thứ người dùng
+    # nhìn thấy, và việc chốt chúng là một QUYẾT ĐỊNH THIẾT KẾ có chủ ý: ngôn
+    # ngữ thị giác "soft rounded industrial SaaS" -- khối nội dung bo rõ và mềm.
+    #
+    # Vì sao phải đổi chứ không giữ nguyên: rule quét surface ép mọi thẻ về
+    # --radius-card = 7px, trong khi CSS tại chỗ của gần như mọi màn viết
+    # 12-14px. Tác giả viết một đằng, màn hình ra một nẻo, nên mỗi lần "sửa cho
+    # đồng bộ" lại đắp thêm một rule. 7px cũng vuông hơn hẳn hướng đã chọn.
+    '--radius-surface': '12px',      # card, list item, panel, section, vỏ bảng
+    '--radius-surface-row': '8px',   # khối lồng bên trong một surface
+    # 5px -> 8px: ô nhập và nút ở cạnh một khối bo 12px mà chỉ bo 5px thì nhìn
+    # sắc lẻm, đúng thứ làm giao diện trông chắp vá.
+    '--radius-control': '8px',
+    # 9px -> 16px: lớp phủ NỔI trên mặt phẳng khác; để nó vuông hơn cả thẻ bên
+    # dưới là ngược thứ bậc thị giác.
+    '--radius-overlay': '16px',
+    # Tên cũ, giữ NGUYÊN giá trị: chúng giờ phục vụ phần tử nhỏ (icon sidebar,
+    # thanh gantt, huy hiệu), không phải khối nội dung. Đổi chúng chỉ tạo rủi ro
+    # mà không phục vụ mục tiêu nào.
     '--radius-row': '5px',
     '--radius-card': '7px',
     '--radius-panel': '8px',
-    '--radius-overlay': '9px',
 }
 
 
