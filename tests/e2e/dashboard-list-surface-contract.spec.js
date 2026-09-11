@@ -89,40 +89,90 @@ test('ba tab A/B/C thực sự mang class của primitive, không chỉ trông g
   await expect(page.locator('button.dashboard-tab[role="tab"][aria-selected="true"]')).toHaveCount(1);
 });
 
-test('vỏ bảng dày lồng trong panel lấy bậc khối-lồng, dòng bên trong vẫn phẳng', async ({ page }) => {
+test('danh sách Operation là THẺ độc lập: bo góc canonical + gap dọc, không kẻ ngang', async ({ page }) => {
+  test.setTimeout(180000);
   await F.mockAll(page);
   await open(page);
-  for (const [q, tableSel, headSel] of [
-    ['dashboard&tab=overview', '.op-time-table', '.op-time-row.head'],
-    ['dashboard&tab=output', '.daily-op-table', '.daily-op-row.head'],
+  for (const [q, listSel] of [
+    ['dashboard&tab=overview', '#opTimeProgress .op-card-list'],
+    ['dashboard&tab=output', '#dailyAttention .op-card-list'],
   ]) {
     await page.goto(`/app?page=${q}`);
-    await expect(page.locator(tableSel)).toBeVisible({ timeout: 15000 });
-    const g = await page.evaluate(({ tableSel, headSel }) => {
-      const t = document.querySelector(tableSel), h = document.querySelector(headSel);
+    await expect(page.locator(listSel)).toBeVisible({ timeout: 15000 });
+    const g = await page.evaluate(listSel => {
       const root = getComputedStyle(document.documentElement);
-      const cs = getComputedStyle(t);
+      const list = document.querySelector(listSel);
+      const cards = [...list.querySelectorAll('.op-card')];
+      const cs = cards.map(c => getComputedStyle(c));
+      const rects = cards.map(c => c.getBoundingClientRect());
+      // Khoảng hở THẬT giữa hai thẻ liên tiếp, đo trên DOM chứ không đọc CSS gap:
+      // gap chỉ có nghĩa nếu nó thực sự tách hai thẻ ra.
+      const gaps = rects.slice(1).map((r, i) => Math.round(r.top - rects[i].bottom));
       return {
-        radius: cs.borderTopLeftRadius, overflow: cs.overflowX,
-        tokenSurfaceRow: root.getPropertyValue('--radius-surface-row').trim(),
-        headRadius: h ? getComputedStyle(h).borderTopLeftRadius : null,
-        headBg: h ? getComputedStyle(h).backgroundColor : null,
-        headColor: h ? getComputedStyle(h).color : null,
-        tokenSubtle: root.getPropertyValue('--surface-subtle').trim(),
-        tokenTextSecondary: root.getPropertyValue('--text-secondary').trim(),
+        count: cards.length,
+        listGap: getComputedStyle(list).rowGap,
+        radii: [...new Set(cs.map(c => c.borderTopLeftRadius))],
+        gaps: [...new Set(gaps)],
+        // Phân biệt THẺ với DÒNG BẢNG: thẻ có viền KHÉP KÍN (bốn cạnh bằng
+        // nhau) và tách nhau bằng gap; dòng bảng chỉ có kẻ dưới, dính liền
+        // nhau. Không kiểm "bottom = 0" -- thẻ vẫn có viền dưới, đó là một
+        // cạnh của đường bao, không phải đường kẻ chia dòng.
+        openOutlines: cs.filter(c => new Set([c.borderTopWidth, c.borderRightWidth,
+          c.borderBottomWidth, c.borderLeftWidth]).size !== 1).length,
+        borderWidths: [...new Set(cs.map(c => c.borderTopWidth))],
+        tokenSurface: root.getPropertyValue('--radius-surface').trim(),
+        tokenSpace3: root.getPropertyValue('--ui-space-3').trim(),
+        // Không còn hàng tiêu đề kiểu bảng.
+        headRows: document.querySelectorAll(`${listSel} .head`).length,
       };
-    }, { tableSel, headSel });
-    const hex2rgb = h => { const x = h.replace('#',''); return `rgb(${parseInt(x.slice(0,2),16)}, ${parseInt(x.slice(2,4),16)}, ${parseInt(x.slice(4,6),16)})`; };
-    // Vỏ bảng nằm LỒNG trong .content-panel (một surface) -> bậc "khối lồng",
-    // đúng như .employee-day-row / .op-progress-line mà lane design-system đã
-    // ánh xạ. Không phải --radius-surface: cái đó dành cho khối ngoài cùng.
-    expect(g.radius, `${tableSel} phải bo góc theo --radius-surface-row`).toBe(g.tokenSurfaceRow);
-    // overflow là thứ cắt góc cho dòng bên trong -- bo góc mà không cắt thì vô nghĩa.
-    expect(g.overflow, `${tableSel} phải cắt nội dung để bo góc có tác dụng`).not.toBe('visible');
-    expect(g.headRadius, `dòng head của ${tableSel} được phép phẳng`).toBe('0px');
-    expect(g.headBg, 'nền head phải lấy từ --surface-subtle').toBe(hex2rgb(g.tokenSubtle));
-    expect(g.headColor, 'chữ head phải lấy từ --text-secondary').toBe(hex2rgb(g.tokenTextSecondary));
+    }, listSel);
+
+    expect(g.count, `${q}: phải có thẻ Operation`).toBeGreaterThan(1);
+    expect(g.radii, `${q}: mọi thẻ Operation cùng một bo góc`).toHaveLength(1);
+    expect(g.radii[0], `${q}: thẻ phải bo theo --radius-surface`).toBe(g.tokenSurface);
+    expect(g.listGap, `${q}: danh sách phải có gap dọc từ token`).toBe(g.tokenSpace3);
+    expect(g.gaps, `${q}: khoảng hở thật giữa các thẻ phải đều`).toHaveLength(1);
+    expect(g.gaps[0], `${q}: các thẻ phải TÁCH nhau, không dính thành bảng`).toBeGreaterThan(0);
+    expect(g.openOutlines, `${q}: thẻ phải có viền khép kín bốn cạnh, không phải kẻ ngang chia dòng`).toBe(0);
+    expect(g.borderWidths, `${q}: mọi thẻ cùng độ dày viền`).toHaveLength(1);
+    expect(parseFloat(g.borderWidths[0]), `${q}: thẻ phải có viền nhẹ`).toBeGreaterThan(0);
+    expect(g.headRows, `${q}: danh sách thẻ không có hàng tiêu đề kiểu bảng`).toBe(0);
   }
+});
+
+test('thẻ Operation giữ thứ bậc: tên chính bên trái, thời gian/session bên phải', async ({ page }) => {
+  test.setTimeout(180000);
+  await F.mockAll(page);
+  await open(page);
+  await page.goto('/app?page=dashboard&tab=overview');
+  await expect(page.locator('#opTimeProgress .op-card').first()).toBeVisible({ timeout: 15000 });
+  const g = await page.evaluate(() => {
+    const card = document.querySelector('#opTimeProgress .op-card');
+    const title = card.querySelector('.op-card-identity .row-title');
+    const code = card.querySelector('.op-card-identity .row-code');
+    const aside = card.querySelector('.op-card-aside');
+    const px = v => parseFloat(v);
+    return {
+      titleText: title?.textContent?.trim(),
+      titleSize: px(getComputedStyle(title).fontSize),
+      titleWeight: getComputedStyle(title).fontWeight,
+      codeSize: code ? px(getComputedStyle(code).fontSize) : null,
+      codeColor: code ? getComputedStyle(code).color : null,
+      titleColor: getComputedStyle(title).color,
+      asideRight: Math.round(aside.getBoundingClientRect().right),
+      identityLeft: Math.round(card.querySelector('.op-card-identity').getBoundingClientRect().left),
+      cardRight: Math.round(card.getBoundingClientRect().right),
+    };
+  });
+  // Tên Operation là chữ chính.
+  expect(g.titleText).toBeTruthy();
+  expect(g.codeSize === null || g.codeSize < g.titleSize,
+    `mã phải nhỏ hơn tên (tên ${g.titleSize}px, mã ${g.codeSize}px)`).toBe(true);
+  expect(g.codeColor === null || g.codeColor !== g.titleColor,
+    'mã phải mờ hơn tên, không cùng một màu').toBe(true);
+  // Thời gian/session nằm bên phải thẻ, không nằm dưới tên.
+  expect(g.asideRight).toBeGreaterThan(g.identityLeft);
+  expect(g.cardRight - g.asideRight, 'khối phải phải bám mép phải của thẻ').toBeLessThan(40);
 });
 
 test('thẻ danh sách của 4 nhóm màn hp3 dùng chung một mặt', async ({ page }) => {
@@ -141,6 +191,7 @@ test('thẻ danh sách của 4 nhóm màn hp3 dùng chung một mặt', async ({
   await read('/app?page=session-exceptions', '.ec-card', 'Trung tâm ngoại lệ');
   await read('/app?page=business-audit', '.ba-card', 'Nhật ký nghiệp vụ');
   await read('/app?page=dashboard&tab=overview', '.daily-kpi', 'Dashboard theo ngày (KPI)');
+  await read('/app?page=dashboard&tab=overview', '.op-card', 'Dashboard theo ngày (thẻ Operation)');
 
   const distinct = [...new Set(Object.values(faces))];
   const report = Object.entries(faces).map(([k, v]) => `  ${k}\n      ${v}`).join('\n');

@@ -108,7 +108,7 @@ const MOCKS = {
 const SCREENS = [
   ['overview', '.overview-op-row', 'overview'],
   ['rework-queue', '.rq-row:not(.head)', 'rework-queue'],
-  ['dashboard-overview', '.op-time-row:not(.head)', 'dashboard&tab=overview'],
+  ['dashboard-overview', '.op-card', 'dashboard&tab=overview'],
   ['dashboard-people', '.employee-day-summary', 'dashboard&tab=people'],
 ];
 

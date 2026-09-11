@@ -245,6 +245,20 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
   (còn padding hai bên) thì bo `--radius-surface-row` kèm `overflow` để cắt góc
   cho các dòng bên trong — nó là khối LỒNG, không phải khối ngoài cùng
   (REQ-UI-014, REQ-UI-015b/c). Bo mà không cắt là vô nghĩa.
+- **Khi nào KHÔNG dùng bảng**: một record mang nhiều dữ kiện không đồng dạng
+  (tiến độ, người đang làm, sản lượng, trạng thái cần quyết định) thì dùng
+  DANH SÁCH THẺ, không nhét vào bảng nhiều cột. Dấu hiệu nhận ra đã sai: ở màn
+  hẹp, bảng phải đặt `min-width` lớn và cuộn ngang — tức nó không còn đọc được
+  trên thiết bị thật. Đo được, không phải cảm tính: `.op-time-table` từng có
+  `scrollWidth` 980px trong `clientWidth` 308px ở 390px.
+- **Anatomy của một danh sách thẻ** (REQ-UI-017): vỏ danh sách `display:grid` +
+  `gap` lấy từ thang spacing; mỗi item là một thẻ có viền KHÉP KÍN bốn cạnh và
+  bo `--radius-surface`; KHÔNG hàng tiêu đề kiểu bảng; KHÔNG đường kẻ ngang
+  chia dòng. Trong thẻ: tên là chữ chính bên trái, mã/PO/Part là chữ phụ ngay
+  dưới, dữ kiện định lượng (thời gian/session/trạng thái) căn phải; phần còn
+  lại nằm ở thân thẻ. Dải màu trạng thái dùng `::before`, KHÔNG `border-left` --
+  rule quét surface đặt `border:...!important` nên `border-left` trên một thẻ
+  bị quét không bao giờ hiển thị.
 
 ### 5.5b Tab và segmented control
 

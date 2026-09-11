@@ -2325,6 +2325,7 @@ pixel-perfect subjective judgment.
 | REQ-UI-011 | Any async auto-action (e.g. autologin's POST) gives the user explicit status text during the wait, not a silent unlabeled delay. |
 | REQ-UI-012 | Interface language is Vietnamese throughout the admin app — an English string in a user-facing label/error/toast is a defect. |
 | REQ-UI-016 | Sidebar groups may contain a labelled sub-group heading (e.g. `Quản trị › Theo dõi & Nhật ký`). A sub-group heading renders only when at least one item beneath it is openable by the current role — a role with none of those permissions sees neither the items nor the heading. Moving a page between nav groups never changes who can open it: visibility stays governed solely by that page's existing `PAGE_PERMISSION` entry. |
+| REQ-UI-017 | **A list of multi-fact records is a CARD LIST, not a multi-column table**: when each record carries several dissimilar facts (progress, who is working, output, a state needing a decision), the list must be INDEPENDENT CARDS — each card uses `--radius-surface`, a closed border on all four sides, the standard card surface/background/shadow, and the cards are SEPARATED by a vertical `gap` taken from the spacing scale. No table-style header row, no horizontal rules dividing rows, and on a narrow viewport reading one record must never require horizontal scrolling. Inside a card the hierarchy is: record name = primary text on the left; code/PO/Part = secondary; quantitative facts (time/session/state) right-aligned. The state accent stripe is drawn with `::before`, not `border-left` (the shared surface sweep sets `border:...!important`, so a `border-left` on a swept card never renders). |
 
 **Not covered / not asserted**: keyboard-navigation/focus-order
 accessibility audit, screen-reader labeling, color-contrast ratios — no
@@ -2433,6 +2434,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, offline-sync tests above | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
 | REQ-UI-016 (sidebar sub-group + visibility) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
+| REQ-UI-017 (card list for multi-fact records) | `tests/e2e/dashboard-list-surface-contract.spec.js`, `tests/e2e/rework-queue-card-contract.spec.js` | A |
 | Part D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Part A §14 (NFR) | concurrency/idempotency: A; security/CSRF, browser support, performance SLA: — | P |
 
