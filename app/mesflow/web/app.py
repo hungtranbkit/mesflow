@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import timedelta
 import json
 import os
 from flask import Flask, jsonify, request, session, render_template, redirect, url_for, send_from_directory, abort, g
@@ -89,6 +90,17 @@ def create_app():
         SESSION_COOKIE_SECURE=settings.cookie_secure,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_PATH='/',
+        # Without this Flask emits a cookie with no Max-Age/Expires, i.e. a
+        # BROWSER-SESSION cookie that the browser deletes on close. Measured on
+        # the running app before this change:
+        #   Set-Cookie: session=...; HttpOnly; Path=/; SameSite=Lax
+        # -- no Expires, no Max-Age. That is why closing the browser logged
+        # everyone out regardless of any server-side policy. start_session()
+        # marks the session permanent (except kiosk), and this is the lifetime
+        # that cookie then carries. Tied to the absolute ceiling so the cookie
+        # and the server policy cannot disagree.
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=settings.session_absolute_hours),
         MAX_CONTENT_LENGTH=settings.max_content_length,
         JSON_SORT_KEYS=False,
         TRAP_HTTP_EXCEPTIONS=False,
@@ -443,7 +455,8 @@ def create_app():
         u=UserRepository().get_by_username(username)
         if not u or not u['active']:
             return jsonify(ok=False,error='AUTO_LOGIN_USER_NOT_FOUND',message='Không tìm thấy tài khoản auto-login đang hoạt động.'),503
-        session_policy.start_session(u['id'],u['username'],u['role'])
+        session_policy.start_session(u['id'],u['username'],u['role'],
+                                     epoch=session_policy.epoch_for_user(u))
         return jsonify(ok=True,user={'id':u['id'],'username':u['username'],'role':u['role'],'must_change_password':u['must_change_password'],'permissions':RBACRepository().permissions_for_role(u['role'])})
 
     @app.post('/api/auth/login')
@@ -458,12 +471,22 @@ def create_app():
             try: AuditRepository().log(username,'LOGIN_FAILED','user','',{'reason':'inactive' if u and not u['active'] else 'invalid_credentials'})
             except Exception: pass
             return jsonify(ok=False,error='INVALID_CREDENTIALS'),401
-        session_policy.start_session(u['id'],u['username'],u['role'],kiosk_mode=bool(b.get('kiosk_mode')))
+        session_policy.start_session(u['id'],u['username'],u['role'],kiosk_mode=bool(b.get('kiosk_mode')),
+                                     epoch=session_policy.epoch_for_user(u))
         try: AuditRepository().log(u['username'],'LOGIN_SUCCESS','user',str(u['id']),{})
         except Exception: pass
         return jsonify(ok=True,user={'id':u['id'],'username':u['username'],'role':u['role'],'must_change_password':u['must_change_password'],'permissions':RBACRepository().permissions_for_role(u['role'])})
 
     @app.post('/api/auth/logout')
     def logout():
-        session.clear(); return jsonify(ok=True)
+        # Clearing the cookie only affects THIS browser. Bumping the user's
+        # session epoch is what makes a copy captured earlier stop validating
+        # -- without it a stolen cookie outlived the logout that was supposed
+        # to end it. Per user, so "log out" means everywhere.
+        user_id=session.get('user_id')
+        session.clear()
+        if user_id:
+            try: UserRepository().bump_session_epoch(int(user_id))
+            except Exception: app.logger.warning('logout: could not bump session epoch')
+        return jsonify(ok=True)
     return app

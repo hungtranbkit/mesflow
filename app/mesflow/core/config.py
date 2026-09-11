@@ -53,8 +53,19 @@ class Settings:
     # dies eventually). kiosk_* is a SEPARATE, shorter default for shared/
     # walk-up terminals (see core/session_policy.py's own docstring for why
     # a single policy for both is wrong).
-    session_idle_minutes: int = int(os.environ.get("MESFLOW_SESSION_IDLE_MINUTES", "60"))
-    session_absolute_hours: int = int(os.environ.get("MESFLOW_SESSION_ABSOLUTE_HOURS", "12"))
+    # Persistent login (2026-09-11). The previous defaults -- 60 minutes idle,
+    # 12 hours absolute -- meant an office user was logged out at most twice a
+    # day no matter how actively they worked, which is the "phải đăng nhập lại
+    # suốt" complaint. The idle window is SLIDING (validate_and_touch refreshes
+    # last_activity_at on every request, and Flask re-sends the cookie with a
+    # fresh Max-Age because the session is modified), so an active user is
+    # never interrupted; the absolute ceiling still applies and is never
+    # refreshed by activity.
+    session_idle_minutes: int = int(os.environ.get("MESFLOW_SESSION_IDLE_MINUTES", str(14 * 24 * 60)))
+    session_absolute_hours: int = int(os.environ.get("MESFLOW_SESSION_ABSOLUTE_HOURS", str(30 * 24)))
+    # Deliberately NOT raised. A shared walk-up terminal left logged in is a
+    # real handover risk; convenience for an office browser must not be bought
+    # with a kiosk that stays authenticated after the operator walks away.
     kiosk_session_idle_minutes: int = int(os.environ.get("MESFLOW_KIOSK_SESSION_IDLE_MINUTES", "15"))
     # A work_session left OPEN past its shift's end
     # boundary gets auto-closed by ShiftSessionReconciliationService, not by

@@ -22,6 +22,9 @@ restart-safe (nothing server-side to lose) and needs no cleanup job.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import logging
 from datetime import datetime, timedelta, timezone
 
 from flask import session
@@ -29,6 +32,32 @@ from flask import session
 from mesflow.core.config import settings
 
 UTC = timezone.utc
+
+logger = logging.getLogger(__name__)
+
+
+def auth_epoch(password_hash: str, active: bool, session_epoch: int = 0) -> str:
+    """A short, opaque stamp of the credential state a session was issued under.
+
+    A signed cookie cannot be revoked server-side on its own: it stays valid
+    until it expires, so before this existed a changed password left every old
+    cookie working. This closes that without a migration and without a session
+    table -- the credential state IS the version. Change the password and the
+    hash changes; deactivate the account and `active` changes; either way every
+    session issued under the old state stops validating.
+
+    `session_epoch` (users.session_epoch, migration 0050) is the part a manual
+    logout bumps: a password change moves the hash, but logging out does not,
+    so without an explicit version a copy of the cookie taken before logout
+    kept working. Measured, not assumed.
+
+    Keyed with the app secret and truncated, so the cookie carries no material
+    derived from the password hash that would be useful off-server, and the
+    value is meaningless to anyone who cannot already forge the cookie
+    signature. Never logged.
+    """
+    message = f'{password_hash}:{bool(active)}:{int(session_epoch or 0)}'.encode()
+    return hmac.new(settings.secret_key.encode(), message, hashlib.sha256).hexdigest()[:16]
 
 
 def _now() -> datetime:
@@ -58,7 +87,21 @@ def _idle_window_minutes(kiosk_mode: bool) -> int:
     return settings.kiosk_session_idle_minutes if kiosk_mode else settings.session_idle_minutes
 
 
-def session_fields_for_login(user_id: int, username: str, role: str, *, kiosk_mode: bool = False) -> dict:
+def epoch_for_user(user: dict) -> str:
+    """Build the credential stamp from a user row.
+
+    A helper rather than three call sites reaching into the row themselves:
+    the auto-login route must not handle password material at all (guarded by
+    tests/test_autologin_session_timeline_v65813.py, which asserts the string
+    "password_hash" never appears in that route), and login code has no reason
+    to know how the stamp is composed.
+    """
+    return auth_epoch(str(user.get('password_hash') or ''), bool(user.get('active')),
+                      user.get('session_epoch') or 0)
+
+
+def session_fields_for_login(user_id: int, username: str, role: str, *, kiosk_mode: bool = False,
+                             epoch: str = '') -> dict:
     """Pure computation of what a fresh login writes into the session --
     factored out of start_session() so a test helper using Flask's
     `client.session_transaction()` (a bare dict-like session object, NOT
@@ -70,14 +113,18 @@ def session_fields_for_login(user_id: int, username: str, role: str, *, kiosk_mo
     actually writes. Real request-handling code should call start_session()
     below, not this directly."""
     now = _now()
-    return {
+    fields = {
         'user_id': user_id, 'username': username, 'role': role, 'kiosk_mode': bool(kiosk_mode),
         'login_at': _iso(now), 'last_activity_at': _iso(now),
         'absolute_expires_at': _iso(now + timedelta(hours=settings.session_absolute_hours)),
     }
+    if epoch:
+        fields['auth_epoch'] = epoch
+    return fields
 
 
-def start_session(user_id: int, username: str, role: str, *, kiosk_mode: bool = False) -> None:
+def start_session(user_id: int, username: str, role: str, *, kiosk_mode: bool = False,
+                  epoch: str = '') -> None:
     """Call exactly once, right after password verification succeeds.
 
     kiosk_mode picks a separate (default shorter) idle window for a
@@ -89,7 +136,12 @@ def start_session(user_id: int, username: str, role: str, *, kiosk_mode: bool = 
     carries it from a kiosk-specific login page); this module never
     guesses it from the route.
     """
-    session.update(session_fields_for_login(user_id, username, role, kiosk_mode=kiosk_mode))
+    session.update(session_fields_for_login(user_id, username, role, kiosk_mode=kiosk_mode, epoch=epoch))
+    # Flask only sends Max-Age/Expires for a PERMANENT session. Without this the
+    # cookie dies the moment the browser closes, which no server-side TTL can
+    # fix. Kiosk stays non-permanent on purpose: a shared walk-up terminal must
+    # not keep a cookie on disk after the operator leaves.
+    session.permanent = not bool(kiosk_mode)
 
 
 def clear_session() -> None:
@@ -137,7 +189,44 @@ def validate_and_touch() -> str | None:
         session.clear()
         return 'SESSION_EXPIRED_IDLE'
 
+    revoked = _revocation_reason()
+    if revoked:
+        session.clear()
+        return revoked
+
     session['last_activity_at'] = _iso(now)
+    return None
+
+
+def _revocation_reason() -> str | None:
+    """Has the credential this session was issued under changed since?
+
+    Returns a reason code to invalidate, or None to keep the session.
+
+    Fails OPEN on an infrastructure error and CLOSED on an actual mismatch.
+    That asymmetry is deliberate: a transient database blip must not log every
+    user in the factory out at once -- that is the very failure this work
+    exists to stop -- while a real password change or deactivation must take
+    effect. A session issued before this field existed carries no auth_epoch
+    and is left alone rather than force-logging everyone out on deploy; it
+    picks the field up at its next login.
+    """
+    expected = session.get('auth_epoch')
+    if not expected:
+        return None
+    try:
+        from mesflow.db.repositories.user_repository import UserRepository
+        user = UserRepository().get_by_id(int(session['user_id']))
+    except Exception:
+        logger.warning('session revocation check skipped: user lookup failed')
+        return None
+    if not user:
+        return 'SESSION_USER_GONE'
+    if not user.get('active'):
+        return 'SESSION_REVOKED'
+    current = auth_epoch(str(user.get('password_hash') or ''), True, user.get('session_epoch') or 0)
+    if not hmac.compare_digest(str(expected), current):
+        return 'SESSION_REVOKED'
     return None
 
 

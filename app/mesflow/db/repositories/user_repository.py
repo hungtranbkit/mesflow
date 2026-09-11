@@ -12,6 +12,19 @@ class UserRepository:
     def get_by_id(self, user_id):
         return fetch_one('SELECT * FROM users WHERE id=%s', (user_id,))
 
+    def bump_session_epoch(self, user_id):
+        """Invalidate every session cookie already issued to this user.
+
+        Used by logout and by any administrative revocation. A password change
+        invalidates sessions on its own (the hash is part of the stamp), so it
+        does not need this -- but it bumps too, so a forced reset ends other
+        devices even if the new password happens to hash to the same value.
+        """
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute('UPDATE users SET session_epoch=session_epoch+1,updated_at=now() WHERE id=%s',
+                            (user_id,))
+
     def list_all(self):
         return fetch_all('''
             SELECT id, username, display_name, role, active,
@@ -48,7 +61,7 @@ class UserRepository:
             with conn.cursor() as cur:
                 cur.execute('''
                     UPDATE users
-                    SET password_hash=%s, must_change_password=%s, updated_at=now()
+                    SET password_hash=%s, must_change_password=%s, session_epoch=session_epoch+1, updated_at=now()
                     WHERE id=%s RETURNING id
                 ''', (generate_password_hash(password), must_change, user_id))
                 row = cur.fetchone()

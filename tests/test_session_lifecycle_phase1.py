@@ -14,6 +14,7 @@ import pytest
 from flask import Flask
 
 from mesflow.core import session_policy
+from mesflow.core.config import settings
 
 pytestmark = pytest.mark.unit
 
@@ -42,9 +43,10 @@ def test_idle_timeout_expires_and_clears_session(app, monkeypatch):
     with app.test_request_context():
         _freeze(monkeypatch, t0)
         session_policy.start_session(1, 'alice', 'operator')
-        # Default idle window is 60 minutes -- 61 minutes of total silence
-        # (no intervening validate_and_touch calls) must expire it.
-        _freeze(monkeypatch, t0 + timedelta(minutes=61))
+        # One minute past the configured idle window, with no intervening
+        # validate_and_touch call, must expire it. Read from settings rather
+        # than hardcoded: the window is a policy value, the behaviour is not.
+        _freeze(monkeypatch, t0 + timedelta(minutes=settings.session_idle_minutes + 1))
         from flask import session
         assert session.get('user_id') == 1  # sanity: cookie itself untouched by monkeypatch
         reason = session_policy.validate_and_touch()
@@ -57,14 +59,17 @@ def test_absolute_timeout_expires_even_with_continuous_activity(app, monkeypatch
     with app.test_request_context():
         _freeze(monkeypatch, t0)
         session_policy.start_session(1, 'alice', 'operator')
-        # Touch the session every 30 minutes (well within the idle window)
-        # all the way up to just past the 12h absolute ceiling.
+        # Touch the session regularly (always well within the idle window)
+        # all the way up to just past the absolute ceiling. The step is a
+        # fraction of the ceiling so this stays fast whatever the policy is.
+        ceiling = timedelta(hours=settings.session_absolute_hours)
+        step = ceiling / 12
         moment = t0
-        for _ in range(24):
-            moment = moment + timedelta(minutes=30)
+        for _ in range(13):
+            moment = moment + step
             _freeze(monkeypatch, moment)
             reason = session_policy.validate_and_touch()
-            if moment - t0 >= timedelta(hours=12):
+            if moment - t0 >= ceiling:
                 assert reason == 'SESSION_EXPIRED_ABSOLUTE'
                 break
             assert reason is None
@@ -77,14 +82,14 @@ def test_request_before_deadline_refreshes_idle_window(app, monkeypatch):
     with app.test_request_context():
         _freeze(monkeypatch, t0)
         session_policy.start_session(1, 'alice', 'operator')
-        # 59 minutes in (still within the 60m idle window) -- a real request
-        # arrives and must refresh last_activity_at.
-        _freeze(monkeypatch, t0 + timedelta(minutes=59))
+        # Just inside the idle window a real request arrives and must refresh
+        # last_activity_at.
+        almost = settings.session_idle_minutes - 1
+        _freeze(monkeypatch, t0 + timedelta(minutes=almost))
         assert session_policy.validate_and_touch() is None
-        # Another 59 minutes from THAT touch (118 total from login) must
-        # still be valid -- proves the idle window really did reset, not
-        # just tolerate a slightly later absolute check.
-        _freeze(monkeypatch, t0 + timedelta(minutes=118))
+        # The same again from THAT touch must still be valid -- proves the
+        # window really slid, rather than merely tolerating a later check.
+        _freeze(monkeypatch, t0 + timedelta(minutes=almost * 2))
         assert session_policy.validate_and_touch() is None
 
 
@@ -93,17 +98,19 @@ def test_absolute_timeout_is_not_refreshed_by_activity(app, monkeypatch):
     with app.test_request_context():
         _freeze(monkeypatch, t0)
         session_policy.start_session(1, 'alice', 'operator')
-        # Continuous activity every 30 minutes (never idle) all the way up
-        # to the door of the 12h absolute ceiling.
+        # Continuous activity (never idle) right up to the door of the
+        # absolute ceiling.
+        ceiling = timedelta(hours=settings.session_absolute_hours)
+        step = ceiling / 12
         moment = t0
-        while moment + timedelta(minutes=30) < t0 + timedelta(hours=12):
-            moment += timedelta(minutes=30)
+        while moment + step < t0 + ceiling:
+            moment += step
             _freeze(monkeypatch, moment)
             assert session_policy.validate_and_touch() is None
-        # One more minute (well within the idle window that just got
-        # refreshed) must still expire on the absolute ceiling -- activity
-        # must never push it back.
-        _freeze(monkeypatch, t0 + timedelta(hours=12, minutes=1))
+        # One more minute -- well inside the idle window that just got
+        # refreshed -- must still expire on the absolute ceiling. Activity
+        # must never push the ceiling back.
+        _freeze(monkeypatch, t0 + ceiling + timedelta(minutes=1))
         assert session_policy.validate_and_touch() == 'SESSION_EXPIRED_ABSOLUTE'
 
 
@@ -141,7 +148,7 @@ def test_timezone_of_the_server_clock_does_not_change_the_outcome(app, monkeypat
     with app.test_request_context():
         _freeze(monkeypatch, t0)
         session_policy.start_session(1, 'alice', 'operator')
-        same_instant_in_hcm = (t0 + timedelta(minutes=61)).astimezone(hcm)
+        same_instant_in_hcm = (t0 + timedelta(minutes=settings.session_idle_minutes + 1)).astimezone(hcm)
         _freeze(monkeypatch, same_instant_in_hcm)
         assert session_policy.validate_and_touch() == 'SESSION_EXPIRED_IDLE'
 
