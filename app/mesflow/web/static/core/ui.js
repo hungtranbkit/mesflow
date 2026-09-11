@@ -57,6 +57,49 @@ const MFUI=(()=>{
   const emptyState=(title='Không có dữ liệu',message='')=>`<div class="ui-state ui-empty"><b>${escHtml(title)}</b>${message?`<p>${escHtml(message)}</p>`:''}</div>`;
   const errorState=(message='Không thể tải dữ liệu.',retryId='')=>`<div class="ui-state ui-error" role="alert"><b>Đã có lỗi</b><p>${escHtml(message)}</p>${retryId?`<button class="btn" id="${escHtml(retryId)}" type="button">Thử lại</button>`:''}</div>`;
 
+  // --- Nhận dạng Operation: TÊN là chữ chính, MÃ là chữ phụ --------------
+  //
+  // Người vận hành tìm việc theo TÊN công đoạn ("Chấn bước 1"), không theo mã
+  // ("111-THAN-THUNG-R-01"); mã chỉ dùng để đối chiếu SAU khi đã tìm thấy.
+  // Trước đây mỗi màn tự ghép chuỗi `code · name` vào MỘT thẻ <b>, nên dãy ký
+  // tự vô nghĩa đứng trước còn tên thật bị đẩy ra sau và cắt cụt ở cột hẹp --
+  // và vì mỗi màn ghép một kiểu nên sửa chỗ này không làm chỗ kia đúng theo.
+  // Một hàm dựng duy nhất để Dashboard không còn hai code path cho cùng một
+  // khối chữ.
+  //
+  // Quy tắc fallback: thiếu tên thì MÃ lên làm chữ chính (không bao giờ để
+  // trống), và khi đó KHÔNG lặp lại mã ở dòng dưới -- lặp chính nó thì dòng
+  // phụ chỉ tốn chiều cao mà không thêm thông tin nào.
+  const opIdentityText=({name='',code=''}={})=>{
+    const n=String(name??'').trim(),c=String(code??'').trim();
+    return [n,c].filter(Boolean).join(' · ')||'—';
+  };
+  // compact: biến thể cho chip timeline -- cùng thứ bậc (tên nặng hơn chữ
+  // phụ), chỉ nhỏ hơn. Định nghĩa Ở ĐÂY một lần chứ không để mỗi màn tự hạ cỡ
+  // chữ bằng luật riêng: đó đúng là kiểu lệch âm thầm mà primitive dùng chung
+  // sinh ra để dẹp.
+  // meta: chữ thuần, hàm này tự escape. metaHtml: đã là HTML do người gọi
+  // dựng sẵn (chip timeline cần các span .qty-* tô màu sản lượng) -- người
+  // gọi chịu trách nhiệm escape, đúng quy ước của mọi tham số `actions`/
+  // `content` khác trong file này.
+  // showCode=false: chip timeline không in lại mã trên bề mặt (khối tổng hợp
+  // của nhân viên ngay phía trên đã mang mã, và chip chỉ rộng vài chục pixel)
+  // -- nhưng `code` VẪN phải truyền vào, vì nó là nguồn fallback khi thiếu
+  // tên và là phần không thể thiếu của title=.
+  const opIdentity=({name='',code='',meta='',metaHtml='',compact=false,tooltip='',className='',showCode=true}={})=>{
+    const n=String(name??'').trim(),c=String(code??'').trim();
+    const primary=n||c||'—';
+    const secondary=n&&showCode?c:'';
+    const hint=String(tooltip||'').trim()||opIdentityText({name,code});
+    const metaBody=metaHtml||(meta?escHtml(meta):'');
+    const cls=['op-identity',compact?'compact':'',String(className||'').trim()].filter(Boolean).join(' ');
+    return `<span class="${escHtml(cls)}" title="${escHtml(hint)}">`+
+      `<b class="row-title">${escHtml(primary)}</b>`+
+      (secondary?`<small class="row-code">${escHtml(secondary)}</small>`:'')+
+      (metaBody?`<small class="op-identity-meta">${metaBody}</small>`:'')+
+    '</span>';
+  };
+
   let overlay=null;
   let origin=null;
   let popping=false;
@@ -230,6 +273,6 @@ const MFUI=(()=>{
   }).observe(document.documentElement, { childList: true, subtree: true });
   syncFilterDisclosures();
 
-  return {statusBadge,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
+  return {statusBadge,opIdentity,opIdentityText,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
 })();
 window.MFUI=MFUI;

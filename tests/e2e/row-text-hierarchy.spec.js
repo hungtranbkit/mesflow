@@ -57,11 +57,59 @@ async function mockReworkQueue(page) {
     { id: 1, employee_no: 'NV01', name: 'Trần Tấn Đạt', active: true }] } }));
 }
 
-const MOCKS = { overview: mockOverview, 'rework-queue': mockReworkQueue };
+// Dashboard theo ngày (2026-09-11): hai tab đọc nhiều nhất ở xưởng cũng dựng
+// khối nhận dạng OP bằng cùng primitive. Kéo chúng vào ĐÂY chứ không chỉ để
+// ở spec riêng, vì bài "cùng một primitive thì cùng một cỡ chữ" bên dưới là
+// thứ duy nhất bắt được lệch âm thầm giữa các màn -- và cái bẫy nó bắt được
+// lần trước (.overview-op-row small ở (0,1,1) đè .row-code) đúng là loại bẫy
+// mà thêm màn mới sẽ giăng lại.
+const DASH_OP_CODE = '111-THAN-THUNG-R-07';
+const DASH_OP_NAME = 'CHẤN BƯỚC 1';
+const dashDate = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
 
+async function mockDashboardDay(page) {
+  const date = dashDate();
+  const iso = (h, m = 0) => new Date(`${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+07:00`).toISOString();
+  await page.route('**/api/settings/work-shifts', r => r.fulfill({ json: { ok: true, items: [{
+    id: 1, code: 'DAY', name: 'Ca ngày', active: true, anchor_start: '00:00', anchor_end: '23:59',
+    cross_midnight: false, target_minutes: 480,
+    intervals: [{ interval_type: 'WORK', start_minute: 0, end_minute: 1439, sort_order: 0 }],
+  }] } }));
+  await page.route('**/api/dashboard/day?**', r => r.fulfill({ json: {
+    ok: true,
+    items: [{
+      po_id: 1, po_code: 'PO-111', part_id: 11, part_code: '10025-FB-201', part_name: 'Thân thùng rác',
+      operation_id: 101, operation_code: DASH_OP_CODE, operation_name: DASH_OP_NAME,
+      session_count: 1, open_session_count: 1, day_work_seconds: 5400, planned_work_seconds: 7200,
+      planned_quantity: 1000, total_good_qty: 308, day_good_qty: 120, day_defect_qty: 4,
+      day_rework_qty: 0, standard_seconds_per_unit: 7, day_state: 'RUNNING',
+      last_started_at: iso(8, 22), last_report_at: iso(10, 5),
+    }],
+    sessions: [{
+      session_id: 1, session_status: 'OPEN', started_at: iso(8, 22), ended_at: null,
+      employee_id: 1, employee_code: 'NV01', employee_name: 'Trần Tấn Đạt',
+      operation_id: 101, operation_code: DASH_OP_CODE, operation_name: DASH_OP_NAME,
+      po_code: 'PO-111', part_code: '10025-FB-201', good_qty: 12, defect_qty: 0, rework_qty: 0,
+    }],
+    activity: [],
+  } }));
+}
+
+const MOCKS = {
+  overview: mockOverview,
+  'rework-queue': mockReworkQueue,
+  'dashboard-overview': mockDashboardDay,
+  'dashboard-people': mockDashboardDay,
+};
+
+// [khóa mock, selector hàng, đường dẫn mở trang]
 const SCREENS = [
-  ['overview', '.overview-op-row'],
-  ['rework-queue', '.rq-row:not(.head)'],
+  ['overview', '.overview-op-row', 'overview'],
+  ['rework-queue', '.rq-row:not(.head)', 'rework-queue'],
+  ['dashboard-overview', '.op-time-row:not(.head)', 'dashboard&tab=overview'],
+  ['dashboard-people', '.employee-day-summary', 'dashboard&tab=people'],
 ];
 
 async function open(page, key, width = 1366) {
@@ -70,7 +118,8 @@ async function open(page, key, width = 1366) {
   await page.request.post('/api/auth/test-auto-login');
   await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await MOCKS[key](page);
-  await page.goto(`/app?page=${key}`);
+  const route = (SCREENS.find(s => s[0] === key) || [])[2] || key;
+  await page.goto(`/app?page=${route}`);
   await page.waitForTimeout(1200);
 }
 
@@ -146,7 +195,11 @@ test('cùng một primitive thì cùng một cỡ chữ ở mọi màn', async (
       };
     });
   }
+  // So MỌI màn với màn đầu, không chỉ hai màn đầu: từ 2026-09-11 danh sách
+  // này có 4 màn, và cách so cũ sẽ im lặng bỏ qua đúng những màn mới thêm.
   const keys = Object.keys(seen);
-  expect(JSON.stringify(seen[keys[0]]), `lệch giữa các màn: ${JSON.stringify(seen)}`)
-    .toBe(JSON.stringify(seen[keys[1]]));
+  const baseline = JSON.stringify(seen[keys[0]]);
+  for (const key of keys.slice(1)) {
+    expect(JSON.stringify(seen[key]), `${key} lệch so với ${keys[0]}: ${JSON.stringify(seen)}`).toBe(baseline);
+  }
 });

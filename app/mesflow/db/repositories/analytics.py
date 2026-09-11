@@ -936,8 +936,14 @@ class DashboardRepository:
     def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
         ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         return fetch_all(f"""SELECT * FROM (
+          -- operation_name là field BỔ SUNG (2026-09-11), không thay `subject`:
+          -- "Diễn biến trong ngày" trên Dashboard phải đọc được TÊN công đoạn
+          -- chứ không chỉ mã, mà `subject` là tên chung chung của dòng sự kiện
+          -- (consumer cũ vẫn dùng nguyên nghĩa cũ). Thêm tên đúng-ngữ-nghĩa
+          -- cạnh operation_code để UI không phải suy đoán từ `subject`.
           SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,
             e.name actor,o.name subject,'STARTED' status,po.code po_code,o.code operation_code,
+            o.name operation_name,
             0::integer good_qty,0::integer defect_qty
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
@@ -945,6 +951,7 @@ class DashboardRepository:
           UNION ALL
           SELECT 'QUANTITY_REPORTED',ws.id::text,COALESCE(ws.ended_at,ws.updated_at),e.name,o.name,
             CASE WHEN ws.status='OPEN' THEN 'QUANTITY_UPDATED' ELSE 'FINISHED' END,po.code,o.code,
+            o.name,
             COALESCE(ws.good_qty,0),COALESCE(ws.defect_qty,0)
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id

@@ -2389,3 +2389,33 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
    đọc, không phải nhãn. Nhãn cột (.overview-op-head) vẫn giữ 10px vì nó là
    nhãn viết hoa, đọc một lần rồi thôi. */
 .overview-op-row small{font-size:11px}
+
+/* ==========================================================================
+   .op-identity -- khối nhận dạng Operation dùng chung (MFUI.opIdentity)
+   ==========================================================================
+   Cùng primitive .row-title/.row-code ở trên, nhưng đóng gói luôn cách XUỐNG
+   DÒNG, vì đó mới là phần mỗi màn trước đây tự quyết một kiểu:
+
+   - TÊN được phép xuống dòng (tên công đoạn tiếng Việt có dấu cách, cắt giữa
+     chữ là mất nghĩa) nhưng tối đa 2 dòng, để hàng không cao gấp đôi khi gặp
+     một cái tên dài. Tên dài quá 2 dòng thì title= trên thẻ bao ngoài giữ đủ.
+   - MÃ thì KHÔNG xuống dòng: "111-THAN-THUNG-R-01" ngắt giữa chừng đọc ra một
+     mã khác. Hết chỗ thì cắt bằng ellipsis, bản đầy đủ nằm ở title=.
+   Cả hai đều cần min-width:0 vì chúng luôn nằm trong ô grid/flex -- thiếu nó
+   thì ô tự nới theo chuỗi dài nhất và đẩy vỡ hàng ngang ở màn hẹp. */
+.op-identity{display:block;min-width:0}
+.op-identity>b.row-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;white-space:normal;overflow-wrap:anywhere}
+.op-identity>small.row-code,.op-identity>small.op-identity-meta{
+  display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.op-identity>small.op-identity-meta{font-size:11px;font-weight:600;color:var(--muted)}
+/* Biến thể compact cho chip timeline: cùng THỨ BẬC (tên nặng hơn chữ phụ),
+   chỉ nhỏ hơn. Một chip chỉ rộng vài chục pixel trong cột 300px nên tên lấy
+   đúng 1 dòng; phần còn lại vẫn đọc được ở title=. Khai báo ở đây một lần để
+   không màn nào phải tự hạ cỡ chữ của primitive bằng luật riêng. */
+.op-identity.compact>b.row-title{font-size:11px;-webkit-line-clamp:1}
+.op-identity.compact>small.row-code,.op-identity.compact>small.op-identity-meta{font-size:10px;margin-top:1px}
+/* Chip timeline vốn là pill một dòng (.employee-session-chips>span đặt
+   nowrap + ellipsis cho CẢ chip). Khi chip là một .op-identity thì việc cắt
+   thuộc về từng dòng con bên trong, không phải cả chip. */
+.employee-session-chips>span.op-identity{white-space:normal;text-overflow:clip;text-align:left}
