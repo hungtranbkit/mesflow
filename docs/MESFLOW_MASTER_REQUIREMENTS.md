@@ -345,9 +345,66 @@ prefix-based test would get wrong:
 
 | Rule | Value |
 |---|---|
-| Idle session timeout | 60 minutes of inactivity (configurable, default 60) |
-| Absolute session ceiling | 12 hours from login, regardless of activity (configurable, default 12) |
-| Kiosk-mode idle timeout | 15 minutes (shorter than a normal office login, shared-terminal risk) |
+| Idle session timeout | **14 days** of inactivity (`MESFLOW_SESSION_IDLE_MINUTES`, default 20160). The window is **sliding**: every valid request rewrites `last_activity_at` and Flask re-sends the cookie with a fresh `Max-Age`, so someone who is working is never interrupted. |
+| Absolute session ceiling | **30 days** from login, regardless of activity (`MESFLOW_SESSION_ABSOLUTE_HOURS`, default 720). Never refreshed by activity. |
+| Kiosk-mode idle timeout | 15 minutes — **deliberately not widened**. A shared terminal left logged in is a real handover risk; convenience for an office browser must not be bought with it. |
+
+#### 3.5.1 Persistent login
+
+The session cookie is a **signed cookie** with no server-side session store, so
+login **survives a container restart and an image redeploy** with nothing to
+persist — provided `MESFLOW_SECRET_KEY` is **stable** (read from the
+environment; production refuses the placeholder value). The signing key must
+never be generated per boot.
+
+| Cookie attribute | Value | Why |
+|---|---|---|
+| `Max-Age` / `Expires` | Present, equal to the absolute ceiling | Without it the cookie is a **browser-session cookie** that dies when the browser closes — no server-side TTL can fix that. This was the primary cause of users being logged out. |
+| `HttpOnly` | On | JS cannot read it; no token is put in `localStorage`. |
+| `Secure` | Follows `WORKSHOP_COOKIE_SECURE` (production = 1) | Required over HTTPS. |
+| `SameSite` | `Lax` | |
+| `Path` | `/` | |
+| Kiosk | **No** `Max-Age` | A shared terminal must not leave a durable cookie behind after the operator walks away. |
+
+**Revocation.** A signed cookie cannot revoke itself; `users.session_epoch`
+(migration `0050`) is the session version. It is folded into the `auth_epoch`
+stamp written into the cookie at login and re-checked on every request:
+
+| Event | Effect |
+|---|---|
+| Manual logout | Bumps `session_epoch` → every cookie issued to that user stops validating **immediately**, including a copy captured before the logout. Scope is **per user**, so "log out" means every device. |
+| Password change | `password_hash` changes **and** `session_epoch` is bumped → old sessions get 401 / redirect to login. |
+| Admin deactivates the account | `active=false` → old sessions stop validating. |
+| Infrastructure error during the check | **Fails open** (session kept) with a warning — a transient DB blip must not log the whole factory out. Only a real mismatch **fails closed**. |
+| Session issued before migration `0050` | Carries no `auth_epoch` → deploying this does not force anyone out; it picks the field up at next login. |
+
+`auth_epoch` is an HMAC keyed with `MESFLOW_SECRET_KEY`, truncated to 16 hex
+characters — the cookie carries nothing derivable from the password hash, and
+the value is **never logged**.
+
+#### 3.5.2 Persistent login on a phone
+
+A desktop browser process practically never dies, so a cookie with no
+`Max-Age` still looks fine there. **iOS Safari reclaims backgrounded tabs
+constantly**, and when a tab is reclaimed every cookie without an expiry goes
+with it. That asymmetry is why "it works on my desktop" was not evidence, and
+why the requirement below is stated separately:
+
+- Logging in on a phone must leave a session cookie with a **real expiry**
+  (`expires > 0`), not a tab-scoped one.
+- Navigating between screens must produce **no 401** and **no redirect to
+  `/login`** while the session is inside its windows.
+- After the tab is reclaimed and reopened with the same storage, the session
+  must still be **usable** — `GET /` redirects to `/app` and
+  `GET /api/auth/me` returns 200 — not merely present.
+- When the session cookie really is gone, the kick-back is exactly: a page
+  navigation answers **302 → `/login`**, and an API answers **401
+  `AUTH_REQUIRED`**, which `core/net.js` turns into `location.href='/login'`.
+
+Traceability: `tests/test_persistent_login_session.py` (negative proof by
+mutation), `tests/e2e/persistent-login.spec.js` (desktop, real browser),
+`tests/e2e/mobile-persistent-login.spec.js` (**WebKit + iPhone device
+descriptor** — the desktop suite cannot catch the tab-eviction failure).
 
 ---
 

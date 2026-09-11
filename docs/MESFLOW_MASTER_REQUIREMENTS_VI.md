@@ -395,8 +395,29 @@ ghi trong cookie lúc đăng nhập và đối chiếu lại ở mỗi request:
 cookie không mang vật liệu suy ra được từ password hash, và giá trị này **không
 bao giờ được ghi log**.
 
-Traceability: `tests/test_persistent_login_session.py` (19 test, có negative
-proof), `tests/e2e/persistent-login.spec.js` (5 test trình duyệt thật).
+#### 3.5.2 Đăng nhập bền TRÊN ĐIỆN THOẠI
+
+Tiến trình trình duyệt trên máy bàn gần như không bao giờ chết, nên cookie
+thiếu `Max-Age` vẫn "trông ổn" ở đó. **iOS Safari thì thu hồi tab nền liên
+tục**, và khi tab bị thu hồi thì mọi cookie không có hạn biến mất theo. Chính
+sự bất đối xứng này khiến "máy bàn vẫn vào được" KHÔNG phải bằng chứng, nên
+yêu cầu dưới đây được phát biểu riêng:
+
+- Đăng nhập trên điện thoại phải để lại cookie session có **hạn thật**
+  (`expires > 0`), không phải cookie sống theo tab.
+- Đi qua các màn hình **không được sinh 401** và **không bị chuyển hướng về
+  `/login`** khi phiên vẫn trong hạn.
+- Sau khi tab bị thu hồi rồi mở lại với cùng storage, phiên phải còn **dùng
+  được** — `GET /` chuyển sang `/app` và `GET /api/auth/me` trả 200 — chứ
+  không chỉ "còn cookie".
+- Khi cookie phiên thật sự mất, phản hồi đá người dùng ra là: điều hướng trang
+  trả **302 → `/login`**, API trả **401 `AUTH_REQUIRED`**, và `core/net.js`
+  biến nó thành `location.href='/login'`.
+
+Traceability: `tests/test_persistent_login_session.py` (có negative proof bằng
+mutation), `tests/e2e/persistent-login.spec.js` (máy bàn, trình duyệt thật),
+`tests/e2e/mobile-persistent-login.spec.js` (**WebKit + device descriptor
+iPhone** — bộ máy bàn không thể bắt được lỗi tab bị thu hồi).
 
 ---
 
