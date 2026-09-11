@@ -159,6 +159,34 @@ session_exception_review:
     (skipping IN_PROGRESS) is blocked is untested; record actual behavior,
     do not assume.
 
+kiosk_v1_web_screen:
+  entity: browser-only screen state of /kiosk (no server row at all —
+    the `state` variable in app/mesflow/web/static/kiosk.js)
+  states: [ready, operation, starting, started, quantity-good, quantity-defect,
+           ask-rework, quantity-rework, finish-confirm, finished, error]
+  source: app/mesflow/web/static/kiosk.js
+  note: >
+    Purely presentational — every durable effect belongs to work_session
+    above. Listed here because the auto-return below is the only part of
+    this screen state that is a contract (§7.1 screen-lifecycle table),
+    not a styling detail.
+  transitions:
+    - {from: finished, event: "15s elapsed (FINISHED_RESET_MS)", to: ready,
+       side_effect: "reset() clears employee/session/quantity/rework/confirm
+       context", note: "armed ONLY after a successful finish response; armed
+       unconditionally, including while the simulation panel is open"}
+    - {from: finished, event: "any new transition inside the 15s window
+       (badge scan, Hủy/Quét lại)", to: "that flow's screen",
+       note: "show() cancels the pending return — the finished job's timer
+       can never reset the flow that replaced it"}
+    - {from: finish-confirm, event: "finish() rejected / network failure",
+       to: finish-confirm,
+       note: "no reset, no timer; typed quantities stay on screen behind
+       THỬ LẠI until a real success"}
+  requirement: REQ-KIOSK-001
+  tests: [tests/e2e/kiosk-result-auto-return.spec.js,
+          tests/test_kiosk_web_result_auto_return_15s.py]
+
 kiosk_v2_device:
   entity: per-device server-side "projection" (short-lived UI state,
     separate from the durable work_sessions state above)

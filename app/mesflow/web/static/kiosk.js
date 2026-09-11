@@ -60,6 +60,10 @@
   // hiện -> không khai được rework.
   const QUANTITY_INPUT = {'quantity-good':'good-qty','quantity-defect':'defect-qty','quantity-rework':'rework-qty'};
   function show(name) {
+    // Mỗi lần chuyển màn là một bước mới của luồng. Lần trả-về đang chờ thuộc
+    // về màn sắp rời, không được phép nổ vào màn sắp tới -- một lần quét mới
+    // trong cửa sổ 15 giây huỷ timer cũ chính bằng dòng này.
+    cancelReset();
     screens.forEach(el => el.classList.toggle('active', el.id === `screen-${name}`));
     state = name;
     sendHeartbeat();
@@ -80,9 +84,19 @@
     }
   }
   function focusScanner() { if (!quantityStates.includes(state) && !demoIsOpen()) input.focus({preventScroll:true}); }
-  function scheduleReset(delay) {
-    clearTimeout(resetTimer);
-    if (demoIsOpen()) return;
+  // Màn kết quả giữ bao lâu trước khi máy tự trả về "chờ quét thẻ nhân viên".
+  // Trạm đứng một mình giữa hai lượt thợ: thứ gì còn trên màn lúc người vừa
+  // làm bỏ đi thì phải tự sạch, nếu không người tiếp theo bước tới đúng kết
+  // quả của người trước và cái trạm trông như đã treo.
+  const FINISHED_RESET_MS = 15000;
+  function cancelReset() { clearTimeout(resetTimer); resetTimer = null; }
+  // force: cắm giờ kể cả khi bảng mô phỏng đang mở. Bảng đó chính là cách
+  // người dùng trình duyệt điều khiển trạm này (laptop làm gì có súng quét),
+  // nên để nó chặn lần trả-về-sau-khi-thành-công là đúng thứ đã ghim màn kết
+  // quả ở đó vĩnh viễn. Rời màn của một việc đã xong không phải thứ tuỳ chọn.
+  function scheduleReset(delay, {force = false} = {}) {
+    cancelReset();
+    if (demoIsOpen() && !force) return;
     const effectiveDelay = tutorialMode ? Math.max(Number(delay) || 0, 12000) : delay;
     resetTimer = setTimeout(reset, effectiveDelay);
   }
@@ -127,7 +141,7 @@
     show('error');
   }
   function reset() {
-    clearTimeout(resetTimer);
+    cancelReset();
     employee = null; openSession = null; scanBuffer = ''; input.value = '';
     pendingFinish = { good:0, defect:0, rework:0, hasRework:false, note:'', requestId:'' };
     document.getElementById('good-qty').value = '0'; document.getElementById('defect-qty').value = '0'; document.getElementById('rework-qty').value = '0'; document.getElementById('finish-note').value = '';
@@ -389,7 +403,7 @@
       document.getElementById('finished-summary').textContent = rework > 0
         ? `Đạt ${good} · NG ${defect} · Sửa được ${rework} · Phế ${scrap}`
         : `Đạt ${good} · NG ${defect}`;
-      show('finished'); scheduleReset(3000);
+      show('finished'); scheduleReset(FINISHED_RESET_MS, {force:true});
     } catch (error) {
       document.getElementById('finish-submit-error').textContent = 'CHƯA GỬI ĐƯỢC SẢN LƯỢNG';
       document.getElementById('finish-confirm-ok').hidden = true;
@@ -593,7 +607,13 @@
         : `Không tải được dữ liệu mô phỏng: ${error.message}`;
     }
   }
-  function openDemo() { clearTimeout(resetTimer); demoPanel.classList.add('open'); demoPanel.setAttribute('aria-hidden','false'); demoToggle.setAttribute('aria-expanded','true'); loadDemoData(true); }
+  function openDemo() {
+    // Mở bảng giữa chừng thì không được reset màn dưới tay người đang thao
+    // tác, nhưng cũng không được gỡ lần trả-về mà một finish thành công đã cắm.
+    if (state !== 'finished') cancelReset();
+    demoPanel.classList.add('open'); demoPanel.setAttribute('aria-hidden','false');
+    demoToggle.setAttribute('aria-expanded','true'); loadDemoData(true);
+  }
   function closeDemo() { demoPanel.classList.remove('open'); demoPanel.setAttribute('aria-hidden','true'); demoToggle.setAttribute('aria-expanded','false'); focusScanner(); }
   async function copyText(text) {
     if (!text) return;

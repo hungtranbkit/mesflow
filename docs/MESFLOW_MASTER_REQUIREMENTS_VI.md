@@ -833,6 +833,22 @@ nào có thể truy cập app.
 | 2. Start | `POST /api/kiosk-web/start` | đã xác định nhân viên+operation | Cùng quy tắc §6.1 | Cùng lỗi §6.1 |
 | 3. Finish | `POST /api/kiosk-web/finish/<session_id>` | số lượng | Cùng quy tắc §6.2 | Cùng lỗi §6.2 |
 
+**Vòng đời màn hình (giao diện trình duyệt,
+`app/mesflow/web/static/kiosk.js`).** Trạm đứng một mình giữa hai lượt
+thợ, nên không màn hình nào được giữ vô hạn sau khi đã ghi nhận xong:
+
+| Quy tắc | Hành vi |
+|---|---|
+| Tự trả về màn chờ sau khi thành công | Finish **thành công** giữ màn kết quả **15 giây** (`FINISHED_RESET_MS`), sau đó xoá sạch context nhân viên/phiên/sản lượng/hàng sửa được/xác nhận và trở về "chờ quét thẻ nhân viên". Vô điều kiện — bảng mô phỏng đang mở cũng không chặn được. |
+| Lượt mới thắng | Mọi chuyển màn bắt đầu trong 15 giây đó (quét thẻ mới, Hủy/Quét lại) huỷ timer đang chờ, nên timer của lượt trước không bao giờ reset lượt mới. |
+| Thất bại thì không xoá gì | Finish chưa nhận được phản hồi thành công từ backend giữ nguyên sản lượng đã nhập trên `#screen-finish-confirm` sau nút THỬ LẠI, không hẹn giờ và không xoá gì. Chỉ thành công thật (hoặc lần phát lại idempotent của nó) mới bắt đầu đếm 15 giây. |
+| Tải lại trang | Trang luôn khởi động ở màn chờ; không hồi sinh kết quả đã hoàn tất từ bộ nhớ. Tải lại khi một lần submit chưa ngã ngũ thì rơi về đảm bảo idempotency của REQ-SESS-002 (cùng `request_id`/xử lý phiên đã kết thúc). |
+
+Ghi chú parity: projection thiết bị của Kiosk v2 trở về `WAIT_EMPLOYEE`
+ngay trong chính lệnh `QUANTITY_SUBMITTED` (§7.2). Cửa sổ 15 giây là bản
+tương đương của lần reset đó trên trình duyệt — nó chỉ tồn tại để người
+đọc kịp nhìn kết quả; cả hai đầu đều kết thúc ở cùng một trạng thái chờ.
+
 ### 7.2 Kiosk v2 (giao thức phần cứng ESP32, `/api/kiosk/v2/*`)
 
 Xác thực theo thiết bị (token riêng từng thiết bị), kiến trúc
@@ -2031,6 +2047,7 @@ dưới đây là điểm-vào để sinh testcase từ đó.
 - **Luồng chính**: bảng 3 bước ở §7.1.
 - **Kết quả mong đợi**: cùng kết quả vòng đời session như route web session, tiếp cận qua các endpoint hình dạng kiosk.
 - **Chuyển trạng thái**: giống hệt REQ-SESS-001/002.
+- **Vòng đời giao diện**: sau khi finish thành công, màn hình trình duyệt giữ kết quả 15 giây rồi tự reset về màn chờ quét thẻ nhân viên; lượt mới bắt đầu trong cửa sổ đó huỷ lần reset đang chờ; submit thất bại/chưa chắc chắn thì không reset gì và không hẹn giờ (bảng vòng đời màn hình ở §7.1).
 - **Kiểm tra hợp lệ**: `qr` bắt buộc và không rỗng cho scan.
 - **Lỗi**: `qr` rỗng → `400 QR_REQUIRED`, `error_code SCN-001`, "Chưa nhận được mã quét", gợi ý hành động "Kiểm tra nguồn và dây máy quét, rồi quét lại."; mọi lỗi phía sau giống hệt REQ-SESS-001/002.
 - **Ranh giới**: giống REQ-SESS-001/002 (đây là cùng logic nghiệp vụ, tiếp cận qua một cửa khác).
@@ -2857,7 +2874,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-PO-005 (liệt kê Part/Operation trong phạm vi một PO) | `tests/integration/test_po_detail_operation_scope.py`, `tests/test_po_detail_fetches_scoped_data.py` | A |
 | REQ-EMP-* | `tests/e2e/catalog-crud.spec.js` | P — chưa có file test riêng cho vòng đời nhân viên |
 | REQ-SESS-* | `test_session_lifecycle_state_machine_property.py`, `test_session_lifecycle_observability_phase13.py`, `test_session_overlap_and_exceptions.py`, `test_shift_session_lifecycle.py`, `test_write_path_po_lock_contention.py`, `tests/e2e/session-management-*.spec.js` (3 file) | A |
-| REQ-KIOSK-001 (v1) | chỉ gián tiếp, qua `tests/e2e/mesflow.spec.js` | P |
+| REQ-KIOSK-001 (v1) | `tests/e2e/kiosk-setup-flow.spec.js`, `tests/e2e/kiosk-quantity-entry-p0.spec.js`, `tests/e2e/kiosk-result-auto-return.spec.js` (vòng đời màn hình 15 giây, đồng hồ giả), `tests/test_kiosk_web_result_auto_return_15s.py`; phần còn lại chỉ gián tiếp qua `tests/e2e/mesflow.spec.js` | P (A cho vòng đời màn hình) |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — module được test nhiều nhất hệ thống |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 case), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |

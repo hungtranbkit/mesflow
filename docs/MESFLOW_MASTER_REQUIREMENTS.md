@@ -806,6 +806,22 @@ demo/manual testing on any browser that can reach the app.
 | 2. Start | `POST /api/kiosk-web/start` | employee+operation resolved | Same rules as §6.1 | Same errors as §6.1 |
 | 3. Finish | `POST /api/kiosk-web/finish/<session_id>` | quantities | Same rules as §6.2 | Same errors as §6.2 |
 
+**Screen lifecycle (browser UI, `app/mesflow/web/static/kiosk.js`).** The
+terminal stands unattended between two workers, so no screen may hold
+indefinitely once the work is recorded:
+
+| Rule | Behaviour |
+|---|---|
+| Auto-return after success | A **successful** finish shows its result for **15 seconds** (`FINISHED_RESET_MS`), then clears employee/session/quantity/rework/confirmation context and returns to "chờ quét thẻ nhân viên". Unconditional — the simulation panel being open does not suppress it. |
+| New flow wins | Any transition started inside that window (a fresh badge scan, Hủy/Quét lại) cancels the pending return, so the previous job's timer can never reset the new one. |
+| Failure never clears | A finish that did not reach a successful backend response keeps the typed quantities on `#screen-finish-confirm` behind THỬ LẠI, arms no timer and clears nothing. Only a real success (or the idempotent replay of one) starts the 15 s clock. |
+| Reload | The page always boots into the waiting screen; no completed result is revived from storage. A reload while a submit is unresolved falls back to REQ-SESS-002's idempotency (same `request_id`/already-finished handling). |
+
+Parity note: Kiosk v2's device projection resets to `WAIT_EMPLOYEE` inside
+the `QUANTITY_SUBMITTED` call itself (§7.2). The 15 s window is the
+browser's equivalent of that reset — it exists only to let a human read
+the result first; both ends finish in the same waiting state.
+
 ### 7.2 Kiosk v2 (ESP32 hardware protocol, `/api/kiosk/v2/*`)
 
 Device-authenticated (per-device token), event-sourced: each device
@@ -1793,6 +1809,7 @@ are the test-entry-points into it.
 - **Main flow**: §7.1's 3-step table.
 - **Expected output**: same session-lifecycle outcomes as the web session routes, reached through the kiosk-shaped endpoints.
 - **State transition**: identical to REQ-SESS-001/002.
+- **UI lifecycle**: after a successful finish the browser screen holds the result for 15 seconds, then resets itself to the employee-scan waiting screen; a new flow started inside that window cancels the pending reset; a failed/unconfirmed submit resets nothing and arms no timer (§7.1 screen-lifecycle table).
 - **Validation**: `qr` required and non-empty for scan.
 - **Errors**: empty `qr` → `400 QR_REQUIRED`, `error_code SCN-001`, "Chưa nhận được mã quét", action hint "Kiểm tra nguồn và dây máy quét, rồi quét lại."; all downstream errors identical to REQ-SESS-001/002.
 - **Boundary**: same as REQ-SESS-001/002 (this is the same business logic reached through a different door).
@@ -2443,7 +2460,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-PO-*, REQ-PART-*, REQ-TPL-* | `tests/e2e/catalog-crud.spec.js`, `catalog-visual.spec.js`, `template-ui.spec.js`; `test_p1_audit_2026_08_28.py`, `test_production_state_integrity.py`, `test_production_consistency_p1.py` | A (P for PO-transition rules beyond the enum, §5.3 gap) |
 | REQ-EMP-* | `tests/e2e/catalog-crud.spec.js` | P — no dedicated employee-lifecycle test file |
 | REQ-SESS-* | `test_session_lifecycle_state_machine_property.py`, `test_session_lifecycle_observability_phase13.py`, `test_session_overlap_and_exceptions.py`, `test_shift_session_lifecycle.py`, `test_write_path_po_lock_contention.py`, `tests/e2e/session-management-*.spec.js` (3 files) | A |
-| REQ-KIOSK-001 (v1) | indirect only, via `tests/e2e/mesflow.spec.js` | P |
+| REQ-KIOSK-001 (v1) | `tests/e2e/kiosk-setup-flow.spec.js`, `tests/e2e/kiosk-quantity-entry-p0.spec.js`, `tests/e2e/kiosk-result-auto-return.spec.js` (15 s screen lifecycle, fake clock), `tests/test_kiosk_web_result_auto_return_15s.py`; otherwise indirect via `tests/e2e/mesflow.spec.js` | P (A for the screen lifecycle) |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — most heavily tested module in the system |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
