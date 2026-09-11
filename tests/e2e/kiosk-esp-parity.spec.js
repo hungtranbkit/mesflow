@@ -25,6 +25,13 @@ const OPEN_SESSION = {
 
 function freshState() { return { hasOpenSession: true, finished: [], attempts: 0, failAll: false, abortNetwork: false }; }
 
+// Trần chờ màn hình TỰ quay về màn chờ thẻ sau khi gửi xong. Phải LỚN HƠN hẳn
+// độ trễ tự-quay-về của sản phẩm, không được bằng: để bằng là hai đồng hồ cùng
+// đếm từ một mốc, và bài test thua ngay cả khi giao diện làm đúng. Trần này
+// KHÔNG khoá giá trị độ trễ -- việc đó là của tests/e2e/kiosk-result-auto-return.spec.js;
+// ở đây chỉ cần khẳng định "không ai phải bấm gì cả".
+const AUTO_RETURN_CEILING_MS = 25000;
+
 async function mockKiosk(page, state) {
   await page.route(/\/api\/kiosk-web\/scan/, route => {
     const qr = String((route.request().postDataJSON() || {}).qr || '');
@@ -182,6 +189,7 @@ test.describe('Luồng NG / lỗi sửa được — parity với ESP v2', () =>
 
 test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
   test('gửi xong KHÔNG đứng lại màn kết quả, và xoá sạch state', async ({ page }) => {
+    test.setTimeout(60000);   // bài này ngồi chờ tự-quay-về thật, không mock đồng hồ
     const state = freshState();
     await openQuantityFlow(page, state);
     await typeQty(page, 'good-qty', 12);
@@ -192,7 +200,7 @@ test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
 
     await expect(page.locator('#screen-finished')).toHaveClass(/active/);
     // Tự quay về, không cần ai bấm gì.
-    await expect(page.locator('#screen-ready')).toHaveClass(/active/, { timeout: 15000 });
+    await expect(page.locator('#screen-ready')).toHaveClass(/active/, { timeout: AUTO_RETURN_CEILING_MS });
 
     // Không còn dấu vết của người vừa xong.
     expect(await page.locator('#good-qty').inputValue()).toBe('0');
@@ -202,6 +210,7 @@ test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
   });
 
   test('người tiếp theo quét thẻ không thấy số của người trước', async ({ page }) => {
+    test.setTimeout(60000);   // bài này ngồi chờ tự-quay-về thật, không mock đồng hồ
     const state = freshState();
     await openQuantityFlow(page, state);
     await typeQty(page, 'good-qty', 77);
@@ -209,7 +218,7 @@ test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
     await typeQty(page, 'defect-qty', 0);
     await page.locator('#defect-next').click();
     await page.locator('#finish-confirm-ok').click();
-    await expect(page.locator('#screen-ready')).toHaveClass(/active/, { timeout: 15000 });
+    await expect(page.locator('#screen-ready')).toHaveClass(/active/, { timeout: AUTO_RETURN_CEILING_MS });
 
     state.hasOpenSession = true;
     await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|EMP|NV-009'));
