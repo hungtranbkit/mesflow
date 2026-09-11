@@ -55,9 +55,11 @@ spacing:
   6: "24px"
   8: "32px"
 radius:
-  control: "4px"
-  panel: "6px"
-  overlay: "8px"
+  control: "5px"
+  row: "5px"
+  card: "7px"
+  panel: "8px"
+  overlay: "9px"
   pill: "999px"
 ---
 
@@ -141,9 +143,25 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Spacing scale: `4, 8, 12, 16, 20, 24, 32px`; không tạo khoảng cách tùy ý.
 - Workspace gutter: 24px ở 1920, 20px ở 1366, 12px ở mobile.
 - Khoảng panel: 16px; padding panel: 16px desktop, 12px compact/mobile.
-- Control radius 4px; panel 6px; overlay 8px; pill chỉ dành cho status/filter chip.
+- Pill radius chỉ dành cho status/filter chip.
 - Border mặc định 1px; divider dùng border thay cho card con. Border card phải rõ hơn nền trang.
-- Radius chuẩn: control `5px`, row `5px`, card `7px`, panel `8px`, overlay `9px`.
+- Thang bo góc canonical: `--radius-surface` (khối nội dung: card, list item, panel,
+  section, vỏ bảng), `--radius-surface-row` (khối lồng bên trong một surface),
+  `--radius-control` (input, select, button, chip). Lớp phủ dùng `--radius-overlay`.
+  `--radius-card` / `--radius-panel` / `--radius-row` là TÊN CŨ, chỉ còn dùng cho
+  phần tử nhỏ (icon sidebar, thanh gantt, huy hiệu) — không dùng cho surface mới.
+  Giá trị nằm ở `:root` trong `ui.css`; đừng chép số vào đây để khỏi lệch.
+- **List/card nhất quán (bắt buộc).** Trong cùng một nhóm màn, list không được lúc vuông lúc bo.
+  - Khối ngoài (card/panel/section, vỏ bảng) → `--radius-surface`.
+  - Khối lồng bên trong một surface (list trong card, header của list đó) →
+    `--radius-surface-row`. Header và container của nó phải cùng một bậc, nếu không
+    góc header sẽ tròn hơn cái hộp đang cắt nó.
+  - Dense table row được phép phẳng (`border-radius:0`) **với điều kiện** container ngoài
+    mang radius chuẩn — ví dụ row trong `.table-wrap` hoặc `.template-old-list-panel`.
+  - Hình khối thẻ do rule quét `[class$="-card"]` quyết định, không phải từng component.
+  - Không hard-code px cho radius của list/card khi token đã tồn tại. Ràng buộc này được
+    canh bởi `tests/test_ui_surface_radius_is_canonical.py` (thang canonical) và
+    `tests/test_admin_list_card_radius_contract.py` (nhóm màn admin/master data).
 - Row: `0 1px 2px rgba(16, 43, 63, .055)`; card: `0 2px 5px rgba(16, 43, 63, .085)`.
 - Section: `0 4px 12px rgba(16, 43, 63, .11)`; PO/section quan trọng được phép dùng `0 7px 18px rgba(16, 43, 63, .14)`.
 - Input/select dùng inset shadow nhẹ; button dùng shadow ngắn và chuyển sang inset shadow ở trạng thái pressed.
@@ -200,7 +218,7 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 
 ### 5.3 Panels và sections
 
-- Panel: surface trắng, border 1px rõ, radius 8px, padding 16px, dùng section shadow chuẩn.
+- Panel: surface trắng, border 1px rõ, radius `--radius-panel`, padding 16px, dùng section shadow chuẩn.
 - Panel header dùng text/icon trực tiếp; icon không nằm trong decorative tile.
 - Nội dung con phân nhóm bằng heading, divider hoặc `surface-subtle`, không lồng panel/card đồng cấp.
 - Chỉ dùng side accent cho hàng ngoại lệ/được chọn, không trang trí toàn bộ panel.
