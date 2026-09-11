@@ -151,7 +151,12 @@ for (const [label, width, height] of WIDE) {
 // --- primitive dùng chung: các trang khác không được vỡ theo -------------
 
 const SHARED = [
-  ['production-trace', '.mf-tabs'],
+  // Production Trace: mốc là thanh lọc chứ không phải .mf-tabs. Dải danh mục
+  // chỉ tồn tại khi đã tải được dòng thời gian của một PO, mà bài này chạy
+  // trên dữ liệu thật của môi trường test (có thể chưa có PO nào). Dải tab
+  // của màn đó được đo ở tests/e2e/production-trace-v68.spec.js, nơi dữ liệu
+  // được mock; .mf-tabs như một primitive dùng chung vẫn còn system-logs ở đây.
+  ['production-trace', '.ui-filter-bar'],
   ['system-logs', '.mf-tabs'],
   ['rework-queue', '.ui-filter-bar'],
   ['qr-print', '.ui-filter-bar'],

@@ -2567,7 +2567,7 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Độ ưu tiên**: P0 (đây là ranh giới nhạy cảm bảo mật nhất toàn hệ thống — rò rỉ ở đây nghĩa là một admin thường có thể restart dịch vụ production).
 - **Khía cạnh kiểm thử**: positive, negative (ranh giới admin-phải-thất-bại — testcase RBAC quan trọng nhất toàn hệ thống), RBAC.
 
-## 15.15 Nhật ký / Lịch sử (`REQ-AUDIT-*`)
+## 15.15 Nhật ký / Lịch sử (`REQ-AUDIT-*`, `REQ-TRACE-*`)
 
 ### REQ-AUDIT-001 — Action log & error trace (chỉ admin)
 
@@ -2610,6 +2610,96 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Liên quan**: mọi field **Nhật ký kiểm toán** trên các yêu cầu khác của Phần B đều đổ vào màn hình này.
 - **Độ ưu tiên**: P1.
 - **Khía cạnh kiểm thử**: positive, RBAC.
+
+### REQ-TRACE-001 — Production Trace luôn mở sẵn một Production Order
+
+> **Nguồn sự thật:** Production Trace chỉ trả lời được điều gì khi đang xem
+> MỘT PO. Màn hình vì vậy KHÔNG BAO GIỜ mở ra với bộ chọn rỗng: nó tự chọn một
+> PO hợp lý, ghi PO đó vào URL, và chỉ hiện trạng thái rỗng khi hệ thống thật
+> sự chưa có Production Order nào.
+
+- **Mô-đun**: Production Trace (`?page=production-trace`) — dòng thời gian PO /
+  Session / sản lượng / ngoại lệ / thay đổi (§2, quyền `session.view`).
+- **Mục đích**: bản đầu mở ra với option rỗng "Chọn PO cần truy vết". Màn hình
+  nói "Chưa chọn Production Order" trong khi xưởng đang chạy — một trạng thái
+  rỗng KHÔNG mô tả dữ liệu mà chỉ mô tả việc màn hình chưa được hỏi, đúng kiểu
+  trống rỗng vô nghĩa mà REQ-UI-010 cấm — và bắt người dùng bấm một cú không
+  mang thông tin nào trước khi thấy bất cứ thứ gì.
+- **Đối tượng thực hiện**: admin / manager / supervisor (API trace giới hạn ở
+  ba role này; xem **Quyền** bên dưới).
+- **Điều kiện tiên quyết**: không có. Màn hình phải nói được điều đúng trong cả
+  ba thế giới: có PO đang chạy, chỉ còn PO đã đóng sổ, và chưa có PO nào.
+- **Đầu vào**: `?page=production-trace&po_id=<id>`. `po_id` vắng mặt = "hãy tự
+  chọn giúp", KHÔNG phải "không xem PO nào".
+- **Kích hoạt bởi**: `GET /api/production-orders?limit=1000` (danh sách đầy đủ
+  cho bộ chọn), `GET /api/kiosk-board/po-options[?include_id=]` (thứ hạng PO
+  đang chạy — **dùng chung** với Kiosk và Dashboard theo ngày),
+  `GET /api/production-orders/<id>` (chỉ khi `po_id` nằm ngoài cửa sổ danh
+  sách), rồi `GET /api/production-orders/<id>/trace` + `/quantity-history`.
+
+**Thứ tự quyết định PO đang xem** — dừng ở bước đầu tiên cho ra kết quả:
+
+| # | Điều kiện | PO được chọn |
+|---|---|---|
+| 1 | `po_id` trong URL là số nguyên dương và PO đó tồn tại | Chính PO đó, **kể cả khi đã `COMPLETED`/`CANCELLED`** — truy vết một đơn hàng đã xong là việc bình thường của màn này |
+| 2 | Không có `po_id` và có PO đang mở | PO đứng đầu `/api/kiosk-board/po-options`: đang có session mở → hoạt động gần đây nhất → hạn gần nhất → `id` lớn nhất |
+| 3 | Không có PO nào `RELEASED`/`IN_PROGRESS`/`PAUSED` | PO mới nhất của hệ thống (`id` lớn nhất) |
+| 4 | Hệ thống chưa có PO nào | Trạng thái rỗng "Chưa có Production Order nào". Trang GIỮ NGUYÊN hình dạng (thanh lọc + bộ chọn, bộ chọn bị tắt); `po_id` bị xoá khỏi URL; "Làm mới" hỏi lại danh sách PO |
+
+**Luồng chính**
+
+1. PO đang xem được ghi vào URL bằng `replaceState` ngay khi màn hình vẽ xong,
+   kể cả khi nó được chọn giúp — refresh, Back/Forward và gửi link đều ra đúng
+   một màn hình.
+2. Người dùng đổi PO ở bộ chọn → `po_id` trong URL đổi theo **ngay**. Từ lúc đó
+   không có đường nào để màn hình tự nhảy sang PO khác: bước 1 của bảng trên
+   luôn thắng, ở mọi lần render sau.
+3. Bộ chọn xếp PO đang chạy trước (theo đúng thứ hạng của server), phần còn lại
+   mới nhất trước. `/api/production-orders` trả về theo `id` TĂNG DẦN nên nếu
+   để nguyên thì PO cũ nhất nằm trên cùng.
+4. PO đang xem LUÔN có mặt trong bộ chọn: nằm ngoài cửa sổ thì được ghim vào
+   (`include_id`, hoặc hỏi thẳng `GET /api/production-orders/<id>`). `<select>`
+   không có option nào khớp là bộ chọn nói khác phần tóm tắt phía trên.
+
+- **Chuyển trạng thái**: N/A (chỉ đọc, không ghi gì).
+- **Kiểm tra hợp lệ**: `po_id` phải là số nguyên dương. `po_id` rác
+  (`abc`, `-1`, `1.5`) bị bỏ qua như thể không có và màn hình rơi về bước 2 —
+  nó chưa bao giờ là một PO để mà "mất".
+- **Lỗi**: `po_id` là số nhưng PO không tồn tại (đã xoá, link cũ) → hiển thị PO
+  ở bước 2/3 **kèm một dòng nói rõ** "Không mở được Production Order #N (đã xoá
+  hoặc không tồn tại). Đang hiển thị PO gần nhất." **Cố ý không im lặng thay
+  PO**: người dùng tin rằng mình đang nhìn đúng đơn hàng trong link, thay thầm
+  là kiểu hỏng tệ nhất (cùng bài học với REQ-KIOSK-010). Lỗi khi tải trace
+  (403, mất mạng, PO vừa bị xoá) hiện `errorState` kèm nút **Thử lại**, không
+  phải một trang trắng.
+- **Ranh giới**: đúng một PO trong hệ thống → chọn luôn PO đó. PO được chọn
+  nhưng chưa có sự kiện nào → nói "Chưa có sự kiện trace phù hợp", KHÔNG tự
+  chuyển sang PO khác. Hơn 1000 PO → bộ chọn chỉ hiện một CỬA SỔ 1000 PO
+  (`/api/production-orders` cắt theo `id` tăng dần), nhưng PO đang xem vẫn
+  luôn được ghim vào và bước 2 vẫn đúng vì thứ hạng tính ở server. Chỉ bước
+  3 chịu ảnh hưởng: một xưởng có hơn 1000 PO mà KHÔNG còn PO nào đang mở sẽ
+  mở ra PO mới nhất **trong cửa sổ đó**, không chắc là PO mới nhất tuyệt đối.
+  Chấp nhận có ý thức: đây là góc hẹp của một góc hẹp, và giá để đóng nó là
+  một tham số sắp xếp mới trên endpoint danh sách dùng chung.
+- **Quyền**: `session.view` mở được màn hình; `GET /api/production-orders/<id>/trace`
+  chỉ cho admin/manager/supervisor (`403 FORBIDDEN` với role khác). Một role
+  thấy được menu nhưng không gọi được API phải thấy thông báo lỗi tường minh,
+  không phải màn hình trắng — đây là hệ quả trực tiếp của việc màn hình tự nạp
+  ngay khi mở. Chênh lệch `session.view` ↔ ba role của API được ghi nhận ở
+  SPEC-GAP-013.
+- **Đồng thời**: N/A (chỉ đọc). **Nhật ký kiểm toán**: N/A.
+- **Liên quan**: REQ-DASH-006 §4 và REQ-KIOSK-010 §1 (cùng MỘT thứ hạng "PO nào
+  đang chạy" cho cả ba màn — ba màn không được nói ba chuyện khác nhau);
+  REQ-UI-009 (một lần làm mới không được reset lựa chọn của người dùng);
+  REQ-UI-010 (trạng thái rỗng phải mô tả dữ liệu).
+  **Khác REQ-DASH-006 ở một điểm có chủ đích**: Dashboard mặc định "Tất cả PO"
+  vì nó là màn phân tích tổng hợp và nó CÓ nghĩa khi không chọn PO nào;
+  Production Trace thì không — không có PO thì không có gì để vẽ.
+- **Độ ưu tiên**: P1 (màn hình vận hành; mở ra trống là mất một lượt dùng).
+- **Khía cạnh kiểm thử**: positive (tự chọn, deep-link, PO đã đóng sổ), negative
+  (`po_id` rác, PO không tồn tại), boundary (0 PO, 1 PO, không PO nào đang mở),
+  giữ lựa chọn của người dùng qua refresh/Back-Forward, responsive theo 3
+  viewport của REQ-UI-006.
 
 ## 15.16 Hành vi API xuyên suốt (`REQ-API-*`)
 
@@ -2864,6 +2954,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
+| REQ-TRACE-001 (Production Trace luôn mở sẵn một PO) | `tests/e2e/production-trace-v68.spec.js`, `tests/test_v68_production_trace_unit.py` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |
 | REQ-QR-001 (payload nhãn QR Operation) | `tests/integration/test_qr_label_payload_is_scannable.py` (4 case: đổi mã, mơ hồ chéo cột, và hai ca giữ an toàn cho nhãn thường/SETUP) | A |
@@ -2990,6 +3081,7 @@ một sự thật thật sự chưa xác minh được (`SPEC-GAP`) hoặc một
 | SPEC-GAP-010 | Policy độ mạnh mật khẩu cho REQ-SYS-002 (tự đổi) và tạo tài khoản chưa được xác nhận đầy đủ — test với một mật khẩu cố tình yếu và ghi lại hành vi thực tế. |
 | SPEC-GAP-011 | Liệu một import Excel có một dòng không hợp lệ giữa nhiều dòng hợp lệ có hoàn toàn transactional (tất-cả-hoặc-không-gì) hay áp dụng một phần các dòng hợp lệ trước khi gặp dòng không hợp lệ thì chưa được xác nhận dứt khoát. |
 | SPEC-GAP-012 | Ranh giới chính xác giữa `logs.view` (manager nắm giữ) và màn hình action-log/error-trace `@admin_required` (REQ-AUDIT-001) cần một test ranh giới riêng — bảng cấp quyền và decorator route có vẻ mô tả hai thứ khác nhau dưới các tên gần giống nhau. |
+| SPEC-GAP-013 | Menu Production Trace hiện theo `session.view` (§2) nhưng API trace (`/api/production-orders/<id>/trace`) chỉ nhận admin/manager/supervisor. Một role có `session.view` mà không thuộc ba role đó mở được màn hình rồi nhận `403` — cần một test ranh giới xác nhận đâu mới là quyền đúng, thay vì đoán theo một trong hai. Từ REQ-TRACE-001 màn hình tự nạp ngay khi mở nên chênh lệch này lộ ra ngay lần đầu, không còn ẩn sau một cú bấm. |
 | OPEN-QUESTION-001 | Server gốc thật sự đứng sau `mesflow.net` công khai thật, tại nhiều thời điểm trong lịch sử vận hành hệ thống này, thực sự mơ hồ/chưa xác nhận được từ môi trường dev nội bộ — bất kỳ kế hoạch test nào giả định một môi trường cụ thể là "production thật" nên xác nhận lại danh tính đó qua một kiểm tra trực tiếp, xác định (không phải một ánh xạ tên miền giả định) trước khi chạy bất cứ gì nhắm vào nó. |
 | OPEN-QUESTION-002 | Liệu System Console (nhóm nav "Hệ thống" ở §2, chỉ super_admin) và Business Audit Trail (REQ-AUDIT-002) có được coi là trong phạm vi của hệ thống coverage video-tutorial hay không là một quyết định sản phẩm, không phải một sự thật tài liệu này có thể tự giải quyết — gắn cờ ở đây, không giả định theo hướng nào. |
 

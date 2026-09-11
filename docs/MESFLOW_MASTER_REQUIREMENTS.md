@@ -2162,7 +2162,7 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P0 (this is the most security-sensitive boundary in the whole system — a leak here means an ordinary admin could restart production services).
 - **Dimensions**: positive, negative (admin-must-fail boundary — the single most important RBAC test case in the system), RBAC.
 
-## 15.15 Audit / History (`REQ-AUDIT-*`)
+## 15.15 Audit / History (`REQ-AUDIT-*`, `REQ-TRACE-*`)
 
 ### REQ-AUDIT-001 — Action logs & error traces (admin-only)
 
@@ -2205,6 +2205,95 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Related**: every `**Audit**` field across Part B's other requirements feeds this screen.
 - **Priority**: P1.
 - **Dimensions**: positive, RBAC.
+
+### REQ-TRACE-001 — Production Trace always opens on a Production Order
+
+> **Source of truth:** Production Trace can only answer anything while it is
+> looking at ONE PO. The screen therefore never opens with an empty selector:
+> it picks a sensible PO, writes that PO into the URL, and shows an empty state
+> only when the system genuinely has no Production Order at all.
+
+- **Module**: Production Trace (`?page=production-trace`) — the PO / session /
+  quantity / exception / change timeline (§2, permission `session.view`).
+- **Purpose**: the first version opened with a blank `Chọn PO cần truy vết`
+  option and said "no Production Order selected" while the shop floor was
+  running. That empty state described the screen not having been asked a
+  question, not the data — the kind of meaningless blank REQ-UI-010 forbids —
+  and forced a click that carried no information before anything was shown.
+- **Actors**: admin / manager / supervisor (the trace API is limited to those
+  three roles; see **Permissions**).
+- **Preconditions**: none. The screen must say something true in all three
+  worlds: POs running, only closed POs left, and no PO at all.
+- **Input**: `?page=production-trace&po_id=<id>`. A missing `po_id` means
+  "choose one for me", never "look at nothing".
+- **Triggered by**: `GET /api/production-orders?limit=1000` (full selector
+  list), `GET /api/kiosk-board/po-options[?include_id=]` (running-PO ranking,
+  **shared** with Kiosk and the daily Dashboard), `GET /api/production-orders/<id>`
+  (only when `po_id` falls outside the list window), then
+  `GET /api/production-orders/<id>/trace` + `/quantity-history`.
+
+**Which PO is shown** — first matching row wins:
+
+| # | Condition | PO shown |
+|---|---|---|
+| 1 | `po_id` in the URL is a positive integer and that PO exists | That PO, **including `COMPLETED`/`CANCELLED`** — tracing a finished order is ordinary use of this screen |
+| 2 | No `po_id`, and at least one PO is open | The first entry of `/api/kiosk-board/po-options`: has open sessions → most recent activity → nearest due date → highest `id` |
+| 3 | No `RELEASED`/`IN_PROGRESS`/`PAUSED` PO exists | The newest PO in the system (highest `id`) |
+| 4 | The system has no PO at all | Empty state, "Chưa có Production Order nào". The page KEEPS its shape (filter bar + selector, selector disabled); `po_id` is removed from the URL; "Làm mới" re-asks for the PO list |
+
+**Main flow**
+
+1. The viewed PO is written into the URL with `replaceState` as soon as the
+   screen renders — including when it was auto-chosen — so refresh,
+   Back/Forward and a shared link all land on the same screen.
+2. Changing PO in the selector updates `po_id` immediately. From then on row 1
+   above wins on every later render: nothing can move the user to another PO
+   behind their back.
+3. The selector lists running POs first (server ranking), then the rest newest
+   first. `/api/production-orders` returns ascending `id`, so left alone the
+   oldest PO would sit on top.
+4. The viewed PO is always present in the selector — pinned via `include_id`,
+   or fetched directly — because a `<select>` with no matching option says
+   something different from the summary above it.
+
+- **State transitions**: N/A (read-only).
+- **Validation**: `po_id` must be a positive integer. Garbage (`abc`, `-1`,
+  `1.5`) is ignored as if absent and the screen falls to row 2 — it was never a
+  PO that could be "lost".
+- **Errors**: a numeric `po_id` for a PO that does not exist (deleted, stale
+  link) shows the row 2/3 PO **plus an explicit line**: "Không mở được
+  Production Order #N (đã xoá hoặc không tồn tại). Đang hiển thị PO gần nhất."
+  **Deliberately never a silent substitution** — the user believes they are
+  looking at the order in the link (same lesson as REQ-KIOSK-010). A trace load
+  failure (403, network, PO just deleted) renders an error state with a retry
+  button, never a blank page.
+- **Boundaries**: exactly one PO in the system → that PO is selected. Selected
+  PO with no events → "Chưa có sự kiện trace phù hợp", never an automatic jump
+  to another PO. More than 1000 POs → the selector shows a 1000-PO WINDOW
+  (`/api/production-orders` cuts by ascending `id`); the viewed PO is still
+  pinned in and row 2 stays correct because the ranking is computed
+  server-side. Only row 3 degrades: a shop with more than 1000 POs and no
+  open PO left opens on the newest PO **within that window**, not necessarily
+  the newest overall — knowingly accepted, since closing it costs a new sort
+  parameter on the shared list endpoint.
+- **Permissions**: `session.view` opens the screen;
+  `GET /api/production-orders/<id>/trace` accepts admin/manager/supervisor only
+  (`403 FORBIDDEN` otherwise). A role that sees the menu but cannot call the
+  API must get an explicit error, not a blank screen — a direct consequence of
+  the screen loading on open. The `session.view` ↔ three-role mismatch is
+  recorded as SPEC-GAP-013.
+- **Concurrency**: N/A (read-only). **Audit log**: N/A.
+- **Related**: REQ-DASH-006 and REQ-KIOSK-010 (one shared "which PO is running"
+  ranking across all three screens); REQ-UI-009 (a refresh must not reset the
+  user's choice); REQ-UI-010 (empty states describe data). **Deliberately
+  different from REQ-DASH-006**: the Dashboard defaults to "all POs" because it
+  is an aggregate analysis screen and that default means something there;
+  Production Trace has nothing to draw without a PO.
+- **Priority**: P1 (operations screen; opening empty wastes the visit).
+- **Test aspects**: positive (auto-pick, deep link, closed PO), negative
+  (garbage `po_id`, missing PO), boundary (0 POs, 1 PO, no open PO), the user's
+  choice surviving refresh/Back-Forward, responsive across the three REQ-UI-006
+  viewports.
 
 ## 15.16 Cross-cutting API behavior (`REQ-API-*`)
 
@@ -2448,6 +2537,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
+| REQ-TRACE-001 (Production Trace always opens on a PO) | `tests/e2e/production-trace-v68.spec.js`, `tests/test_v68_production_trace_unit.py` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
 | REQ-TPL-005 (import/export) | not found as a dedicated pytest file | — |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (for those two screens specifically) |
@@ -2571,6 +2661,7 @@ make (`OPEN-QUESTION`).
 | SPEC-GAP-010 | Password-strength policy for REQ-SYS-002 (self-service change) and account creation was not fully confirmed — test with an intentionally weak password and record actual behavior. |
 | SPEC-GAP-011 | Whether an Excel import with one invalid row among many valid ones is fully transactional (all-or-nothing) or partially applies valid rows before hitting the invalid one was not conclusively confirmed. |
 | SPEC-GAP-012 | The exact split in access between `logs.view` (manager-held) and the `@admin_required` action-log/error-trace screen (REQ-AUDIT-001) needs a dedicated boundary test — the grant table and the route decorator appear to describe two different things under adjacent names. |
+| SPEC-GAP-013 | The Production Trace menu item is gated on `session.view` (§2) but the trace API (`/api/production-orders/<id>/trace`) accepts only admin/manager/supervisor. A role holding `session.view` outside those three opens the screen and gets `403` — a boundary test is needed to settle which of the two is the intended permission. Since REQ-TRACE-001 the screen loads on open, so the mismatch surfaces immediately instead of hiding behind a click. |
 | OPEN-QUESTION-001 | Real public `mesflow.net`'s actual origin server has, at various points in this system's operational history, been genuinely ambiguous/unconfirmed from the internal dev environment — any test plan that assumes a specific environment is "real production" should reconfirm that identity via a live, deterministic check (not an assumed domain-name mapping) before running anything against it. |
 | OPEN-QUESTION-002 | Whether System Console (§2's "Hệ thống" nav group, super_admin-only) and Business Audit Trail (REQ-AUDIT-002) are considered in-scope for the tutorial-video coverage system is a product decision, not a fact this document can resolve — flagged here, not assumed either way. |
 

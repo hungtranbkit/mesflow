@@ -444,11 +444,22 @@ this was verified against).
 - **Role**: operator
 - **Preconditions**: operator session (holds session.view)
 - **Action**: open the "Production Trace" nav item
-- **Expected Result**: page opens (mounted via the monkey-patch chain — see APPLICATION_MAP.yaml); a viewer without session.view does not see the nav item at all
+- **Expected Result**: page opens already showing one Production Order (REQ-TRACE-001 — never an empty selector); a viewer without session.view does not see the nav item at all. An operator holding only `session.view` now hits the trace API 403 immediately and must see an explicit error state, not a blank page — see SPEC-GAP-013
 - **Executor**: ui
 - **Priority**: P2
 - **Safety**: local_dev+demo+prodtest
 - **Source Reference**: APPLICATION_MAP.yaml production-trace mount_mechanism
+
+### QC-EXEC-TRACE-002 — production trace defaults to a sensible PO and keeps it in the URL
+- **Feature**: production_trace
+- **Role**: supervisor
+- **Preconditions**: at least one PO in RELEASED/IN_PROGRESS/PAUSED, at least one of them with an open session
+- **Action**: open `?page=production-trace` with no `po_id`, then pick a different PO and reload
+- **Expected Result**: the PO with an open session is selected on open and its `po_id` appears in the URL; after the manual pick the reload comes back on the picked PO, never on the auto-chosen one (REQ-TRACE-001)
+- **Executor**: ui
+- **Priority**: P1
+- **Safety**: local_dev+demo+prodtest
+- **Source Reference**: REQ-TRACE-001; /api/kiosk-board/po-options ranking shared with REQ-DASH-006/REQ-KIOSK-010
 
 ### QC-EXEC-AUDIT-001 — business audit trail is invisible to operator/viewer
 - **Feature**: business_audit
