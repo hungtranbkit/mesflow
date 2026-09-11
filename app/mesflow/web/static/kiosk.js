@@ -68,6 +68,12 @@
   const ERROR_HELP = {
     'SCN-001':'Kiểm tra nguồn, dây USB/UART và chế độ Enter/CR của máy quét.',
     'SCN-002':'Dùng QR nhân viên WF|EMP|... hoặc QR Operation WF|OP|... / WF|OPID|...',
+    'SCN-003':'Quét thẻ nhân viên trước, sau đó mới quét QR Operation.',
+    'SCN-004':'Đã nhận diện nhân viên. Bước tiếp theo là quét QR Operation.',
+    'DAT-404':'Kiểm tra mã QR, hoặc nhờ quản đốc kiểm tra dữ liệu đã khai báo trên KIMEX.',
+    'REQ-400':'Quét lại đúng thứ tự (thẻ nhân viên trước, rồi Operation) hoặc nhập lại số lượng.',
+    'DEP-409':'Start session của OP nguồn trước, sau đó quét lại OP hiện tại.',
+    'AUTH-403':'Liên hệ quản trị viên để kiểm tra trạng thái kiosk.',
     'EMP-001':'Kiểm tra thẻ hoặc trạng thái nhân viên trong Danh mục.',
     'EMP-002':'Thẻ này trỏ tới nhiều nhân viên. Sửa mã QR trong Danh mục rồi in lại thẻ.',
     'OP-001':'Kiểm tra QR Operation hoặc tạo lại QR từ PO.',
@@ -87,6 +93,19 @@
     if(status===401||status===403)
       return {message:'Máy kiosk này chưa được cấp quyền ghi dữ liệu.',
               action:ERROR_HELP[status===401?'AUTH_REQUIRED':'FORBIDDEN']};
+    // A known error_code beats guessing from the HTTP status. Without this the
+    // whole ERROR_HELP table below was dead for API errors -- every branch
+    // returned its own action and the caller overwrote error.action with it,
+    // so an ambiguous badge (EMP-002) and an ambiguous Operation label
+    // (OP-002) both came out as "Công đoạn này hiện không thể bắt đầu. Kiểm
+    // tra trạng thái PO/Operation" (the generic 409 line). For a duplicated
+    // badge that guidance is not merely vague, it points at the wrong object
+    // entirely, and the one thing the operator can actually do -- reprint the
+    // label -- was never said. The backend already sends a specific, Vietnamese
+    // message for these codes; ERROR_HELP supplies the matching next step.
+    const code=data?.error_code;
+    if(code&&ERROR_HELP[code])
+      return {message:String(data?.message||'').trim()||'Chưa thực hiện được.',action:ERROR_HELP[code]};
     if(raw.includes('COMPLETED'))return {message:'Công đoạn này đã hoàn thành.',action:'Chọn công đoạn khác hoặc báo quản đốc nếu cần làm lại.'};
     if(raw.includes('CANCELLED'))return {message:'Công đoạn này đã bị hủy.',action:'Không tiếp tục sản xuất. Hỏi quản đốc để được điều phối.'};
     if(raw.includes('WIP=0')||raw.includes('NO_WIP'))return {message:'Chưa có sản phẩm đầu vào.',action:'Chờ WIP từ công đoạn trước hoặc báo quản đốc.'};
