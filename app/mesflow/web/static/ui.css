@@ -1957,10 +1957,9 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 .ui-row-menu button:focus-visible{outline:2px solid var(--action-primary,#23658b);outline-offset:-2px}
 .ui-row-menu button.danger-text{color:#c43232}
 .po-action-more{min-width:38px;font-size:20px;line-height:1;padding:4px 10px}
-/* Cả dòng mở PO: đó là thứ cho phép menu chỉ còn thao tác phụ. */
-.po-row{cursor:pointer}
-.po-row:hover{background:var(--surface-subtle,#f8fafc)}
-.po-row:focus-visible{outline:2px solid var(--action-primary,#23658b);outline-offset:-2px}
+/* Cả THẺ mở PO: đó là thứ cho phép menu chỉ còn thao tác phụ. Bộ rule
+   `.po-row` cũ (dòng <tr>) đã gỡ cùng lúc với bảng -- xem .po-card ở cuối
+   file. */
 @media(max-width:600px){.ui-row-menu{left:12px!important;right:12px;min-width:0;width:calc(100vw - 24px)}}
 
 /* Quy mô PO (Part / OP sản xuất / OP phụ) đứng trước nhóm sản lượng: đó là
@@ -3124,3 +3123,59 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .net-status[data-state="retrying"]{background:var(--status-warning)}
 .net-status[data-state="offline"]{background:var(--status-danger)}
 @media(max-width:720px){.net-status{left:12px;right:12px;bottom:12px;justify-content:center}}
+
+/* ── Danh sách Production Order: mỗi PO là một THẺ (REQ-UI-022) ────────────
+   Trước: một <table> nối mọi PO thành một khối dài bằng border-bottom xuyên
+   suốt, và ở 390px thì Trạng thái / Ưu tiên / hạn / Thao tác nằm sau một
+   thanh cuộn NGANG -- phải kéo mới thấy.
+   Nay: mỗi PO một <article class="po-card">, tách nhau bằng GAP DỌC thật.
+   HÌNH KHỐI (viền, nền, bo góc canonical, shadow) do rule quét
+   `[class$="-card"]` ở §838 cấp -- ĐỪNG viết lại border-radius/background ở
+   đây: rule đó dùng !important nên giá trị viết lại sẽ là giá trị chết.
+   Khối này chỉ khai báo BỐ CỤC và phân cấp chữ. */
+.po-card-list{display:grid;gap:var(--ui-space-3);min-width:0}
+/* Hai vùng: tiêu đề chiếm cả bề ngang, rồi metadata (co được) và thao tác
+   (rộng theo nội dung) ĐỨNG CẠNH nhau. Cho thao tác một hàng riêng làm thẻ
+   cao thêm ~48px mỗi PO mà không thêm thông tin nào. */
+.po-card{display:grid;gap:var(--ui-space-2) var(--ui-space-4);min-width:0;padding:var(--ui-space-4);cursor:pointer;
+  grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head head" "meta actions";
+  transition:box-shadow .12s ease,transform .12s ease,border-color .12s ease}
+.po-card>.po-card-head{grid-area:head}
+.po-card>.po-card-meta{grid-area:meta}
+.po-card>.po-actions{grid-area:actions;align-self:end}
+/* Nền/viền/shadow gốc đến từ rule quét (!important), nên trạng thái hover
+   cũng phải !important mới thắng được -- không thì hover là no-op câm. */
+.po-card:hover{border-color:var(--border-strong)!important;box-shadow:var(--shadow-section)!important;transform:translateY(-1px)}
+.po-card:focus-visible{outline:2px solid var(--action-primary);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.po-card{transition:none}.po-card:hover{transform:none}}
+
+/* Tiêu đề thẻ: mã PO đọc trước, sản phẩm và trạng thái đi kèm. */
+.po-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--ui-space-3);min-width:0}
+.po-card-identity{display:grid;gap:2px;min-width:0}
+.po-card-identity>strong{font-size:16px;font-weight:800;line-height:1.25;color:var(--text-primary);overflow-wrap:anywhere}
+.po-card-product{font-size:var(--ui-fs-body);color:var(--text-secondary);overflow-wrap:anywhere}
+.po-card-head>.badge{flex:0 0 auto}
+
+/* Metadata phụ: nhỏ hơn tiêu đề, nhãn nhạt, giá trị đậm vừa. */
+.po-card-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(124px,max-content));gap:var(--ui-space-2) var(--ui-space-5);margin:0;min-width:0}
+.po-card-meta>div{display:grid;gap:2px;min-width:0}
+.po-card-meta dt{font-size:var(--ui-fs-meta);font-weight:650;color:var(--text-secondary)}
+.po-card-meta dd{margin:0;font-size:var(--ui-fs-body);font-weight:700;color:var(--text-primary);overflow-wrap:anywhere}
+.po-card-meta dd.num{font-variant-numeric:tabular-nums}
+.po-card-meta dd .cell-sub{display:block;font-size:var(--ui-fs-meta);font-weight:600;color:var(--text-secondary)}
+
+/* Thao tác gọn, cuối thẻ, canh phải trên màn rộng. */
+.po-card>.po-actions{justify-content:flex-end;flex-wrap:wrap;gap:var(--ui-space-2)}
+
+/* Hẹp: thao tác không còn chỗ đứng cạnh metadata -> xuống hàng riêng. */
+@media(max-width:900px){
+  .po-card{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "meta" "actions"}
+  .po-card>.po-actions{align-self:auto}
+}
+@media(max-width:520px){
+  .po-card{padding:var(--ui-space-3);gap:var(--ui-space-3)}
+  .po-card-head{flex-direction:column;align-items:flex-start;gap:var(--ui-space-2)}
+  .po-card-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .po-card>.po-actions{justify-content:stretch}
+  .po-card>.po-actions .btn.primary{flex:1 1 auto}
+}

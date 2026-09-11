@@ -990,22 +990,44 @@ async function renderProductionOrders(){
     const active=items.filter(x=>['RELEASED','IN_PROGRESS','PAUSED'].includes(String(x.status||'').toUpperCase())).length,planned=items.filter(x=>['DRAFT','PLANNED'].includes(String(x.status||'').toUpperCase())).length,done=items.filter(x=>String(x.status||'').toUpperCase()==='COMPLETED').length;
     document.getElementById('poSummary').innerHTML=`<span><b>${items.length}</b> lệnh đang hiển thị</span><span><b>${planned}</b> đang lập kế hoạch</span><span><b>${active}</b> đang điều hành</span><span><b>${done}</b> đã hoàn thành</span>`;
     if(!items.length){document.getElementById('poList').innerHTML='<div class="po-empty"><strong>Chưa có Production Order phù hợp</strong><span>Tạo PO từ Template để sao chép sẵn Part và Operation, hoặc thay đổi bộ lọc hiện tại.</span><button class="btn primary" type="button" id="poEmptyCreate">Tạo Production Order đầu tiên</button></div>';document.getElementById('poEmptyCreate').onclick=()=>document.getElementById('addPO').click();return}
-    document.getElementById('poList').innerHTML=`<div class="table-wrap"><table><thead><tr>
-      <th>Mã PO</th><th>Template nguồn</th><th>Sản phẩm</th><th class="num">Kế hoạch</th><th>Trạng thái</th><th>Ưu tiên</th><th>Bắt đầu dự kiến</th><th>Kết thúc dự kiến</th><th>Thao tác</th>
-    </tr></thead><tbody>${items.map(x=>`<tr class="po-row" tabindex="0" role="link" aria-label="Mở ${esc(x.code)}" data-po-row="${x.id}">
-      <td><strong>${esc(x.code)}</strong></td><td>${x.source_template_code?`<b>${esc(x.source_template_code)}</b><small class="cell-sub">v${esc(x.source_template_version||'1.0')}</small>`:'<span class="badge warning">PO cũ</span>'}</td><td>${esc(x.product||'')}</td><td class="num">${format(x.planned_quantity||0)}</td>
-      <td><span class="badge po-status ${String(x.status||'planned').toLowerCase()}">${esc(statusText(x.status))}</span></td><td>${esc(priorityText(x.priority))}</td><td>${esc(x.planned_start_at?fmt(x.planned_start_at):'Chưa đặt')}</td><td>${esc(x.planned_end_at?fmt(x.planned_end_at):(x.due_date||'Chưa đặt'))}</td><td class="po-actions">${canStartProductionOrder(x.status)?`<button class="btn primary po-start-btn" data-po-start="${x.id}" data-po-code="${esc(x.code)}">${String(x.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:''}<button class="btn po-action-more" type="button" data-po-menu="${x.id}" data-po-code="${esc(x.code)}" aria-haspopup="menu" aria-expanded="false" aria-label="Thao tác khác với ${esc(x.code)}">…</button></td></tr>`).join('')}</tbody></table></div>`;
+    // Mỗi PO là một THẺ riêng, không phải một dòng bảng. Bảng cũ dính liền
+    // nhau bằng border-bottom xuyên suốt và ở 390px thì đẩy trạng thái/hạn/
+    // thao tác ra ngoài vùng nhìn (phải kéo ngang mới thấy). Thẻ cho mỗi PO
+    // một nền + viền + bo góc canonical riêng, cách nhau bằng gap DỌC thật,
+    // và xuống một cột ở mobile -- cùng ngôn ngữ với .overview-po-list và
+    // #scheduleBody. Hợp đồng: REQ-UI-022.
+    document.getElementById('poList').innerHTML=`<div class="po-card-list">${items.map(x=>{
+      const state=String(x.status||'planned').toLowerCase();
+      const template=x.source_template_code
+        ?`<b>${esc(x.source_template_code)}</b><small class="cell-sub">v${esc(x.source_template_version||'1.0')}</small>`
+        :'<span class="badge warning">PO cũ</span>';
+      const start=esc(x.planned_start_at?fmt(x.planned_start_at):'Chưa đặt');
+      const end=esc(x.planned_end_at?fmt(x.planned_end_at):(x.due_date||'Chưa đặt'));
+      return `<article class="po-card" tabindex="0" role="link" aria-label="Mở ${esc(x.code)}" data-po-row="${x.id}" data-po-code="${esc(x.code)}">
+      <div class="po-card-head">
+        <div class="po-card-identity"><strong>${esc(x.code)}</strong><span class="po-card-product">${esc(x.product||'Chưa đặt sản phẩm')}</span></div>
+        <span class="badge po-status ${state}">${esc(statusText(x.status))}</span>
+      </div>
+      <dl class="po-card-meta">
+        <div><dt>Kế hoạch</dt><dd class="num">${format(x.planned_quantity||0)}</dd></div>
+        <div><dt>Template nguồn</dt><dd>${template}</dd></div>
+        <div><dt>Ưu tiên</dt><dd>${esc(priorityText(x.priority))}</dd></div>
+        <div><dt>Bắt đầu dự kiến</dt><dd>${start}</dd></div>
+        <div><dt>Kết thúc dự kiến</dt><dd>${end}</dd></div>
+      </dl>
+      <div class="po-actions">${canStartProductionOrder(x.status)?`<button class="btn primary po-start-btn" data-po-start="${x.id}" data-po-code="${esc(x.code)}">${String(x.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:''}<button class="btn po-action-more" type="button" data-po-menu="${x.id}" data-po-code="${esc(x.code)}" aria-haspopup="menu" aria-expanded="false" aria-label="Thao tác khác với ${esc(x.code)}">…</button></div>
+    </article>`}).join('')}</div>`;
     document.querySelectorAll('[data-po-start]').forEach(b=>b.onclick=()=>startProductionOrder(Number(b.dataset.poStart),b.dataset.poCode,'list'));
     document.querySelectorAll('[data-po-open]').forEach(b=>b.onclick=()=>openProductionOrder(Number(b.dataset.poOpen)));
     document.querySelectorAll('[data-po-edit]').forEach(b=>b.onclick=()=>editProductionOrder(Number(b.dataset.poEdit)));
     document.querySelectorAll('[data-po-delete]').forEach(b=>b.onclick=()=>removeProductionOrder(Number(b.dataset.poDelete)));
     document.querySelectorAll('[data-po-force-delete]').forEach(b=>b.onclick=()=>forceDeleteProductionOrder(Number(b.dataset.poForceDelete),b.dataset.poCode));
-    document.querySelectorAll('[data-po-row]').forEach(tr=>{
-      const open=()=>openProductionOrder(Number(tr.dataset.poRow));
-      tr.onclick=e=>{if(e.target.closest('button'))return;open()};
-      tr.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();open()}};
+    document.querySelectorAll('[data-po-row]').forEach(card=>{
+      const open=()=>openProductionOrder(Number(card.dataset.poRow));
+      card.onclick=e=>{if(e.target.closest('button'))return;open()};
+      card.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();open()}};
     });
-    // Không còn nút "Mở PO"/"Xem PO": bấm cả dòng đã mở PO rồi, để thêm một
+    // Không còn nút "Mở PO"/"Xem PO": bấm cả thẻ đã mở PO rồi, để thêm một
     // nút làm đúng việc đó là thừa. Chỉ trạng thái chạy được mới có primary
     // ("Bắt đầu/Tiếp tục sản xuất"), còn lại chỉ có menu thao tác phụ.
     document.querySelectorAll('[data-po-menu]').forEach(b=>b.onclick=()=>MFUI.rowMenu(b,[

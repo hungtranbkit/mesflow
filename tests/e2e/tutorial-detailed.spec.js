@@ -389,7 +389,7 @@ const tours = {
     await open(page,'production-orders');
     await card(page,'Lệnh sản xuất','Video này giải thích trạng thái, cách lọc, tạo lệnh từ mẫu quy trình, bắt đầu lệnh và cách xem từng chi tiết, công đoạn.');
     await note(page,'.filter-bar, #poSearch','Lọc và tìm lệnh sản xuất','Dùng bộ lọc trạng thái và tìm kiếm theo mã để thu hẹp danh sách. Khi có nhiều đơn hàng, bước này giúp tránh mở hoặc thao tác nhầm lệnh.');
-    await note(page,'#poList table, #poList','Thông tin lệnh sản xuất','Đọc mã lệnh, số lượng kế hoạch, trạng thái và tiến độ tổng. Các số này cho biết mục tiêu phải làm, lệnh đang ở giai đoạn nào và lệnh nào cần theo dõi trước.');
+    await note(page,'#poList .po-card, #poList','Thông tin lệnh sản xuất','Đọc mã lệnh, số lượng kế hoạch, trạng thái và tiến độ tổng. Các số này cho biết mục tiêu phải làm, lệnh đang ở giai đoạn nào và lệnh nào cần theo dõi trước.');
     await note(page,'#poList .po-actions, #addPO','Các thao tác','Tùy trạng thái và quyền, người dùng có thể tạo, sửa, bắt đầu hoặc đóng lệnh. Chỉ bắt đầu sau khi đã kiểm tra mã chi tiết và công đoạn; không xóa cưỡng bức lệnh đang chạy.');
     await card(page,'Quy trình lệnh sản xuất chuẩn','Tạo lệnh từ mẫu quy trình → kiểm tra số lượng và kế hoạch → bắt đầu lệnh → cho phép trạm bắt đầu công đoạn → theo dõi đến hoàn tất.',LONG_WAIT);
   },
