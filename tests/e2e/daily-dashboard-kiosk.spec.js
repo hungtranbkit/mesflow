@@ -80,14 +80,20 @@ async function login(page) {
   await page.request.post('/api/auth/test-auto-login');
 }
 
-async function mockAll(page, date, opts = {}) {
-  const state = { dayCalls: 0 };
+async function mockAll(page, date) {
+  // `failDay` is an explicit switch the test flips at the exact moment it wants
+  // the next request to fail. An earlier version counted requests instead and
+  // assumed "call #3 is the manual refresh" -- that made the test FLAKY (caught
+  // in a full suite run, passed only on retry): Dashboard theo ngày runs its own
+  // 10s poll, so how many /dashboard/day calls happen before the click depends
+  // on timing, not on the scenario.
+  const state = { dayCalls: 0, failDay: false };
   await page.route('**/api/settings/work-shifts', r => r.fulfill({ json: { ok: true, items: SHIFTS } }));
   await page.route('**/api/dashboard/day?**', r => {
-    state.dayCalls += 1;
-    if (opts.failDayAfter && state.dayCalls > opts.failDayAfter) {
+    if (state.failDay) {
       return r.fulfill({ status: 500, json: { ok: false, message: 'Mô phỏng lỗi API' } });
     }
+    state.dayCalls += 1;
     r.fulfill({ json: dayPayload(date, { good: 120, bumped: state.dayCalls > 1 }) });
   });
   await page.route('**/api/dashboard/overview**', r => r.fulfill({ json: OVERVIEW }));
@@ -273,15 +279,16 @@ test.describe('Kiosk điều hành', () => {
   test('lỗi API giữ nguyên dữ liệu cũ và báo mất kết nối', async ({ page }) => {
     const errors = watchConsole(page);
     const date = hcmDate();
-    // call 1 = Dashboard theo ngày, call 2 = the kiosk's initial load,
-    // call 3 = the manual refresh below, which is the one that must fail.
-    await mockAll(page, date, { failDayAfter: 2 });
+    const state = await mockAll(page, date);
     await login(page);
     await openKioskFromDashboard(page, date);
     await expect(page.locator('#kioskKpis .kiosk-kpi')).toHaveCount(8);
     const before = await page.locator('#kioskKpis').textContent();
 
-    // 11: a failing poll must not blank the wall display.
+    // 11: a failing poll must not blank the wall display. Break the API only
+    // now, so exactly the refresh below is the request that fails regardless of
+    // how many polls happened to run before this point.
+    state.failDay = true;
     await page.locator('#kioskRefresh').click();
     await expect(page.locator('#kioskLive')).toHaveAttribute('data-state', 'stale');
     await expect(page.locator('#kioskLiveText')).toContainText('Mất kết nối');
