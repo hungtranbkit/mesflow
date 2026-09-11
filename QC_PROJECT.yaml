@@ -18,6 +18,17 @@ project:
   audited_by: Claude Sonnet 5 (QC project-package standardization pass)
   audited_at: "2026-09-05"
 
+# Kỹ năng (skill) cấp dự án -- quy trình agent phải theo, không phải tài liệu
+# tham khảo. Mỗi thư mục con của skills/ có một SKILL.md tự mô tả.
+skills:
+  visual-ui-audit:
+    path: skills/visual-ui-audit/SKILL.md
+    use_when: >
+      Bất kỳ thay đổi nào chạm CSS/layout/DOM của app/mesflow/web/ -- kể cả khi
+      test hiện có đã xanh. Bắt lớp lỗi mà token/DOM test không thấy được:
+      token đúng, DOM đúng, mắt sai.
+    guard: tests/e2e/visual-contract.spec.js
+
 runtime:
   app_entrypoint: app/mesflow/web/app.py (create_app / route registration)
   version_source_of_truth: VERSION.txt (read at import time by app/mesflow/__init__.py)

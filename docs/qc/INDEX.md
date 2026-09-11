@@ -38,6 +38,11 @@ material**, not the first thing to read — start here instead.
 
 ## Supporting files (consult as needed, not part of the linear read)
 
+- **`../../skills/visual-ui-audit/SKILL.md`** — quy trình bắt buộc cho MỌI
+  thay đổi chạm CSS/layout/DOM, kể cả khi test hiện có đã xanh. Nó lấp lớp lỗi
+  mà bộ QC này không với tới: token đúng, DOM đúng, mắt sai. Guard đi kèm là
+  `tests/e2e/visual-contract.spec.js`.
+
 - **`REQUIREMENT_CLASSIFICATION.yaml`** — which sections of the master
   requirement docs are (and are not) source material for test generation.
 - **`REQUIREMENT_CODE_GAPS.md`** — confirmed mismatches between the
