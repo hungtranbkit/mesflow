@@ -101,6 +101,27 @@ def test_idempotent_optin_is_limited_to_endpoints_that_carry_a_request_id():
     assert 'def lock_idempotency_key' in repo
 
 
+def test_refresh_error_stays_on_the_mfui_export_line():
+    """Khoá đúng dòng mà hai nhánh cùng sửa.
+
+    `core/ui.js` kết thúc bằng MỘT dòng `return {…}` liệt kê mọi primitive của
+    MFUI. hp3 (nhánh bo góc/progressive disclosure) chèn export của họ vào
+    CÙNG dòng đó, nên git chắc chắn báo conflict ở đây và cách gỡ đúng là giữ
+    cả hai danh sách. Nếu ai gỡ bằng cách "lấy dòng của một bên", `refreshError`
+    có thể biến mất khỏi export trong khi hàm vẫn còn nguyên bên trên -- một
+    thay đổi mà bài test_polling_screens_* ở dưới KHÔNG bắt được, vì nó chỉ
+    kiểm hàm có tồn tại và call site có gọi.
+    """
+    ui = read('core/ui.js')
+    # Dòng export của MFUI là dòng `return {…}` ở tầng IIFE -- neo vào
+    # `statusBadge` (phần tử đầu, có từ trước mọi lane hiện tại) để không bắt
+    # nhầm hai `return {…}` của openDrawer/openModal bên trong file.
+    exports = [line for line in ui.splitlines()
+               if line.strip().startswith('return {') and 'statusBadge' in line]
+    assert len(exports) == 1, 'không tìm thấy đúng một dòng export MFUI trong core/ui.js'
+    assert 'refreshError' in exports[0], 'refreshError rơi khỏi danh sách export của MFUI'
+
+
 def test_polling_screens_keep_stale_data_instead_of_rendering_the_error():
     """Màn tự làm mới không được xoá dữ liệu đang đọc vì một nhịp hỏng.
 
