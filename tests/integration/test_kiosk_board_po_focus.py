@@ -94,10 +94,55 @@ class TestPoFocus:
         assert b['kpis']['operation_count'] == len(b['tasks'])
         assert int(a['production_order']['id']) != int(b['production_order']['id'])
 
-    def test_po_selector_lists_orders_and_is_not_scoped_away(self, api, two_orders):
-        """Bộ chọn PO phải thấy cả hai PO, nếu không thì không đổi PO được."""
+    def test_the_focused_po_is_always_in_the_selector(self, api, two_orders):
+        """PO ĐANG XEM phải luôn có trong bộ chọn, kể cả khi nó xếp ngoài cửa sổ.
+
+        Bộ chọn chỉ trả về PO_OPTION_LIMIT dòng. Bản đầu không ghim PO đang xem
+        nên trên một CSDL có hơn 40 PO đang mở, một PO vừa tạo (chưa session,
+        chưa hạn -- xếp đáy cả ba tiêu chí) không nằm trong danh sách: <select>
+        không có option nào khớp và bộ chọn nói khác header. Chính lane
+        integration bắt được ca này trên CSDL test có 119 PO đang mở.
+        """
         data = _board(api, two_orders['a']['po_id'])
         listed = {int(x['id']) for x in data['po_options']}
+        assert two_orders['a']['po_id'] in listed, 'PO đang xem biến mất khỏi bộ chọn'
+
+    def test_the_selector_says_when_it_is_only_showing_a_window(self, api, two_orders):
+        """Cửa sổ bị cắt thì phải NÓI RA, không trình bày như cả danh sách."""
+        data = _board(api, two_orders['a']['po_id'])
+        assert 'po_total' in data and 'po_truncated' in data
+        assert data['po_total'] >= len(data['po_options'])
+        assert data['po_truncated'] is (data['po_total'] > len(data['po_options']))
+
+    def test_any_po_is_reachable_by_searching(self, api, two_orders):
+        """Thứ hạng không được quyết định PO nào CHỌN ĐƯỢC.
+
+        Xếp hạng (đang làm -> hoạt động gần đây -> hạn) là đúng cho màn hình
+        lớn, nhưng nó không được biến thành "PO thứ 41 trở đi không tồn tại".
+        Tìm kiếm là thứ bảo đảm mọi PO đều với tới được.
+        """
+        code = two_orders['b']['code']
+        response = api.get(f'{BASE_URL}/api/kiosk-board/po-options?q={code}', timeout=25)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert two_orders['b']['po_id'] in {int(x['id']) for x in data['items']}
+        assert data['query'] == code
+
+    def test_search_narrows_the_total_too(self, api, two_orders):
+        """`total` phải là tổng của CHÍNH bộ lọc đang xem, không phải tổng chung."""
+        everything = api.get(f'{BASE_URL}/api/kiosk-board/po-options', timeout=25).json()
+        narrowed = api.get(
+            f'{BASE_URL}/api/kiosk-board/po-options?q={two_orders["b"]["code"]}', timeout=25).json()
+        assert narrowed['total'] <= everything['total']
+        assert narrowed['total'] >= 1
+
+    def test_include_id_pins_a_po_that_search_would_drop(self, api, two_orders):
+        """include_id ghim PO đang xem kể cả khi nó không khớp từ khoá tìm."""
+        data = api.get(
+            f'{BASE_URL}/api/kiosk-board/po-options'
+            f'?q={two_orders["b"]["code"]}&include_id={two_orders["a"]["po_id"]}',
+            timeout=25).json()
+        listed = {int(x['id']) for x in data['items']}
         assert two_orders['a']['po_id'] in listed
         assert two_orders['b']['po_id'] in listed
 
@@ -196,3 +241,52 @@ class TestActivityFeed:
     def test_activity_requires_a_po(self, api):
         response = api.get(f'{BASE_URL}/api/kiosk-board/activity', timeout=25)
         assert response.status_code in {400, 422}
+
+
+class TestCrowdedPoCatalogue:
+    """Tái hiện đúng ca lane integration gặp: CSDL có nhiều PO đang mở hơn cửa sổ.
+
+    Không mock, không giả định — dựng thật hơn PO_OPTION_LIMIT production order
+    đang mở, rồi hỏi về một PO vừa tạo (chưa session, chưa hạn) tức là PO xếp
+    đáy cả ba tiêu chí sắp xếp. Đây chính là dòng bị cửa sổ nuốt mất.
+    """
+
+    @pytest.fixture()
+    def crowd(self, db):
+        from mesflow.web.kiosk_board import PO_OPTION_LIMIT
+        suffix = uuid.uuid4().hex[:6].upper()
+        ids = []
+        with db.cursor() as cur:
+            # Nhiều PO "hấp dẫn" hơn: có hạn gần, nên xếp trên.
+            for i in range(PO_OPTION_LIMIT + 5):
+                cur.execute("""INSERT INTO production_orders(code,product,planned_quantity,status,due_date)
+                    VALUES(%s,'SP đông',10,'IN_PROGRESS',CURRENT_DATE + 1) RETURNING id""",
+                    (f'PO-CROWD-{suffix}-{i:03d}',))
+                ids.append(cur.fetchone()['id'])
+            # PO cần xem: tạo SAU, không session, KHÔNG hạn -> đáy mọi tiêu chí.
+            cur.execute("""INSERT INTO production_orders(code,product,planned_quantity,status)
+                VALUES(%s,'SP mới tinh',10,'IN_PROGRESS') RETURNING id""",
+                (f'PO-FRESH-{suffix}',))
+            fresh = cur.fetchone()['id']
+        yield {'fresh': fresh, 'code': f'PO-FRESH-{suffix}', 'others': ids, 'limit': PO_OPTION_LIMIT}
+        with db.cursor() as cur:
+            cur.execute('DELETE FROM production_orders WHERE id = ANY(%s)', (ids + [fresh],))
+
+    def test_a_fresh_po_outside_the_window_is_still_selectable(self, api, crowd):
+        data = _board(api, crowd['fresh'])
+        assert int(data['production_order']['id']) == crowd['fresh']
+        listed = {int(x['id']) for x in data['po_options']}
+        assert crowd['fresh'] in listed, (
+            'PO đang xem nằm ngoài cửa sổ và bị bộ chọn bỏ rơi — đúng lỗi đã báo'
+        )
+
+    def test_the_window_admits_it_is_a_window(self, api, crowd):
+        data = _board(api, crowd['fresh'])
+        assert len(data['po_options']) <= crowd['limit'] + 1
+        assert data['po_truncated'] is True
+        assert data['po_total'] > len(data['po_options'])
+
+    def test_the_fresh_po_is_findable_by_search(self, api, crowd):
+        data = api.get(
+            f'{BASE_URL}/api/kiosk-board/po-options?q={crowd["code"]}', timeout=25).json()
+        assert crowd['fresh'] in {int(x['id']) for x in data['items']}

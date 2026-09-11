@@ -64,9 +64,20 @@ async function mockDashboard(page) {
       },
     });
   });
-  await page.route('**/api/kiosk-board/po-options', route => route.fulfill({
-    json: { ok: true, items: [PO_A, PO_B] },
-  }));
+  // Glob phải có '*' ở cuối: từ khi bộ chọn gửi kèm ?include_id=/?q=, một
+  // pattern không đuôi sẽ KHÔNG khớp nữa và request thật lọt xuống server.
+  // Mock cũng tôn trọng q/include_id đúng như backend, nếu không bài test chỉ
+  // đang kiểm chính cái mock.
+  await page.route('**/api/kiosk-board/po-options*', route => {
+    const url = new URL(route.request().url());
+    const q = (url.searchParams.get('q') || '').toLowerCase();
+    const include = url.searchParams.get('include_id');
+    const all = [PO_A, PO_B];
+    const items = all.filter(x =>
+      (!q || x.code.toLowerCase().includes(q) || (x.product || '').toLowerCase().includes(q))
+      || String(x.id) === include);
+    route.fulfill({ json: { ok: true, items, total: all.length, truncated: false, query: q } });
+  });
   return seen;
 }
 

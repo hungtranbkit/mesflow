@@ -41,7 +41,20 @@ PRODUCTION_ONLY_O = production_only_sql('o')
 FOCUS_EVENT_LIMIT = 40
 #: Số dòng tối đa cho vùng "Biến động PO khác" -- cố ý nhỏ để không chiếm màn.
 OTHER_EVENT_LIMIT = 6
-#: Trần số PO trong bộ chọn.
+#: Số PO tối đa trả về cho bộ chọn trong MỘT lượt.
+#:
+#: Đây là một CỬA SỔ, không phải "tất cả PO đang mở", và phải được đối xử như
+#: vậy ở mọi nơi dùng nó. Bản đầu coi nó như cả danh sách và lặp lại đúng lỗi mà
+#: chính lane này vừa vá ở REQ-PO-005: một xưởng có 119 PO đang mở thì PO thứ 41
+#: trở đi đơn giản là không chọn được, và màn hình không hề nói rằng nó chưa tải
+#: hết. Một PO vừa release -- chưa session, chưa hạn -- rơi xuống đáy cả ba tiêu
+#: chí sắp xếp, nên nó chính là cái biến mất đầu tiên.
+#:
+#: Ba thứ khiến cửa sổ này an toàn, và phải giữ đủ cả ba:
+#:   1. PO ĐANG XEM luôn có trong danh sách, dù nó nằm ngoài cửa sổ -- nếu không
+#:      thì <select> không có option nào khớp và bộ chọn nói khác header;
+#:   2. phản hồi mang `total` + `truncated` để màn hình nói "40/119" thay vì im;
+#:   3. có tìm kiếm (`q`) nên MỌI PO đều với tới được, không phụ thuộc thứ hạng.
 PO_OPTION_LIMIT = 40
 
 
@@ -55,12 +68,28 @@ def _int_arg(name: str, default=None):
         raise ValueError(f'{name} phải là số nguyên') from None
 
 
-def _po_options(limit: int = PO_OPTION_LIMIT) -> list[dict]:
+OPEN_PO_STATUSES_SQL = "('RELEASED','IN_PROGRESS','PAUSED')"
+
+
+def _po_options_total(q: str = '') -> int:
+    """Tổng số PO đang mở khớp bộ lọc -- để nói thật khi cửa sổ bị cắt."""
+    row = fetch_one(
+        f"""SELECT COUNT(*) n FROM production_orders po
+            WHERE po.status IN {OPEN_PO_STATUSES_SQL}
+              AND (%s='' OR po.code ILIKE %s OR po.product ILIKE %s)""",
+        (q, f'%{q}%', f'%{q}%'))
+    return int((row or {}).get('n') or 0)
+
+
+def _po_options(limit: int = PO_OPTION_LIMIT, q: str = '', include_id: int | None = None) -> list[dict]:
     """Danh sách PO cho bộ chọn, PO đang có việc xếp trước.
 
     Thứ tự ưu tiên đúng như yêu cầu sản phẩm: đang có session mở -> có hoạt
     động gần đây -> còn lại. Xếp hạng tính trong SQL để bộ chọn không phụ thuộc
     vào việc trình duyệt đã tải được bao nhiêu.
+
+    `include_id` GHIM một PO vào kết quả dù nó xếp ngoài cửa sổ -- xem chú thích
+    ở PO_OPTION_LIMIT. `q` tìm theo mã hoặc tên sản phẩm.
     """
     return fetch_all(
         f"""SELECT po.id,po.code,po.product,po.status,po.planned_quantity,po.due_date,
@@ -76,12 +105,14 @@ def _po_options(limit: int = PO_OPTION_LIMIT) -> list[dict]:
               FROM operations o LEFT JOIN work_sessions ws ON ws.operation_id=o.id
               GROUP BY o.production_order_id
             ) agg ON agg.po_id=po.id
-            WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
-            ORDER BY (COALESCE(agg.open_sessions,0)>0) DESC,
+            WHERE (po.status IN {OPEN_PO_STATUSES_SQL} OR po.id=COALESCE(%s,-1))
+              AND (%s='' OR po.code ILIKE %s OR po.product ILIKE %s OR po.id=COALESCE(%s,-1))
+            ORDER BY (po.id=COALESCE(%s,-1)) DESC,
+                     (COALESCE(agg.open_sessions,0)>0) DESC,
                      agg.last_activity_at DESC NULLS LAST,
                      po.due_date ASC NULLS LAST, po.id DESC
             LIMIT %s""",
-        (limit,))
+        (include_id, q, f'%{q}%', f'%{q}%', include_id, include_id, limit))
 
 
 def _resolve_po(po_id: int | None, options: list[dict]) -> dict | None:
@@ -107,12 +138,16 @@ def kiosk_board():
     try:
         date = request.args.get('date') or None
         po_id = _int_arg('po_id')
-        options = _po_options()
+        # Ghim PO đang xem vào danh sách: nếu nó xếp ngoài cửa sổ thì <select>
+        # không có option nào khớp và bộ chọn sẽ nói khác header.
+        options = _po_options(include_id=po_id)
         po = _resolve_po(po_id, options)
         if po is None:
             return jsonify(ok=True, production_order=None, po_options=[],
+                           po_total=_po_options_total(), po_truncated=False,
                            kpis={}, tasks=[], date=date)
 
+        po_total = _po_options_total()
         day = DashboardRepository().daily_dashboard(date, limit=2000)
         focus_id = int(po['id'])
         # Thu hẹp về PO đang xem NGAY tại đây. Mọi panel phía sau chỉ đọc
@@ -134,6 +169,8 @@ def kiosk_board():
                        context=day.get('context', {}),
                        production_order=po,
                        po_options=[dict(x) for x in options],
+                       po_total=po_total,
+                       po_truncated=po_total > len(options),
                        kpis={
                            'day_good_qty': done,
                            'day_defect_qty': defect,
@@ -280,6 +317,14 @@ def kiosk_board_po_options():
     ở Kiosk -- hai màn không được nói hai chuyện khác nhau về "PO nào đang chạy".
     """
     try:
-        return jsonify(ok=True, items=[dict(x) for x in _po_options()])
+        q = (request.args.get('q') or '').strip()[:80]
+        include_id = _int_arg('include_id')
+        items = _po_options(q=q, include_id=include_id)
+        total = _po_options_total(q)
+        # `truncated` là lời nói thật của endpoint: nơi gọi phải hiển thị
+        # "đang xem N/total" và mở đường tìm kiếm, thay vì trình bày một cửa sổ
+        # như thể nó là cả danh sách.
+        return jsonify(ok=True, items=[dict(x) for x in items],
+                       total=total, truncated=total > len(items), query=q)
     except Exception as exc:  # noqa: BLE001
         return api_error_response(exc, logger_name=__name__)

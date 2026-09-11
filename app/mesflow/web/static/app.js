@@ -307,7 +307,7 @@ async function renderDashboard(){
   const shiftReference=workShifts.map(x=>`${esc(x.name)} · ${esc(x.anchor_start)}–${esc(x.anchor_end)}`).join(' &nbsp;·&nbsp; ');
   const dayView={id:'CALENDAR_DAY',target_minutes:1440,intervals:[{interval_type:'WORK',start_minute:0,end_minute:1440,sort_order:0}]};
   content.innerHTML=`<div class="page-shell">
-  ${MFUI.filterBar({content:`<label class="daily-date-picker"><span>Ngày làm việc</span><input type="date" id="dailyDate" value="${currentCtx.date}"></label><label class="daily-po-picker"><span>Production Order</span><select id="dailyPo"><option value="">Tất cả PO</option></select></label><span class="daily-shift-reference"><b>Phạm vi dữ liệu</b><span>Toàn bộ ngày đã chọn · không lọc theo ca</span><small>${shiftReference||'Ca ngày · 07:30–17:00 · Ca tối · 18:00–00:00'}</small></span>`,actions:'<button class="btn daily-kiosk-button" id="dailyOpenKiosk" type="button">Mở màn hình lớn</button><button class="btn daily-list-button" id="dailyOpenAll">Danh sách Operation</button><button class="btn primary daily-refresh" id="dailyRefresh"><i aria-hidden="true"></i>Làm mới dữ liệu</button>'})}
+  ${MFUI.filterBar({content:`<label class="daily-date-picker"><span>Ngày làm việc</span><input type="date" id="dailyDate" value="${currentCtx.date}"></label><label class="daily-po-picker"><span>Production Order</span><select id="dailyPo"><option value="">Tất cả PO</option></select><small class="daily-po-note" id="dailyPoNote"></small></label><span class="daily-shift-reference"><b>Phạm vi dữ liệu</b><span>Toàn bộ ngày đã chọn · không lọc theo ca</span><small>${shiftReference||'Ca ngày · 07:30–17:00 · Ca tối · 18:00–00:00'}</small></span>`,actions:'<button class="btn daily-kiosk-button" id="dailyOpenKiosk" type="button">Mở màn hình lớn</button><button class="btn daily-list-button" id="dailyOpenAll">Danh sách Operation</button><button class="btn primary daily-refresh" id="dailyRefresh"><i aria-hidden="true"></i>Làm mới dữ liệu</button>'})}
   <section class="daily-kpis" id="dailyKpis" aria-live="polite"></section>
   <nav class="dashboard-tabs" role="tablist" aria-label="Nội dung Dashboard theo ngày"><button class="dashboard-tab ${dashTabActive('overview')?'active':''}" type="button" role="tab" aria-selected="${dashTabActive('overview')}" data-dashboard-tab="overview">A · Tổng quan Operation</button><button class="dashboard-tab ${dashTabActive('people')?'active':''}" type="button" role="tab" aria-selected="${dashTabActive('people')}" data-dashboard-tab="people">B · Nhân viên / Session</button><button class="dashboard-tab ${dashTabActive('output')?'active':''}" type="button" role="tab" aria-selected="${dashTabActive('output')}" data-dashboard-tab="output">C · Sản lượng &amp; NG / chờ sửa</button></nav>
   <div class="dashboard-tab-pane ${dashTabActive('overview')?'active':''}" data-dashboard-pane="overview" role="tabpanel" ${dashTabActive('overview')?'':'hidden'}><section class="content-panel op-time-panel daily-section"><div class="content-panel-head"><div><h3>Tiến độ theo Operation</h3><p>Đối chiếu thời gian thực tế với định mức và sản lượng kế hoạch.</p></div><div class="content-panel-actions"><button class="btn" id="opTimeOpenAll">Xem danh sách Operation</button></div></div><div class="content-panel-body" id="opTimeProgress"></div></section></div>
@@ -495,15 +495,25 @@ async function renderDashboard(){
   // --- nạp danh sách PO cho bộ chọn (dùng chung thứ tự ưu tiên với Kiosk) ---
   const poSelect=document.getElementById('dailyPo');
   let poOptions=[];
-  const loadPoOptions=async()=>{
+  let poTruncated=false,poTotal=0;
+  const loadPoOptions=async(q='')=>{
     try{
-      const data=await api('/api/kiosk-board/po-options');
+      // include_id giữ PO đang chọn luôn có trong danh sách, kể cả khi nó xếp
+      // ngoài cửa sổ -- nếu không <select> sẽ không có option nào khớp.
+      const params=new URLSearchParams();
+      if(q)params.set('q',q);
+      if(initialDashboardPo)params.set('include_id',initialDashboardPo);
+      const data=await api(`/api/kiosk-board/po-options${params.toString()?`?${params}`:''}`);
       poOptions=data.items||[];
+      poTruncated=!!data.truncated;poTotal=Number(data.total||poOptions.length);
       poSelect.innerHTML='<option value="">Tất cả PO</option>'+poOptions.map(o=>{
         const note=Number(o.open_sessions||0)>0?` — ${o.open_sessions} đang làm`:'';
         return `<option value="${o.id}" ${String(o.id)===String(initialDashboardPo)?'selected':''}>${esc(o.code)}${o.product?` · ${esc(o.product)}`:''}${esc(note)}</option>`;
       }).join('');
       poSelect.value=initialDashboardPo||'';
+      // Nói thật khi mới hiện một phần: im lặng là cách bộ chọn giấu mất PO.
+      const note=document.getElementById('dailyPoNote');
+      if(note)note.textContent=poTruncated?`Đang hiện ${poOptions.length}/${poTotal} PO đang mở — dùng ô tìm để chọn PO khác`:'';
     }catch(_e){/* bộ chọn hỏng không được chặn cả dashboard */}
   };
 
@@ -531,13 +541,37 @@ async function renderDashboard(){
     box.innerHTML=`<div class="modal kiosk-pick-modal" role="dialog" aria-modal="true" aria-labelledby="kioskPickTitle">
       <h2 id="kioskPickTitle">Chọn Production Order để mở màn hình lớn</h2>
       <p class="modal-note">Màn hình lớn hiển thị chi tiết <b>một</b> PO tại một thời điểm, nên cần chọn PO trước. PO đang có người làm được xếp lên đầu.</p>
-      <div class="kiosk-pick-list">${list}</div>
+      <label class="kiosk-pick-search"><span class="sr-only">Tìm Production Order</span>
+        <input type="search" id="kioskPickSearch" placeholder="Tìm theo mã PO hoặc tên sản phẩm" autocomplete="off"></label>
+      <p class="kiosk-pick-note" id="kioskPickNote"></p>
+      <div class="kiosk-pick-list" id="kioskPickList">${list}</div>
       <div class="modal-actions"><button type="button" class="btn" data-close-pick>Hủy</button></div></div>`;
     document.body.appendChild(box);
     const close=()=>box.remove();
     box.querySelector('[data-close-pick]').onclick=close;
     box.onclick=e=>{if(e.target===box)close()};
-    box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{close();openKioskFor(Number(b.dataset.pick))});
+    const bindRows=()=>box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{close();openKioskFor(Number(b.dataset.pick))});
+    const renderRows=(items,truncated,total)=>{
+      box.querySelector('#kioskPickList').innerHTML=items.length
+        ?items.map(o=>`<button class="btn kiosk-pick-row" type="button" data-pick="${o.id}"><b>${esc(o.code)}</b><span>${esc(o.product||'')}</span>${Number(o.open_sessions||0)>0?`<em>${o.open_sessions} đang làm</em>`:''}</button>`).join('')
+        :'<p class="modal-note">Không có PO nào khớp.</p>';
+      // Danh sách bị cắt thì PHẢI nói ra, kèm cách với tới phần còn lại.
+      box.querySelector('#kioskPickNote').textContent=truncated
+        ?`Đang hiện ${items.length}/${total} PO đang mở — gõ để tìm PO khác.`:'';
+      bindRows();
+    };
+    renderRows(poOptions,poTruncated,poTotal);
+    let findTimer=null;
+    box.querySelector('#kioskPickSearch').oninput=e=>{
+      const q=e.target.value.trim();
+      clearTimeout(findTimer);
+      findTimer=setTimeout(async()=>{
+        try{
+          const data=await api(`/api/kiosk-board/po-options${q?`?q=${encodeURIComponent(q)}`:''}`);
+          renderRows(data.items||[],!!data.truncated,Number(data.total||0));
+        }catch(_e){/* tìm hỏng thì giữ nguyên danh sách đang hiện */}
+      },220);
+    };
   };
 
   document.getElementById('dailyOpenKiosk').onclick=()=>{
