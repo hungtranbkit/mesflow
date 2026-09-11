@@ -36,7 +36,10 @@ const ExceptionCenter=(()=>{
   const query=()=>{const p=new URLSearchParams({view:state.view,sort:document.getElementById('ecSort')?.value||'severity',page_size:'100'});for(const id of ['ecSeverity','ecType','ecPo','ecEmployee','ecOperation','ecFrom','ecTo']){const v=document.getElementById(id)?.value;if(v)p.set({ecSeverity:'severity',ecType:'exception_type',ecPo:'po_id',ecEmployee:'employee_id',ecOperation:'operation_id',ecFrom:'from',ecTo:'to'}[id],v)}return p};
   const filterFields=()=>`<label><span>Mức độ</span><select id="ecSeverity"><option value="">Mọi mức độ</option>${['CRITICAL','HIGH','MEDIUM','LOW'].map(x=>`<option>${x}</option>`).join('')}</select></label><label><span>Loại</span><select id="ecType"><option value="">Mọi loại</option>${Object.entries(labels).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><label><span>ID PO</span><input id="ecPo" inputmode="numeric" placeholder="ID PO"></label><label><span>ID nhân viên</span><input id="ecEmployee" inputmode="numeric" placeholder="ID nhân viên"></label><label><span>ID Operation</span><input id="ecOperation" inputmode="numeric" placeholder="ID Operation"></label><label><span>Từ ngày</span><input id="ecFrom" type="date"></label><label><span>Đến ngày</span><input id="ecTo" type="date"></label><label><span>Sắp xếp</span><select id="ecSort"><option value="severity">Mức độ · lâu nhất</option><option value="newest">Mới nhất</option><option value="oldest">Cũ nhất</option><option value="longest">Chờ lâu nhất</option></select></label>`;
   const card=x=>`<article class="ec-card severity-${x.severity.toLowerCase()}" data-id="${x.id}" tabindex="0"><div class="ec-severity"><b>${esc(x.severity)}</b><span>${esc(statusLabel[x.status]||x.status)}</span></div><div class="ec-card-main"><header><h3>${esc(x.title||labels[x.exception_type]||x.exception_type)}</h3><time>${fmt(x.detected_at)}</time></header><p>${esc(x.message)}</p><div class="ec-context"><b>${esc(x.employee_name||'Không rõ nhân viên')}</b><span>PO ${esc(x.po_code||'—')}</span><span>Part ${esc(x.part_code||'—')}</span><span>${esc(x.operation_name||x.operation_code||'—')}</span><span>Session #${x.session_id||'—'}</span></div><div class="ec-recommend"><b>Cần làm:</b> ${esc(x.recommended_action||'Kiểm tra và xác nhận tình trạng.')}</div></div><button class="btn primary ec-review">Xử lý</button></article>`;
-  async function load(quiet=false){try{const data=await api('/api/exceptions?'+query());state.items=data.items||[];const high=state.items.filter(x=>['HIGH','CRITICAL'].includes(x.severity)).length;document.getElementById('ecSummary').innerHTML=`<b>${data.total} ngoại lệ</b>${high?`<span class="ec-severity-badge">${high} mức cao/nghiêm trọng</span>`:''}<small>Cập nhật ${new Intl.DateTimeFormat('vi-VN',{timeStyle:'medium'}).format(new Date())}</small>`;document.getElementById('ecList').innerHTML=state.items.length?state.items.map(card).join(''):`<div class="empty"><b>Không có ngoại lệ trong nhóm này</b><span>Hệ thống vẫn tiếp tục đối soát định kỳ.</span></div>`;bindCards()}catch(e){if(!quiet)document.getElementById('ecList').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}}
+  // `ecLoaded`: một lần nạp lại sau thao tác (quiet) hay một lần nạp lại
+  // trên màn đã có dữ liệu không được xoá danh sách đang hiển thị.
+  let ecLoaded=false;
+  async function load(quiet=false){try{const data=await api('/api/exceptions?'+query());state.items=data.items||[];const high=state.items.filter(x=>['HIGH','CRITICAL'].includes(x.severity)).length;document.getElementById('ecSummary').innerHTML=`<b>${data.total} ngoại lệ</b>${high?`<span class="ec-severity-badge">${high} mức cao/nghiêm trọng</span>`:''}<small>Cập nhật ${new Intl.DateTimeFormat('vi-VN',{timeStyle:'medium'}).format(new Date())}</small>`;document.getElementById('ecList').innerHTML=state.items.length?state.items.map(card).join(''):`<div class="empty"><b>Không có ngoại lệ trong nhóm này</b><span>Hệ thống vẫn tiếp tục đối soát định kỳ.</span></div>`;bindCards();ecLoaded=true}catch(e){MFUI.refreshError({loaded:quiet||ecLoaded,host:document.getElementById('ecList'),error:e,retry:()=>load(false),screen:'Trung tâm ngoại lệ'})}}
   function bindCards(){document.querySelectorAll('.ec-card').forEach(el=>{const open=()=>openResolution(Number(el.dataset.id));el.onclick=open;el.onkeydown=e=>{if(e.key==='Enter')open()}})}
 
   // --- Inline Session Exception Resolution modal (2026-08-28) -------------
@@ -169,22 +172,29 @@ const ExceptionCenter=(()=>{
       if(meta?.type==='datetime')v=v?toIso(v):null;
       body[f]=v;
     }
-    // Raw fetch (not the shared api() helper): a SESSION_CHANGED 409 carries
-    // a structured `current` snapshot the modal needs to redraw with --
-    // api()'s own contract only ever throws a plain Error(message), so
-    // reaching for it here would silently drop that payload. See §11.
-    let resp,res;
+    // Trước đây chỗ này CỐ Ý dùng fetch thẳng: một 409 SESSION_CHANGED mang
+    // theo snapshot `current` mà modal cần để vẽ lại, còn api() cũ chỉ ném
+    // Error(message) nên làm rơi mất payload đó. core/net.js giữ nguyên thân
+    // JSON đã parse trong `err.body`, nên lý do đứng ngoài không còn -- và
+    // đổi lại được đúng thứ fetch thẳng không có: lỗi mạng ra câu tiếng Việt
+    // chung của cả hệ, không phải "Failed to fetch".
+    //
+    // Vẫn KHÔNG tự gửi lại: đây là lệnh ghi không mang request_id, backend
+    // không dedupe được, nên gửi lại là ghi hai lần.
+    let res;
     try{
-      resp=await fetch(`/api/session-exceptions/${r.id}/correct-session`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      res=await resp.json().catch(()=>({}));
-    }catch(_networkErr){toast('Không thể kết nối máy chủ. Thử lại.');return}
-    if(resp.status===401){location.href='/login';return}
-    if(resp.status===409&&res.error==='SESSION_CHANGED'){
-      if(res.current){r.session=res.current;r.draft={}}
-      r.banner={type:'danger',text:'Session đã được người khác thay đổi trong lúc bạn đang xử lý. Dữ liệu đã được làm mới -- vui lòng kiểm tra lại trước khi lưu.'};
-      renderResolution();return;
+      res=await api(`/api/session-exceptions/${r.id}/correct-session`,{method:'POST',body:JSON.stringify(body)});
+    }catch(err){
+      if(MFNet.isCancelled(err))return;
+      const payload=err.body||{};
+      if(err.status===401)return;                 // net.js đã chuyển hướng đăng nhập
+      if(err.status===409&&payload.error==='SESSION_CHANGED'){
+        if(payload.current){r.session=payload.current;r.draft={}}
+        r.banner={type:'danger',text:'Session đã được người khác thay đổi trong lúc bạn đang xử lý. Dữ liệu đã được làm mới -- vui lòng kiểm tra lại trước khi lưu.'};
+        renderResolution();return;
+      }
+      toast(err.message);return;
     }
-    if(!resp.ok||res.ok===false){toast(res.message||res.error||`HTTP ${resp.status}`);return}
     r.session=res.item;r.exception=res.exception;r.draft={};r.blockedResolve=!res.cleared;
     r.banner=res.cleared
       ?{type:'success',text:'Đã lưu điều chỉnh. Ngoại lệ không còn hiệu lực -- có thể bấm "Hoàn tất xử lý".'}
@@ -232,7 +242,12 @@ const ExceptionCenter=(()=>{
     openPage('session-management',document.querySelector('[data-page="session-management"]'));
   }
 
-  async function render(){if(state.timer)clearTimeout(state.timer);title.textContent='Trung tâm ngoại lệ';subtitle.textContent='Việc cần xử lý, xác nhận và lịch sử bất thường sản xuất';content.innerHTML=`<div class="page-shell"><nav class="ec-tabs mf-tabs">${[['action','Cần xử lý'],['all','Tất cả'],['resolved','Đã giải quyết'],['ignored','Đã bỏ qua'],['history','Lịch sử']].map(([v,l])=>`<button data-view="${v}" class="mf-tab ${state.view===v?'active':''}">${l}</button>`).join('')}<div id="ecSummary" class="ec-summary-compact">Đang đối soát…</div></nav>${MFUI.filterBar({content:filterFields(),actions:'<button class="btn primary" id="ecApply">Áp dụng</button>'})}<section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách ngoại lệ</h3></div></div><div class="content-panel-body ec-list" id="ecList">Đang tải…</div></section></div>`;document.querySelectorAll('.ec-tabs button').forEach(b=>b.onclick=()=>{captureFilters();state.view=b.dataset.view;render()});restoreFilters();document.getElementById('ecApply').onclick=()=>load();await load();const poll=async()=>{if(document.body.dataset.page!=='session-exceptions')return;if(!state.resolution)await load(true);state.timer=setTimeout(poll,15000)};state.timer=setTimeout(poll,15000)}
+  async function render(){if(state.timer)clearTimeout(state.timer);
+    // render() dựng lại #ecList từ đầu, nên "đã tải được lần nào chưa" phải
+    // tính lại từ đầu -- ecLoaded sống ở scope module (dùng chung với poll
+    // 15s bên dưới) nên không tự reset.
+    ecLoaded=false;
+    title.textContent='Trung tâm ngoại lệ';subtitle.textContent='Việc cần xử lý, xác nhận và lịch sử bất thường sản xuất';content.innerHTML=`<div class="page-shell"><nav class="ec-tabs mf-tabs">${[['action','Cần xử lý'],['all','Tất cả'],['resolved','Đã giải quyết'],['ignored','Đã bỏ qua'],['history','Lịch sử']].map(([v,l])=>`<button data-view="${v}" class="mf-tab ${state.view===v?'active':''}">${l}</button>`).join('')}<div id="ecSummary" class="ec-summary-compact">Đang đối soát…</div></nav>${MFUI.filterBar({content:filterFields(),actions:'<button class="btn primary" id="ecApply">Áp dụng</button>'})}<section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách ngoại lệ</h3></div></div><div class="content-panel-body ec-list" id="ecList">Đang tải…</div></section></div>`;document.querySelectorAll('.ec-tabs button').forEach(b=>b.onclick=()=>{captureFilters();state.view=b.dataset.view;render()});restoreFilters();document.getElementById('ecApply').onclick=()=>load();await load();const poll=async()=>{if(document.body.dataset.page!=='session-exceptions')return;if(!state.resolution)await load(true);state.timer=setTimeout(poll,15000)};state.timer=setTimeout(poll,15000)}
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('ecDrawer'))closeResolution()});return {render,closeDrawer:closeResolution};
 })();
 renderSessionExceptions=ExceptionCenter.render;

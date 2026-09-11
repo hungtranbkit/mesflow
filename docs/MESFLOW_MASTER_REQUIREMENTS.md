@@ -2271,6 +2271,27 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P0 (deploy-pipeline-critical).
 - **Dimensions**: positive, negative (DB-down case).
 
+### REQ-API-004 — Client retry policy (transient-only, never a double write)
+
+- **Module**: cross-cutting / frontend (`static/core/net.js`)
+- **Purpose**: A transient network fault must heal itself without the operator seeing it, and must never turn one write into two.
+- **Actors**: every browser screen — admin app and Kiosk web share one request layer.
+- **Preconditions**: a request fails while the user is on a screen.
+- **Input**: N/A (a policy about how requests are re-sent, not a payload).
+- **Trigger**: `fetch` rejects (network `TypeError`, connection reset, temporary DNS, offline), the request exceeds its timeout (15s read / 30s write), or the response carries 408/425/429/500/502/503/504.
+- **Main flow**: the shared layer retries **only** GET/HEAD — or a write that explicitly declares `idempotent: true`, which is permitted **only** when the payload carries a `request_id` covered by REQ-API-001 — up to 3 times, with exponential backoff plus ±25% jitter (≈300–500 ms → 1 s → 2 s). `Retry-After` is honoured when it is longer than the computed backoff; a `Retry-After` beyond 10 s stops retrying immediately rather than freezing the UI.
+- **Expected output**: a retry that succeeds updates the screen normally and says nothing at all about the failure.
+- **State transition**: none — a retried idempotent write replays REQ-API-001's stored response instead of applying twice.
+- **Validation**: N/A.
+- **Errors**: 400/401/403/404/409/422 are **never** retried — they are the server's definitive answer. A 401 enters the login flow at most once per page (guarded against a redirect loop, and never triggered from `/login` itself).
+- **Boundary**: the case this exists for — a POST/PATCH/DELETE **without** a `request_id` that fails after the server already applied it. Exactly one attempt is made; the user is told, and the decision to re-send is theirs.
+- **Permission**: N/A.
+- **Concurrency**: concurrent identical GETs are coalesced into one in-flight request; a request superseded by a newer one in the same slot (filter change) or belonging to a screen the user has left is aborted and settles as **nothing at all** — neither success nor error, so a stale response can neither repaint nor raise an alarm.
+- **Audit**: N/A — an idempotent replay writes no duplicate audit row (REQ-API-001).
+- **Related**: REQ-API-001 (server-side dedupe is the precondition for any write retry), REQ-UI-018 (what the user sees), NFR-001.
+- **Priority**: P1.
+- **Dimensions**: positive, negative, boundary, concurrency.
+
 ---
 
 # PART C — Business Rules
@@ -2325,6 +2346,7 @@ pixel-perfect subjective judgment.
 | REQ-UI-011 | Any async auto-action (e.g. autologin's POST) gives the user explicit status text during the wait, not a silent unlabeled delay. |
 | REQ-UI-012 | Interface language is Vietnamese throughout the admin app — an English string in a user-facing label/error/toast is a defect. |
 | REQ-UI-016 | Sidebar groups may contain a labelled sub-group heading (e.g. `Quản trị › Theo dõi & Nhật ký`). A sub-group heading renders only when at least one item beneath it is openable by the current role — a role with none of those permissions sees neither the items nor the heading. Moving a page between nav groups never changes who can open it: visibility stays governed solely by that page's existing `PAGE_PERMISSION` entry. |
+| REQ-UI-018 | A transient network failure is never shown as a raw browser exception. While a read is being retried the screen **keeps the data already on it** and shows only a small `Đang kết nối lại…` indicator — a failed auto-refresh must never replace rendered content with an error block. Only once retries are exhausted does a message appear, and it is one of exactly three Vietnamese sentences: `Mất kết nối mạng` (browser reports offline), `Máy chủ tạm thời không phản hồi` (500/502/503/504), `Kết nối chưa ổn định, vui lòng thử lại` (any other network/timeout condition). `Failed to fetch` — or any other raw exception text — reaching a user-facing surface is a defect (REQ-UI-012). A business 4xx keeps the server's own Vietnamese message unchanged. The terminal error state offers a `Thử lại` button and refetches by itself when the browser comes back online. |
 
 **Not covered / not asserted**: keyboard-navigation/focus-order
 accessibility audit, screen-reader labeling, color-contrast ratios — no
@@ -2433,6 +2455,8 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, offline-sync tests above | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
 | REQ-UI-016 (sidebar sub-group + visibility) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
+| REQ-UI-018 (network error UX) | `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
+| REQ-API-004 (client retry policy) | `tests/e2e/request-layer-unit.spec.js`, `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
 | Part D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Part A §14 (NFR) | concurrency/idempotency: A; security/CSRF, browser support, performance SLA: — | P |
 

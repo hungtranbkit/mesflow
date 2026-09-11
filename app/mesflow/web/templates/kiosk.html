@@ -147,6 +147,9 @@
     <input id="scanner-input" class="scanner-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Scanner input">
     <footer><span id="scan-status">Máy quét sẵn sàng</span><span><span id="timezone-label">GMT+7 · HCM</span> · <span id="device-label"></span></span></footer>
   </main>
+  <!-- Kiosk dùng CHUNG lớp mạng với admin app (phân loại lỗi, backoff,
+       timeout); phần riêng của kiosk chỉ là ánh xạ mã lỗi trong kiosk.js. -->
+  <script src="/static/core/net.js?v={{ version }}"></script>
   <script src="/static/op-policy.js?v={{ version }}"></script>
   <script src="/static/kiosk.js?v={{ version }}"></script>
 </body>
