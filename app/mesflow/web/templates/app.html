@@ -36,6 +36,8 @@
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <script>window.MESFLOW_USER={{ {'id':session_user_id,'username':username,'role':role,'permissions':permissions}|tojson }};</script>
+  <!-- net.js phải nạp TRƯỚC api.js: api() chỉ là lớp mỏng gọi MFNet. -->
+  <script src="/static/core/net.js?v={{ version }}"></script>
   <script src="/static/core/api.js?v={{ version }}"></script>
   <script src="/static/core/nav.js?v={{ version }}"></script>
   <script src="/static/core/ui.js?v={{ version }}"></script>

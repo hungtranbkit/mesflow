@@ -3107,3 +3107,20 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .overview-po-list{display:grid;gap:var(--ui-space-3)}
 .overview-po-list>details.overview-po{min-width:0}
 @media(prefers-reduced-motion:reduce){details.overview-po>summary::after{transition:none}}
+/* Chỉ báo kết nối (core/net.js dựng #netStatus khi cần) -------------------
+   Đây là thứ thay cho toast "Failed to fetch": khi một request ĐỌC đang được
+   thử lại, dữ liệu cũ ở lại trên màn và chỉ có dải này nói "đang kết nối
+   lại". Người dùng không phải quyết định gì, nên nó không được cướp tiêu
+   điểm: góc dưới-trái, không phủ #toast (góc dưới-phải, nơi thông báo có
+   nội dung thật xuất hiện).
+   Mất mạng hẳn thì đổi sang sắc cảnh báo và Ở LẠI — đó là trạng thái người
+   dùng cần biết để dừng thao tác, không phải một nhấp nháy thoáng qua. */
+.net-status{position:fixed;left:20px;bottom:20px;z-index:60;display:flex;
+  align-items:center;gap:8px;padding:9px 14px;border-radius:var(--radius-control);
+  background:var(--bg-command-strong);color:#fff;font-size:13px;font-weight:600;
+  box-shadow:var(--shadow-overlay);pointer-events:none}
+.net-status::before{content:"";width:8px;height:8px;border-radius:50%;
+  background:currentColor;opacity:.85}
+.net-status[data-state="retrying"]{background:var(--status-warning)}
+.net-status[data-state="offline"]{background:var(--status-danger)}
+@media(max-width:720px){.net-status{left:12px;right:12px;bottom:12px;justify-content:center}}

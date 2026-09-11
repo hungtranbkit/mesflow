@@ -57,6 +57,35 @@ const MFUI=(()=>{
   const emptyState=(title='Không có dữ liệu',message='')=>`<div class="ui-state ui-empty"><b>${escHtml(title)}</b>${message?`<p>${escHtml(message)}</p>`:''}</div>`;
   const errorState=(message='Không thể tải dữ liệu.',retryId='')=>`<div class="ui-state ui-error" role="alert"><b>Đã có lỗi</b><p>${escHtml(message)}</p>${retryId?`<button class="btn" id="${escHtml(retryId)}" type="button">Thử lại</button>`:''}</div>`;
 
+  // refreshError: lỗi ở một nhịp LÀM MỚI khác hẳn lỗi ở lần tải ĐẦU, và
+  // trước đây mọi màn đối xử với chúng y như nhau -- `catch(e){host.innerHTML
+  // = khối lỗi}`. Hậu quả đo được: Dashboard theo ngày tự làm mới mỗi 10s,
+  // Tổng quan / Điều hành PO / Tiến trình mỗi 15s; một cú chớp mạng đúng
+  // nhịp đó XOÁ SẠCH bảng người dùng đang đọc và thay bằng "Failed to fetch".
+  // Dữ liệu cũ vài giây vẫn đúng hơn nhiều so với không có gì.
+  //
+  // Nên quy tắc là: đã vẽ được một lần rồi thì GIỮ NGUYÊN màn, chỉ ghi
+  // console; dải "Đang kết nối lại…" của core/net.js đã nói đúng chuyện đang
+  // xảy ra mà không cướp nội dung. Chỉ lần tải đầu -- lúc màn thật sự trống
+  // và người dùng không có gì để đọc -- mới vẽ khối lỗi kèm nút "Thử lại",
+  // và khối đó tự nạp lại khi mạng online trở lại.
+  //
+  // Trả về true nếu đã vẽ khối lỗi, false nếu chọn giữ dữ liệu cũ.
+  let refreshRetrySeq=0;
+  const refreshError=({loaded=false,host=null,error=null,message='',retry=null,screen=''}={})=>{
+    const text=(error&&error.message)||message||'Không tải được dữ liệu.';
+    if(loaded||!host){
+      console.warn(`[${screen||'MESFlow'}] giữ dữ liệu đang hiển thị, nhịp làm mới lỗi:`,text,error||'');
+      return false;
+    }
+    const retryId=`mfRefreshRetry${++refreshRetrySeq}`;
+    host.innerHTML=errorState(text,retryId);
+    const button=document.getElementById(retryId);
+    if(button&&retry)button.onclick=retry;
+    if(retry&&window.MFNet)MFNet.onReconnect(retry);
+    return true;
+  };
+
   // --- Nhận dạng Operation: TÊN là chữ chính, MÃ là chữ phụ --------------
   //
   // Người vận hành tìm việc theo TÊN công đoạn ("Chấn bước 1"), không theo mã
@@ -390,6 +419,6 @@ const MFUI=(()=>{
     document.addEventListener("DOMContentLoaded", () => mountBackToTop(), { once: true });
   } else { mountBackToTop(); }
 
-  return {statusBadge,opIdentity,mountBackToTop,BACK_TO_TOP_VIEWPORTS,opIdentityText,qtyValue,qtyLine,QTY_UNKNOWN,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
+  return {statusBadge,opIdentity,mountBackToTop,BACK_TO_TOP_VIEWPORTS,opIdentityText,qtyValue,qtyLine,QTY_UNKNOWN,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,refreshError,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
 })();
 window.MFUI=MFUI;

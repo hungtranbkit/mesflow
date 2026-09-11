@@ -2676,6 +2676,27 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Độ ưu tiên**: P0 (quan trọng cho pipeline deploy).
 - **Khía cạnh kiểm thử**: positive, negative (case DB down).
 
+### REQ-API-004 — Chính sách thử lại phía client (chỉ lỗi tạm thời, không bao giờ ghi hai lần)
+
+- **Mô-đun**: Xuyên suốt / frontend (`static/core/net.js`)
+- **Mục đích**: Lỗi mạng tạm thời phải tự hồi phục mà người vận hành không thấy gì, và không bao giờ được biến một lệnh ghi thành hai.
+- **Đối tượng thực hiện**: mọi màn trình duyệt — admin app và Kiosk web dùng CHUNG một lớp gọi mạng.
+- **Điều kiện tiên quyết**: một request hỏng trong lúc người dùng đang ở trên màn.
+- **Đầu vào**: N/A (đây là chính sách về cách gửi lại, không phải payload).
+- **Kích hoạt bởi**: `fetch` reject (network `TypeError`, connection reset, DNS tạm thời, mất mạng), request quá thời gian chờ (15s cho đọc / 30s cho ghi), hoặc phản hồi mang mã 408/425/429/500/502/503/504.
+- **Luồng chính**: lớp dùng chung CHỈ thử lại GET/HEAD — hoặc một lệnh ghi tự khai `idempotent: true`, điều chỉ được phép khi payload mang `request_id` thuộc phạm vi REQ-API-001 — tối đa 3 lần, backoff lũy tiến kèm jitter ±25% (≈300–500 ms → 1 s → 2 s). `Retry-After` được tôn trọng khi nó dài hơn backoff tự tính; `Retry-After` vượt 10 s thì DỪNG thử lại ngay thay vì treo giao diện chờ.
+- **Kết quả mong đợi**: lần thử lại thành công thì màn cập nhật bình thường và KHÔNG nói gì về lần hỏng.
+- **Chuyển trạng thái**: không — một lệnh ghi idempotent được gửi lại sẽ nhận lại phản hồi đã lưu theo REQ-API-001 thay vì áp dụng lần thứ hai.
+- **Kiểm tra hợp lệ**: N/A.
+- **Lỗi**: 400/401/403/404/409/422 **không bao giờ** được thử lại — đó là câu trả lời dứt khoát của server. 401 vào luồng đăng nhập nhiều nhất một lần mỗi trang (có chốt chống lặp, và không bao giờ kích hoạt từ chính `/login`).
+- **Ranh giới**: đúng tình huống sinh ra yêu cầu này — một POST/PATCH/DELETE **không có** `request_id` hỏng sau khi server đã áp dụng xong. Chỉ gửi đúng một lần; người dùng được báo, và quyền quyết định gửi lại là của họ.
+- **Quyền**: N/A.
+- **Đồng thời**: các GET trùng nhau đang bay được gộp làm một; một request bị thay chỗ bởi request mới hơn trong cùng slot (đổi bộ lọc) hoặc thuộc về màn người dùng đã rời sẽ bị huỷ và kết thúc bằng **không gì cả** — không thành công cũng không lỗi, nên một phản hồi về muộn không thể vẽ đè mà cũng không thể báo động.
+- **Nhật ký kiểm toán**: N/A — một lần replay idempotent không sinh dòng audit trùng (REQ-API-001).
+- **Liên quan**: REQ-API-001 (dedupe phía server là ĐIỀU KIỆN TIÊN QUYẾT để được thử lại một lệnh ghi), REQ-UI-020 (thứ người dùng nhìn thấy), NFR-001.
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: positive, negative, boundary, concurrency.
+
 ---
 
 # PHẦN C — Quy Tắc Nghiệp Vụ (Business Rules)
@@ -2736,6 +2757,7 @@ Chỉ giới hạn ở **hành vi mà một agent QC có thể kiểm tra máy m
 | REQ-UI-017 | **Danh sách bản ghi nhiều dữ kiện là DANH SÁCH THẺ, không phải bảng nhiều cột**: khi mỗi bản ghi mang nhiều dữ kiện không đồng dạng (tiến độ, người đang làm, sản lượng, trạng thái cần quyết định), danh sách phải là các THẺ ĐỘC LẬP — mỗi thẻ bo `--radius-surface`, viền khép kín bốn cạnh, nền/đổ bóng của mặt thẻ chuẩn, và các thẻ TÁCH nhau bằng `gap` dọc lấy từ thang spacing. Không hàng tiêu đề kiểu bảng, không đường kẻ ngang chia dòng, và ở màn hẹp KHÔNG được cuộn ngang để đọc một bản ghi. Trong thẻ, thứ bậc là: tên bản ghi = chữ chính bên trái; mã/PO/Part = chữ phụ; dữ kiện định lượng (thời gian/session/trạng thái) căn phải. Dải màu trạng thái vẽ bằng `::before`, không bằng `border-left` (rule quét surface đặt `border:...!important`, nên `border-left` trên thẻ bị quét không hiển thị). |
 | REQ-UI-018 | **Nút "Lên đầu trang" là primitive DÙNG CHUNG cho mọi màn dài**, không phải nút riêng của một màn. Chỉ hiện khi trang DÀI hơn 1.5 viewport VÀ người dùng đã cuộn quá 1.5 viewport; ẩn khi ở gần đỉnh; ẩn hẳn khi có modal/drawer đang mở (không chỉ dựa vào z-index, vì nút vẫn bắt được click ở vùng không bị che). Đặt ở góc phải dưới, tôn trọng `env(safe-area-inset-*)` để không nằm dưới thanh gạt home của iPhone, vùng bấm tối thiểu 44px, cuộn mượt (`smooth`) trừ khi người dùng bật giảm chuyển động, và trả tiêu điểm bàn phím về đầu nội dung. |
 | REQ-UI-019 | **Màn nhiều PO x nhiều Operation phải progressive disclosure, không mất thông tin**: tầng đầu là tóm tắt toàn xưởng (PO đang chạy, PO trễ/nguy cơ, Operation, NG/cần sửa); mỗi PO là một thẻ bo `--radius-surface` với header nêu rõ mã PO, mô tả, % tiến độ, trạng thái và hạn; mặc định chỉ mở TỐI ĐA một PO (PO được chọn qua bộ lọc/URL, nếu không thì PO cần chú ý nhất) và có "Mở tất cả"/"Thu gọn". Thu gọn là GIẤU chứ không phải cắt dữ liệu: số thẻ PO và số dòng Operation trong DOM không đổi. Dùng `<details>/<summary>` thật để bàn phím, screen-reader và Ctrl+F của trình duyệt hiểu sẵn. Có tìm nhanh theo PO/Part/Operation và lọc theo trạng thái OP, trạng thái bộ lọc đi theo URL. |
+| REQ-UI-020 | Lỗi mạng tạm thời KHÔNG BAO GIỜ được hiện ra dưới dạng exception thô của trình duyệt. Trong lúc một request đọc đang được thử lại, màn **giữ nguyên dữ liệu đang hiển thị** và chỉ hiện một chỉ báo nhỏ `Đang kết nối lại…` — một nhịp tự làm mới hỏng không bao giờ được thay nội dung đã vẽ bằng khối lỗi. Chỉ khi hết lượt thử lại mới có thông báo, và nó là đúng một trong ba câu tiếng Việt: `Mất kết nối mạng` (trình duyệt báo offline), `Máy chủ tạm thời không phản hồi` (500/502/503/504), `Kết nối chưa ổn định, vui lòng thử lại` (mọi lỗi mạng/quá thời gian chờ còn lại). `Failed to fetch` — hay bất kỳ chuỗi exception thô nào — lọt ra bề mặt người dùng là một defect (REQ-UI-012). Lỗi nghiệp vụ 4xx giữ nguyên câu tiếng Việt của server. Trạng thái lỗi cuối cùng có nút `Thử lại` và tự nạp lại khi trình duyệt online trở lại. |
 
 **Không bao phủ / không khẳng định**: audit khả năng tiếp cận
 (accessibility) về điều hướng bàn phím/thứ tự focus, gắn nhãn cho
@@ -2855,6 +2877,8 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-UI-016 (nhóm con sidebar + quyền) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
 | REQ-UI-017 (danh sách thẻ cho bản ghi nhiều dữ kiện) | `tests/e2e/dashboard-list-surface-contract.spec.js`, `tests/e2e/rework-queue-card-contract.spec.js` | A |
 | REQ-UI-018 (back to top dùng chung) + REQ-UI-019 (progressive disclosure) | `tests/e2e/production-progressive-disclosure.spec.js` | A |
+| REQ-UI-020 (UX lỗi mạng) | `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
+| REQ-API-004 (chính sách thử lại phía client) | `tests/e2e/request-layer-unit.spec.js`, `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
 | Phần D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Phần A §14 (NFR) | concurrency/idempotency: A; security/CSRF, hỗ trợ trình duyệt, SLA hiệu năng: — | P |
 

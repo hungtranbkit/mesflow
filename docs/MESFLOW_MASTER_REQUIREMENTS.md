@@ -2271,6 +2271,27 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P0 (deploy-pipeline-critical).
 - **Dimensions**: positive, negative (DB-down case).
 
+### REQ-API-004 — Client retry policy (transient-only, never a double write)
+
+- **Module**: cross-cutting / frontend (`static/core/net.js`)
+- **Purpose**: A transient network fault must heal itself without the operator seeing it, and must never turn one write into two.
+- **Actors**: every browser screen — admin app and Kiosk web share one request layer.
+- **Preconditions**: a request fails while the user is on a screen.
+- **Input**: N/A (a policy about how requests are re-sent, not a payload).
+- **Trigger**: `fetch` rejects (network `TypeError`, connection reset, temporary DNS, offline), the request exceeds its timeout (15s read / 30s write), or the response carries 408/425/429/500/502/503/504.
+- **Main flow**: the shared layer retries **only** GET/HEAD — or a write that explicitly declares `idempotent: true`, which is permitted **only** when the payload carries a `request_id` covered by REQ-API-001 — up to 3 times, with exponential backoff plus ±25% jitter (≈300–500 ms → 1 s → 2 s). `Retry-After` is honoured when it is longer than the computed backoff; a `Retry-After` beyond 10 s stops retrying immediately rather than freezing the UI.
+- **Expected output**: a retry that succeeds updates the screen normally and says nothing at all about the failure.
+- **State transition**: none — a retried idempotent write replays REQ-API-001's stored response instead of applying twice.
+- **Validation**: N/A.
+- **Errors**: 400/401/403/404/409/422 are **never** retried — they are the server's definitive answer. A 401 enters the login flow at most once per page (guarded against a redirect loop, and never triggered from `/login` itself).
+- **Boundary**: the case this exists for — a POST/PATCH/DELETE **without** a `request_id` that fails after the server already applied it. Exactly one attempt is made; the user is told, and the decision to re-send is theirs.
+- **Permission**: N/A.
+- **Concurrency**: concurrent identical GETs are coalesced into one in-flight request; a request superseded by a newer one in the same slot (filter change) or belonging to a screen the user has left is aborted and settles as **nothing at all** — neither success nor error, so a stale response can neither repaint nor raise an alarm.
+- **Audit**: N/A — an idempotent replay writes no duplicate audit row (REQ-API-001).
+- **Related**: REQ-API-001 (server-side dedupe is the precondition for any write retry), REQ-UI-020 (what the user sees), NFR-001.
+- **Priority**: P1.
+- **Dimensions**: positive, negative, boundary, concurrency.
+
 ---
 
 # PART C — Business Rules
@@ -2328,6 +2349,7 @@ pixel-perfect subjective judgment.
 | REQ-UI-017 | **A list of multi-fact records is a CARD LIST, not a multi-column table**: when each record carries several dissimilar facts (progress, who is working, output, a state needing a decision), the list must be INDEPENDENT CARDS — each card uses `--radius-surface`, a closed border on all four sides, the standard card surface/background/shadow, and the cards are SEPARATED by a vertical `gap` taken from the spacing scale. No table-style header row, no horizontal rules dividing rows, and on a narrow viewport reading one record must never require horizontal scrolling. Inside a card the hierarchy is: record name = primary text on the left; code/PO/Part = secondary; quantitative facts (time/session/state) right-aligned. The state accent stripe is drawn with `::before`, not `border-left` (the shared surface sweep sets `border:...!important`, so a `border-left` on a swept card never renders). |
 | REQ-UI-018 | **"Back to top" is a SHARED primitive for every long screen**, not a per-screen button. It appears only when the page is longer than 1.5 viewports AND the user has scrolled past 1.5 viewports; it hides near the top; it hides entirely while a modal/drawer is open (not by z-index alone, since the button would still capture clicks outside the covered area). Bottom-right, honouring `env(safe-area-inset-*)` so it never sits under the iPhone home indicator, minimum 44px hit area, smooth scrolling unless reduced motion is requested, and it returns keyboard focus to the top of the content. |
 | REQ-UI-019 | **Screens with many POs x many Operations must use progressive disclosure without losing information**: the first tier is a shop-wide summary (running POs, late/at-risk POs, Operations, NG/needing repair); each PO is a card with `--radius-surface` whose header states the PO code, description, progress %, status and due date; by default AT MOST one PO is expanded (the one selected via filter/URL, otherwise the one needing most attention) plus "Expand all"/"Collapse". Collapsing HIDES, it never drops data: the number of PO cards and Operation rows in the DOM is unchanged. Use real `<details>/<summary>` so keyboard, screen readers and the browser find-in-page already understand it. Provide quick search across PO/Part/Operation and an OP-status filter, with filter state carried in the URL. |
+| REQ-UI-020 | A transient network failure is never shown as a raw browser exception. While a read is being retried the screen **keeps the data already on it** and shows only a small `Đang kết nối lại…` indicator — a failed auto-refresh must never replace rendered content with an error block. Only once retries are exhausted does a message appear, and it is one of exactly three Vietnamese sentences: `Mất kết nối mạng` (browser reports offline), `Máy chủ tạm thời không phản hồi` (500/502/503/504), `Kết nối chưa ổn định, vui lòng thử lại` (any other network/timeout condition). `Failed to fetch` — or any other raw exception text — reaching a user-facing surface is a defect (REQ-UI-012). A business 4xx keeps the server's own Vietnamese message unchanged. The terminal error state offers a `Thử lại` button and refetches by itself when the browser comes back online. |
 
 **Not covered / not asserted**: keyboard-navigation/focus-order
 accessibility audit, screen-reader labeling, color-contrast ratios — no
@@ -2438,6 +2460,8 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-UI-016 (sidebar sub-group + visibility) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
 | REQ-UI-017 (card list for multi-fact records) | `tests/e2e/dashboard-list-surface-contract.spec.js`, `tests/e2e/rework-queue-card-contract.spec.js` | A |
 | REQ-UI-018 (shared back-to-top) + REQ-UI-019 (progressive disclosure) | `tests/e2e/production-progressive-disclosure.spec.js` | A |
+| REQ-UI-020 (network error UX) | `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
+| REQ-API-004 (client retry policy) | `tests/e2e/request-layer-unit.spec.js`, `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
 | Part D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Part A §14 (NFR) | concurrency/idempotency: A; security/CSRF, browser support, performance SLA: — | P |
 

@@ -155,22 +155,35 @@
     }
   }
 
+  // Dùng chung core/net.js với admin app: cùng bộ phân loại lỗi tạm thời,
+  // cùng backoff+jitter, cùng timeout. Kiosk chỉ giữ phần RIÊNG của nó — đổi
+  // lỗi thành MÃ + HÀNH ĐỘNG mà người đứng máy tự làm được.
+  //
+  // Chỉ báo "Đang kết nối lại…" của net.js cố ý KHÔNG dựng ở đây: màn kiosk
+  // là luồng toàn màn hình, khoá bàn phím; vùng báo lỗi sẵn có (setError) nói
+  // đúng chuyện đó ở đúng chỗ mắt người quét mã đang nhìn.
   async function api(url, options={}) {
-    let response;
     try {
-      response = await fetch(url, {headers:{'Content-Type':'application/json', ...authHeaders(), ...(options.headers||{})}, ...options});
-    } catch (_) {
-      const error = new Error('Không kết nối được máy chủ');
-      error.code = 'NET-001'; error.action = ERROR_HELP['NET-001']; throw error;
-    }
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.ok === false) {
-      const friendly=workerError(data,response.status),error = new Error(friendly.message);
-      error.code = data.error_code || data.error || (response.status >= 500 ? 'SYS-500' : `HTTP-${response.status}`);
+      return await MFNet.json(url, {
+        ...options,
+        headers:{'Content-Type':'application/json', ...authHeaders(), ...(options.headers||{})},
+      });
+    } catch (err) {
+      if (MFNet.isCancelled(err)) throw err;
+      const kind = err && err.kind;
+      if (kind === 'network' || kind === 'timeout' || kind === 'offline') {
+        // Giữ nguyên câu + mã NET-001 màn kiosk vẫn dùng: nó đi kèm một hành
+        // động cụ thể, cụ thể hơn câu chung của net.js.
+        const error = new Error(kind === 'offline' ? 'Mất kết nối mạng' : 'Không kết nối được máy chủ');
+        error.code = 'NET-001'; error.action = ERROR_HELP['NET-001']; throw error;
+      }
+      const data = (err && err.body) || {};
+      const status = (err && err.status) || 0;
+      const friendly = workerError(data, status), error = new Error(friendly.message);
+      error.code = data.error_code || data.error || (status >= 500 ? 'SYS-500' : `HTTP-${status}`);
       error.action = friendly.action;
       throw error;
     }
-    return data;
   }
   async function scan(qr) {
     qr = String(qr || '').trim(); if (!qr) return;
@@ -211,7 +224,13 @@
           `${op.display_key || op.code} · ${op.name}`;
         show('starting');
         if (tutorialMode) await new Promise(resolve => setTimeout(resolve, 9000));
-        const started = await api('/api/kiosk-web/start', {method:'POST', body:JSON.stringify({employee_id:employee.id, operation_id:op.id, device_uuid:deviceUuid, request_id:`${deviceUuid}-START-${Date.now()}`})});
+        // `request_id` sinh MỘT LẦN ở đây rồi nằm trong body, nên mọi lần gửi
+        // lại đều mang đúng một id: backend (kiosk_idempotency +
+        // pg_advisory_xact_lock trong WorkSessionRepository.start) trả về
+        // chính session đã tạo thay vì tạo cái thứ hai. Đó là lý do — và là
+        // điều kiện duy nhất — để bật `idempotent` cho một POST.
+        const startRequestId = `${deviceUuid}-START-${Date.now()}`;
+        const started = await api('/api/kiosk-web/start', {idempotent:true, method:'POST', body:JSON.stringify({employee_id:employee.id, operation_id:op.id, device_uuid:deviceUuid, request_id:startRequestId})});
         document.getElementById('started-operation').textContent =
           `${op.display_key || op.code} · ${op.name}`;
         show('started'); scheduleReset(3500);
@@ -313,8 +332,35 @@
     const rework = pendingFinish.rework;
     const defect = pendingFinish.defect;
     submitting = true;
+    // Từ lúc finish được phép TỰ gửi lại (idempotent + request_id), khoảng
+    // chờ xấu nhất là ~3.4s backoff chứ không còn là một nhịp mạng. Trên màn
+    // kiosk khoá bàn phím, 3.4 giây không có gì nhúc nhích sau khi bấm XÁC
+    // NHẬN đọc y như máy treo — và phản xạ của người đứng máy là bấm lại.
+    // Bấm lại không ghi trùng (cùng request_id), nhưng để màn im lặng suốt
+    // quãng đó là bỏ đúng phần "trạng thái nhỏ khi đang thử lại" mà cả luồng
+    // này dựa vào.
+    //
+    // Dùng chính nút vừa bấm làm chỗ báo: nó nằm đúng nơi mắt và tay đang ở,
+    // không cần thêm phần tử nào vào markup của màn (tránh đụng vùng lane1
+    // vừa đồng nhất với ESP v2). #finish-submit-error KHÔNG dùng được cho
+    // việc này -- nó là role="alert" và mang nghĩa lỗi, còn đây là tiến trình.
+    const confirmButton = document.getElementById('finish-confirm-ok');
+    const retryButton = document.getElementById('finish-submit-retry');
+    const confirmLabel = confirmButton.querySelector('span');
+    const restoreSubmitUi = () => {
+      confirmButton.disabled = false; retryButton.disabled = false;
+      confirmLabel.textContent = 'XÁC NHẬN';
+    };
+    document.getElementById('finish-submit-error').textContent = '';
+    confirmButton.disabled = true; retryButton.disabled = true;
+    confirmLabel.textContent = 'ĐANG GỬI…';
     try {
-      await api(`/api/kiosk-web/finish/${openSession.id}`, {method:'POST', body:JSON.stringify({good_qty:good, defect_qty:defect, rework_qty:rework, note:pendingFinish.note, request_id:pendingFinish.requestId})});
+      // Cùng lý do như START: `pendingFinish.requestId` sinh một lần lúc nhận
+      // phiên đang mở và không đổi qua các lần gửi lại, nên sản lượng không
+      // thể bị ghi hai lần — kể cả khi mạng rớt đúng lúc đã gửi xong mà chưa
+      // kịp nhận phản hồi, tình huống mà trước đây công nhân buộc phải tự
+      // bấm "Gửi lại" và không ai biết lần đầu đã vào hay chưa.
+      await api(`/api/kiosk-web/finish/${openSession.id}`, {idempotent:true, method:'POST', body:JSON.stringify({good_qty:good, defect_qty:defect, rework_qty:rework, note:pendingFinish.note, request_id:pendingFinish.requestId})});
       const scrap = defect - rework;
       document.getElementById('finished-summary').textContent = rework > 0
         ? `Đạt ${good} · NG ${defect} · Sửa được ${rework} · Phế ${scrap}`
@@ -327,6 +373,7 @@
       show('finish-confirm');
     } finally {
       submitting = false;
+      restoreSubmitUi();
     }
   }
 
