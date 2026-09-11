@@ -276,6 +276,20 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Hợp đồng này được khoá bằng `tests/e2e/dashboard-list-surface-contract.spec.js`
   (so dải tab của hai màn với NHAU, không so với danh sách giá trị chép tay).
 
+### 5.5c Timeline / Gantt trên màn hẹp
+
+- Cuộn ngang là HỢP LỆ cho một timeline, nhưng phải CÓ CHỦ ĐÍCH: cột định danh
+  (Operation/Part) phải `position:sticky;left:0` kèm NỀN ĐỤC, để kéo timeline
+  không làm mất danh tính hàng. Không có nền đục thì bar chạy bên dưới chữ --
+  đó mới đúng là "chồng chữ" mà người dùng nhìn thấy.
+- Mốc thời gian phải gọn theo bề rộng thật: giờ:phút, ngày chỉ hiện khi sang
+  ngày mới. Không in đủ `HH:mm:ss dd/MM/yyyy` cho mọi mốc -- năm mốc như vậy
+  không nằm vừa một trục hẹp nên chúng đè và cắt nhau.
+- Mốc ở hai mép không được dùng `translateX(-50%)`: mốc đầu căn trái, mốc cuối
+  căn phải, nếu không chúng bị đẩy ra ngoài vùng nhìn thấy đúng nửa chiều rộng.
+- Hợp đồng khoá bằng `tests/e2e/schedule-mobile-layout.spec.js` (đo vị trí thật
+  sau khi kéo hết timeline, ở 390/1366/1920).
+
 ### 5.6 Buttons và icon actions
 
 - Button cao 36px desktop; compact 32px chỉ cho toolbar dày và vẫn cần hit area hợp lý. Mobile tối thiểu 44px.

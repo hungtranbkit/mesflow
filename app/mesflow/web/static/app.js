@@ -1232,6 +1232,8 @@ async function renderProductionSchedule(){
   const ms=v=>{const d=v?new Date(v):null;return d&&!Number.isNaN(d.getTime())?d.getTime():null};
   const durationText=sec=>{sec=Math.max(0,Number(sec||0));if(sec<60)return `${Math.round(sec)} giây`;if(sec<3600)return `${Math.round(sec/60)} phút`;return `${(sec/3600).toFixed(sec%3600?1:0)} giờ`};
   const scheduleDate=v=>{const d=v?new Date(v):null;return d&&!Number.isNaN(d.getTime())?new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit',year:'numeric'}).format(d):'—'};
+  const tickTime=d=>new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(d);
+  const tickDay=d=>new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit'}).format(d);
   const render=()=>{
     const filter=document.getElementById('schedulePoFilter')?.value||'';
     const rows=filter?cached.filter(x=>String(x.po_id)===filter):cached;
@@ -1252,8 +1254,17 @@ async function renderProductionSchedule(){
       const deadline=g.po.due_date||g.po.po_end;
       return `<article class="schedule-po gantt-po">
         <div class="schedule-po-head"><div class="schedule-po-identity"><b>${esc(g.po.po_code)}</b><span title="${esc(`${g.po.product||''}${partSummary?` · ${partSummary}`:''}`)}">${esc(g.po.product||partSummary||'Production Order')}</span></div><div class="schedule-po-progress"><strong>${completion}%</strong><span>${complete}/${g.ops.length} OP hoàn thành${deadline?` · Hạn ${scheduleDate(deadline)}`:''}</span></div><div class="schedule-po-actions"><span class="badge">${esc(g.po.po_status)}</span><button class="btn mini" onclick="openProductionOrder(${Number(g.po.po_id)})">Mở PO</button></div></div>
-        <div class="gantt-wrap"><div class="gantt-axis-label">Operation</div><div class="gantt-axis">${ticks.map(t=>`<span style="left:${((t.getTime()-min)/total*100).toFixed(2)}%">${fmt(t)}</span>`).join('')}</div>
-          ${[...g.parts.values()].map(p=>`<section class="gantt-part"><h3>${esc(p.part.part_code)} · ${esc(p.part.part_name)}</h3>${p.ops.map(o=>{
+        <div class="gantt-wrap"><div class="gantt-axis-label">Operation</div><div class="gantt-axis">${ticks.map((t,i)=>{
+      // Nhãn trục là GIỜ:PHÚT, ngày chỉ hiện ở mốc đầu và khi sang ngày mới.
+      // Trước đây mỗi mốc in đủ `HH:mm:ss dd/MM/yyyy`: năm mốc như vậy không thể
+      // nằm vừa một trục 650px, nên ở 390px chúng chồng lên nhau và bị cắt cụt.
+      const prev=i>0?ticks[i-1]:null;
+      const newDay=i===0||!prev||tickDay(t)!==tickDay(prev);
+      const pos=((t.getTime()-min)/total*100).toFixed(2);
+      const edge=i===0?' edge-start':(i===ticks.length-1?' edge-end':'');
+      return `<span class="gantt-tick${edge}" style="left:${pos}%"><b>${esc(tickTime(t))}</b>${newDay?`<i>${esc(tickDay(t))}</i>`:''}</span>`;
+    }).join('')}</div>
+          ${[...g.parts.values()].map(p=>`<section class="gantt-part"><h3><span>${esc(p.part.part_code)} · ${esc(p.part.part_name)}</span></h3>${p.ops.map(o=>{
             const st=ms(o.actual_start_at||o.calculated_start_at||o.planned_start_at)||min,en=ms(o.actual_end_at||o.calculated_end_at||o.planned_end_at)||st;
             const left=Math.max(0,(st-min)/total*100),width=Math.max(1.2,(Math.max(en,st+60000)-st)/total*100);
             const state=o.blocked?'blocked':String(o.operation_status).toUpperCase()==='COMPLETED'?'done':Number(o.active_sessions)>0?'running':'planned';

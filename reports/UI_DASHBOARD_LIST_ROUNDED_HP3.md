@@ -1,13 +1,25 @@
-# hp3 — Dashboard / Report / Exception / Session theo thang bo góc canonical
+# hp3 — Lane UI: bo góc canonical + danh sách thẻ + Gantt mobile
 
-Lane phụ trên node HP. **Không merge, không deploy.** Nhánh giao cho session
-`mesflow` trên Dell quyết định.
+Lane phụ trên node HP. **Không merge, không deploy.** Bàn giao cho session
+`mesflow` trên Dell.
 
 - Nhánh: `hp3/ui-dashboard-report-list-rounded`
-- Gốc: `origin/integration/daily-dashboard-test` @ `eb3ee75` (sau khi rebase)
-- Clone sạch riêng (`~/workspace/mesflow-hp3-lane`); stack test riêng
-  `docker compose -p mesflow-hp3-lane`. Không đụng `~/workspace/mesflow-hp-lane`,
-  không đụng runtime cũ.
+- Gốc: `origin/integration/daily-dashboard-test` @ `ecf9434` (71.0.0.281)
+- 4 commit, tách theo việc:
+
+| SHA | Việc |
+|---|---|
+| `1932372` | Dashboard/Report/Exception/Session theo thang bo góc canonical (71.0.0.280) |
+| `979687f` | Danh sách Operation của Dashboard theo ngày: bảng -> THẺ |
+| `ffc9a65` | "Hàng chờ sửa": bảng row vuông nối liền -> THẺ |
+| `7f82af2` | Gantt "Tiến trình sản xuất" màn hẹp: neo cột định danh, mốc giờ gọn |
+
+**Gate:** 143 E2E xanh (`--retries=0`, 390/1366/1920) · static 557 passed.
+
+**Thang canonical trong nhánh này đã đúng 71.0.0.280:** `--radius-surface:12px`,
+`--radius-surface-row:8px`, `--radius-control:8px`, `--radius-overlay:16px`.
+(Cảnh báo từ lane merge qua hp4 là về base CŨ; nhánh đã rebase lên `ecf9434`
+trước khi làm tiếp, nên không còn tình trạng gỡ thang mới.)
 
 ---
 
