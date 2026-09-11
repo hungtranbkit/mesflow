@@ -265,6 +265,15 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Áp dụng REQ-UI-016 hiện có: danh sách Operation của Dashboard theo ngày, và
   "Hàng chờ sửa" (mỗi sản phẩm chờ sửa là một thẻ, số chờ sửa là dữ kiện chính
   bên phải). Cả hai dùng LẠI `.op-card`/`.op-card-list`, không dựng thẻ riêng.
+- **`gap` là phần dễ rơi nhất của anatomy trên, vì rule quét hậu tố "-card" cho
+  KHÔNG CÔNG ba phần còn lại.** Một danh sách cũ chỉ cần đổi tên item thành
+  `*-card` là lập tức có viền khép kín + `--radius-surface` + bóng, trông đã
+  "đúng chuẩn"; nhưng `gap` thì không ai cho, nên nếu vỏ còn `gap:0` từ thời
+  item là dòng ngăn nhau bằng `border-bottom` thì kết quả là các thẻ BO GÓC DÍNH
+  SÁT NHAU -- viền chạm viền, cả danh sách thành một khối dài. Đã xảy ra đúng
+  như vậy ở "Danh sách Template" (người dùng báo kèm ảnh iPhone). Vì vậy khi
+  chuyển một danh sách sang thẻ, kiểm `gap` của VỎ bằng computed style, đừng tin
+  mắt nhìn item; guard mẫu: `tests/e2e/template-list-card-separation.spec.js`.
 
 ### 5.5b Tab và segmented control
 

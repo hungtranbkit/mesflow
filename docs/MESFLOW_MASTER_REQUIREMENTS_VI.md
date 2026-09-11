@@ -2875,7 +2875,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, các test offline-sync ở trên | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
 | REQ-UI-016 (nhóm con sidebar + quyền) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
-| REQ-UI-017 (danh sách thẻ cho bản ghi nhiều dữ kiện) | `tests/e2e/dashboard-list-surface-contract.spec.js`, `tests/e2e/rework-queue-card-contract.spec.js` | A |
+| REQ-UI-017 (danh sách thẻ cho bản ghi nhiều dữ kiện) | `tests/e2e/dashboard-list-surface-contract.spec.js`, `tests/e2e/rework-queue-card-contract.spec.js`, `tests/e2e/template-list-card-separation.spec.js` | A |
 | REQ-UI-018 (back to top dùng chung) + REQ-UI-019 (progressive disclosure) | `tests/e2e/production-progressive-disclosure.spec.js` | A |
 | REQ-UI-020 (UX lỗi mạng) | `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
 | REQ-API-004 (chính sách thử lại phía client) | `tests/e2e/request-layer-unit.spec.js`, `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |

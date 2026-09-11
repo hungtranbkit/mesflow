@@ -463,8 +463,29 @@ body[data-page="production-orders"] .workspace-header .legacy-kicker{display:non
 body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
 
 /* Template planning workspace */
+/* "Danh sách Template" là một DANH SÁCH THẺ (REQ-UI-017), không phải danh sách
+   gạch ngang. Trước bản vá nó ở trạng thái nửa vời và người dùng nhìn thấy
+   đúng chỗ nửa vời đó: mỗi item ĐÃ là thẻ khép kín (rule quét theo hậu tố
+   "-card" ở cuối file ép `border:1px !important` + `--radius-surface` + bóng
+   lên `.template-old-card`), nhưng vỏ danh sách vẫn giữ `gap:0` từ thời item
+   còn là dòng ngăn nhau bằng `border-bottom`. Hai thẻ bo góc dán sát nhau ->
+   viền dưới của thẻ trên chạm viền trên của thẻ dưới, cả danh sách đọc thành
+   một khối dài.
+
+   Đo được trên TEST trước bản vá (computed style, 6 item, cả 390/1366/1920px):
+     .template-old-list  rowGap = 0px
+     khoảng cách giữa bounding box hai thẻ liên tiếp = 0px ở CẢ NĂM cặp
+     .template-old-card  radius = 12px, border = 1px rgb(200,208,216), có bóng
+   tức hình khối thẻ đã đúng, chỉ thiếu đúng một thứ: separation.
+
+   Vì vậy bản vá chỉ đụng separation: `gap` lấy từ thang spacing canonical
+   (`--ui-space-2` -- rail hẹp, đặc hơn `.op-card-list` ở vùng nội dung chính),
+   và bỏ hai khai báo `border:0;border-bottom:...` đã chết trên `.template-old-card`
+   (rule quét ghi đè bằng !important nên chúng không hiển thị) vì chúng chính là
+   phần mô tả cái ý đồ "danh sách liền mạch" đã không còn. Radius/viền/bóng/
+   padding giữ nguyên. Guard: tests/e2e/template-list-card-separation.spec.js */
 .template-editor-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.template-tools{position:relative}.template-tools summary{list-style:none}.template-tools summary::-webkit-details-marker{display:none}.template-tools[open] summary{border-color:#7b91ad;background:#f5f7fa}.template-tools>div{position:absolute;right:0;top:calc(100% + 7px);z-index:30;width:230px;display:grid;gap:7px;padding:10px;background:#fff;border:1px solid var(--line);border-radius:var(--radius-card);box-shadow:0 10px 24px #18324a1f}.template-tools>div .btn{text-align:left}.template-tools>div span{height:1px;background:var(--line)}
-.template-old-grid{grid-template-columns:330px minmax(0,1fr);gap:14px;align-items:start;min-width:0}.template-old-list-panel{padding:0;overflow:hidden;position:sticky;top:88px;max-height:calc(100vh - 110px)}.template-old-list{gap:0;max-height:calc(100vh - 230px);overflow:auto}.template-old-card{border:0;border-bottom:1px solid #e2e7ed;padding:13px 14px}.template-old-card:hover{border-color:#e2e7ed;background:#f5f8fa}.template-old-card.active{outline:0;border-color:#d5dde6;background:#eaf1f6;box-shadow:inset 3px 0 #e39a22}.template-old-card>span{display:flex;justify-content:space-between;align-items:center;gap:8px}.template-old-card strong{display:block;margin-top:6px;color:#243746}.template-old-card small{line-height:1.35}.template-status{font-size:10px;font-style:normal;font-weight:700;padding:3px 6px;border-radius:999px}.template-status.active{background:#dff3e8;color:#176b44}.template-status.inactive{background:#edf0f3;color:#5f6c78}
+.template-old-grid{grid-template-columns:330px minmax(0,1fr);gap:14px;align-items:start;min-width:0}.template-old-list-panel{padding:0;overflow:hidden;position:sticky;top:88px;max-height:calc(100vh - 110px)}.template-old-list{gap:var(--ui-space-2);max-height:calc(100vh - 230px);overflow:auto}.template-old-card{padding:13px 14px}.template-old-card:hover{border-color:#e2e7ed;background:#f5f8fa}.template-old-card.active{outline:0;border-color:#d5dde6;background:#eaf1f6;box-shadow:inset 3px 0 #e39a22}.template-old-card>span{display:flex;justify-content:space-between;align-items:center;gap:8px}.template-old-card strong{display:block;margin-top:6px;color:#243746}.template-old-card small{line-height:1.35}.template-status{font-size:10px;font-style:normal;font-weight:700;padding:3px 6px;border-radius:999px}.template-status.active{background:#dff3e8;color:#176b44}.template-status.inactive{background:#edf0f3;color:#5f6c78}
 .template-old-editor{padding:18px;border-radius:var(--radius-panel);min-width:0}.template-old-head{align-items:flex-start;padding-bottom:14px;border-bottom:1px solid var(--line)}.template-old-head h2{margin:0;color:#18324a}.template-old-form{margin-top:16px}.template-old-form label{color:#384858}.template-old-form label small{font-weight:400;color:var(--muted);margin-left:4px}.template-old-form input,.template-old-part input,.template-old-op-row input,.template-old-op-row select{border-radius:var(--radius-control);border-color:#cbd5df}.template-old-section{margin-top:20px;padding-top:18px;min-width:0}.template-old-section>.panel-head{align-items:flex-start}.template-old-section>.panel-head h2{margin:0;color:#18324a}.template-old-part-head label{font-size:11px;font-weight:700;color:#4d5c6a}.template-old-part-head label input{display:block;margin-top:5px}.template-part-number{font-size:11px;font-weight:800;color:#245b82;white-space:nowrap}.template-part-drawing>div{display:flex;align-items:center;gap:10px}.template-part-drawing>div b{font-size:11px;color:#4d5c6a}.template-part-drawing>div span{font-size:12px}.template-old-part-title span{font-size:11px;color:var(--muted)}.template-old-op-table{margin:0 14px;border-radius:6px}.template-old-op-header{border-radius:0;background:#e7edf2}.empty-hint{display:grid;justify-items:center;gap:8px;border-radius:var(--radius-card)}.empty-hint b{color:#334454}.empty-hint span{font-size:12px}.btn:disabled{opacity:.48;cursor:not-allowed}
 .template-old-op-header.no-order,.template-old-op-row.no-order{grid-template-columns:minmax(95px,1fr) minmax(160px,1.7fr) minmax(130px,1.2fr) minmax(170px,1.45fr) 34px}
 @media(max-width:1100px){.template-old-grid{grid-template-columns:280px minmax(0,1fr)}}

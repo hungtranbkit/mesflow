@@ -2458,7 +2458,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, offline-sync tests above | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
 | REQ-UI-016 (sidebar sub-group + visibility) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
-| REQ-UI-017 (card list for multi-fact records) | `tests/e2e/dashboard-list-surface-contract.spec.js`, `tests/e2e/rework-queue-card-contract.spec.js` | A |
+| REQ-UI-017 (card list for multi-fact records) | `tests/e2e/dashboard-list-surface-contract.spec.js`, `tests/e2e/rework-queue-card-contract.spec.js`, `tests/e2e/template-list-card-separation.spec.js` | A |
 | REQ-UI-018 (shared back-to-top) + REQ-UI-019 (progressive disclosure) | `tests/e2e/production-progressive-disclosure.spec.js` | A |
 | REQ-UI-020 (network error UX) | `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
 | REQ-API-004 (client retry policy) | `tests/e2e/request-layer-unit.spec.js`, `tests/e2e/network-resilience.spec.js`, `test_request_layer_contract.py` | A |
