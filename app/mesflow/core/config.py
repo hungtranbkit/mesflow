@@ -26,6 +26,13 @@ class Settings:
     # claims.
     build_commit: str = os.environ.get("MESFLOW_BUILD_COMMIT", "unknown")
     deployment_id: str = os.environ.get("MESFLOW_DEPLOYMENT_ID", "")
+    # Public landing page served at "/" for anonymous visitors. Points at a
+    # built static bundle (the MESFlow-only artifact from the landing repo:
+    # `npm run build:mesflow` -> dist-mesflow/). Left empty, or pointed at a
+    # directory with no index.html, the feature is simply off and "/" keeps its
+    # current redirect — so every existing deployment is unaffected until
+    # somebody deliberately ships the bundle.
+    landing_dir: str = os.environ.get("MESFLOW_LANDING_DIR", "")
     trusted_proxy_count: int = int(os.environ.get("MESFLOW_TRUSTED_PROXY_COUNT", "1"))
     max_content_length: int = int(os.environ.get("MESFLOW_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
     timezone_name: str = os.environ.get("MESFLOW_TIMEZONE", "Asia/Ho_Chi_Minh")

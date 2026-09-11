@@ -244,9 +244,54 @@ def create_app():
     def version():
         return jsonify(version=__version__,database_backend='postgresql',architecture='postgres-native',phase='production-ready',deployment_id=settings.deployment_id)
 
+    def landing_root():
+        """The built public landing bundle, or None when it is not shipped.
+
+        Resolved per request rather than cached at boot so a deployment can drop
+        the bundle in (or take it away) without a restart. Missing directory or
+        missing index.html both mean "feature off" -- never an error, because an
+        install that simply does not ship a landing page is the normal case.
+        """
+        if not settings.landing_dir:
+            return None
+        root = Path(settings.landing_dir)
+        return root if (root / 'index.html').is_file() else None
+
     @app.get('/')
     def home():
-        return redirect(url_for('app_page') if session_policy.validate_and_touch() is None else url_for('login_page'))
+        # Signed in: "/" is a doorway to the workspace, exactly as before.
+        if session_policy.validate_and_touch() is None:
+            return redirect(url_for('app_page'))
+        # Anonymous: show the public landing page when one is shipped. Without
+        # it, keep the historical redirect to /login so nothing changes for an
+        # install that does not deploy the bundle.
+        root = landing_root()
+        if root is None:
+            return redirect(url_for('login_page'))
+        response = send_from_directory(root, 'index.html')
+        # The SPA shell names hashed asset files, so it must not be cached or a
+        # redeploy keeps serving the old bundle's asset names.
+        response.headers['Cache-Control'] = 'no-cache'
+        return response
+
+    @app.get('/assets/<path:filename>')
+    def landing_asset(filename):
+        """Static assets for the landing bundle.
+
+        Deliberately NOT under /static: that is the app's own asset tree and
+        this must not be able to reach it. The landing build emits absolute
+        /assets/... URLs, and no MESFlow route has ever used that prefix, so
+        there is nothing to collide with. Public on purpose -- the page it
+        styles is public -- but scoped to the landing directory, and
+        send_from_directory rejects traversal out of it.
+        """
+        root = landing_root()
+        if root is None:
+            abort(404)
+        response = send_from_directory(root / 'assets', filename)
+        # Vite fingerprints these filenames, so they are safe to cache hard.
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return response
 
     @app.get('/login')
     def login_page():
