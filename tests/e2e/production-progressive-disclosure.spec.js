@@ -12,6 +12,7 @@
 // phải cắt bớt dữ liệu.
 const { test, expect } = require('@playwright/test');
 const F = require('./helpers/hp3-fixtures');
+const { openFilters } = require('./helpers/filters');
 
 const SCREENS = [
   ['overview', 'Tổng quan sản xuất', 'details.overview-po', '#ovExpandAll', '#ovCollapseAll'],
@@ -22,19 +23,23 @@ const VIEWPORTS = [[390, 844, '390'], [1366, 768, '1366'], [1920, 1080, '1920']]
 async function open(page, pg) {
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
+  // Chờ /login tự chuyển sang /app xong rồi mới goto tiếp. Khi đã có phiên,
+  // /login tự điều hướng, và lệnh goto ngay sau đó bị chính nó cắt ngang
+  // ("interrupted by another navigation") -- nguồn flaky đã ghi trong
+  // production-schedule-sticky.spec.js (2026-09-09). Từ 71.0.0.290 phiên sống
+  // dai hơn hẳn (cookie có Max-Age, idle 14 ngày) nên lần chuyển hướng đó xảy
+  // ra đều đặn hơn, và nó nổ ngay cả khi chạy --retries=0.
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.goto(`/app?page=${pg}`);
   await expect(page.locator('#content').first()).toBeVisible({ timeout: 20000 });
 }
 
-// Ở màn hẹp bộ lọc GẬP LẠI mặc định (đúng thiết kế -- xem core/ui.js). Bài test
-// về tìm nhanh phải mở nó ra trước, chứ không phải coi đó là lỗi.
-async function openFilters(page) {
-  const d = page.locator('#content details.ui-filter-disclosure').first();
-  if (await d.count() && !(await d.evaluate(el => el.open))) {
-    await d.locator('summary').click();
-    await expect.poll(async () => d.evaluate(el => el.open), { timeout: 8000 }).toBe(true);
-  }
-}
+// Ở màn hẹp bộ lọc GẬP LẠI mặc định (đúng thiết kế -- xem core/ui.js), và từ
+// REQ-UI-023 "Tiến trình sản xuất" còn đẩy cả khối lọc vào một tấm mở từ thanh
+// sticky 48px. Dùng helper CHUNG ./helpers/filters thay vì bản chép tay ở đây
+// -- bản chép tay chỉ biết <details> nên nó vẫn "mở bộ lọc" thành công rồi để
+// #scheduleSearch / #scheduleExpandAll nằm trong tấm đang đóng, và bài test
+// chết ở locator.click chứ không ở điều nó định kiểm.
 
 for (const [w, h, vp] of VIEWPORTS) {
   for (const [pg, label, cardSel, expandSel, collapseSel] of SCREENS) {
@@ -76,6 +81,10 @@ for (const [w, h, vp] of VIEWPORTS) {
       const opsBefore = await count(opSel);
 
       // Mở tất cả -> mọi thẻ open, số PO/OP trong DOM không đổi.
+      // openFilters() trước MỖI lần bấm: ở <=700px tấm lọc tự đóng sau khi
+      // chọn xong (REQ-UI-023) -- đó là chủ ý, người dùng cần thấy danh sách
+      // bên dưới đổi theo. Ở desktop hàm này không làm gì.
+      await openFilters(page);
       await page.locator(expandSel).click();
       await expect.poll(async () => page.evaluate(s =>
         [...document.querySelectorAll(s)].every(c => c.open), cardSel), { timeout: 8000 }).toBe(true);
@@ -83,6 +92,7 @@ for (const [w, h, vp] of VIEWPORTS) {
       expect(await count(opSel)).toBe(opsBefore);
 
       // Thu gọn -> mọi thẻ đóng, và vẫn KHÔNG mất gì trong DOM.
+      await openFilters(page);
       await page.locator(collapseSel).click();
       await expect.poll(async () => page.evaluate(s =>
         [...document.querySelectorAll(s)].some(c => c.open), cardSel), { timeout: 8000 }).toBe(false);

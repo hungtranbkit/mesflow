@@ -8,6 +8,20 @@
 // chỉ sửa một chỗ. Đó cũng là lý do hàm này TỰ dò trạng thái thay vì bắt spec
 // truyền viewport vào -- spec không cần biết ngưỡng là bao nhiêu.
 async function openFilters(page) {
+  // Từ REQ-UI-023, "Tiến trình sản xuất" ở <=700px không giữ khối lọc trong
+  // dòng chảy nữa: nó nằm trong một tấm mở từ nút [data-filter-sheet-trigger]
+  // trên thanh sticky 48px. Ô lọc chỉ tồn tại trong DOM khi tấm đã mở, nên
+  // phải mở tấm TRƯỚC rồi mới xét tới <details> bộ lọc bên trong.
+  const sheet = page.locator('[data-filter-sheet-trigger]').first();
+  if (await sheet.count() && await sheet.isVisible()) {
+    if ((await sheet.getAttribute('aria-expanded')) !== 'true') {
+      await sheet.click();
+      await page.waitForFunction(
+        () => document.querySelector('[data-filter-sheet-trigger]')
+                ?.getAttribute('aria-expanded') === 'true',
+        null, { timeout: 5000 });
+    }
+  }
   const summary = page.locator('.ui-filter-summary').first();
   if (!(await summary.count())) return false;          // trang không dùng filterBar
   if (!(await summary.isVisible())) return false;      // màn rộng: không gập

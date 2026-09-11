@@ -21,6 +21,13 @@ const F = require('./helpers/hp3-fixtures');
 async function openSchedule(page) {
   await page.goto('/login');
   await page.request.post('/api/auth/test-auto-login');
+  // Chờ /login tự chuyển sang /app xong rồi mới goto tiếp. Khi đã có phiên,
+  // /login tự điều hướng, và lệnh goto ngay sau đó bị chính nó cắt ngang
+  // ("interrupted by another navigation") -- nguồn flaky đã ghi trong
+  // production-schedule-sticky.spec.js (2026-09-09). Từ 71.0.0.290 phiên sống
+  // dai hơn hẳn (cookie có Max-Age, idle 14 ngày) nên lần chuyển hướng đó xảy
+  // ra đều đặn hơn, và nó nổ ngay cả khi chạy --retries=0.
+  await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.goto('/app?page=production-schedule');
   await expect(page.locator('.gantt-wrap').first()).toBeVisible({ timeout: 20000 });
   await page.waitForTimeout(600);

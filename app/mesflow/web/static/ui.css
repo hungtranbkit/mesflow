@@ -899,7 +899,11 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
   .panel{box-shadow:0 2px 7px rgba(16,43,63,.09)!important}
   
   :where(.po-op-row,.pc-op-row,.daily-op-row,.op-time-row,.control-po-row,.event-row,.session-manage-row,.employee-day-row,.session-accordion-item,.operation-row,.template-old-op-row,.rq-row):hover{transform:none}
-  .schedule-po.gantt-po .schedule-po-head:after{content:"Kéo ngang timeline để xem đầy đủ →";grid-column:1/-1;padding-top:6px;border-top:1px solid var(--border-subtle);color:var(--text-secondary);font-size:11px;font-weight:650}
+  /* Gợi ý "kéo ngang" từng là :after CỦA CHÍNH header PO -- mà header đó
+     sticky, nên dòng gợi ý chiếm chỗ thường trực trên màn hình suốt thời
+     gian đọc PO (đo được: header PO cao 179px ở 390px, một phần ba trong đó
+     là dòng này cộng viền của nó). Giờ nó là <p class="gantt-scroll-hint">
+     thật, nằm NGOÀI vùng sticky: đọc một lần rồi cuộn đi mất. */
   .schedule-po.gantt-po .gantt-wrap{scrollbar-color:var(--action-primary) #dfe5ea;scrollbar-width:auto}
   .schedule-po.gantt-po .gantt-wrap::-webkit-scrollbar{height:10px}.schedule-po.gantt-po .gantt-wrap::-webkit-scrollbar-thumb{border:2px solid #dfe5ea;border-radius:999px;background:var(--action-primary)}
 }
@@ -3289,4 +3293,131 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
   .po-card-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
   .po-card>.po-actions{justify-content:stretch}
   .po-card>.po-actions .btn.primary{flex:1 1 auto}
+}
+
+/* ==========================================================================
+   REQ-UI-023 -- "Tiến trình sản xuất" trên điện thoại: Gantt là nội dung,
+   bộ lọc là công cụ phụ.
+
+   NGUYÊN NHÂN GỐC, đo trên DOM thật (Playwright, không suy đoán):
+     * `.schedule-sticky-toolbar` bọc CẢ ba khối -- `.ui-filter-bar` +
+       `.schedule-summary` (4 thẻ KPI) + `.schedule-legend` -- vì trong
+       app.js thẻ <div> mở của nó mãi tới sau chú giải mới đóng. Cả cụm đó
+       `position:sticky;top:68px`.
+       Đo được: cao 444.8px @390x844 và @375x667, 646.6px @320x568.
+     * Chính con số đó được JS bơm vào `--schedule-toolbar-height`, mà đó là
+       `top` sticky của `.schedule-po-head`. Ở 320x568 header PO bị ghim ở
+       y=715 trên một màn cao 568 -- phần nội dung còn lại là ÂM 314px.
+       Ở 375x667 chỉ còn 33.8px, tức 5% màn hình.
+     * `.schedule-po-head` lại sticky tiếp và cao 179px ở 390px (lưới một
+       cột + dòng ":after" gợi ý kéo ngang).
+   KHÔNG phải nguyên nhân (đã loại bằng đo, không phải bằng đoán): không có
+   listener touchstart/touchmove/wheel nào trên màn này, `touch-action` là
+   `auto` ở mọi tầng, `.gantt-wrap` không lồng cuộn dọc (scrollHeight ==
+   clientHeight). Vuốt dọc VẪN cuộn trang -- nó chỉ "không chạy tự nhiên" vì
+   thứ nằm dưới ngón tay là một khối sticky cao gần bằng màn hình, nên trang
+   cuộn mà mắt không thấy gì đổi.
+
+   CÁCH SỬA: ở <=700px chỉ MỘT hàng ~48px ở lại sticky (nút Bộ lọc + một
+   dòng tóm tắt + nút cập nhật). Phần chi tiết mở thành tấm `position:fixed`
+   -- fixed nên nó KHÔNG cộng vào offsetHeight của thanh sticky, tức
+   `--schedule-toolbar-height` tự đúng mà không phải cộng trừ px bằng tay.
+   Desktop không đổi một pixel: `.schedule-compact-bar` ẩn, phần chi tiết
+   nằm trong dòng chảy đúng như trước.
+   ========================================================================== */
+.schedule-compact-bar,.schedule-sheet-head,.schedule-sheet-backdrop,.gantt-scroll-hint{display:none}
+
+/* Cuộn ngang timeline không được "kéo" cả trang theo (iOS đọc overscroll
+   ngang ở mép là cử chỉ Back). Trục dọc vẫn `auto` -- đó là thứ cho phép
+   vuốt dọc bắt đầu trong chart đi tiếp thành cuộn trang. */
+.gantt-wrap{overscroll-behavior:contain auto}
+
+@media(max-width:700px){
+  .schedule-sticky-toolbar{margin:0 -12px 10px;padding:0 12px}
+  .schedule-compact-bar{
+    display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+    align-items:center;gap:8px;min-height:48px;
+    background:var(--surface-default);
+  }
+  /* 44px là ngưỡng vùng chạm tối thiểu; nút ở đây phải bấm trúng khi đang
+     cầm máy một tay. */
+  .schedule-filter-trigger{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:8px 12px;font-weight:650;white-space:nowrap}
+  /* `:not([hidden])` chứ không phải `display:grid` trần: quy tắc `[hidden]`
+     của trình duyệt chỉ là `display:none` với độ ưu tiên thấp nhất, nên một
+     selector hai lớp ở đây thắng nó và huy hiệu "0" vẫn hiện dù JS đã đặt
+     hidden=true (đo được trên DOM thật: hidden===true, display==='grid'). */
+  .schedule-filter-trigger>b:not([hidden]){display:grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--action-primary);color:#fff;font-size:11px}
+  .schedule-compact-status{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);font-size:12px;font-variant-numeric:tabular-nums}
+  .schedule-compact-reload{min-width:40px;min-height:40px;padding:8px;font-size:15px;line-height:1}
+
+  .schedule-toolbar-detail{display:none}
+  .schedule-control-panel.schedule-filter-open .schedule-toolbar-detail{
+    display:flex;flex-direction:column;
+    position:fixed;z-index:1;left:0;right:0;
+    top:calc(var(--schedule-workspace-offset) + var(--schedule-toolbar-height));
+    /* Chừa lại một dải màn hình phía dưới: tấm lọc KHÔNG che kín, người dùng
+       vẫn thấy danh sách bên dưới đang đổi theo lựa chọn của mình.
+       svh trước vh: trên iOS Safari `vh` là màn hình lúc thanh địa chỉ đã
+       thu, nên tấm sẽ cao hơn phần thực sự nhìn thấy. */
+    max-height:calc(100vh - var(--schedule-workspace-offset) - var(--schedule-toolbar-height) - 72px);
+    max-height:calc(100svh - var(--schedule-workspace-offset) - var(--schedule-toolbar-height) - 72px);
+    background:var(--surface-default);
+    border-bottom:1px solid var(--border-strong);
+    box-shadow:0 18px 40px rgba(16,43,63,.22);
+  }
+  .schedule-control-panel.schedule-filter-open .schedule-sheet-backdrop{
+    display:block;position:fixed;z-index:0;border:0;padding:0;
+    top:calc(var(--schedule-workspace-offset) + var(--schedule-toolbar-height));
+    left:0;right:0;bottom:0;background:rgba(5,17,26,.34);
+  }
+  .schedule-sheet-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    flex:0 0 auto;padding:10px 12px;
+    border-bottom:1px solid var(--border-default);background:var(--surface-subtle);
+  }
+  .schedule-sheet-head>b{font-size:13px}
+  .schedule-sheet-head>.btn{min-height:36px;padding:7px 14px}
+  .schedule-sheet-body{
+    flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;padding:12px;
+  }
+  /* Trong tấm này KHÔNG gập bộ lọc thêm một lần nữa: tiêu đề tấm đã nói
+     "Bộ lọc" rồi, hai lần bấm cho cùng một việc là thừa. */
+  .schedule-sheet-body .ui-filter-summary{display:none}
+  .schedule-sheet-body .schedule-summary{margin-bottom:var(--ui-space-3)}
+  /* Chú giải màu bị ẩn ở <=520px vì không còn chỗ trên thanh sticky. Trong
+     tấm thì có chỗ -- và đó chính là nơi người ta đi tìm nó. */
+  .schedule-sheet-body .schedule-legend{display:flex;padding:0}
+
+  /* Header PO: hai hàng gọn thay vì ba khối xếp dọc. */
+  /* Ba cột: nội dung | thao tác | dấu mở-đóng. Dấu "▾" là một ::after với
+     `flex:0 0 auto` -- viết cho một header flex, nhưng header này là GRID,
+     nên nếu không đặt chỗ cho nó thì nó tự rơi xuống một HÀNG RIÊNG (đo
+     được: hàng thứ ba cao 17.16px, nằm giữa dưới dòng tiến độ). */
+  .gantt-po>.schedule-po-head{
+    grid-template-columns:minmax(0,1fr) auto auto;
+    align-items:center;gap:2px 10px;min-height:0;padding:8px 12px;
+  }
+  .gantt-po>.schedule-po-head::after{grid-column:3;grid-row:1/3;align-self:center;margin-left:0}
+  .gantt-po>.schedule-po-head .schedule-po-identity{grid-column:1;grid-row:1}
+  .gantt-po>.schedule-po-head .schedule-po-identity b{font-size:14px}
+  .gantt-po>.schedule-po-head .schedule-po-identity span{font-size:11px}
+  .gantt-po>.schedule-po-head .schedule-po-progress{
+    grid-column:1;grid-row:2;grid-auto-flow:column;justify-content:start;
+    justify-items:start;align-items:baseline;gap:6px;min-width:0;
+  }
+  .gantt-po>.schedule-po-head .schedule-po-progress strong{font-size:13px}
+  /* min-width:0 là thứ BẬT được ellipsis: mặc định một grid item có
+     min-width:auto nên nó phình theo nội dung và bị CẮT CỤT ở mép thẻ thay vì
+     hiện "…" (thấy rõ ở 320px với "· Hạn 30/09/2026"). */
+  .gantt-po>.schedule-po-head .schedule-po-progress span{
+    min-width:0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .gantt-po>.schedule-po-head .schedule-po-actions{grid-column:2;grid-row:1/3;align-self:center}
+
+  .gantt-scroll-hint{
+    display:block;margin:0;padding:6px 12px;
+    border-bottom:1px solid var(--border-subtle);background:var(--surface-subtle);
+    color:var(--text-secondary);font-size:11px;font-weight:650;
+  }
 }
