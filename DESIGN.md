@@ -141,9 +141,17 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Spacing scale: `4, 8, 12, 16, 20, 24, 32px`; không tạo khoảng cách tùy ý.
 - Workspace gutter: 24px ở 1920, 20px ở 1366, 12px ở mobile.
 - Khoảng panel: 16px; padding panel: 16px desktop, 12px compact/mobile.
-- Control radius 4px; panel 6px; overlay 8px; pill chỉ dành cho status/filter chip.
+- Pill chỉ dành cho status/filter chip.
 - Border mặc định 1px; divider dùng border thay cho card con. Border card phải rõ hơn nền trang.
-- Radius chuẩn: control `5px`, row `5px`, card `7px`, panel `8px`, overlay `9px`.
+- Thang bo góc canonical, ba bậc (REQ-UI-014 — đây là nguồn sự thật, DESIGN.md
+  chỉ nhắc lại): `--radius-surface` **12px** cho khối nội dung NGOÀI CÙNG (card,
+  list item, panel, section, vỏ bảng); `--radius-surface-row` **8px** cho khối
+  LỒNG bên trong một surface (row của card-list, subrow, ô inset, vỏ bảng nằm
+  trong thân panel); `--radius-control` **8px** cho input/select/button/chip.
+  Lớp phủ (modal/sheet) dùng bậc riêng `--radius-overlay` **16px**.
+- `--radius-card` / `--radius-panel` / `--radius-row` là tên CŨ, nay chỉ phục vụ
+  phần tử NHỎ (icon sidebar, thanh gantt, huy hiệu). Dùng chúng cho một khối nội
+  dung là cách sự lệch quay lại — có test chặn.
 - Row: `0 1px 2px rgba(16, 43, 63, .055)`; card: `0 2px 5px rgba(16, 43, 63, .085)`.
 - Section: `0 4px 12px rgba(16, 43, 63, .11)`; PO/section quan trọng được phép dùng `0 7px 18px rgba(16, 43, 63, .14)`.
 - Input/select dùng inset shadow nhẹ; button dùng shadow ngắn và chuyển sang inset shadow ở trạng thái pressed.
@@ -200,7 +208,7 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 
 ### 5.3 Panels và sections
 
-- Panel: surface trắng, border 1px rõ, radius 8px, padding 16px, dùng section shadow chuẩn.
+- Panel: surface trắng, border 1px rõ, `--radius-surface`, padding 16px, dùng section shadow chuẩn.
 - Panel header dùng text/icon trực tiếp; icon không nằm trong decorative tile.
 - Nội dung con phân nhóm bằng heading, divider hoặc `surface-subtle`, không lồng panel/card đồng cấp.
 - Chỉ dùng side accent cho hàng ngoại lệ/được chọn, không trang trí toàn bộ panel.
@@ -220,6 +228,26 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Có sort indicator + `aria-sort`, hover row nhẹ, selected state rõ, empty/loading/error state nằm trong vùng table.
 - Dữ liệu dài wrap có kiểm soát hoặc ellipsis kèm cách xem đầy đủ. Không cắt mất mã định danh quan trọng.
 - Bulk action chỉ xuất hiện khi có selection và phải báo số mục đã chọn.
+- DÒNG của bảng dày được phép phẳng (radius 0); nhưng KHỐI BAO NGOÀI của
+  bảng/danh sách phải bo góc canonical. Hai trường hợp, phân biệt bằng vị trí
+  chứ không bằng cảm tính: khối chạy sát mép `.content-panel-body` thì để
+  vuông (panel đã bo rồi -- xem `.table-wrap`); khối NẰM LỌT trong thân panel
+  (còn padding hai bên) thì bo `--radius-surface-row` kèm `overflow` để cắt góc
+  cho các dòng bên trong — nó là khối LỒNG, không phải khối ngoài cùng
+  (REQ-UI-014, REQ-UI-015b/c). Bo mà không cắt là vô nghĩa.
+
+### 5.5b Tab và segmented control
+
+- Dải tab dùng CHUNG primitive `.mf-tabs`/`.mf-tab`. Màn mới composes class đó,
+  không tự dựng lại dải tab riêng -- kể cả khi chỉ định "trông cho giống".
+- Dạng chuẩn là dải gạch chân phẳng: nền trong suốt, viền dưới
+  `--border-default`, tab đang chọn tô `--action-primary` cho cả chữ lẫn gạch
+  chân 3px. KHÔNG bo góc dải tab -- bo góc riêng cho một màn là đẻ thêm một
+  bộ tab nữa, đúng thứ chuẩn hoá này tồn tại để dẹp.
+- Dải tab phải cuộn ngang được (`overflow-x:auto`) thay vì xuống dòng ở màn
+  hẹp; tab xuống dòng nhiều dòng là lỗi, không phải responsive.
+- Hợp đồng này được khoá bằng `tests/e2e/dashboard-list-surface-contract.spec.js`
+  (so dải tab của hai màn với NHAU, không so với danh sách giá trị chép tay).
 
 ### 5.6 Buttons và icon actions
 
@@ -232,7 +260,7 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 ### 5.7 Forms
 
 - Label luôn hiển thị; placeholder chỉ là ví dụ. Required/error/helper đặt gần field.
-- Input/select cao 36px desktop, 44px mobile; radius 4px. Read-only khác disabled.
+- Input/select cao 36px desktop, 44px mobile; `--radius-control`. Read-only khác disabled.
 - Validate sau blur hoặc submit; lỗi nói rõ nguyên nhân và cách sửa. Khi submit lỗi, focus field lỗi đầu tiên.
 - Form dài chia section bằng heading/divider, không dùng card lồng card.
 
@@ -246,7 +274,7 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 
 - Modal chỉ dùng cho tác vụ ngắn, cần giữ context; flow chính nên là page/panel.
 - Modal width theo nội dung, tối đa 720px cho form phổ thông; có title, close, Escape và focus trap/restore.
-- Scrim đen 48%; overlay radius 8px và shadow chuẩn duy nhất.
+- Scrim đen 48%; overlay dùng `--radius-overlay` và shadow chuẩn duy nhất.
 - Toast không thay thế lỗi inline, không cướp focus, dùng `aria-live="polite"`; action quan trọng không auto-dismiss quá nhanh.
 
 ### 5.10 Loading, empty và error states
