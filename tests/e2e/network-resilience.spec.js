@@ -145,6 +145,39 @@ test.describe('Lệnh ghi: tuyệt đối không gửi trùng', () => {
   });
 });
 
+test.describe('Lỗi DAI DẲNG vẫn phải nổi lên', () => {
+  test('mutation idempotent hỏng mọi lần: thử đủ 4 rồi báo, không nuốt lỗi', async ({ page }) => {
+    await login(page);
+    let attempts = 0;
+    await page.route('**/api/kiosk-web/finish/**', route => {
+      attempts += 1;
+      return route.fulfill({ status: 500, json: { ok: false, message: 'server sập' } });
+    });
+
+    const result = await page.evaluate(async () => {
+      try {
+        await MFNet.json('/api/kiosk-web/finish/1', {
+          idempotent: true, method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ good_qty: 33, request_id: 'DEV-001-FINISH-1757600000000' }),
+        });
+        return { threw: false };
+      } catch (e) { return { threw: true, message: e.message, attempts: e.attempts }; }
+    });
+
+    // Đây là nửa còn lại của hợp đồng tự-lành, và là nửa dễ mất nhất khi đọc
+    // vội: `idempotent:true` KHÔNG biến lỗi thành im lặng vô điều kiện. Nó
+    // chỉ nuốt lỗi TẠM THỜI. Hỏng mọi lần thì vẫn ném ra, và nút "Thử lại"
+    // thủ công của màn Kiosk vẫn còn nguyên lý do tồn tại -- chỉ là nó phục
+    // vụ lỗi dai dẳng chứ không còn phục vụ một nhịp mạng chớp.
+    expect(result.threw).toBe(true);
+    expect(attempts).toBe(4);
+    expect(result.attempts).toBe(4);
+    expect(result.message).toBe('Máy chủ tạm thời không phản hồi');
+    for (const leak of RAW_LEAKS) expect(result.message).not.toContain(leak);
+  });
+});
+
 test.describe('Request cũ bị bỏ thì phải im lặng', () => {
   test('request bị thay chỗ (đổi bộ lọc) không resolve, không reject, không báo lỗi', async ({ page }) => {
     await login(page);

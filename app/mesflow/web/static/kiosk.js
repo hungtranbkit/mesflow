@@ -323,6 +323,28 @@
     const good = pendingFinish.good;
     const rework = pendingFinish.rework;
     const defect = pendingFinish.defect;
+    // Từ lúc finish được phép TỰ gửi lại (idempotent + request_id), khoảng
+    // chờ xấu nhất là ~3.4s backoff chứ không còn là một nhịp mạng. Trên màn
+    // kiosk khoá bàn phím, 3.4 giây không có gì nhúc nhích sau khi bấm XÁC
+    // NHẬN đọc y như máy treo — và phản xạ của người đứng máy là bấm lại.
+    // Bấm lại không ghi trùng (cùng request_id), nhưng để màn im lặng suốt
+    // quãng đó là bỏ đúng phần "trạng thái nhỏ khi đang thử lại" mà cả luồng
+    // này dựa vào.
+    //
+    // Dùng chính nút vừa bấm làm chỗ báo: nó nằm đúng nơi mắt và tay đang ở,
+    // không cần thêm phần tử nào vào markup của màn (tránh đụng vùng lane1
+    // vừa đồng nhất với ESP v2). #finish-submit-error KHÔNG dùng được cho
+    // việc này -- nó là role="alert" và mang nghĩa lỗi, còn đây là tiến trình.
+    const confirmButton = document.getElementById('finish-confirm-ok');
+    const retryButton = document.getElementById('finish-submit-retry');
+    const confirmLabel = confirmButton.querySelector('span');
+    const restoreSubmitUi = () => {
+      confirmButton.disabled = false; retryButton.disabled = false;
+      confirmLabel.textContent = 'XÁC NHẬN';
+    };
+    document.getElementById('finish-submit-error').textContent = '';
+    confirmButton.disabled = true; retryButton.disabled = true;
+    confirmLabel.textContent = 'ĐANG GỬI…';
     try {
       // Cùng lý do như START: `pendingFinish.requestId` sinh một lần lúc nhận
       // phiên đang mở và không đổi qua các lần gửi lại, nên sản lượng không
@@ -340,6 +362,8 @@
       document.getElementById('finish-confirm-ok').hidden = true;
       document.getElementById('finish-submit-retry').hidden = false;
       show('finish-confirm');
+    } finally {
+      restoreSubmitUi();
     }
   }
 
