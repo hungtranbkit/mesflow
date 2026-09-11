@@ -109,7 +109,7 @@
     clearTimeout(resetTimer);
     employee = null; openSession = null; scanBuffer = ''; input.value = '';
     pendingFinish = { good:0, defect:0, rework:0, hasRework:false, note:'', requestId:'' };
-    document.getElementById('good-qty').value = '0'; document.getElementById('defect-qty').value = '0'; document.getElementById('rework-qty').value = '1'; document.getElementById('finish-note').value = '';
+    document.getElementById('good-qty').value = '0'; document.getElementById('defect-qty').value = '0'; document.getElementById('rework-qty').value = '0'; document.getElementById('finish-note').value = '';
     document.getElementById('rework-validation').textContent = '';
     document.getElementById('good-validation').textContent = '';
     document.getElementById('defect-validation').textContent = '';
@@ -252,16 +252,20 @@
     pendingFinish.hasRework = true;
     const field = document.getElementById('rework-qty');
     field.max = String(pendingFinish.defect);
-    if (readQuantity('rework-qty', 1) === null || Number(field.value) > pendingFinish.defect) field.value = '1';
-    document.getElementById('rework-max').textContent = `Tối đa ${pendingFinish.defect} sản phẩm lỗi`;
+    field.min = '0';
+    if (readQuantity('rework-qty', 0) === null || Number(field.value) > pendingFinish.defect) field.value = '0';
+    document.getElementById('rework-max').textContent = `Nhập 0 đến ${pendingFinish.defect}`;
     document.getElementById('rework-validation').textContent = '';
     show('quantity-rework'); focusQuantity('rework-qty');
   }
   function nextRework() {
-    const value = readQuantity('rework-qty', 1);
+    // Khoảng hợp lệ là 0..NG. Cho phép 0 vì người vừa bấm "CÓ" rồi nhận ra
+    // không có cái nào sửa được thì phải đi tiếp được, không bị kẹt màn hình.
+    // (ESP v2 từ chối 0 ở màn này -- xem docs/KIOSK_ESP_PARITY.md.)
+    const value = readQuantity('rework-qty', 0);
     const validation = document.getElementById('rework-validation');
     if (value === null) {
-      validation.textContent = 'Nhập số lỗi sửa được lớn hơn 0';
+      validation.textContent = `Nhập số từ 0 đến ${pendingFinish.defect}`;
       return;
     }
     if (value > pendingFinish.defect) {
@@ -269,7 +273,11 @@
       return;
     }
     validation.textContent = '';
-    pendingFinish.rework = value; pendingFinish.hasRework = true; renderFinishConfirmation();
+    pendingFinish.rework = value;
+    // rework=0 thì không còn là "có lỗi sửa được": bảng xác nhận phải hiện
+    // đúng như khi chọn "tiếp tục", không hiện dòng Sửa được 0 / Phế = NG.
+    pendingFinish.hasRework = value > 0;
+    renderFinishConfirmation();
   }
   function renderFinishConfirmation() {
     const scrap = pendingFinish.defect - pendingFinish.rework;
@@ -316,10 +324,35 @@
   });
   document.addEventListener('keydown', event => {
     if (quantityStates.includes(state)) {
-      if (state === 'ask-rework' && event.key === '1') { event.preventDefault(); chooseNoRework(); }
-      else if (state === 'ask-rework' && event.key === '2') { event.preventDefault(); chooseRework(); }
-      else if (state === 'finish-confirm' && (event.key === '#' || event.key === '1')) { event.preventDefault(); finish(); }
-      else if (state === 'finish-confirm' && (event.key === '*' || event.key === '2')) { event.preventDefault(); backFromConfirmation(); }
+      // Bàn phím kiosk web phải gõ giống bàn phím ESP. Bảng đối chiếu đầy đủ
+      // ở docs/KIOSK_ESP_PARITY.md; chỗ web CỐ Ý khác firmware cũng nằm ở đó.
+      if (state === 'ask-rework') {
+        // 1 = CÓ (nhập số), 2/#/Enter = tiếp tục không có, * = quay lại.
+        if (event.key === '1') { event.preventDefault(); chooseRework(); }
+        else if (event.key === '2' || event.key === '#' || event.key === 'Enter') { event.preventDefault(); chooseNoRework(); }
+        else if (event.key === '*') { event.preventDefault(); show('quantity-defect'); focusQuantity('defect-qty'); }
+        return;
+      }
+      if (state === 'finish-confirm') {
+        if (event.key === '#' || event.key === '1' || event.key === 'Enter') { event.preventDefault(); finish(); }
+        else if (event.key === '*' || event.key === '2') { event.preventDefault(); backFromConfirmation(); }
+        return;
+      }
+      // Màn nhập số: # / Enter xác nhận, * quay lại -- đúng phím của ESP.
+      // Chữ số do chính ô <input type=number> nhận, không chặn ở đây.
+      if (event.key === '#' || event.key === 'Enter') {
+        event.preventDefault();
+        if (state === 'quantity-good') nextGood();
+        else if (state === 'quantity-defect') nextDefect();
+        else if (state === 'quantity-rework') nextRework();
+        return;
+      }
+      if (event.key === '*') {
+        event.preventDefault();
+        if (state === 'quantity-defect') { show('quantity-good'); focusQuantity('good-qty'); }
+        else if (state === 'quantity-rework') show('ask-rework');
+        return;
+      }
       return;
     }
     if (event.key === 'Enter') { if (scanBuffer) { const code=scanBuffer; scanBuffer=''; scan(code); } return; }

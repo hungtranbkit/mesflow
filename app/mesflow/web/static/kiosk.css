@@ -10,3 +10,8 @@ button{min-height:48px;padding:11px 20px;border:1px solid var(--action);border-r
 .error-code{margin-top:8px;padding:7px 12px;border-radius:var(--radius-control);background:var(--danger);color:#fff;font-family:ui-monospace,Consolas,monospace;font-size:20px;font-weight:800;letter-spacing:.04em}.error-action{max-width:720px;padding:10px 12px;border:1px solid #e3cba5;border-radius:var(--radius-panel);background:#fff8ed;color:#754408!important;font-size:15px!important;font-weight:700}
 @media(max-width:650px){.kiosk-header{min-height:56px;padding:0 12px}.kiosk-header strong{font-size:17px}.header-actions{gap:8px}.demo-toggle{min-height:40px;padding:7px 9px;font-size:12px}.screen{min-height:380px;padding:20px 12px}.screen h1{font-size:clamp(27px,9vw,38px)}.screen p{font-size:16px}.icon{width:72px;height:72px}.icon svg{width:38px;height:38px}.qty-grid{grid-template-columns:1fr;gap:10px}.quantity-screen,.confirm-screen{padding-top:20px}.choice-grid{grid-template-columns:1fr;gap:8px}.two-choice{grid-template-columns:1fr 1fr}.choice-button{min-height:76px;flex-direction:row}.choice-button strong{font-size:26px}.actions{width:100%;max-width:620px}.actions button{flex:1}.demo-panel{width:100vw}footer{gap:8px;padding:6px 10px;flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* Gợi ý phím cho màn "CÓ LỖI SỬA ĐƯỢC?" — bàn phím web phải gõ giống ESP,
+   nên phím tắt phải NHÌN THẤY được chứ không chỉ nằm trong code. */
+.choice-hint{margin:14px 0 0;font-size:20px;color:#93a6c4;text-align:center}
+.choice-hint strong{color:#e8eefb}

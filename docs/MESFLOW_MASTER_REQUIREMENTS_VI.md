@@ -2189,6 +2189,87 @@ Chưa có nguồn đáng tin nên **chưa hiển thị** (không bịa):
   trang, tạm dừng khi hover), responsive 1366/1920/4K.
 
 
+### REQ-KIOSK-011 — Kiosk web đồng nhất luồng kết thúc session với ESP v2
+
+> **Nguồn sự thật:** luồng nhập sản lượng của Kiosk web phải cho ra cùng kết quả
+> và gõ bằng cùng bộ phím như thiết bị ESP v2, trừ những khác biệt được liệt kê
+> tường minh ở `docs/KIOSK_ESP_PARITY.md`.
+
+- **Mô-đun**: Kiosk web (`/kiosk`) — trình duyệt tại trạm, khác thiết bị ESP v2
+  (REQ-KIOSK-002) và khác màn hình điều hành treo tường (REQ-KIOSK-010).
+- **Mục đích**: cùng một người, cùng một thao tác, hai thiết bị — kết quả phải
+  như nhau. Hai luồng lệch nhau là chỗ sinh ra số liệu sai mà không ai truy được.
+- **Đối tượng thực hiện**: công nhân tại trạm.
+- **Điều kiện tiên quyết**: có session đang mở của chính nhân viên vừa quét thẻ.
+- **Kích hoạt bởi**: quét thẻ nhân viên khi đang có session mở.
+
+**Luồng chính**
+
+1. `SẢN PHẨM ĐẠT` → `SẢN PHẨM LỖI`.
+2. **NG = 0** → bỏ qua hẳn câu hỏi lỗi sửa được (`rework = 0`) → màn xác nhận.
+   ESP v2 cũng bỏ qua; không thêm bước vô nghĩa nào.
+3. **NG > 0** → hỏi `CÓ LỖI SỬA ĐƯỢC KHÔNG?`
+   - `1` = **CÓ** → màn nhập số lỗi sửa được
+   - `2`, `#`, `Enter` = **tiếp tục, không nhập**
+   - `*` = quay lại màn nhập NG
+4. Số lỗi sửa được hợp lệ trong khoảng **0..NG**. Vượt NG → ở lại màn, báo lý do.
+   Nhập `0` cho kết quả giống hệt chọn "tiếp tục".
+5. Màn xác nhận: `1`/`#`/`Enter` gửi, `2`/`*` quay lại.
+6. Gửi xong: giữ màn kết quả vài giây rồi **tự trở về màn chờ quét thẻ**, đồng
+   thời xoá nhân viên / session / Operation / mọi ô số đã nhập.
+
+**Phím — bảng đối chiếu đầy đủ ở `docs/KIOSK_ESP_PARITY.md`**
+
+| Màn | `0-9` | `#`/`Enter` | `*` |
+|---|---|---|---|
+| nhập số | nhập | xác nhận | quay lại màn trước |
+| hỏi lỗi sửa được | `1` = có, `2` = tiếp tục | tiếp tục | quay lại |
+| xác nhận | `1` gửi, `2` quay lại | gửi | quay lại |
+
+**Sản lượng — không đếm hai lần**
+
+`good_qty`, `defect_qty`, `rework_qty` gửi **tách bạch**. `rework_qty` nghĩa là
+"trong số NG này, bao nhiêu cái CÓ THỂ sửa" — **không được cộng vào `good_qty`**
+tại thời điểm khai báo. Sản phẩm sửa được chỉ thành hàng đạt sau khi có người
+sửa thật và ghi nhận qua Hàng chờ sửa.
+
+- **Kiểm tra hợp lệ**: `0 <= rework_qty <= defect_qty`, kiểm ở **cả** giao diện
+  **và** server (`WorkSessionRepository._finish_within`).
+- **Lỗi**: `rework_qty > defect_qty` → `400`. Gửi thất bại → giữ nguyên số đã
+  nhập và hiện nút thử lại; **không** mất dữ liệu, **không** tự về màn chờ.
+- **Ranh giới**: NG = 0; `rework = 0`; `rework = NG`; `rework = NG + 1`;
+  tải lại trang giữa chừng → về màn chờ thẻ, không giữ state cũ.
+- **Quyền**: như Kiosk web hiện tại. **Nhật ký kiểm toán**: qua session/trace sẵn có.
+
+**Khác biệt đã biết với firmware, và vì sao**
+
+| Chỗ | Firmware v5.3.x | Kiosk web | Xử lý |
+|---|---|---|---|
+| phím `1`/`2` ở màn hỏi | `1` = KHÔNG, `2` = CÓ | `1` = CÓ, `2` = tiếp tục | **Đảo nhau.** Chủ sản phẩm chốt desired UX; web làm theo. Đề xuất sửa firmware ở `docs/KIOSK_ESP_PARITY.md` §2.2 — chưa làm trong lane này. |
+| `#` ở màn hỏi | không gán | tiếp tục | web thêm, ESP để trống nên không đụng gì |
+| `rework = 0` | từ chối | chấp nhận | tránh kẹt màn hình; kết quả giống "tiếp tục" |
+| `*` ở màn nhập số | xoá lùi | quay lại | bàn phím web đã có Backspace |
+
+- **Liên quan**: REQ-KIOSK-002 (giao thức thiết bị ESP), REQ-KIOSK-001,
+  REQ-REWORK-* (Hàng chờ sửa là nơi credit sản phẩm đã sửa).
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: positive (NG=0; NG>0 chọn 2/#/Enter; chọn 1 rồi nhập),
+  negative (`rework > NG`), boundary (`rework = 0`), trạng thái cũ (gửi xong,
+  tải lại trang, gửi lỗi), phím tắt từng màn.
+
+**Khiếm khuyết đã phát hiện khi audit, CHƯA sửa trong lane này**
+
+`work_sessions.rework_qty` đang mang hai nghĩa ở hai nơi ghi: `resolve()` của
+Hàng chờ sửa cộng nó **cùng lúc** với `good_qty` (nghĩa là "đã sửa xong"), còn
+`finish()` ghi nó là "khai báo có thể sửa" và không đụng `good_qty`. Vì
+`pending = defect - rework - scrap`, số khai báo ở kiosk bị trừ khỏi hàng chờ
+sửa nhưng **không bao giờ** được credit về sản lượng đạt. Có test đánh dấu
+`xfail(strict)` mô tả đúng khiếm khuyết này ở
+`tests/integration/test_kiosk_finish_repairable_contract.py`; nó sẽ **XPASS**
+ngay khi ai đó sửa. Sửa đúng cần tách "repairable đã khai báo" khỏi "đã sửa
+xong" và chạm vào rollup + hàng chờ sửa + đối soát → thuộc lane Rework.
+
+
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 
 Chi tiết đầy đủ ở §6.4 và schema `work_shifts`/`work_shift_intervals`
@@ -2749,6 +2830,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — module được test nhiều nhất hệ thống |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 case), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
+| REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
