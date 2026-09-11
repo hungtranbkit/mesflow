@@ -52,11 +52,32 @@
   const quantityStates = ['quantity-good','quantity-defect','ask-rework','quantity-rework','finish-confirm'];
 
   function demoIsOpen() { return document.getElementById('demo-panel')?.classList.contains('open'); }
+  // Màn nhập số -> ô input của nó. Focus ĐỒNG BỘ ngay khi màn hiện (xem chú
+  // thích trong show()): chuyển màn làm ô cũ bị ẩn và mất focus, nếu focus ô
+  // mới trễ thì có một cửa sổ KHÔNG ô nào nhận phím -- chữ số gõ trong cửa sổ
+  // đó rơi mất. Hậu quả P0 quan sát được ở xưởng: người nhập Đạt/Lỗi xong,
+  // Confirm hiện 0/0, và vì defect=0 nên bước "CÓ LỖI SỬA ĐƯỢC?" không xuất
+  // hiện -> không khai được rework.
+  const QUANTITY_INPUT = {'quantity-good':'good-qty','quantity-defect':'defect-qty','quantity-rework':'rework-qty'};
   function show(name) {
     screens.forEach(el => el.classList.toggle('active', el.id === `screen-${name}`));
     state = name;
     sendHeartbeat();
-    if (!demoIsOpen()) setTimeout(focusScanner, 20);
+    const qtyInputId = QUANTITY_INPUT[name];
+    if (qtyInputId) {
+      const el = document.getElementById(qtyInputId);
+      if (el) {
+        // Ép layout flush TRƯỚC khi focus. Màn vừa chuyển display:none->flex
+        // ở forEach ngay trên; gọi focus() trong cùng tick khi kiểu dáng chưa
+        // recalc thì trình duyệt coi ô còn ẩn và focus() KHÔNG dính (đúng gốc
+        // P0). Đọc offsetHeight buộc reflow, sau đó focus chắc chắn ăn -- đồng
+        // bộ, không có cửa sổ trễ nào cho phím số rơi vào.
+        void el.offsetHeight;
+        el.focus({preventScroll:true});
+      }
+    } else if (!demoIsOpen()) {
+      setTimeout(focusScanner, 20);
+    }
   }
   function focusScanner() { if (!quantityStates.includes(state) && !demoIsOpen()) input.focus({preventScroll:true}); }
   function scheduleReset(delay) {
@@ -210,7 +231,7 @@
             pendingFinish.rework = 0; pendingFinish.hasRework = false;
             renderFinishConfirmation();
           } else {
-            show('quantity-good'); document.getElementById('good-qty').focus();
+            show('quantity-good');   // show() tự focus good-qty đồng bộ
           }
         } else {
           document.getElementById('employee-name').textContent = employee.name;
@@ -245,7 +266,10 @@
     const value = Number(document.getElementById(id).value);
     return Number.isSafeInteger(value) && value >= minimum ? value : null;
   }
-  function focusQuantity(id) { setTimeout(() => document.getElementById(id).focus(), 30); }
+  // Giữ hàm để mọi caller cũ vẫn gọi được, nhưng nay ĐỒNG BỘ: show() đã focus
+  // đúng ô rồi, đây chỉ là lớp phòng hờ, không được là setTimeout (chính
+  // setTimeout 30ms cũ là gốc của bug P0 mất chữ số).
+  function focusQuantity(id) { const el=document.getElementById(id); if(el) el.focus({preventScroll:true}); }
   function nextGood() {
     const value = readQuantity('good-qty');
     if (value === null) { document.getElementById('good-validation').textContent = 'Nhập số nguyên từ 0 trở lên'; return; }
@@ -382,6 +406,30 @@
   });
   document.addEventListener('keydown', event => {
     if (quantityStates.includes(state)) {
+      // Nhập số theo STATE, không theo focus. GỐC P0: chữ số dựa vào ô
+      // <input> đang được focus, nhưng khi chuyển màn (Đạt->Lỗi->Sửa) ô mới
+      // KHÔNG focus kịp trong cùng tick keydown (focus() ngay sau đổi display
+      // không dính; setTimeout thì trễ và có cửa sổ phím rơi). Hậu quả ở
+      // xưởng: Lỗi về 0, Confirm 0/0, và defect=0 nên bước "CÓ LỖI SỬA ĐƯỢC?"
+      // không hiện. Kiosk khoá bàn phím -> "ô đang nhập" là thứ STATE nói,
+      // không phải thứ focus nói. Ghi thẳng chữ số vào đúng ô theo state:
+      // xác định, không phụ thuộc focus/layout/timing.
+      if (QUANTITY_INPUT[state]) {
+        const field = document.getElementById(QUANTITY_INPUT[state]);
+        if (field) {
+          if (/^[0-9]$/.test(event.key)) {
+            event.preventDefault();
+            const cur = (field.value === '0' || field.value === '') ? '' : field.value;
+            field.value = (cur + event.key).slice(0, 7);   // trần 7 chữ số
+            return;
+          }
+          if (event.key === 'Backspace') {
+            event.preventDefault();
+            field.value = field.value.slice(0, -1) || '0';
+            return;
+          }
+        }
+      }
       // Bàn phím kiosk web phải gõ giống bàn phím ESP. Bảng đối chiếu đầy đủ
       // ở docs/KIOSK_ESP_PARITY.md; chỗ web CỐ Ý khác firmware cũng nằm ở đó.
       if (state === 'ask-rework') {
