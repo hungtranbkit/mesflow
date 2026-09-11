@@ -1221,7 +1221,8 @@ async function renderProductionSchedule(){
   title.textContent='Tiến trình sản xuất';subtitle.textContent='Theo dõi kế hoạch, thực tế, tiến độ và dòng vật liệu giữa các Operation theo Production Order.';
   content.innerHTML=`<div class="page-shell">
     <section class="schedule-control-panel" id="schedulePanel">
-    <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar">${MFUI.filterBar({content:'<label for="schedulePoFilter"><span>Production Order</span><select id="schedulePoFilter"><option value="">Tất cả PO</option></select></label>',actions:'<button class="btn" id="scheduleReload">↻ Cập nhật</button>'})}
+    <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar">${MFUI.filterBar({content:'<label for="schedulePoFilter"><span>Production Order</span><select id="schedulePoFilter"><option value="">Tất cả PO</option></select></label><label for="scheduleSearch"><span>Tìm nhanh</span><input type="search" id="scheduleSearch" placeholder="Mã PO, Part, Operation..." autocomplete="off"></label><label for="scheduleStatus"><span>Trạng thái OP</span><select id="scheduleStatus"><option value="">Tất cả</option><option value="running">Đang chạy</option><option value="done">Hoàn thành</option><option value="planned">Kế hoạch</option><option value="blocked">Đang chờ</option></select></label>',actions:'<button class="btn" id="scheduleExpandAll" type="button">Mở tất cả</button><button class="btn" id="scheduleCollapseAll" type="button">Thu gọn</button><button class="btn" id="scheduleReload">↻ Cập nhật</button>'})}
+    <div class="schedule-summary" id="scheduleSummary" aria-live="polite"></div>
     <div class="schedule-legend"><span><i class="gantt-dot planned"></i>Kế hoạch</span><span><i class="gantt-dot running"></i>Đang chạy</span><span><i class="gantt-dot done"></i>Hoàn thành</span><span><i class="gantt-dot blocked"></i>Đang chờ</span></div></div>
     <div id="scheduleBody">Đang tải...</div></section>
   </div>`;
@@ -1236,9 +1237,26 @@ async function renderProductionSchedule(){
   const tickDay=d=>new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit'}).format(d);
   const render=()=>{
     const filter=document.getElementById('schedulePoFilter')?.value||'';
-    const rows=filter?cached.filter(x=>String(x.po_id)===filter):cached;
+    const query=(document.getElementById('scheduleSearch')?.value||'').trim().toLowerCase();
+    const statusPick=document.getElementById('scheduleStatus')?.value||'';
+    const opState=o=>o.blocked?'blocked':String(o.operation_status).toUpperCase()==='COMPLETED'?'done':Number(o.active_sessions)>0?'running':'planned';
+    // Tìm nhanh gõ vào là lọc theo PO / Part / Operation (mã lẫn tên). Lọc ở
+    // tầng DỮ LIỆU chứ không ẩn bằng CSS: ẩn bằng CSS thì "3 OP đang chạy" trên
+    // đầu thẻ vẫn đếm cả những dòng đang bị giấu, và số liệu nói sai.
+    const matches=x=>{
+      if(statusPick&&opState(x)!==statusPick)return false;
+      if(!query)return true;
+      return [x.po_code,x.product,x.part_code,x.part_name,x.operation_code,x.operation_name]
+        .some(v=>String(v||'').toLowerCase().includes(query));
+    };
+    const rows=(filter?cached.filter(x=>String(x.po_id)===filter):cached).filter(matches);
+    scheduleSummary(cached,rows,{query,statusPick,filter});
     const groups=new Map();
     for(const r of rows){if(!groups.has(r.po_id))groups.set(r.po_id,{po:r,parts:new Map(),ops:[]});const g=groups.get(r.po_id);g.ops.push(r);if(!g.parts.has(r.part_id))g.parts.set(r.part_id,{part:r,ops:[]});g.parts.get(r.part_id).ops.push(r)}
+    // Bao nhiêu PO được mở sẵn. 1 là đủ để trang mở ra đã có thứ đọc ngay mà
+    // không thành một cuộn dài; phần còn lại người dùng tự mở.
+    const SCHEDULE_AUTO_OPEN=1;
+    let autoOpened=0;
     const body=document.getElementById('scheduleBody');
     if(!groups.size){body.innerHTML='<div class="empty-hint">Chưa có PO RELEASED, IN_PROGRESS hoặc PAUSED có Operation.</div>';return}
     body.innerHTML=[...groups.values()].map(g=>{
@@ -1252,8 +1270,22 @@ async function renderProductionSchedule(){
       const completion=g.ops.length?Math.round(g.ops.reduce((sum,o)=>sum+Number(o.progress_percent||0),0)/g.ops.length):0;
       const partSummary=[...g.parts.values()].map(p=>`${p.part.part_code||''}${p.part.part_name?` · ${p.part.part_name}`:''}`).join(' | ');
       const deadline=g.po.due_date||g.po.po_end;
-      return `<article class="schedule-po gantt-po">
-        <div class="schedule-po-head"><div class="schedule-po-identity"><b>${esc(g.po.po_code)}</b><span title="${esc(`${g.po.product||''}${partSummary?` · ${partSummary}`:''}`)}">${esc(g.po.product||partSummary||'Production Order')}</span></div><div class="schedule-po-progress"><strong>${completion}%</strong><span>${complete}/${g.ops.length} OP hoàn thành${deadline?` · Hạn ${scheduleDate(deadline)}`:''}</span></div><div class="schedule-po-actions"><span class="badge">${esc(g.po.po_status)}</span><button class="btn mini" onclick="openProductionOrder(${Number(g.po.po_id)})">Mở PO</button></div></div>
+      // Mặc định CHỈ mở PO đang có Operation chạy (hoặc PO được chọn qua bộ
+      // lọc/URL). 8 PO x 10 OP mở sẵn = 11.7 viewport cuộn, đo được -- đó là
+      // thứ người dùng than phiền. <details>/<summary> THẬT chứ không phải div
+      // giả: bàn phím, screen-reader và Ctrl+F của trình duyệt đều hiểu sẵn,
+      // và nếu JS chết thì `open` trong markup vẫn cho xem được nội dung.
+      // Mặc định mở TỐI ĐA một PO, không phải "mọi PO đang chạy": với dữ liệu
+      // thật gần như PO nào cũng có OP đang chạy, nên luật "mở nếu đang chạy"
+      // vẫn cho ra 8/8 mở và trang vẫn 12 viewport (đo được). Mở đúng cái người
+      // dùng đang quan tâm -- PO được chọn qua bộ lọc/URL, nếu không thì PO
+      // đang chạy đầu tiên -- rồi để họ tự mở thêm.
+      const isSelected=String(filter||'')===String(g.po.po_id);
+      let openByDefault=false;
+      if(isSelected)openByDefault=true;
+      else if(!filter&&autoOpened<SCHEDULE_AUTO_OPEN&&running>0){openByDefault=true;autoOpened++}
+      return `<details class="schedule-po gantt-po" data-po="${Number(g.po.po_id)}" data-po-code="${esc(g.po.po_code)}" data-running="${running}"${openByDefault?' open':''}>
+        <summary class="schedule-po-head"><div class="schedule-po-identity"><b>${esc(g.po.po_code)}</b><span title="${esc(`${g.po.product||''}${partSummary?` · ${partSummary}`:''}`)}">${esc(g.po.product||partSummary||'Production Order')}</span></div><div class="schedule-po-progress"><strong>${completion}%</strong><span>${complete}/${g.ops.length} OP hoàn thành${deadline?` · Hạn ${scheduleDate(deadline)}`:''}</span></div><div class="schedule-po-actions"><span class="badge">${esc(g.po.po_status)}</span>${running>0?`<span class="schedule-po-live">${running} OP đang chạy</span>`:''}<button class="btn mini" type="button" onclick="event.preventDefault();event.stopPropagation();openProductionOrder(${Number(g.po.po_id)})">Mở PO</button></div></summary>
         <div class="gantt-wrap"><div class="gantt-axis-label">Operation</div><div class="gantt-axis">${ticks.map((t,i)=>{
       // Nhãn trục là GIỜ:PHÚT, ngày chỉ hiện ở mốc đầu và khi sang ngày mới.
       // Trước đây mỗi mốc in đủ `HH:mm:ss dd/MM/yyyy`: năm mốc như vậy không thể
@@ -1272,11 +1304,59 @@ async function renderProductionSchedule(){
         </div>
         <section class="material-flow-section"><div class="material-flow-head"><div><h3>Material Flow</h3><p>Chỉ hiện các quan hệ giới hạn số lượng đã cấu hình.</p></div><span>${flowOps.length} liên kết</span></div>
           ${flowOps.length?`<div class="flow-grid">${flowOps.map(o=>{const supplied=Number(o.input_source_done_qty||0),consumed=Number(o.input_consumed_qty||0),available=Number(o.input_available_qty||0),plan=Math.max(Number(o.planned_quantity||0),1),pct=Math.min(100,available/plan*100);return `<article class="flow-card ${available<=0&&Number(o.done_qty||0)<Number(o.planned_quantity||0)?'flow-starved':''}"><div class="flow-link"><div><b>${esc(o.input_source_code||'OP nguồn')}</b><small>${supplied} SP đã ra</small></div><span>→</span><div><b>${esc(o.operation_code)}</b><small>${consumed} SP đã dùng</small></div></div><div class="flow-meter"><i style="width:${pct.toFixed(1)}%"></i></div><div class="flow-stats"><span><b>${available}</b> khả dụng</span><span><b>${Number(o.done_qty||0)}</b> đạt</span><span><b>${Number(o.defect_qty||0)}</b> NG</span></div><small>${o.defects_consume_input?'NG có tiêu hao đầu vào':'NG không tiêu hao đầu vào'}</small></article>`}).join('')}</div>`:'<div class="empty-hint compact">PO này chưa cấu hình giới hạn số lượng giữa các Operation.</div>'}
-        </section></article>`
+        </section></details>`
     }).join('')
   };
-  const load=async(preserveScroll=true)=>{const scrollX=window.scrollX,scrollY=window.scrollY;try{const data=await api('/api/production-schedule?limit=1000');cached=data.items||[];const select=document.getElementById('schedulePoFilter'),current=select.value,pos=[...new Map(cached.map(x=>[x.po_id,x])).values()];select.innerHTML='<option value="">Tất cả PO</option>'+pos.map(x=>`<option value="${x.po_id}">${esc(x.po_code)} · ${esc(x.product||'')}</option>`).join('');if(pos.some(x=>String(x.po_id)===current))select.value=current;select.onchange=()=>{render();syncStickyOffset()};render();syncStickyOffset();if(preserveScroll)requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY))}catch(e){document.getElementById('scheduleBody').innerHTML=`<div class="empty danger">Không tải được tiến trình: ${esc(e.message)}</div>`}};
-  document.getElementById('scheduleReload').onclick=()=>load(true);await load(false);dashboardTimer=setInterval(()=>load(true),15000)
+  // Tầng đầu: một dòng tóm tắt toàn xưởng để không phải cuộn mới biết tình hình.
+  // Số liệu tính từ CÙNG mảng `cached` mà danh sách đang dùng -- không gọi thêm
+  // API, không đổi business logic, chỉ tổ chức lại thông tin đã có.
+  const scheduleSummary=(all,visible,ctx)=>{
+    const box=document.getElementById('scheduleSummary');if(!box)return;
+    const poIds=new Set(all.map(x=>x.po_id));
+    const runningOps=all.filter(x=>Number(x.active_sessions)>0);
+    const runningPos=new Set(runningOps.map(x=>x.po_id));
+    const today=new Date();
+    const latePos=new Set(all.filter(x=>{
+      const d=x.due_date?new Date(x.due_date):null;
+      const doneAll=false;
+      return d&&!Number.isNaN(d.getTime())&&d<today&&!doneAll;
+    }).map(x=>x.po_id));
+    const riskPos=new Set(all.filter(x=>x.blocked||String(x.po_status).toUpperCase()==='LATE').map(x=>x.po_id));
+    const ng=all.reduce((n,x)=>n+Number(x.defect_qty||0),0);
+    const needFix=all.reduce((n,x)=>n+Number(x.rework_qty||0),0);
+    const filtered=ctx.query||ctx.statusPick||ctx.filter;
+    const visiblePos=new Set(visible.map(x=>x.po_id));
+    box.innerHTML=[
+      ['PO đang chạy',`${runningPos.size}/${poIds.size}`,`${runningOps.length} OP đang chạy`],
+      ['PO trễ / nguy cơ',`${new Set([...latePos,...riskPos]).size}`,'quá hạn hoặc bị chặn'],
+      ['Operation',`${all.length}`,`${runningOps.length} đang chạy`],
+      ['NG / cần sửa',`${ng.toLocaleString('vi-VN')}`,`${needFix.toLocaleString('vi-VN')} chờ sửa`],
+    ].map(([label,value,hint])=>`<article class="schedule-kpi"><small>${esc(label)}</small><strong>${esc(String(value))}</strong><span>${esc(hint)}</span></article>`).join('')
+      +(filtered?`<p class="schedule-filter-note">Đang hiển thị <b>${visiblePos.size}</b> PO · <b>${visible.length}</b> Operation khớp bộ lọc.</p>`:'');
+  };
+
+  // Trạng thái bộ lọc đi theo URL, dùng đúng AppNav.setQuery như các màn khác.
+  const syncScheduleUrl=()=>AppNav.setQuery({
+    po:document.getElementById('schedulePoFilter')?.value||'',
+    q:document.getElementById('scheduleSearch')?.value||'',
+    opstate:document.getElementById('scheduleStatus')?.value||'',
+  });
+  const restoreScheduleFilters=()=>{
+    const url=new URL(location.href);
+    const set=(id,key)=>{const el=document.getElementById(id);if(el&&url.searchParams.get(key)!==null)el.value=url.searchParams.get(key)};
+    set('schedulePoFilter','po');set('scheduleSearch','q');set('scheduleStatus','opstate');
+  };
+  const setAllOpen=open=>document.querySelectorAll('#scheduleBody details.schedule-po').forEach(d=>{d.open=open});
+
+  const load=async(preserveScroll=true)=>{const scrollX=window.scrollX,scrollY=window.scrollY;try{const data=await api('/api/production-schedule?limit=1000');cached=data.items||[];const select=document.getElementById('schedulePoFilter'),current=select.value,pos=[...new Map(cached.map(x=>[x.po_id,x])).values()];select.innerHTML='<option value="">Tất cả PO</option>'+pos.map(x=>`<option value="${x.po_id}">${esc(x.po_code)} · ${esc(x.product||'')}</option>`).join('');if(pos.some(x=>String(x.po_id)===current))select.value=current;select.onchange=()=>{render();syncScheduleUrl();syncStickyOffset()};render();syncStickyOffset();if(preserveScroll)requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY))}catch(e){document.getElementById('scheduleBody').innerHTML=`<div class="empty danger">Không tải được tiến trình: ${esc(e.message)}</div>`}};
+  document.getElementById('scheduleReload').onclick=()=>load(true);
+  const rerender=()=>{render();syncScheduleUrl();syncStickyOffset()};
+  document.getElementById('scheduleSearch').oninput=MFUI.debounce(rerender,180);
+  document.getElementById('scheduleStatus').onchange=rerender;
+  document.getElementById('scheduleExpandAll').onclick=()=>setAllOpen(true);
+  document.getElementById('scheduleCollapseAll').onclick=()=>setAllOpen(false);
+  restoreScheduleFilters();
+  await load(false);dashboardTimer=setInterval(()=>load(true),15000)
 }
 let templateUi={items:[],current:null,tree:null,equipment:[],dirty:false,isNew:false};
 window.addEventListener('beforeunload',event=>{if(!templateUi.dirty)return;event.preventDefault();event.returnValue=''});

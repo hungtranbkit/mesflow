@@ -1,15 +1,49 @@
-# hp3 — Lane UI: bo góc canonical + danh sách thẻ + Gantt mobile
+# hp3 — Lane UI: bo góc canonical, danh sách thẻ, Gantt mobile, progressive disclosure
 
-Lane phụ trên node HP. **Không merge, không deploy.** Bàn giao cho session
-`mesflow` trên Dell.
+Lane phụ trên node HP. **Không merge, không deploy.** Bàn giao cho session `mesflow`.
 
 - Nhánh: `hp3/ui-dashboard-report-list-rounded`
-- Gốc: `origin/integration/daily-dashboard-test` @ `ecf9434` (71.0.0.281)
-- 4 commit, tách theo việc:
+- Gốc: `origin/integration/daily-dashboard-test` @ `8601ec5` (71.0.0.284)
+- 5 commit, tách theo việc:
 
 | SHA | Việc |
 |---|---|
-| `1932372` | Dashboard/Report/Exception/Session theo thang bo góc canonical (71.0.0.280) |
+| `1e46669` | Dashboard/Report/Exception/Session theo thang bo góc canonical (71.0.0.280) |
+| `69390ae` | Danh sách Operation của Dashboard theo ngày: bảng -> THẺ |
+| `43bbfb7` | "Hàng chờ sửa": bảng row vuông nối liền -> THẺ |
+| `b87e912` | Gantt "Tiến trình sản xuất" màn hẹp: neo cột định danh, mốc giờ gọn |
+| `39b4350` | Progressive disclosure cho Tổng quan / Tiến trình sản xuất + back-to-top dùng chung |
+
+**Gate:** TOÀN BỘ E2E suite với `--retries=0`: **349 passed · 4 skipped ·
+2 failed** (355 bài) · static **564 passed**. Không bài đỏ nào thuộc nhánh này.
+
+Hai bài đỏ, đều đã truy nguyên chứ không suy đoán:
+
+| Bài | Nguyên nhân | Bằng chứng |
+|---|---|---|
+| `admin-list-card-consistency.spec.js:82` | Cần PO thật trong DB; spec không mock gì và postgres test là tmpfs trống | Chạy lại spec đó với `app/` **nguyên bản của `8601ec5`** → đỏ y hệt. Lane hp4 kiểm thêm: `grep page.route` = 0 dòng, DB có `production_orders=0`, và chạy full suite vẫn đỏ → không phải phụ thuộc thứ tự |
+| `mesflow.spec.js:67` (ESP Kiosk tutorial) | Cần 7 video runtime trong `runtime/tutorials/`, sinh bằng ffmpeg — host này không có ffmpeg | Thư mục rỗng; cùng lý do khiến các bài static ESP fixture bị SKIPPED. Upstream đã có `65d411f`/`8391d1b` xử lý đúng ca "CI/fresh checkout" |
+
+Cả hai là hiện trạng môi trường / lane khác, không phải hồi quy của hp3.
+
+**Chiều dài trang, đo với 8 PO x 2 Part x 5 OP (= 80 Operation):**
+
+| Màn | 390 | 1366 | 1920 |
+|---|---|---|---|
+| Tổng quan sản xuất | 10.5 -> **3.7** | 10.1 -> **3.2** | 7.1 -> **2.2** |
+| Tiến trình sản xuất | 11.4 -> **3.4** | 11.7 -> **2.9** | 8.3 -> **2.1** |
+
+Không mất thông tin: số thẻ PO (8) và số dòng Operation (80) trong DOM không đổi.
+
+**Requirement:** REQ-UI-017 (danh sách thẻ), REQ-UI-018 (back-to-top dùng chung),
+REQ-UI-019 (progressive disclosure) — có ở **cả EN và VI** kèm dòng ma trận truy
+vết. DESIGN.md §5.5, §5.5b, §5.5c, §5.5d.
+
+**Đánh số:** REQ-UI-016 của lane này đã đổi thành **REQ-UI-017** theo quyết định
+lane merge (nhánh đã vào integration giữ số; `de3474a` là ancestor của HEAD).
+
+---|---|
+| `67b1878` | Dashboard/Report/Exception/Session theo thang bo góc canonical (71.0.0.280) |
 | `979687f` | Danh sách Operation của Dashboard theo ngày: bảng -> THẺ |
 | `ffc9a65` | "Hàng chờ sửa": bảng row vuông nối liền -> THẺ |
 | `7f82af2` | Gantt "Tiến trình sản xuất" màn hẹp: neo cột định danh, mốc giờ gọn |

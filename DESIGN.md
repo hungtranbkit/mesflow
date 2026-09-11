@@ -290,6 +290,20 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Hợp đồng khoá bằng `tests/e2e/schedule-mobile-layout.spec.js` (đo vị trí thật
   sau khi kéo hết timeline, ở 390/1366/1920).
 
+### 5.5d Progressive disclosure cho màn nhiều bản ghi lồng nhau
+
+- Ngưỡng nhận ra đã sai: mở mọi nhóm sẵn làm trang dài quá ~5 viewport. Đo được
+  trên "Tổng quan sản xuất"/"Tiến trình sản xuất" với 8 PO x 80 Operation:
+  10.5 và 11.4 viewport ở 390px.
+- Cấu trúc ba tầng: tóm tắt toàn xưởng -> thẻ PO (header đủ mã/mô tả/%/trạng
+  thái/hạn) -> nội dung chi tiết mở theo yêu cầu.
+- Mặc định mở TỐI ĐA một nhóm. "Mở nếu đang chạy" là chưa đủ: với dữ liệu thật
+  gần như nhóm nào cũng đang chạy, và trang vẫn dài y như cũ.
+- Dùng `<details>/<summary>` THẬT. Thu gọn là giấu, không phải cắt dữ liệu --
+  test đếm số phần tử trong DOM trước/sau để khoá điều đó.
+- Màn dài thì dùng primitive `MFUI.mountBackToTop()` (§REQ-UI-018), không tự
+  dựng nút riêng cho từng màn.
+
 ### 5.6 Buttons và icon actions
 
 - Button cao 36px desktop; compact 32px chỉ cho toolbar dày và vẫn cần hit area hợp lý. Mobile tối thiểu 44px.

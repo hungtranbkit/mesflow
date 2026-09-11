@@ -318,6 +318,78 @@ const MFUI=(()=>{
   }).observe(document.documentElement, { childList: true, subtree: true });
   syncFilterDisclosures();
 
-  return {statusBadge,opIdentity,opIdentityText,qtyValue,qtyLine,QTY_UNKNOWN,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
+
+  // --- Back to top: primitive dùng chung cho MỌI màn dài ---------------------
+  //
+  // Vì sao là primitive chứ không phải một nút của riêng "Tiến trình sản xuất":
+  // đo được, màn đó dài 8.3-11.7 viewport và "Tổng quan sản xuất" dài 7.1-10.5
+  // với 8 PO x 80 Operation. Các màn danh sách khác cũng sẽ chạm ngưỡng đó khi
+  // dữ liệu thật lớn lên. Một nút gắn cứng vào một màn thì màn thứ hai lại phải
+  // dựng lại -- đúng kiểu lệch mà dự án này đã dọn nhiều lần.
+  //
+  // Quy tắc hiển thị (REQ-UI-018): chỉ hiện khi trang DÀI hơn ngưỡng VÀ người
+  // dùng đã cuộn đủ xa; ẩn khi ở gần đỉnh. Ngưỡng tính theo VIEWPORT chứ không
+  // theo px cố định, để một màn hình cao không phải cuộn vô lý mới thấy nút.
+  const BACK_TO_TOP_VIEWPORTS = 1.5;
+  const mountBackToTop = () => {
+    if (document.querySelector('[data-back-to-top]')) return document.querySelector('[data-back-to-top]');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ui-back-to-top';
+    btn.setAttribute('data-back-to-top', '');
+    btn.setAttribute('aria-label', 'Lên đầu trang');
+    btn.hidden = true;
+    btn.innerHTML = '<span aria-hidden="true">↑</span><b>Lên đầu trang</b>';
+    btn.addEventListener('click', () => {
+      // `smooth` là mặc định; người bật "giảm chuyển động" thì nhảy thẳng.
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+      window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+      // Trả tiêu điểm về đầu trang để bàn phím/screen-reader đi tiếp từ đó,
+      // không bị bỏ lại ở cuối tài liệu.
+      const first = document.querySelector('#content h2, #content h1, #content');
+      if (first) { first.setAttribute('tabindex', '-1'); first.focus({ preventScroll: true }); }
+    });
+    document.body.appendChild(btn);
+
+    const sync = () => {
+      const doc = document.documentElement;
+      // Không bao giờ đè lên modal/drawer đang mở -- chúng là ngữ cảnh độc
+      // chiếm, một nút nổi bên dưới chỉ gây nhiễu và bắt được click nhầm.
+      const overlay = document.body.classList.contains('modal-open')
+        || document.body.classList.contains('ui-overlay-open')
+        || !!document.querySelector('.modal-backdrop,.ui-drawer,.ec-drawer-shell');
+      const longEnough = doc.scrollHeight > window.innerHeight * (1 + BACK_TO_TOP_VIEWPORTS);
+      const scrolledEnough = window.scrollY > window.innerHeight * BACK_TO_TOP_VIEWPORTS;
+      btn.hidden = overlay || !longEnough || !scrolledEnough;
+    };
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => { ticking = false; sync(); });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    // Trang được vẽ lại bằng innerHTML nên chiều cao đổi mà không có sự kiện
+    // nào báo -- cùng lý do filter-disclosure phải theo dõi cây DOM.
+    new MutationObserver(onScroll).observe(document.documentElement, { childList: true, subtree: true });
+    sync();
+    return btn;
+  };
+
+  // Gắn một lần cho cả app: mọi màn dài đều được, không màn nào phải nhớ gọi.
+  //
+  // Khối này phải nằm SAU khai báo `const mountBackToTop` -- trước đó nó đứng
+  // cạnh syncFilterDisclosures() ở trên, tức gọi một `const` chưa khởi tạo.
+  // Hôm nay không nổ vì core/ui.js là script chặn (không defer/async) nên
+  // `readyState === "loading"` luôn đúng và lời gọi bị hoãn tới DOMContentLoaded.
+  // Nhánh `else` thì nổ ReferenceError NGAY, trước cả `return` -- tức window.MFUI
+  // không bao giờ được gán và CẢ APP chết, chỉ vì ai đó thêm `defer` hoặc nạp
+  // file này động. Một quả mìn im lặng; đặt đúng chỗ thì hết.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => mountBackToTop(), { once: true });
+  } else { mountBackToTop(); }
+
+  return {statusBadge,opIdentity,mountBackToTop,BACK_TO_TOP_VIEWPORTS,opIdentityText,qtyValue,qtyLine,QTY_UNKNOWN,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
 })();
 window.MFUI=MFUI;
