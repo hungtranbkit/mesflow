@@ -113,6 +113,56 @@
   --ui-z-drawer:1000;
   --ui-z-modal:1100;
   --ui-z-toast:1200;
+  /* Điều hướng -- rail trái (.app-sidebar).
+
+     Rail trái là mặt TỐI duy nhất của ứng dụng, nên nó không dùng chung được
+     token bề mặt nào ở trên (chúng đều là mặt sáng). Trước đây vì vậy mà mọi
+     màu nav nằm rải rác dưới dạng hex viết cứng ở NĂM lớp chồng nhau, và
+     -- đúng cơ chế mà test_ui_design_tokens_single_source.py đã chốt cho
+     token -- lớp sau thắng, nên giá trị đọc được ở lớp trước là giá trị CHẾT:
+
+       nền rail   khối gốc ghi #132235, lớp v71 ghi var(--bg-command) #18364e
+                  -> màn hình thật là #18364e
+       nền active khối gốc ghi #21364b, lớp polish ghi #1c3d59 (cờ ưu tiên)
+       thanh accent khối gốc ghi #e39a22 (CAM), lớp polish ghi #4fa8dd (cyan)
+
+     Sửa nav vì thế luôn phải đoán, và đoán sai thì ra hồi quy "bốn nhóm hiện
+     thành khối trắng". Từ đây mọi màu nav đi qua đúng những token dưới đây,
+     và ba rule .app-sidebar cùng trỏ về --nav-surface.
+
+     THANG TRẠNG THÁI -- hướng chứ không chỉ độ đậm. Rail là một navy khá
+     sáng (L .034), nên không thể xếp bốn trạng thái thành một thang cùng
+     hướng: chen ba bậc giữa rail và nền active (L .043) thì mỗi bậc chỉ còn
+     1.03:1, mắt không thấy. Ngôn ngữ ở đây vì vậy là:
+
+       idle          trong suốt trên --nav-surface            L .034
+       open          --nav-surface-open       LÕM nhẹ          L .029
+       hover         --nav-surface-hover      LÕM sâu hơn      L .024
+       active        --nav-surface-active     NỔI LÊN          L .043
+                     + thanh accent --nav-accent + chữ trắng + icon cyan
+       active:hover  --nav-surface-active-hover                L .054
+
+     Tức: mọi thứ KHÔNG phải trang hiện tại thì lõm xuống (nhóm đang mở lõm
+     nhẹ, đúng như cái hõm chứa các mục con của nó; hàng dưới con trỏ lõm sâu
+     hơn), còn trang hiện tại là hàng DUY NHẤT nổi lên khỏi mặt rail và là
+     hàng duy nhất mang thanh accent. "Đang ở đâu" vì vậy không phải một bậc
+     đậm nhạt phải so mới thấy, mà là hướng ngược lại với tất cả phần còn
+     lại. tests/e2e/sidebar-nav-surface.spec.js đo lại đúng hợp đồng này
+     bằng computed style. */
+  --nav-surface:#18364e;
+  --nav-surface-open:#163149;
+  --nav-surface-hover:#152d42;
+  --nav-surface-active:#1c3d59;
+  --nav-surface-active-hover:#204468;
+  --nav-text:#c5d0de;
+  --nav-text-open:#dce6f1;
+  --nav-text-strong:#fff;
+  --nav-text-muted:#93a5b8;
+  --nav-heading:#8ba0b6;
+  --nav-icon:#9fb3c2;
+  --nav-accent:#4fa8dd;
+  --nav-accent-icon:#8fd0f2;
+  --nav-divider:#354a5f;
 }
 .builder-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.builder-head h2{margin-bottom:5px}.builder-head p{margin:0;color:#9cabca}.builder-toolbar{display:flex;gap:9px;flex-wrap:wrap;margin:18px 0}.builder-section{border:1px solid #26304a;border-radius:var(--radius-surface);padding:14px;margin-top:13px}.builder-section h3{margin:0 0 12px}.builder-row{display:grid;grid-template-columns:1fr 1.6fr 100px auto;gap:8px;margin-bottom:8px;align-items:center}.builder-row.operation-row{grid-template-columns:1.1fr .9fr 1.6fr 110px 1fr auto}.builder-row input,.builder-row select{width:100%;padding:10px;border-radius:var(--radius-panel);border:1px solid #334160;background:#0b1020;color:#fff}.check-label{display:flex!important;align-items:center;justify-content:space-between}.btn.success{background:#18794e;color:#fff}@media(max-width:900px){.builder-row,.builder-row.operation-row{grid-template-columns:1fr}}
 
@@ -193,7 +243,7 @@ th{background:#edf1f4;color:#354352;text-align:left;border-bottom:1px solid #ccd
 
 
 /* v65.8.2 vertical collapsible sidebar */
-.admin-body{background:#f3f5f8;min-height:100vh}.app-layout{min-height:100vh;display:grid;grid-template-columns:272px minmax(0,1fr);transition:grid-template-columns .18s ease}.app-sidebar{position:sticky;top:0;height:100vh;background:#132235;color:#e7edf5;display:flex;flex-direction:column;border-right:1px solid #26384b;z-index:80;overflow:hidden}.sidebar-brand{height:72px;display:flex;align-items:center;gap:11px;padding:12px 13px;border-bottom:1px solid #2a3c50}.sidebar-logo{width:40px;height:40px;display:grid;place-items:center;background:#e39a22;color:#fff;border-radius:10px;font-weight:800;flex:0 0 auto}.sidebar-brand-text{display:flex;flex-direction:column;min-width:0;flex:1}.sidebar-brand-text b{font-size:17px}.sidebar-brand-text small,.sidebar-user small{color:#9fb0c3}.sidebar-toggle,.mobile-menu-toggle{border:0;background:transparent;color:inherit;width:36px;height:36px;border-radius:var(--radius-panel);cursor:pointer;font-size:19px}.sidebar-toggle:hover{background:#21354a}.sidebar-nav{display:flex;flex-direction:column;gap:5px;padding:12px 10px;overflow:auto;flex:1}.sidebar-item,.sidebar-group-trigger,.sidebar-sub-item{border:0;background:transparent;color:#c5d0de;cursor:pointer;text-align:left}/* Tiêu đề nhóm con trong sidebar (vd. 'Theo dõi & Nhật ký' trong Quản trị). Chỉ là
+.admin-body{background:#f3f5f8;min-height:100vh}.app-layout{min-height:100vh;display:grid;grid-template-columns:272px minmax(0,1fr);transition:grid-template-columns .18s ease}.app-sidebar{position:sticky;top:0;height:100vh;background:var(--nav-surface);color:#e7edf5;display:flex;flex-direction:column;border-right:1px solid #26384b;z-index:80;overflow:hidden}.sidebar-brand{height:72px;display:flex;align-items:center;gap:11px;padding:12px 13px;border-bottom:1px solid #2a3c50}.sidebar-logo{width:40px;height:40px;display:grid;place-items:center;background:#e39a22;color:#fff;border-radius:10px;font-weight:800;flex:0 0 auto}.sidebar-brand-text{display:flex;flex-direction:column;min-width:0;flex:1}.sidebar-brand-text b{font-size:17px}.sidebar-brand-text small,.sidebar-user small{color:#9fb0c3}.sidebar-toggle,.mobile-menu-toggle{border:0;background:transparent;color:inherit;width:36px;height:36px;border-radius:var(--radius-panel);cursor:pointer;font-size:19px}.sidebar-toggle:hover{background:#21354a}.sidebar-nav{display:flex;flex-direction:column;gap:5px;padding:12px 10px;overflow:auto;flex:1}.sidebar-item,.sidebar-group-trigger,.sidebar-sub-item{border:0;background:transparent;color:var(--nav-text);cursor:pointer;text-align:left}/* Tiêu đề nhóm con trong sidebar (vd. 'Theo dõi & Nhật ký' trong Quản trị). Chỉ là
    nhãn phân nhóm, không bấm được, nên dùng <p> chứ không phải button.
    RULE RIÊNG -- KHÔNG gộp selector này vào danh sách nút ngay phía trên. Bản đầu
    tiên chèn nó vào GIỮA danh sách đó (sau `.sidebar-group-trigger,`), cắt đôi
@@ -204,7 +254,7 @@ th{background:#edf1f4;color:#354352;text-align:left;border-bottom:1px solid #ccd
    chữ nhạt. .sidebar-item thoát nạn chỉ vì nó mang thêm class .nav-item cũ, vốn
    cũng khai `border:0;background:transparent`; .sidebar-group-trigger không có
    lưới an toàn đó. Guard: tests/e2e/sidebar-nav-surface.spec.js */
-.sidebar-sub-heading{margin:8px 0 2px;padding:0 8px;color:#8ba0b6;font-size:10px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;user-select:none}.sidebar-sub-heading:first-child{margin-top:2px}.sidebar-item,.sidebar-group-trigger{width:100%;min-height:44px;border-radius:var(--radius-control);padding:8px 10px;display:flex;align-items:center;gap:10px;font-weight:650}.sidebar-item:hover,.sidebar-group-trigger:hover,.sidebar-item.active,.sidebar-group-trigger.active,.sidebar-group.has-active>.sidebar-group-trigger{background:#21364b;color:#fff}.sidebar-item.active,.sidebar-group.has-active>.sidebar-group-trigger{box-shadow:inset 3px 0 #e39a22}.sidebar-item-icon{width:31px;min-width:31px;height:28px;display:grid;place-items:center;border-radius:var(--radius-card);background:#203247;color:#dce5ef;font-size:11px;font-weight:800}.sidebar-item-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sidebar-group-trigger i{margin-left:auto;font-style:normal;transition:transform .15s}.sidebar-group.open>.sidebar-group-trigger i{transform:rotate(180deg)}.sidebar-group-panel{display:none;margin:3px 0 5px 19px;padding-left:10px;border-left:1px solid #354a5f}.sidebar-group.open>.sidebar-group-panel,.sidebar-group.has-active>.sidebar-group-panel{display:grid;gap:3px}.sidebar-sub-item{display:flex;align-items:flex-start;gap:9px;padding:9px 8px;border-radius:var(--radius-panel)}.sidebar-sub-item:hover,.sidebar-sub-item.active{background:#1d3044;color:#fff}.sidebar-sub-copy{min-width:0}.sidebar-sub-copy b{display:block;font-size:13px}.sidebar-sub-copy small{display:block;color:#93a5b8;font-size:11px;line-height:1.3;margin-top:2px}.sidebar-account{border-top:1px solid #2a3c50;padding:12px;display:flex;gap:8px;align-items:center}.sidebar-user{display:flex;flex-direction:column;min-width:0;flex:1}.sidebar-user b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sidebar-account>button{border:1px solid #40566d;background:#203247;color:#fff;border-radius:var(--radius-card);padding:7px 9px;cursor:pointer}.app-workspace{min-width:0}.workspace-header{height:72px;margin:0;padding:10px 26px;background:#fff;border-bottom:1px solid #d8dee7;position:sticky;top:0;z-index:40}.workspace-main{padding:22px 26px}.mobile-menu-toggle{display:none;color:#263b51;margin-right:6px}.sidebar-overlay{display:none}.sidebar-collapsed{grid-template-columns:72px minmax(0,1fr)}.sidebar-collapsed .sidebar-brand{padding:12px 8px;justify-content:center}.sidebar-collapsed .sidebar-brand-text,.sidebar-collapsed .sidebar-item-label,.sidebar-collapsed .sidebar-group-trigger i,.sidebar-collapsed .sidebar-sub-copy,.sidebar-collapsed .sidebar-user,.sidebar-collapsed .sidebar-account>button{display:none}.sidebar-collapsed .sidebar-toggle{position:absolute;left:18px;top:78px;color:#c7d2df}.sidebar-collapsed .sidebar-nav{padding-top:52px}.sidebar-collapsed .sidebar-item,.sidebar-collapsed .sidebar-group-trigger{justify-content:center;padding:8px}.sidebar-collapsed .sidebar-group-panel{display:none!important}.sidebar-collapsed .sidebar-account{justify-content:center;min-height:60px}.sidebar-collapsed .sidebar-logo{width:40px}.sidebar-collapsed .sidebar-item.active,.sidebar-collapsed .sidebar-group.has-active>.sidebar-group-trigger{box-shadow:inset 3px 0 #e39a22}
+.sidebar-sub-heading{margin:8px 0 2px;padding:0 8px;color:var(--nav-heading);font-size:10px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;user-select:none}.sidebar-sub-heading:first-child{margin-top:2px}.sidebar-item,.sidebar-group-trigger{width:100%;min-height:44px;border-radius:var(--radius-control);padding:8px 10px;display:flex;align-items:center;gap:10px;font-weight:650}/* Trạng thái hover/open/active của nav: xem THANG TRẠNG THÁI ở cuối file. Đừng khai lại ở đây -- hai nguồn màu lệch nhau là nguyên nhân của hồi quy 2026-09-11. */.sidebar-item-icon{width:31px;min-width:31px;height:28px;display:grid;place-items:center;border-radius:var(--radius-card);font-size:11px;font-weight:800}/* Màu icon: var(--nav-icon) ở lớp v71 bên dưới -- icon rail là line-art, không phải ô nền. */.sidebar-item-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sidebar-group-trigger i{margin-left:auto;font-style:normal;transition:transform .15s}.sidebar-group.open>.sidebar-group-trigger i{transform:rotate(180deg)}.sidebar-group-panel{display:none;margin:3px 0 5px 19px;padding-left:10px;border-left:1px solid var(--nav-divider)}.sidebar-group.open>.sidebar-group-panel,.sidebar-group.has-active>.sidebar-group-panel{display:grid;gap:3px}.sidebar-sub-item{display:flex;align-items:flex-start;gap:9px;padding:9px 8px;border-radius:var(--radius-panel)}.sidebar-sub-copy{min-width:0}.sidebar-sub-copy b{display:block;font-size:13px}.sidebar-sub-copy small{display:block;color:var(--nav-text-muted);font-size:11px;line-height:1.3;margin-top:2px}.sidebar-account{border-top:1px solid #2a3c50;padding:12px;display:flex;gap:8px;align-items:center}.sidebar-user{display:flex;flex-direction:column;min-width:0;flex:1}.sidebar-user b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sidebar-account>button{border:1px solid #40566d;background:#203247;color:#fff;border-radius:var(--radius-card);padding:7px 9px;cursor:pointer}.app-workspace{min-width:0}.workspace-header{height:72px;margin:0;padding:10px 26px;background:#fff;border-bottom:1px solid #d8dee7;position:sticky;top:0;z-index:40}.workspace-main{padding:22px 26px}.mobile-menu-toggle{display:none;color:#263b51;margin-right:6px}.sidebar-overlay{display:none}.sidebar-collapsed{grid-template-columns:72px minmax(0,1fr)}.sidebar-collapsed .sidebar-brand{padding:12px 8px;justify-content:center}.sidebar-collapsed .sidebar-brand-text,.sidebar-collapsed .sidebar-item-label,.sidebar-collapsed .sidebar-group-trigger i,.sidebar-collapsed .sidebar-sub-copy,.sidebar-collapsed .sidebar-user,.sidebar-collapsed .sidebar-account>button{display:none}.sidebar-collapsed .sidebar-toggle{position:absolute;left:18px;top:78px;color:#c7d2df}.sidebar-collapsed .sidebar-nav{padding-top:52px}.sidebar-collapsed .sidebar-item,.sidebar-collapsed .sidebar-group-trigger{justify-content:center;padding:8px}.sidebar-collapsed .sidebar-group-panel{display:none!important}.sidebar-collapsed .sidebar-account{justify-content:center;min-height:60px}.sidebar-collapsed .sidebar-logo{width:40px}
 @media(max-width:900px){.app-layout,.sidebar-collapsed{grid-template-columns:1fr}.app-sidebar{position:fixed;left:0;top:0;width:min(290px,86vw);transform:translateX(-105%);transition:transform .2s ease;box-shadow:12px 0 32px #0f172a40}.sidebar-collapsed .sidebar-brand-text,.sidebar-collapsed .sidebar-item-label,.sidebar-collapsed .sidebar-group-trigger i,.sidebar-collapsed .sidebar-sub-copy,.sidebar-collapsed .sidebar-user,.sidebar-collapsed .sidebar-account>button{display:initial}.sidebar-collapsed .sidebar-toggle{position:static;color:inherit}.sidebar-collapsed .sidebar-nav{padding-top:12px}.sidebar-collapsed .sidebar-item,.sidebar-collapsed .sidebar-group-trigger{justify-content:flex-start;padding:8px 10px}.sidebar-collapsed .sidebar-group-panel{display:none!important}.sidebar-collapsed .sidebar-group.open>.sidebar-group-panel,.sidebar-collapsed .sidebar-group.has-active>.sidebar-group-panel{display:grid!important}.sidebar-mobile-open .app-sidebar{transform:translateX(0)}.sidebar-mobile-open .sidebar-overlay{display:block;position:fixed;inset:0;background:#0f172a66;z-index:70}.mobile-menu-toggle{display:inline-grid;place-items:center}.workspace-header{padding:10px 14px}.workspace-main{padding:14px}}
 
 /* v65.8.5 Control Tower */
@@ -783,7 +833,7 @@ html{background:var(--surface-canvas);scrollbar-color:#9aa6b2 transparent}body{c
    dùng: control kèm nó đã có aria-label/placeholder riêng. */
 .sr-only{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;
   overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
-.app-layout{grid-template-columns:248px minmax(0,1fr);background:var(--surface-canvas)}.app-sidebar{width:248px;padding:0;background:var(--bg-command-strong);border-right:1px solid #29495f;color:#fff;box-shadow:none}.sidebar-brand{min-height:64px;padding:12px 14px;border-bottom:1px solid #29495f;gap:10px}.sidebar-logo{width:32px;height:32px;border:1px solid #7190a6;border-radius:var(--radius-control);background:transparent;color:#fff;font-size:12px}.sidebar-brand-text b{font-size:15px}.sidebar-brand-text small{color:#aec0ce}.sidebar-toggle,.mobile-menu-toggle{display:grid;place-items:center;width:36px;height:36px;padding:8px;border:1px solid #48677d;border-radius:var(--radius-control);background:transparent;color:#fff}.sidebar-toggle svg,.mobile-menu-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}.sidebar-nav{padding:12px 8px 16px;gap:2px}.sidebar-nav .nav-group,.nav-group{padding:16px 10px 6px;color:#91a8b9;font-size:10px;letter-spacing:.06em}.sidebar-nav .nav-item,.nav-item{position:relative;min-height:38px;padding:8px 10px;border-radius:var(--radius-control);color:#c9d5de;font-size:13px;line-height:20px}.sidebar-nav .nav-item:hover,.nav-item:hover{background:#183b53;color:#fff}.sidebar-nav .nav-item.active,.nav-item.active{background:#244a64;color:#fff;font-weight:650}.sidebar-nav .nav-item.active:before,.nav-item.active:before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:1px;background:#fff}.sidebar-account{padding:12px 14px;border-top:1px solid #29495f}.sidebar-user small{color:#aec0ce}.sidebar-account button{min-height:34px;border:1px solid #48677d;border-radius:var(--radius-control);background:transparent;color:#fff}.sidebar-account button:hover{background:#244a64}
+.app-layout{grid-template-columns:248px minmax(0,1fr);background:var(--surface-canvas)}.app-sidebar{width:248px;padding:0;background:var(--nav-surface);border-right:1px solid #29495f;color:#fff;box-shadow:none}.sidebar-brand{min-height:64px;padding:12px 14px;border-bottom:1px solid #29495f;gap:10px}.sidebar-logo{width:32px;height:32px;border:1px solid #7190a6;border-radius:var(--radius-control);background:transparent;color:#fff;font-size:12px}.sidebar-brand-text b{font-size:15px}.sidebar-brand-text small{color:#aec0ce}.sidebar-toggle,.mobile-menu-toggle{display:grid;place-items:center;width:36px;height:36px;padding:8px;border:1px solid #48677d;border-radius:var(--radius-control);background:transparent;color:#fff}.sidebar-toggle svg,.mobile-menu-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}.sidebar-nav{padding:12px 8px 16px;gap:2px}.sidebar-nav .nav-group,.nav-group{padding:16px 10px 6px;color:#91a8b9;font-size:10px;letter-spacing:.06em}.sidebar-nav .nav-item,.nav-item{position:relative;min-height:38px;padding:8px 10px;border-radius:var(--radius-control);color:#c9d5de;font-size:13px;line-height:20px}.sidebar-nav .nav-item:hover,.nav-item:hover{background:#183b53;color:#fff}.sidebar-nav .nav-item.active,.nav-item.active{background:#244a64;color:#fff;font-weight:650}.sidebar-nav .nav-item.active:before,.nav-item.active:before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:1px;background:#fff}/* Bản sao phạm vi `.sidebar-nav .nav-item` của bốn rule này GIỮ NGUYÊN: nó không chỉ mang màu (phần màu đã chết vì THANG TRẠNG THÁI ở cuối file ghi đè) mà còn mang HÌNH -- padding 8px 10px và min-height 38px của mục cấp một thắng rule .sidebar-item ở lớp v71 nhờ specificity. Bỏ nó đi là dịch chữ 1px. Màu ở đây là giá trị chết; đừng sửa màu nav tại chỗ này. */.sidebar-account{padding:12px 14px;border-top:1px solid #29495f}.sidebar-user small{color:#aec0ce}.sidebar-account button{min-height:34px;border:1px solid #48677d;border-radius:var(--radius-control);background:transparent;color:#fff}.sidebar-account button:hover{background:#244a64}
 .app-workspace{min-width:0;background:var(--surface-canvas)}.workspace-header{min-height:72px;margin:0;padding:12px 24px;border-bottom:1px solid var(--border-default);background:var(--surface-default);box-shadow:none}.workspace-header h1{margin:0;font-size:24px;line-height:30px;letter-spacing:-.015em;color:var(--text-primary)}.workspace-header p{margin:2px 0 0;color:var(--text-secondary);font-size:13px}.legacy-brand{gap:0}.workspace-main{padding:20px 24px 28px}.workspace-main>section,#content{display:grid;gap:16px;min-width:0}.mobile-menu-toggle{display:none;color:var(--bg-command);border-color:var(--border-default)}
 /* #content is an implicit single-column CSS grid; without this, its direct
    child (whichever page's root .panel/section openPage() just rendered)
@@ -856,7 +906,7 @@ html{background:var(--surface-canvas);scrollbar-color:#9aa6b2 transparent}body{c
    Nay rule quét mang thẳng hình khối đúng, nên thẻ MỚI tự đúng mà không ai
    phải nhớ mở rộng danh sách. .part-block vẫn loại trừ vì nó tự định nghĩa. */
 .admin-body :where(.card,[class$="-card"],[class*="-card "],.daily-kpi,.catalog-summary article,.system-user-summary article,.employee-summary article,.pc-kpi,.dash-metric,.template-old-list-panel,.shift-config-card,.session-accordion-item):where(:not(.part-block)){border:1px solid var(--border-default)!important;border-radius:var(--radius-surface)!important;background:var(--surface-default)!important;box-shadow:var(--shadow-card)!important}.admin-body :where(.modal,.modal-card,[class$="-modal"],[class*="-modal "]){border-radius:var(--radius-overlay)!important;box-shadow:var(--shadow-overlay)!important}
-.sidebar-item-icon{display:block!important;width:18px!important;height:18px!important;min-width:18px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:#9fb3c2!important;font-size:0!important;box-shadow:none!important}.sidebar-item-icon:after{display:none!important}.sidebar-item-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.sidebar-item.active,.sidebar-item[aria-current="page"],.sidebar-group.has-active>.sidebar-group-trigger,.sidebar-group-trigger.active,.sidebar-collapsed .sidebar-item.active,.sidebar-collapsed .sidebar-group.has-active>.sidebar-group-trigger{box-shadow:inset 1px 0 #fff!important;border-color:transparent!important}.sidebar-item.active .sidebar-item-icon,.sidebar-item[aria-current="page"] .sidebar-item-icon,.sidebar-group.has-active>.sidebar-group-trigger .sidebar-item-icon{color:#fff!important}.sidebar-item:before{background:#fff!important;width:1px!important}
+.sidebar-item-icon{display:block!important;width:18px!important;height:18px!important;min-width:18px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:var(--nav-icon)!important;font-size:0!important;box-shadow:none!important}.sidebar-item-icon:after{display:none!important}.sidebar-item-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.sidebar-item.active,.sidebar-item[aria-current="page"],.sidebar-group.has-active>.sidebar-group-trigger,.sidebar-group-trigger.active,.sidebar-collapsed .sidebar-item.active,.sidebar-collapsed .sidebar-group.has-active>.sidebar-group-trigger{border-color:transparent!important}/* Thanh chỉ mục + màu icon của mục đang mở: THANG TRẠNG THÁI ở cuối file. Ở đây từng có thanh trắng 1px và icon trắng, cả hai đều đã bị ghi đè -- giữ lại chỉ tạo nguồn màu thứ hai. */
 .btn.success,button.success,.success.btn{border-color:var(--action-primary)!important;background:var(--action-primary)!important;color:#fff!important}.btn.success:hover,button.success:hover,.success.btn:hover{border-color:var(--action-hover)!important;background:var(--action-hover)!important}
 .employee-table-focused,.system-user-table{width:100%!important}.employee-table-focused{min-width:1040px}.system-user-table{min-width:900px}
 @media(max-width:520px){.table-wrap:has(table):before{content:"Kéo ngang để xem thêm";position:sticky;left:0;z-index:2;display:block;width:max-content;margin:0;padding:5px 10px;border-right:1px solid var(--border-default);border-bottom:1px solid var(--border-default);border-radius:0 0 var(--radius-control) 0;background:#edf2f5;color:#52606e;font-size:11px;font-weight:650}.table-wrap{scrollbar-color:var(--action-primary) #dfe5ea;scrollbar-width:auto}.table-wrap::-webkit-scrollbar{height:10px}.table-wrap::-webkit-scrollbar-thumb{background:var(--action-primary);border:2px solid #dfe5ea;border-radius:999px}}
@@ -1464,19 +1514,87 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
    card read as a distinct unit rather than a fused block. */
 .cards,.daily-kpis,.catalog-summary,.system-user-summary{gap:14px}
 
-/* --- Sidebar navigation: the shipped "active item" indicator was a 1px
-   white inset line against a dark-navy background -- essentially invisible
-   (confirmed via screenshot: no reliable way to tell the active page from a
-   hovered one at a glance). Replace it with a clearly visible accent bar and
-   a distinct hover vs. active fill so "what page am I on" is unambiguous. */
+/* ==========================================================================
+   THANG TRẠNG THÁI CỦA RAIL TRÁI -- một hệ màu, khai báo đúng một lần.
+
+   Lịch sử: thanh chỉ mục đang mở nguyên bản là một đường inset trắng 1px trên
+   nền navy -- gần như không nhìn thấy, không phân biệt được "đang ở màn này"
+   với "đang trỏ chuột vào". Lớp này thay nó bằng nền nhấn + thanh accent.
+
+   2026-09-11, bản vá P1 này gom nốt phần còn lại: giá trị nav từng nằm rải ở
+   NĂM lớp chồng nhau (khối sidebar gốc, lớp 248px, lớp quét bề mặt, khối này
+   và lớp v71 cuối file); lớp sau ghi đè lớp trước nên phần viết ở lớp trước
+   là giá trị CHẾT, đọc lên thì sai màu. Bản vá xoá các rule chết đó, đưa mọi
+   màu về token --nav-* trong khối :root duy nhất, và bổ sung trạng thái ĐANG
+   MỞ vốn không có gì để nhận ra.
+
+   Bốn trạng thái phải phân biệt được bằng MẮT. Hướng, không chỉ độ đậm:
+
+     idle          trong suốt trên --nav-surface   -- hàng thường
+     open          --nav-surface-open              -- LÕM nhẹ: nhóm đang mở
+     hover         --nav-surface-hover             -- LÕM sâu hơn: đang trỏ tới
+     active        --nav-surface-active            -- NỔI lên khỏi mặt rail,
+                   và là hàng DUY NHẤT mang thanh accent --nav-accent + chữ trắng
+
+   Xem giải thích đầy đủ vì sao không xếp một thang cùng hướng ở khối token
+   :root. Hợp đồng này được đo lại bằng computed style trong
+   tests/e2e/sidebar-nav-surface.spec.js, nên không lặng lẽ trôi được.
+
+   !important ở đây là CÓ CHỦ ĐÍCH và là hàng rào: rail trái là mặt tối duy
+   nhất của ứng dụng, nằm giữa một file đầy rule quét mặt SÁNG dùng chung
+   (.card/.panel, rule quét [class$="-card"] §838...). Một rule chung rò vào
+   nav, hay một cascade bị cắt như hồi quy 2026-09-11, đều kết thúc bằng
+   <button> rơi về mặt mặc định của trình duyệt (ButtonFace #efefef) -- tức
+   một mảng TRẮNG giữa sidebar navy.
+   ========================================================================== */
+
+/* (0) Mặt nav. Neo lại ở lớp cuối cùng để không rule chung nào chạm tới được,
+   và viết bằng :is() thay vì một danh sách selector ngăn bởi dấu phẩy: chính
+   một selector chèn vào giữa danh sách đó đã cắt đôi rule và gây hồi quy. */
+.app-sidebar .sidebar-nav :is(.sidebar-item,.sidebar-group-trigger,.sidebar-sub-item){
+  border:0!important;background-color:transparent;color:var(--nav-text);
+}
+
+/* (1) Nhóm ĐANG MỞ nhưng chưa chứa trang hiện tại: lõm nhẹ xuống dưới mặt
+   rail -- cùng một cái hõm với khối mục con đang xổ ra ngay bên dưới -- và
+   sáng chữ lên một bậc. "Đang mở" không phải "đang ở": nó đi xuống, còn
+   trang hiện tại đi lên. */
+.app-sidebar .sidebar-group.open>.sidebar-group-trigger{
+  background-color:var(--nav-surface-open);color:var(--nav-text-open);
+}
+
+/* (2) Hover: cùng họ navy, lõm sâu hơn open một bậc. */
+.app-sidebar .sidebar-nav :is(.sidebar-item,.sidebar-group-trigger,.sidebar-sub-item):hover{
+  background-color:var(--nav-surface-hover)!important;color:var(--nav-text-strong);
+}
+
+/* (3) Đang mở (trang hiện tại): nền nhấn + thanh accent bên trái + chữ trắng.
+   `.sidebar-group.has-active>.sidebar-group-trigger` cho nhóm chứa trang hiện
+   tại, nên bốn nhóm cũng nói được "trang bạn đang xem nằm trong tôi". */
 .sidebar-item.active,.sidebar-item[aria-current="page"],.sidebar-group.has-active>.sidebar-group-trigger,.sidebar-group-trigger.active,.sidebar-sub-item.active{
-  background:#1c3d59!important;box-shadow:inset 3px 0 #4fa8dd!important;color:#fff!important;
+  background:var(--nav-surface-active)!important;box-shadow:inset 3px 0 var(--nav-accent)!important;color:var(--nav-text-strong)!important;
 }
 .sidebar-item.active .sidebar-item-icon,.sidebar-item[aria-current="page"] .sidebar-item-icon,.sidebar-group.has-active>.sidebar-group-trigger .sidebar-item-icon{
-  color:#8fd0f2!important;
+  color:var(--nav-accent-icon)!important;
 }
-.sidebar-item:hover,.sidebar-group-trigger:hover,.sidebar-sub-item:hover{background:#152d42!important}
-.sidebar-item.active:hover,.sidebar-group-trigger.active:hover,.sidebar-sub-item.active:hover{background:#204468!important}
+.sidebar-item.active:hover,.sidebar-group-trigger.active:hover,.sidebar-sub-item.active:hover,.sidebar-group.has-active>.sidebar-group-trigger:hover{
+  background:var(--nav-surface-active-hover)!important;
+}
+
+/* (4) Bàn phím: rail trái không có dấu focus của riêng nó, nên nó nhận vòng
+   chung `:where(button,a,…):focus-visible{outline:2px solid var(--action-primary)}`
+   -- #23658b trên nền navy #18364e chỉ đạt khoảng 1.5:1, tức gần như không
+   thấy. Vòng focus của nav vì vậy dùng --nav-accent, và phải kèm cờ ưu tiên
+   vì rule chung kia cũng có. */
+.app-sidebar .sidebar-nav :is(.sidebar-item,.sidebar-group-trigger,.sidebar-sub-item):focus-visible{
+  outline:2px solid var(--nav-accent)!important;outline-offset:-2px!important;
+}
+
+/* (5) Rail trái của mục đang mở là MỘT thứ. Lớp v71 vẽ thêm một vạch TRẮNG
+   1px bằng .nav-item.active:before (di sản của thanh chỉ mục cũ) -- nó nằm
+   đè lên 1px ngoài cùng của thanh accent cyan, nên cạnh trái của mục đang
+   mở là trắng-rồi-cyan. Trong rail này chỉ giữ thanh accent. */
+.app-sidebar .sidebar-nav .nav-item.active:before{content:none}
 
 /* --- Status system: RUNNING/OPEN are "still in progress", not "needs
    attention" -- they previously shared the amber WARNING tone with
@@ -1525,15 +1643,15 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 /* App shell: restore the canonical 248px command rail and a tighter,
    predictable workspace rhythm. */
 .app-layout{grid-template-columns:248px minmax(0,1fr)}
-.app-sidebar{width:248px;background:var(--bg-command);border-right-color:#28465d}
+.app-sidebar{width:248px;background:var(--nav-surface);border-right-color:#28465d}
 .sidebar-brand{height:68px;padding:10px 12px;border-bottom-color:#31516a}
 .sidebar-logo{width:36px;height:36px;border-radius:var(--radius-control);background:#24455f;box-shadow:inset 0 0 0 1px #517086}
 .sidebar-brand-text b{font-size:16px;line-height:20px}.sidebar-brand-text small{font-size:11px}
 .sidebar-nav{gap:2px;padding:10px 8px 14px}.sidebar-group-panel{margin-left:16px;padding-left:9px}
 .sidebar-item,.sidebar-group-trigger{min-height:38px;padding:7px 9px;border-radius:var(--radius-control);font-weight:650}
 .sidebar-sub-item{min-height:34px;padding:7px 8px;border-radius:var(--radius-control)}.sidebar-sub-copy b{font-size:12.5px}
-.sidebar-item:hover,.sidebar-group-trigger:hover,.sidebar-item.active,.sidebar-group-trigger.active,.sidebar-group.has-active>.sidebar-group-trigger{background:#24455f}
-.sidebar-sub-item:hover,.sidebar-sub-item.active{background:#203f57}
+/* Nền hover/active của rail: xem THANG TRẠNG THÁI phía trên. Hai rule #24455f/#203f57
+   từng nằm đây là lớp màu nav thứ NĂM và đã bị ghi đè hoàn toàn. */
 .sidebar-account{padding:10px 12px;border-top-color:#31516a}
 
 .workspace-header{height:68px;min-height:68px;padding:9px 24px;box-shadow:0 1px 3px rgba(16,43,63,.08)}

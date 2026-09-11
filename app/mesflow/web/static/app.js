@@ -71,7 +71,11 @@ applySidebarState((()=>{try{return localStorage.getItem('mesflow_sidebar_collaps
 sidebarToggle.onclick=()=>applySidebarState(!appLayout.classList.contains('sidebar-collapsed'));
 mobileMenuToggle.onclick=()=>document.body.classList.toggle('sidebar-mobile-open');
 sidebarOverlay.onclick=closeMobileSidebar;
-function closeNavMenus(except=null){document.querySelectorAll('.sidebar-group.open').forEach(x=>{if(x!==except)x.classList.remove('open')})}
+// Nhóm sidebar là một disclosure: class .open vẽ nó, aria-expanded NÓI nó ra.
+// Hai thứ phải đi cùng nhau nên chỉ đổi qua setGroupOpen(); trước đây không có
+// aria-expanded nào, người đọc màn hình chỉ nghe thấy một cái nút không trạng thái.
+function setGroupOpen(group,open){group.classList.toggle('open',open);group.querySelector('.sidebar-group-trigger')?.setAttribute('aria-expanded',String(open))}
+function closeNavMenus(except=null){document.querySelectorAll('.sidebar-group.open').forEach(x=>{if(x!==except)setGroupOpen(x,false)})}
 for(const group of menu){
   if(group.page){
     if(!canOpenPage(group.page))continue;
@@ -93,7 +97,8 @@ for(const group of menu){
     b.onclick=()=>{if(item.href){location.href=item.href}else{AppNav.reset();AppNav.clearReturnContext();openPage(item.page,b)}closeMobileSidebar()};panel.appendChild(b);
   }
   if(!panel.querySelector('.sidebar-sub-item'))continue;   // headings alone never make a group visible
-  trigger.onclick=()=>{if(appLayout.classList.contains('sidebar-collapsed')){applySidebarState(false);wrap.classList.add('open');return}wrap.classList.toggle('open')};
+  trigger.setAttribute('aria-expanded','false');
+  trigger.onclick=()=>{if(appLayout.classList.contains('sidebar-collapsed')){applySidebarState(false);setGroupOpen(wrap,true);return}setGroupOpen(wrap,!wrap.classList.contains('open'))};
   wrap.append(trigger,panel);nav.appendChild(wrap);
 }
 
@@ -115,7 +120,7 @@ document.getElementById('logout').onclick=async()=>{await fetch('/api/auth/logou
 // app.js is loaded ahead of every pages/*.js script (see app.html).
 const PAGE_RENDERERS={};
 window.registerPage=(id,render)=>{PAGE_RENDERERS[id]=render};
-function setActive(btn){document.body.dataset.page=btn?.dataset?.page||'';document.querySelectorAll('.nav-item,.sidebar-sub-item,.sidebar-group-trigger').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.sidebar-group').forEach(x=>x.classList.remove('has-active'));if(btn){btn.classList.add('active');const group=btn.closest('.sidebar-group');if(group){group.classList.add('has-active');group.classList.add('open');group.querySelector('.sidebar-group-trigger')?.classList.add('active')}}}
+function setActive(btn){document.body.dataset.page=btn?.dataset?.page||'';document.querySelectorAll('.nav-item,.sidebar-sub-item,.sidebar-group-trigger').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.sidebar-group').forEach(x=>x.classList.remove('has-active'));if(btn){btn.classList.add('active');const group=btn.closest('.sidebar-group');if(group){group.classList.add('has-active');setGroupOpen(group,true);group.querySelector('.sidebar-group-trigger')?.classList.add('active')}}}
 async function openPage(id,btn,{historyMode='push'}={}){if(!canOpenPage(id)){content.innerHTML='<div class="empty danger"><b>Không có quyền truy cập</b><span>Liên hệ Admin để được cấp quyền cho màn hình này.</span></div>';return}if(document.body.dataset.page==='templates'&&id!=='templates'&&templateUi?.dirty&&!confirm('Template có thay đổi chưa lưu. Rời màn hình và bỏ thay đổi?'))return;
   // Every top-level page gets a stable `?page=` URL from this single place
   // (was previously only set ad hoc by a few sidebar sub-items), so Back/
