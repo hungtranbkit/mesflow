@@ -280,6 +280,7 @@ let dashboardTimer=null;
 const siteToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 async function renderDashboard(){
   if(dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
+  if(timelineScaleObserver){timelineScaleObserver.disconnect();timelineScaleObserver=null}
   title.textContent='Dashboard theo ngày';subtitle.textContent='Theo dõi toàn bộ sản lượng, nhân lực và tình trạng sản xuất trong ngày làm việc.';
   const todayHcm=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const shiftResponse=await api('/api/settings/work-shifts');
@@ -324,7 +325,7 @@ async function renderDashboard(){
   // daily_progress()). NEEDS_REVIEW is a real actionable exception (an
   // auto-closed session nobody has confirmed the numbers for yet).
   const stateLabel=x=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý ngoại lệ',UPDATED:'Đã cập nhật',IDLE:'Không có người đang làm'}[x]||x);
-  const row=x=>`<div class="daily-op-row ${String(x.day_state||'').toLowerCase()}"><span>${MFUI.opIdentity({name:x.operation_name,code:x.operation_code,meta:`${x.po_code||''} · ${x.part_code||''} ${x.part_name||''}`.trim()})}</span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>${x.session_count} session · ${x.open_session_count} đang mở</small></span><span><b>Đạt ${Number(x.day_good_qty||0).toLocaleString('vi-VN')}</b><small>NG ${Number(x.day_defect_qty||0).toLocaleString('vi-VN')}</small></span><span><em class="daily-state ${String(x.day_state||'').toLowerCase()}">${esc(stateLabel(x.day_state))}</em><small>${fmt(x.last_report_at||x.last_started_at)}</small></span></div>`;
+  const row=x=>`<div class="daily-op-row ${String(x.day_state||'').toLowerCase()}"><span>${MFUI.opIdentity({name:x.operation_name,code:x.operation_code,meta:`${x.po_code||''} · ${x.part_code||''} ${x.part_name||''}`.trim()})}</span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>${x.session_count} session · ${x.open_session_count} đang mở</small></span><span><b>${MFUI.qtyLine({good:x.day_good_qty,defect:x.day_defect_qty,recorded:opOutputRecorded(x)})}</b><small>${opOutputRecorded(x)?'Đã chốt số':'Chưa session nào chốt số'}</small></span><span><em class="daily-state ${String(x.day_state||'').toLowerCase()}">${esc(stateLabel(x.day_state))}</em><small>${fmt(x.last_report_at||x.last_started_at)}</small></span></div>`;
   const hm=v=>new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(v));
   // Field report (2026-09-08): "3 giờ 20 phút" ate too much of a session
   // chip's fixed width, crowding out the qty info next to it -- "3g 20p"
@@ -356,8 +357,8 @@ async function renderDashboard(){
     const groups=new Map();
     for(const x of sessions){
       const key=String(x.employee_id||x.employee_code||x.employee_name);
-      if(!groups.has(key))groups.set(key,{employee_id:x.employee_id,employee_code:x.employee_code,employee_name:x.employee_name,sessions:[],seconds:0,good:0,bad:0,open:0});
-      const g=groups.get(key);g.sessions.push(x);g.good+=Number(x.good_qty||0);g.bad+=Number(x.defect_qty||0);if(x.session_status==='OPEN')g.open++;
+      if(!groups.has(key))groups.set(key,{employee_id:x.employee_id,employee_code:x.employee_code,employee_name:x.employee_name,sessions:[],seconds:0,good:0,bad:0,open:0,recorded:0});
+      const g=groups.get(key);g.sessions.push(x);g.good+=Number(x.good_qty||0);g.bad+=Number(x.defect_qty||0);if(mfOutputRecorded(x))g.recorded++;if(x.session_status==='OPEN')g.open++;
       g.seconds+=splitWork(x).reduce((n,[a,b])=>n+(b-a)/1000,0);
     }
     const sortMode=document.getElementById('dailyEmployeeSort')?.value||'start';
@@ -378,11 +379,33 @@ async function renderDashboard(){
       }
       return blocks;
     };
-    const markMinutes=[Math.round((viewStart-baseStart)/60000),...intervals.flatMap(x=>[Number(x.start_minute),Number(x.end_minute)]),Math.round((viewEnd-baseStart)/60000)];
-    const uniqueMarks=[...new Set(markMinutes)].sort((a,b)=>a-b);
-    const scaleMarks=uniqueMarks.map(minute=>({label:`${String(Math.floor((minute%1440)/60)).padStart(2,'0')}:${String(minute%60).padStart(2,'0')}`,left:pct(atMinute(minute))}));
-    const scaleHtml=scaleMarks.map((m,i)=>`<span class="shift-scale-mark ${i===0?'first':i===scaleMarks.length-1?'last':''}" style="left:${m.left}%">${m.label}</span>`).join('');
-    const gridHtml=scaleMarks.map((m,i)=>`<i class="shift-grid-line ${i===0?'first':i===scaleMarks.length-1?'last':''}" style="left:${m.left}%"></i>`).join('');
+    // --- Thang giờ của timeline ------------------------------------------
+    //
+    // Bản cũ chỉ lấy mốc từ BIÊN các khoảng ca. Với Dashboard theo ngày
+    // (dayView = một khoảng WORK 0..1440) ra đúng ba mốc [0, 1440, 1500], rồi
+    // dán nhãn bằng `minute%1440`: mốc 1440 in ra "00:00" y hệt mốc 0, nằm ở
+    // 96%, còn 1500 ("01:00") ở 100%. Hai nhãn chồng lên nhau ở mép phải và
+    // một trong hai còn là nhãn sai -- đúng lỗi người dùng báo, và nó không
+    // phụ thuộc dữ liệu nên xuất hiện ở MỌI ngày.
+    //
+    // Nay dựng mốc theo GIỜ TRÒN trong khoảng nhìn, cộng biên các khoảng ca
+    // (vào/ra/nghỉ là ranh giới nghiệp vụ, không rơi đúng giờ tròn). Hiện bao
+    // nhiêu nhãn là việc của layoutTimelineScale(), quyết định SAU khi đo bề
+    // rộng thật -- không hardcode lề riêng cho 00:00/01:00.
+    const viewStartMinute=Math.round((viewStart-baseStart)/60000);
+    const viewEndMinute=Math.round((viewEnd-baseStart)/60000);
+    const hourMarks=[];
+    for(let m=Math.ceil(viewStartMinute/60)*60;m<=viewEndMinute;m+=60)hourMarks.push(m);
+    const markMinutes=[...new Set([viewStartMinute,...hourMarks,
+      ...intervals.flatMap(x=>[Number(x.start_minute),Number(x.end_minute)]),viewEndMinute])]
+      .filter(m=>m>=viewStartMinute&&m<=viewEndMinute).sort((a,b)=>a-b);
+    // Giờ KHÔNG quay vòng về 00:00 sau nửa đêm: ca kéo sang hôm sau đọc là
+    // 24:00 / 25:00. Quay vòng thì hai mốc cách nhau 24 tiếng mang cùng một
+    // nhãn trên cùng một thang -- chính là thứ vừa gây ra lỗi này.
+    const scaleLabel=minute=>`${String(Math.floor(minute/60)).padStart(2,'0')}:${String(minute%60).padStart(2,'0')}`;
+    const scaleMarks=markMinutes.map(minute=>({minute,label:scaleLabel(minute),left:pct(atMinute(minute))}));
+    const scaleHtml=scaleMarks.map(m=>`<span class="shift-scale-mark" data-minute="${m.minute}" style="left:${m.left}%">${m.label}</span>`).join('');
+    const gridHtml=scaleMarks.map(m=>`<i class="shift-grid-line" data-minute="${m.minute}" style="left:${m.left}%"></i>`).join('');
     // Field report (2026-09-08): each session chip only ever showed
     // time/duration/operation -- no product quantity, so cross-checking
     // "did this specific session's kiosk input actually land?" meant
@@ -416,8 +439,9 @@ async function renderDashboard(){
     const sessionChip=x=>{
       const open=x.session_status==='OPEN',start=new Date(x.started_at).getTime(),end=open?now:new Date(x.ended_at||x.effective_end_at).getTime();
       const elapsed=Math.max(0,(Math.min(end,shiftEnd)-Math.max(start,viewStart))/1000);
-      const qty=qtyLine(x.good_qty,x.defect_qty,x.rework_qty);
-      const qtyPlain=qtyLine(x.good_qty,x.defect_qty,x.rework_qty,true);
+      const recorded=mfOutputRecorded(x);
+      const qty=MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,recorded});
+      const qtyPlain=MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,recorded,plain:true});
       const when=`${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)}`;
       // title= vẫn soi được TOÀN BỘ nội dung chip kể cả phần bị cắt, và có
       // thêm mã -- thứ duy nhất bị lấy khỏi bề mặt chip.
@@ -438,7 +462,7 @@ async function renderDashboard(){
         name:ops.slice(0,3).map(x=>String(x.operation_name||x.operation_code||'').trim()).filter(Boolean).join(' · ')+(ops.length>3?` +${ops.length-3} OP`:''),
         code:ops.slice(0,3).map(x=>String(x.operation_code||'').trim()).filter(Boolean).join(' · '),
         tooltip:ops.map(x=>MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})).join(' | '),
-      })}<small>Đạt ${g.good.toLocaleString('vi-VN')} · NG ${g.bad.toLocaleString('vi-VN')}</small><div class="employee-session-chips">${ordered.slice(0,10).map(sessionChip).join('')}${g.sessions.length>10?`<span>+${g.sessions.length-10} session</span>`:''}</div></div></article>`;
+      })}<small>${MFUI.qtyLine({good:g.good,defect:g.bad,recorded:g.recorded>0})}</small><div class="employee-session-chips">${ordered.slice(0,10).map(sessionChip).join('')}${g.sessions.length>10?`<span>+${g.sessions.length-10} session</span>`:''}</div></div></article>`;
     }).join('')}</div>`;
   };
   const load=async()=>{try{const date=document.getElementById('dailyDate').value,shiftId=dayView;const data=await api(`/api/dashboard/day?date=${encodeURIComponent(date)}&limit=1000`);
@@ -454,15 +478,20 @@ async function renderDashboard(){
     // as an informational KPI count -- it must never drive "cần chú ý"
     // priority (see needsReview below, the real actionable exception).
     ngOps=items.filter(x=>Number(x.day_defect_qty)>0),needsReview=items.filter(x=>x.day_state==='NEEDS_REVIEW'),
-    good=sessions.reduce((n,x)=>n+Number(x.good_qty||0),0),bad=sessions.reduce((n,x)=>n+Number(x.defect_qty||0),0),people=new Set(sessions.map(x=>x.employee_id)).size;document.getElementById('dailyKpis').innerHTML=[['Nhân viên có hoạt động',people,sessions.length+' session'],['Đang làm việc',new Set(runningSessions.map(x=>x.employee_id)).size,runningSessions.length+' session đang mở'],['Sản lượng đạt',good,'Tổng của mọi session'],['Sản lượng NG',bad,ngOps.length+' OP có NG']].map((x,i)=>`<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${Number(x[1]).toLocaleString('vi-VN')}</strong><span>${x[2]}</span></article>`).join('');document.getElementById('sessionTimeline').innerHTML=timeline(sessions,date,shiftId);const sessionStatus=document.getElementById('dailySessionStatus');if(sessionStatus)sessionStatus.textContent=`${runningSessions.length} session đang chạy · Cập nhật ${hm(new Date())}`;const opTimeRows=[...items].sort((a,b)=>Number(b.day_work_seconds||0)-Number(a.day_work_seconds||0));document.getElementById('opTimeProgress').innerHTML=opTimeRows.length?`<div class="op-time-table"><div class="op-time-row head"><span>Operation</span><span>Thời gian thực tế</span><span>Tiến độ thời gian / sản phẩm</span><span>Người làm</span></div>${opTimeRows.slice(0,20).map(x=>{const actual=Number(x.day_work_seconds||0),planned=Number(x.planned_work_seconds||0),timeRatio=planned>0?actual/planned*100:0,variance=planned>0?actual-planned:0,plannedQty=Number(x.planned_quantity||0),goodTotal=Number(x.total_good_qty||0),productRatio=plannedQty>0?goodTotal/plannedQty*100:0,state=planned<=0?'unconfigured':timeRatio>110?'slow':timeRatio>=80?'near':'fast';return `<div class="op-time-row ${state}"><span>${MFUI.opIdentity({name:x.operation_name,code:x.operation_code,meta:`${x.po_code||''} · ${x.part_code||''}`.trim()})}</span><span><b>${fmtDuration(actual)}</b><small>${x.session_count} session · ${x.open_session_count} đang chạy</small></span><span class="op-dual-progress"><div class="op-progress-line time"><div class="op-progress-title"><span class="op-progress-kind time"><i aria-hidden="true">◷</i><b>Tiến độ thời gian</b></span><strong>${planned>0?`${Math.round(timeRatio)}%`:'—'}</strong></div><div class="op-time-timeline ${state}"><span class="time-start">0%</span><div class="op-time-meter"><i style="width:${Math.min(Math.max(timeRatio,0),100)}%"></i><em style="left:${Math.min(Math.max(timeRatio,0),100)}%" aria-label="Thời điểm hiện tại"></em></div><span class="time-end">100%</span></div><small>${planned>0?`${variance>0?`Đã vượt ${fmtDuration(variance)}`:variance===0?'Đã dùng hết thời gian định mức':`Còn lại ${fmtDuration(-variance)}`} · Định mức ${fmtDuration(planned)}`:`Chưa cấu hình định mức · ${Number(x.standard_seconds_per_unit||0)} giây/SP`}</small></div><div class="op-progress-line product"><div class="op-progress-title"><span class="op-progress-kind product"><i aria-hidden="true">▦</i><b>Tiến độ sản phẩm</b></span><strong>${plannedQty>0?`${Math.round(productRatio)}%`:'—'}</strong></div><div class="op-product-meter"><i style="width:${Math.min(Math.max(productRatio,0),100)}%"></i></div><small><b>${goodTotal.toLocaleString('vi-VN')}</b> / ${plannedQty>0?plannedQty.toLocaleString('vi-VN'):'—'} sản phẩm đạt</small></div></span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>Trong ca: Đạt ${Number(x.day_good_qty||0).toLocaleString('vi-VN')} · NG ${Number(x.day_defect_qty||0).toLocaleString('vi-VN')}${Number(x.day_rework_qty||0)>0?` · Sửa được ${Number(x.day_rework_qty||0).toLocaleString('vi-VN')}`:''}</small>${activeWorkersBreakdown(x)}</span></div>`}).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có thời gian làm việc theo OP</b><span>Dữ liệu xuất hiện khi nhân viên bắt đầu session.</span></div>';const day=activity;document.getElementById('dailyFeed').innerHTML=day.length?`<div class="control-activity-list">${day.slice(0,25).map(x=>`<div class="control-activity ${x.item_type==='SESSION_STARTED'?'started':'reported'}"><i>${x.item_type==='SESSION_STARTED'?'▶':'SL'}</i><span><b>${x.item_type==='SESSION_STARTED'?'Bắt đầu session':'Nhập sản lượng'}</b><small title="${esc(MFUI.opIdentityText({name:x.operation_name||x.subject,code:x.operation_code}))}">${esc(x.actor||'')} · ${esc(x.po_code||'')} · ${esc(String(x.operation_name||x.subject||x.operation_code||'').trim()||'—')} ${x.item_type==='QUANTITY_REPORTED'?`· Đạt ${x.good_qty||0} · NG ${x.defect_qty||0}`:''}</small></span><time>${fmt(x.activity_at)}</time></div>`).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có hoạt động trong ngày</b><span>Chọn ngày khác hoặc bắt đầu session từ Kiosk.</span></div>';const runningOps=items.filter(x=>Number(x.open_session_count)>0),attention=[...needsReview,...runningOps.filter(x=>!needsReview.includes(x)),...items.filter(x=>!needsReview.includes(x)&&!runningOps.includes(x))];document.getElementById('dailyAttention').innerHTML=attention.length?`<div class="daily-op-table"><div class="daily-op-row head"><span>Operation</span><span>Nhân viên / Session</span><span>Sản lượng ngày</span><span>Trạng thái</span></div>${attention.slice(0,20).map(row).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có OP phát sinh</b><span>Dashboard theo ngày không tải toàn bộ hàng trăm OP để tránh rối.</span></div>'}catch(e){const timelineEl=document.getElementById('sessionTimeline');if(timelineEl)timelineEl.innerHTML=`<div class="empty danger">Không tải được session: ${esc(e.message)}</div>`}};
-  document.getElementById('dailyDate').onchange=()=>{syncDashboardUrl();load()};document.getElementById('dailyEmployeeSort').onchange=load;document.getElementById('dailyRefresh').onclick=()=>load();document.getElementById('dailyOpenAll').onclick=document.getElementById('dailyOpenOperations').onclick=document.getElementById('opTimeOpenAll').onclick=()=>openPage('production-orders',document.querySelector('[data-page="production-orders"]'));syncDashboardUrl();await load();dashboardTimer=setInterval(()=>{if(document.getElementById('sessionTimeline'))load()},10000)
+    good=sessions.reduce((n,x)=>n+Number(x.good_qty||0),0),bad=sessions.reduce((n,x)=>n+Number(x.defect_qty||0),0),people=new Set(sessions.map(x=>x.employee_id)).size,
+    // Hai KPI sản lượng là TỔNG của các session, nên chúng thừa hưởng đúng
+    // câu hỏi "đã chốt hay chưa": chưa session nào chốt thì tổng 0 là "chưa
+    // có số", không phải "làm ra 0 sản phẩm". Hai KPI đầu (đếm người/đếm
+    // session) thì 0 luôn là 0 thật -- đếm được, không phụ thuộc ai nhập gì.
+    recordedSessionCount=sessions.filter(x=>mfOutputRecorded(x)).length;document.getElementById('dailyKpis').innerHTML=[['Nhân viên có hoạt động',people.toLocaleString('vi-VN'),sessions.length+' session'],['Đang làm việc',new Set(runningSessions.map(x=>x.employee_id)).size.toLocaleString('vi-VN'),runningSessions.length+' session đang mở'],['Sản lượng đạt',MFUI.qtyValue(good,recordedSessionCount>0),recordedSessionCount?`${recordedSessionCount} session đã chốt số`:'Chưa session nào chốt số'],['Sản lượng NG',MFUI.qtyValue(bad,recordedSessionCount>0),ngOps.length+' OP có NG']].map((x,i)=>`<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${x[1]}</strong><span>${x[2]}</span></article>`).join('');document.getElementById('sessionTimeline').innerHTML=timeline(sessions,date,shiftId);layoutTimelineScale(document.getElementById('sessionTimeline'));const sessionStatus=document.getElementById('dailySessionStatus');if(sessionStatus)sessionStatus.textContent=`${runningSessions.length} session đang chạy · Cập nhật ${hm(new Date())}`;const opTimeRows=[...items].sort((a,b)=>Number(b.day_work_seconds||0)-Number(a.day_work_seconds||0));document.getElementById('opTimeProgress').innerHTML=opTimeRows.length?`<div class="op-time-table"><div class="op-time-row head"><span>Operation</span><span>Thời gian thực tế</span><span>Tiến độ thời gian / sản phẩm</span><span>Người làm</span></div>${opTimeRows.slice(0,20).map(x=>{const actual=Number(x.day_work_seconds||0),planned=Number(x.planned_work_seconds||0),timeRatio=planned>0?actual/planned*100:0,variance=planned>0?actual-planned:0,plannedQty=Number(x.planned_quantity||0),goodTotal=Number(x.total_good_qty||0),productRatio=plannedQty>0?goodTotal/plannedQty*100:0,state=planned<=0?'unconfigured':timeRatio>110?'slow':timeRatio>=80?'near':'fast';return `<div class="op-time-row ${state}"><span>${MFUI.opIdentity({name:x.operation_name,code:x.operation_code,meta:`${x.po_code||''} · ${x.part_code||''}`.trim()})}</span><span><b>${fmtDuration(actual)}</b><small>${x.session_count} session · ${x.open_session_count} đang chạy</small></span><span class="op-dual-progress"><div class="op-progress-line time"><div class="op-progress-title"><span class="op-progress-kind time"><i aria-hidden="true">◷</i><b>Tiến độ thời gian</b></span><strong>${planned>0?`${Math.round(timeRatio)}%`:'—'}</strong></div><div class="op-time-timeline ${state}"><span class="time-start">0%</span><div class="op-time-meter"><i style="width:${Math.min(Math.max(timeRatio,0),100)}%"></i><em style="left:${Math.min(Math.max(timeRatio,0),100)}%" aria-label="Thời điểm hiện tại"></em></div><span class="time-end">100%</span></div><small>${planned>0?`${variance>0?`Đã vượt ${fmtDuration(variance)}`:variance===0?'Đã dùng hết thời gian định mức':`Còn lại ${fmtDuration(-variance)}`} · Định mức ${fmtDuration(planned)}`:`Chưa cấu hình định mức · ${Number(x.standard_seconds_per_unit||0)} giây/SP`}</small></div><div class="op-progress-line product"><div class="op-progress-title"><span class="op-progress-kind product"><i aria-hidden="true">▦</i><b>Tiến độ sản phẩm</b></span><strong>${plannedQty>0?`${Math.round(productRatio)}%`:'—'}</strong></div><div class="op-product-meter"><i style="width:${Math.min(Math.max(productRatio,0),100)}%"></i></div><small><b>${goodTotal.toLocaleString('vi-VN')}</b> / ${plannedQty>0?plannedQty.toLocaleString('vi-VN'):'—'} sản phẩm đạt</small></div></span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>Trong ca: ${MFUI.qtyLine({good:x.day_good_qty,defect:x.day_defect_qty,rework:x.day_rework_qty,recorded:opOutputRecorded(x)})}</small>${activeWorkersBreakdown(x)}</span></div>`}).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có thời gian làm việc theo OP</b><span>Dữ liệu xuất hiện khi nhân viên bắt đầu session.</span></div>';const day=activity;document.getElementById('dailyFeed').innerHTML=day.length?`<div class="control-activity-list">${day.slice(0,25).map(x=>`<div class="control-activity ${x.item_type==='SESSION_STARTED'?'started':'reported'}"><i>${x.item_type==='SESSION_STARTED'?'▶':'SL'}</i><span><b>${x.item_type==='SESSION_STARTED'?'Bắt đầu session':'Nhập sản lượng'}</b><small title="${esc(MFUI.opIdentityText({name:x.operation_name||x.subject,code:x.operation_code}))}">${esc(x.actor||'')} · ${esc(x.po_code||'')} · ${esc(String(x.operation_name||x.subject||x.operation_code||'').trim()||'—')} ${x.item_type==='QUANTITY_REPORTED'?`· Đạt ${x.good_qty||0} · NG ${x.defect_qty||0}`:''}</small></span><time>${fmt(x.activity_at)}</time></div>`).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có hoạt động trong ngày</b><span>Chọn ngày khác hoặc bắt đầu session từ Kiosk.</span></div>';const runningOps=items.filter(x=>Number(x.open_session_count)>0),attention=[...needsReview,...runningOps.filter(x=>!needsReview.includes(x)),...items.filter(x=>!needsReview.includes(x)&&!runningOps.includes(x))];document.getElementById('dailyAttention').innerHTML=attention.length?`<div class="daily-op-table"><div class="daily-op-row head"><span>Operation</span><span>Nhân viên / Session</span><span>Sản lượng ngày</span><span>Trạng thái</span></div>${attention.slice(0,20).map(row).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có OP phát sinh</b><span>Dashboard theo ngày không tải toàn bộ hàng trăm OP để tránh rối.</span></div>'}catch(e){const timelineEl=document.getElementById('sessionTimeline');if(timelineEl)timelineEl.innerHTML=`<div class="empty danger">Không tải được session: ${esc(e.message)}</div>`}};
+  document.getElementById('dailyDate').onchange=()=>{syncDashboardUrl();load()};document.getElementById('dailyEmployeeSort').onchange=load;document.getElementById('dailyRefresh').onclick=()=>load();document.getElementById('dailyOpenAll').onclick=document.getElementById('dailyOpenOperations').onclick=document.getElementById('opTimeOpenAll').onclick=()=>openPage('production-orders',document.querySelector('[data-page="production-orders"]'));syncDashboardUrl();await load();watchTimelineScale(document.getElementById('sessionTimeline'));dashboardTimer=setInterval(()=>{if(document.getElementById('sessionTimeline'))load()},10000)
 }
 
 async function renderDailyOperations(){
   if(dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
   title.textContent='Theo dõi Operation theo ngày';subtitle.textContent='Danh sách riêng cho số lượng lớn Operation, có lọc theo ngày, PO, trạng thái và từ khóa';
   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-  content.innerHTML=`<div class="panel"><div class="panel-head"><div><h2>Danh sách OP phát sinh</h2><p>Chỉ tải những OP có session hoặc cập nhật trong ngày.</p></div><button class="btn" id="dopReload">Làm mới</button></div><div class="toolbar daily-toolbar"><input type="date" id="dopDate" value="${today}"><input id="dopSearch" placeholder="Tìm PO, Part, OP, nhân viên..."><select id="dopState"><option value="">Tất cả trạng thái</option><option value="RUNNING">Đang chạy</option><option value="NEEDS_REVIEW">Cần xử lý ngoại lệ</option><option value="UPDATED">Đã cập nhật</option><option value="IDLE">Không có người đang làm</option></select></div><div id="dopList">Đang tải...</div></div>`;let items=[];const label=x=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý ngoại lệ',UPDATED:'Đã cập nhật',IDLE:'Không có người đang làm'}[x]||x);const draw=()=>{const q=document.getElementById('dopSearch').value.toLowerCase(),st=document.getElementById('dopState').value;const rows=items.filter(x=>(!st||x.day_state===st)&&(!q||JSON.stringify(x).toLowerCase().includes(q)));document.getElementById('dopList').innerHTML=rows.length?`<div class="daily-op-table"><div class="daily-op-row head"><span>PO / Part / Operation</span><span>Nhân viên / Session</span><span>Sản lượng ngày / Tổng</span><span>Trạng thái</span></div>${rows.map(x=>`<div class="daily-op-row ${String(x.day_state).toLowerCase()}"><span>${MFUI.opIdentity({name:x.operation_name,code:x.operation_code,meta:`${x.po_code||''} · ${x.part_code||''} ${x.part_name||''}`.trim()})}</span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>${x.session_count} session · ${x.open_session_count} đang mở</small></span><span><b>Ngày: ${x.day_good_qty} đạt / ${x.day_defect_qty} NG / ${x.day_rework_qty||0} sửa được / ${Math.max(Number(x.day_defect_qty||0)-Number(x.day_rework_qty||0),0)} phế</b><small>Tổng: ${x.total_good_qty} đạt / ${x.total_defect_qty} NG / ${x.total_rework_qty||0} sửa được / ${Math.max(Number(x.total_defect_qty||0)-Number(x.total_rework_qty||0),0)} phế</small></span><span><em class="daily-state ${String(x.day_state).toLowerCase()}">${esc(label(x.day_state))}</em><small>${fmt(x.last_report_at||x.last_started_at)}</small></span></div>`).join('')}</div>`:'<div class="empty">Không có Operation phù hợp.</div>'};const load=async()=>{try{const d=await api(`/api/dashboard/daily-progress?date=${encodeURIComponent(document.getElementById('dopDate').value)}&limit=2000`);items=d.items||[];draw()}catch(e){document.getElementById('dopList').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}};document.getElementById('dopReload').onclick=load;document.getElementById('dopDate').onchange=load;document.getElementById('dopSearch').oninput=draw;document.getElementById('dopState').onchange=draw;await load()
+  content.innerHTML=`<div class="panel"><div class="panel-head"><div><h2>Danh sách OP phát sinh</h2><p>Chỉ tải những OP có session hoặc cập nhật trong ngày.</p></div><button class="btn" id="dopReload">Làm mới</button></div><div class="toolbar daily-toolbar"><input type="date" id="dopDate" value="${today}"><input id="dopSearch" placeholder="Tìm PO, Part, OP, nhân viên..."><select id="dopState"><option value="">Tất cả trạng thái</option><option value="RUNNING">Đang chạy</option><option value="NEEDS_REVIEW">Cần xử lý ngoại lệ</option><option value="UPDATED">Đã cập nhật</option><option value="IDLE">Không có người đang làm</option></select></div><div id="dopList">Đang tải...</div></div>`;let items=[];const label=x=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý ngoại lệ',UPDATED:'Đã cập nhật',IDLE:'Không có người đang làm'}[x]||x);const draw=()=>{const q=document.getElementById('dopSearch').value.toLowerCase(),st=document.getElementById('dopState').value;const rows=items.filter(x=>(!st||x.day_state===st)&&(!q||JSON.stringify(x).toLowerCase().includes(q)));document.getElementById('dopList').innerHTML=rows.length?`<div class="daily-op-table"><div class="daily-op-row head"><span>PO / Part / Operation</span><span>Nhân viên / Session</span><span>Sản lượng ngày / Tổng</span><span>Trạng thái</span></div>${rows.map(x=>`<div class="daily-op-row ${String(x.day_state).toLowerCase()}"><span>${MFUI.opIdentity({name:x.operation_name,code:x.operation_code,meta:`${x.po_code||''} · ${x.part_code||''} ${x.part_name||''}`.trim()})}</span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>${x.session_count} session · ${x.open_session_count} đang mở</small></span><span><b>Ngày: ${(r=>`${MFUI.qtyValue(x.day_good_qty,r)} đạt / ${MFUI.qtyValue(x.day_defect_qty,r)} NG / ${MFUI.qtyValue(x.day_rework_qty,r)} sửa được / ${MFUI.qtyValue(Math.max(Number(x.day_defect_qty||0)-Number(x.day_rework_qty||0),0),r)} phế`)(opOutputRecorded(x))}</b><small>Tổng: ${x.total_good_qty} đạt / ${x.total_defect_qty} NG / ${x.total_rework_qty||0} sửa được / ${Math.max(Number(x.total_defect_qty||0)-Number(x.total_rework_qty||0),0)} phế</small></span><span><em class="daily-state ${String(x.day_state).toLowerCase()}">${esc(label(x.day_state))}</em><small>${fmt(x.last_report_at||x.last_started_at)}</small></span></div>`).join('')}</div>`:'<div class="empty">Không có Operation phù hợp.</div>'};const load=async()=>{try{const d=await api(`/api/dashboard/daily-progress?date=${encodeURIComponent(document.getElementById('dopDate').value)}&limit=2000`);items=d.items||[];draw()}catch(e){document.getElementById('dopList').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}};document.getElementById('dopReload').onclick=load;document.getElementById('dopDate').onchange=load;document.getElementById('dopSearch').oninput=draw;document.getElementById('dopState').onchange=draw;await load()
 }
 
 
@@ -487,7 +516,7 @@ async function renderEmployeePerformance(){
     const ops=report.operations||[];
     document.getElementById('epOperations').innerHTML=ops.length?`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Session</th><th>Thời gian</th><th>Sản lượng</th><th>Tỷ lệ đạt</th><th>SP/giờ</th><th>Hiệu suất</th></tr></thead><tbody>${ops.map(x=>{const opEff=x.efficiency_percent==null?'Chưa có định mức':Number(x.efficiency_percent).toLocaleString('vi-VN')+'%';return `<tr><td><b>${esc(x.po_code)} · ${esc(x.operation_code)}</b><br><small>${esc(x.operation_name)} · ${esc(x.part_code)}</small></td><td>${x.session_count}</td><td>${dur(x.work_seconds)}</td><td>Đạt ${Number(x.good_qty||0).toLocaleString('vi-VN')}<br><small>NG ${Number(x.defect_qty||0).toLocaleString('vi-VN')}</small></td><td>${Number(x.yield_percent||0).toLocaleString('vi-VN')}%</td><td>${Number(x.units_per_hour||0).toLocaleString('vi-VN')}</td><td>${opEff}</td></tr>`}).join('')}</tbody></table></div>`:'<div class="empty">Nhân viên chưa có Operation trong phạm vi lọc.</div>';
     const rows=report.sessions||[];
-    document.getElementById('epSessions').innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Session</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th><th>Sản lượng</th><th>Trạm</th><th>Trạng thái</th></tr></thead><tbody>${rows.map(x=>`<tr><td>#${x.session_id}</td><td><b>${esc(x.po_code)} · ${esc(x.operation_code)}</b><br><small>${esc(x.operation_name)} · ${esc(x.part_code)}</small></td><td>${fmt(x.started_at)}</td><td>${x.ended_at?fmt(x.ended_at):'—'}</td><td>${dur(x.duration_seconds)}</td><td>Đạt ${Number(x.good_qty||0)}<br><small>NG ${Number(x.defect_qty||0)}</small></td><td>${esc(x.station_code||x.device_uuid||'—')}</td><td><span class="badge ${x.status==='OPEN'?'warn':'ok'}">${x.status==='OPEN'?'Đang chạy':'Đã kết thúc'}</span></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Không có session trong phạm vi lọc.</div>';
+    document.getElementById('epSessions').innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Session</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th><th>Sản lượng</th><th>Trạm</th><th>Trạng thái</th></tr></thead><tbody>${rows.map(x=>`<tr><td>#${x.session_id}</td><td><b>${esc(x.po_code)} · ${esc(x.operation_code)}</b><br><small>${esc(x.operation_name)} · ${esc(x.part_code)}</small></td><td>${fmt(x.started_at)}</td><td>${x.ended_at?fmt(x.ended_at):'—'}</td><td>${dur(x.duration_seconds)}</td><td>${MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,recorded:mfOutputRecorded(x)})}</td><td>${esc(x.station_code||x.device_uuid||'—')}</td><td><span class="badge ${x.status==='OPEN'?'warn':'ok'}">${x.status==='OPEN'?'Đang chạy':'Đã kết thúc'}</span></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Không có session trong phạm vi lọc.</div>';
   };
   const load=async()=>{try{const employee=document.getElementById('epEmployee').value,from=document.getElementById('epFrom').value,to=document.getElementById('epTo').value,status=document.getElementById('epStatus').value;const d=await api(`/api/reports/employee-performance?employee_id=${encodeURIComponent(employee)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&status=${encodeURIComponent(status)}&limit=20000`);report=d.report||{};const sel=document.getElementById('epEmployee'),current=sel.value;sel.innerHTML='<option value="">Chọn nhân viên</option>'+(report.employees||[]).map(x=>`<option value="${x.employee_id}" ${String(x.employee_id)===String(current)?'selected':''}>${esc(x.employee_code)} · ${esc(x.employee_name)}</option>`).join('');draw()}catch(e){document.getElementById('epSessions').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}};
   document.getElementById('epReload').onclick=load;document.getElementById('epEmployee').onchange=load;document.getElementById('epFrom').onchange=load;document.getElementById('epTo').onchange=load;document.getElementById('epStatus').onchange=load;document.getElementById('epExport').onclick=()=>{const rows=report.sessions||[];if(!rows.length)return alert('Không có dữ liệu để xuất');const cols=['session_id','employee_code','employee_name','po_code','part_code','operation_code','operation_name','started_at','ended_at','duration_seconds','good_qty','defect_qty','standard_seconds_per_unit','station_code','status'],csv=[cols.join(','),...rows.map(r=>cols.map(c=>`"${String(r[c]??'').replaceAll('"','""')}"`).join(','))].join('\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download=`mesflow-nang-luc-nhan-vien-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(a.href)};await load();
@@ -555,7 +584,7 @@ window.employeeReportModal=async id=>{
   box.querySelector('#employeeReportClose').onclick=close;box.onclick=e=>{if(e.target===box)close()};
   const key=e=>{if(e.key==='Escape'){document.removeEventListener('keydown',key);close()}};document.addEventListener('keydown',key);
   let currentReport={sessions:[]};
-  const draw=d=>{const r=d.report||{};currentReport=r;const emp=r.employee||employee,s=r.summary||{},ops=r.operations||[],sessions=r.sessions||[];const eff=s.efficiency_percent==null?'Chưa có định mức':`${Number(s.efficiency_percent).toLocaleString('vi-VN')}%`;box.querySelector('#employeeReportBody').innerHTML=`<div class="employee-performance-profile"><div><b>${esc(emp.employee_code||employee.employee_no)} · ${esc(emp.employee_name||employee.name)}</b><span>${esc(emp.department||employee.department||'—')} · ${esc(emp.team||employee.team||'—')} · ${esc(emp.position||employee.position||'—')}</span></div><em>${esc(emp.employment_status||employee.employment_status||'')}</em></div><div class="employee-performance-kpis"><article><small>Session</small><b>${Number(s.session_count||0).toLocaleString('vi-VN')}</b><span>${Number(s.open_session_count||0)} đang mở</span></article><article><small>Thời gian làm</small><b>${fmtDuration(Number(s.work_seconds||0))}</b><span>${Number(s.work_days||0)} ngày có hoạt động</span></article><article><small>Sản lượng đạt</small><b>${Number(s.good_qty||0).toLocaleString('vi-VN')}</b><span>NG ${Number(s.defect_qty||0).toLocaleString('vi-VN')}</span></article><article><small>Tỷ lệ đạt</small><b>${Number(s.yield_percent||0).toLocaleString('vi-VN')}%</b><span>Hiệu suất ${eff}</span></article></div><section class="panel employee-report-section"><div class="panel-head"><div><h3>Năng lực theo Operation</h3><p>Thời gian, sản lượng và hiệu suất theo từng công đoạn.</p></div></div>${ops.length?`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Session</th><th>Thời gian</th><th>Sản lượng</th><th>Tỷ lệ đạt</th><th>Hiệu suất</th></tr></thead><tbody>${ops.map(x=>`<tr><td><b>${esc(x.po_code||'')} · ${esc(x.operation_code||'')}</b><br><small>${esc(x.operation_name||'')} · ${esc(x.part_code||'')}</small></td><td>${Number(x.session_count||0)}</td><td>${fmtDuration(Number(x.work_seconds||0))}</td><td>Đạt ${Number(x.good_qty||0).toLocaleString('vi-VN')}<br><small>NG ${Number(x.defect_qty||0).toLocaleString('vi-VN')}</small></td><td>${Number(x.yield_percent||0).toLocaleString('vi-VN')}%</td><td>${x.efficiency_percent==null?'Chưa có định mức':Number(x.efficiency_percent).toLocaleString('vi-VN')+'%'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có Operation trong phạm vi này.</div>'}</section><section class="panel employee-report-section"><div class="panel-head"><div><h3>Session gần đây</h3><p>Chi tiết các phiên làm việc trong khoảng đã chọn.</p></div></div>${sessions.length?`<div class="table-wrap"><table><thead><tr><th>Session</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th><th>Sản lượng</th><th></th></tr></thead><tbody>${sessions.slice(0,200).map(x=>`<tr><td><b>#${x.session_id||x.id}</b><br><small>${esc(x.status||x.session_status||'')}</small></td><td><b>${esc(x.operation_code||'')}</b><br><small>${esc(x.po_code||'')} · ${esc(x.part_code||'')}</small></td><td>${fmt(x.started_at)}</td><td>${x.ended_at?fmt(x.ended_at):'Đang chạy'}</td><td>${fmtDuration(Number(x.duration_seconds||0))}</td><td>Đạt ${Number(x.good_qty||0)}<br><small>NG ${Number(x.defect_qty||0)}</small></td><td><button class="btn mini" data-open-session="${x.session_id||x.id}" data-started-at="${esc(x.started_at||'')}">Xem Session</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có session trong phạm vi này.</div>'}</section>`;
+  const draw=d=>{const r=d.report||{};currentReport=r;const emp=r.employee||employee,s=r.summary||{},ops=r.operations||[],sessions=r.sessions||[];const eff=s.efficiency_percent==null?'Chưa có định mức':`${Number(s.efficiency_percent).toLocaleString('vi-VN')}%`;box.querySelector('#employeeReportBody').innerHTML=`<div class="employee-performance-profile"><div><b>${esc(emp.employee_code||employee.employee_no)} · ${esc(emp.employee_name||employee.name)}</b><span>${esc(emp.department||employee.department||'—')} · ${esc(emp.team||employee.team||'—')} · ${esc(emp.position||employee.position||'—')}</span></div><em>${esc(emp.employment_status||employee.employment_status||'')}</em></div><div class="employee-performance-kpis"><article><small>Session</small><b>${Number(s.session_count||0).toLocaleString('vi-VN')}</b><span>${Number(s.open_session_count||0)} đang mở</span></article><article><small>Thời gian làm</small><b>${fmtDuration(Number(s.work_seconds||0))}</b><span>${Number(s.work_days||0)} ngày có hoạt động</span></article><article><small>Sản lượng đạt</small><b>${Number(s.good_qty||0).toLocaleString('vi-VN')}</b><span>NG ${Number(s.defect_qty||0).toLocaleString('vi-VN')}</span></article><article><small>Tỷ lệ đạt</small><b>${Number(s.yield_percent||0).toLocaleString('vi-VN')}%</b><span>Hiệu suất ${eff}</span></article></div><section class="panel employee-report-section"><div class="panel-head"><div><h3>Năng lực theo Operation</h3><p>Thời gian, sản lượng và hiệu suất theo từng công đoạn.</p></div></div>${ops.length?`<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Session</th><th>Thời gian</th><th>Sản lượng</th><th>Tỷ lệ đạt</th><th>Hiệu suất</th></tr></thead><tbody>${ops.map(x=>`<tr><td><b>${esc(x.po_code||'')} · ${esc(x.operation_code||'')}</b><br><small>${esc(x.operation_name||'')} · ${esc(x.part_code||'')}</small></td><td>${Number(x.session_count||0)}</td><td>${fmtDuration(Number(x.work_seconds||0))}</td><td>Đạt ${Number(x.good_qty||0).toLocaleString('vi-VN')}<br><small>NG ${Number(x.defect_qty||0).toLocaleString('vi-VN')}</small></td><td>${Number(x.yield_percent||0).toLocaleString('vi-VN')}%</td><td>${x.efficiency_percent==null?'Chưa có định mức':Number(x.efficiency_percent).toLocaleString('vi-VN')+'%'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có Operation trong phạm vi này.</div>'}</section><section class="panel employee-report-section"><div class="panel-head"><div><h3>Session gần đây</h3><p>Chi tiết các phiên làm việc trong khoảng đã chọn.</p></div></div>${sessions.length?`<div class="table-wrap"><table><thead><tr><th>Session</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th><th>Sản lượng</th><th></th></tr></thead><tbody>${sessions.slice(0,200).map(x=>`<tr><td><b>#${x.session_id||x.id}</b><br><small>${esc(x.status||x.session_status||'')}</small></td><td><b>${esc(x.operation_code||'')}</b><br><small>${esc(x.po_code||'')} · ${esc(x.part_code||'')}</small></td><td>${fmt(x.started_at)}</td><td>${x.ended_at?fmt(x.ended_at):'Đang chạy'}</td><td>${fmtDuration(Number(x.duration_seconds||0))}</td><td>${MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,recorded:mfOutputRecorded(x)})}</td><td><button class="btn mini" data-open-session="${x.session_id||x.id}" data-started-at="${esc(x.started_at||'')}">Xem Session</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có session trong phạm vi này.</div>'}</section>`;
     // Related-session drill-down: leaves Employees (and this modal) behind,
     // recording how to get back so "← Quay lại Nhân viên" inside Session
     // Management restores the Employees list filters/scroll rather than
@@ -628,39 +657,113 @@ function activeWorkersLabel(x){const workers=(Array.isArray(x.day_contributors)?
 // Field report (2026-09-08): "Đạt 0 · NG 0" next to a real person's name
 // reads as "confirmed zero output", not "hasn't reported anything yet" --
 // exactly the ambiguity that triggered a same-day bug report on this same
-// screen. When good/defect/rework are ALL zero (nothing at all reported
-// yet -- the normal state for a session that's still open with no
-// QUANTITY_SUBMITTED yet), show "—" instead. A session/person with a REAL
-// partial report (e.g. some good, zero defect) still shows those numbers
-// as-is -- this only collapses the literal "nothing at all yet" case.
-// Field report (2026-09-08, same-day follow-up): plain muted-gray text made
-// Đạt/NG/Sửa hard to tell apart at a glance and read as too small/faint --
-// each number now gets its own color (same green/red/amber roles the rest
-// of this dashboard already uses for good/defect/rework), returned as HTML
-// (both call sites below insert this directly into innerHTML, never
-// through esc() -- there is no user-controlled text in here, only numbers
-// this function itself formatted).
-// plain=true returns unstyled text -- for a native title= tooltip, which
-// renders raw markup as literal text rather than interpreting it (using the
-// colored-spans version there would show the actual "<b class=..." tags).
-function qtyLine(good,defect,rework,plain){
-  good=Number(good||0);defect=Number(defect||0);rework=Number(rework||0);
-  if(good===0&&defect===0&&rework===0)return plain?'Đạt —':'<span class="qty-empty">Đạt —</span>';
-  if(plain){
-    return `Đạt ${good.toLocaleString('vi-VN')}${defect>0?` · NG ${defect.toLocaleString('vi-VN')}`:''}${rework>0?` · Sửa ${rework.toLocaleString('vi-VN')}`:''}`;
+// screen.
+//
+// Bản vá 2026-09-08 đoán trạng thái từ chính con số: cả ba đều 0 thì coi là
+// chưa nhập. Đoán như thế sai ở ca ngược lại -- một session người thật đã
+// chốt đúng 0 đạt / 0 NG bị giấu thành "—", tức là mất đúng cái thông tin
+// đắt nhất ("đã kiểm, không ra được sản phẩm nào"). Và nó vẫn không cứu
+// được những chỗ khác trên cùng màn này in thẳng `Đạt ${x.day_good_qty}`.
+//
+// Nay trạng thái "đã chốt hay chưa" đi kèm dữ liệu (output_recorded /
+// recorded_session_count, xem daily_sessions()/daily_progress()), và MỘT
+// hàm dựng duy nhất -- MFUI.qtyLine() -- lo phần hiển thị cho mọi màn.
+// --- Mật độ nhãn thang giờ --------------------------------------------
+//
+// Đo rồi mới quyết, không dùng bảng breakpoint. Bảng cứng sai ngay khi cột
+// tên trái / cột tổng hợp phải đổi bề rộng (chúng đổi ở 1150px), và sai cả
+// khi khoảng nhìn dài ngắn khác nhau (ca 8 tiếng so với cả ngày 25 tiếng ra
+// số mốc khác hẳn). Đo bề rộng thật của thang VÀ của chính cái nhãn rồi giữ
+// lại nhiều nhãn nhất mà vẫn đủ khoảng cách -- đúng ở mọi bề rộng, kể cả bề
+// rộng chưa ai nghĩ tới.
+//
+// Chỉ ẨN NHÃN, không dời vị trí. Vạch lưới đi theo đúng tập nhãn còn lại để
+// lưới, nhãn và thanh session luôn nằm trên cùng một mốc -- thang giờ lệch
+// thì nó nói dối, tệ hơn nhiều so với hiện ít mốc.
+// SCALE_LABEL_GAP là khoảng hở MÉP-TỚI-MÉP giữa hai nhãn, tính bằng pixel.
+const SCALE_LABEL_GAP=10;
+function layoutTimelineScale(root=document){
+  const scale=root&&root.querySelector&&root.querySelector('.employee-day-scale');
+  if(!scale)return;
+  const marks=[...scale.querySelectorAll('.shift-scale-mark')];
+  if(!marks.length)return;
+  marks.forEach(m=>{m.hidden=false;m.classList.remove('first','last')});
+  const width=scale.clientWidth;
+  // Thang đang bị ẩn (<=1150px thì .employee-day-head là display:none) thì
+  // không đo được gì -- để nguyên, lần resize sau rộng ra sẽ tính lại.
+  if(!width)return;
+  const lastIndex=marks.length-1;
+  // Nhãn đầu canh TRÁI và nhãn cuối canh PHẢI (hai luật transform riêng trong
+  // ui.css), còn các nhãn giữa canh GIỮA. Hộp của chúng vì thế lệch nhau nửa
+  // bề rộng chữ. Tính hộp thật theo từng vai trò thay vì coi mọi nhãn đều
+  // canh giữa: giả định đó làm nhãn đầu ăn lấn sang nhãn kế tiếp đúng w/2
+  // pixel -- đủ để "00:00" và "01:00" chạm nhau ở 1920px dù công thức tưởng
+  // như đã chừa 10px.
+  const boxOf=(mark,index)=>{
+    const center=parseFloat(mark.style.left)/100*width,w=mark.offsetWidth;
+    if(index===0)return [center,center+w];
+    if(index===lastIndex)return [center-w,center];
+    return [center-w/2,center+w/2];
+  };
+  const boxes=marks.map(boxOf);
+  const kept=[0];
+  for(let i=1;i<lastIndex;i++){
+    if(boxes[i][0]-boxes[kept[kept.length-1]][1]>=SCALE_LABEL_GAP)kept.push(i);
   }
-  // Field report (2026-09-08): <b> forced each part onto its own line --
-  // several existing rules in this same dashboard force `b{display:block}`
-  // inside dense rows (.op-time-row/.employee-day-summary), which this
-  // codebase relies on elsewhere for real "label \n value" stacking, so
-  // reusing <b> here for an inline highlight fought that. <span> is inline
-  // by default and untouched by those rules; bold comes from CSS instead.
-  const parts=[`<span class="qty-good">Đạt ${good.toLocaleString('vi-VN')}</span>`];
-  if(defect>0)parts.push(`<span class="qty-ng">NG ${defect.toLocaleString('vi-VN')}</span>`);
-  if(rework>0)parts.push(`<span class="qty-fix">Sửa ${rework.toLocaleString('vi-VN')}</span>`);
-  return parts.join(' · ');
+  // Mốc cuối là biên khoảng nhìn -- luôn phải đọc được. Bị chen thì bỏ mốc
+  // TRƯỚC nó, không bỏ nó.
+  if(lastIndex>0){
+    while(kept.length>1&&boxes[lastIndex][0]-boxes[kept[kept.length-1]][1]<SCALE_LABEL_GAP)kept.pop();
+    kept.push(lastIndex);
+  }
+  const visible=new Set(kept.map(i=>marks[i].dataset.minute));
+  marks.forEach(m=>{m.hidden=!visible.has(m.dataset.minute)});
+  marks[0].classList.add('first');
+  if(kept.length>1)marks[lastIndex].classList.add('last');
+  root.querySelectorAll('.shift-grid-line[data-minute]').forEach(line=>{
+    line.hidden=!visible.has(line.dataset.minute);
+  });
 }
-function activeWorkersBreakdown(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: ${qtyLine(w.good_qty,w.defect_qty,w.rework_qty)}</small>`).join('')}
+// Đổi bề rộng thì phải tính lại mật độ, mà không cần tải lại dữ liệu. Một
+// observer duy nhất cho cả trang, gỡ ở đầu mỗi lần dựng Dashboard để không
+// tích lại qua các lần điều hướng.
+let timelineScaleObserver=null;
+function watchTimelineScale(host){
+  if(timelineScaleObserver){timelineScaleObserver.disconnect();timelineScaleObserver=null}
+  if(!host||typeof ResizeObserver==='undefined')return;
+  timelineScaleObserver=new ResizeObserver(()=>layoutTimelineScale(host));
+  timelineScaleObserver.observe(host);
+}
+// "Bản ghi này đã chốt sản lượng chưa?" -- luật nghiệp vụ, nên nằm ở đây chứ
+// không ở core/ui.js: tầng nền cố ý không biết tên cột nào của MESFlow (xem
+// tests/test_v71_ui_foundation.py).
+//
+// Đọc từ nguồn sự thật của API (daily_sessions().output_recorded), KHÔNG suy
+// ra từ chính con số. Nhánh dự phòng chỉ dành cho payload cũ chưa có field:
+// giữ nguyên luật của backend (CLOSED + đã xác nhận, hoặc đã có số dương)
+// thay vì âm thầm coi mọi thứ là đã chốt -- một Kiosk/agent chưa nâng cấp
+// không được phép làm màn hình nói sai. Nhận cả session_status lẫn status vì
+// hai endpoint đặt tên khác nhau cho cùng một cột.
+function mfOutputRecorded(x){
+  x=x||{};
+  if(typeof x.output_recorded==='boolean')return x.output_recorded;
+  const num=v=>Number(v||0);
+  const positive=num(x.good_qty)>0||num(x.defect_qty)>0||num(x.rework_qty)>0||num(x.scrap_qty)>0;
+  const closed=String(x.session_status||x.status||'').toUpperCase()==='CLOSED';
+  const confirmed=x.quantity_confirmed===undefined?true:!!x.quantity_confirmed;
+  return positive||(closed&&confirmed);
+}
+// Cùng câu hỏi ở mức Operation/ngày: tổng của ngày có nghĩa "đã chốt" hay
+// chỉ là tổng rỗng của những session chưa ai nhập gì?
+// recorded_session_count do daily_progress() đếm trên ĐÚNG cửa sổ thời gian
+// đang cộng day_good_qty/day_defect_qty, nên hai con số luôn nói cùng một
+// chuyện. Không có field (payload cũ) thì lùi về chính con số -- tổng dương
+// thì chắc chắn đã có người nhập.
+function opOutputRecorded(x){
+  if(x.recorded_session_count!==undefined)return Number(x.recorded_session_count||0)>0;
+  return Number(x.day_good_qty||0)>0||Number(x.day_defect_qty||0)>0||Number(x.day_rework_qty||0)>0||Number(x.day_scrap_qty||0)>0;
+}
+function activeWorkersBreakdown(x){const workers=(Array.isArray(x.day_contributors)?x.day_contributors:[]).slice().sort((a,b)=>Number(b.good_qty||0)-Number(a.good_qty||0));return workers.map(w=>`<small class="op-worker-line">${esc(w.name)}: ${MFUI.qtyLine({good:w.good_qty,defect:w.defect_qty,rework:w.rework_qty,recorded:Number(w.recorded_sessions||0)>0})}</small>`).join('')}
 // "Previously participated" now excludes whoever activeWorkersLabel() above
 // already names (day_contributors, not just active_workers) -- otherwise a
 // closed-session contributor already shown by name in the title AND in the
@@ -1407,7 +1510,7 @@ async function renderSessionManagement(){
   // Uses the shared kv-grid primitive from session-detail.js (same layout
   // as the Session Exception detail drawer) so the two "Session Detail"
   // surfaces never drift into separate grid implementations.
-  const detailHtml=x=>{const good=Number(x.good_qty||0),defect=Number(x.defect_qty||0),rework=Number(x.rework_qty||0),scrap=Number(x.scrap_qty||0);const rows=[
+  const detailHtml=x=>{const recorded=mfOutputRecorded(x);const rows=[
     {label:'Session ID',value:`#${esc(x.session_id)}`},
     {label:'Nhân viên',value:`${esc(x.employee_code)} · ${esc(x.employee_name)}`},
     {label:'Production Order',value:esc(x.po_code||'—')},
@@ -1415,7 +1518,7 @@ async function renderSessionManagement(){
     {label:'Operation',value:esc(`${x.operation_code||'—'}${x.operation_name?' · '+x.operation_name:''}`)},
     {label:'Bắt đầu / Kết thúc',value:`${fmt(x.started_at)} → ${x.ended_at?fmt(x.ended_at):'Đang chạy'}`},
     {label:'Thời lượng',value:esc(displayDuration(x))},
-    {label:'Sản lượng',value:`${good} đạt · ${defect} lỗi · ${rework} sửa · ${scrap} phế`},
+    {label:'Sản lượng',value:MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,scrap:x.scrap_qty,recorded})},
     {label:'Trạm',value:esc(x.station_code||x.station_name||'Không gán')},
     {label:'Device / kiosk',value:esc(x.device_uuid||'—')},
     {label:'Trạng thái',value:(x.status==='OPEN'?'<span class="badge warning">Đang chạy</span>':'<span class="badge success">Đã kết thúc</span>')+(x.closed_by_system?' <span class="badge">Tự động kết thúc</span>':'')+' '+unconfirmedQtyBadgeHtml(x)+' '+excludedBadgeHtml(x)},
@@ -1428,7 +1531,7 @@ async function renderSessionManagement(){
     const needsAction=x.closed_by_system&&x.quantity_confirmed===false;
     return mode==='ACTION'?needsAction:!needsAction;
   };
-  const drawSessions=()=>{const q=(el('smSearch').value||'').trim().toLowerCase(),all=sessionReport.items||[],rows=all.filter(x=>(!q||JSON.stringify(x).toLowerCase().includes(q))&&processingMatch(x));el('smSessionCount').textContent=`${rows.length} session`;el('smSessionList').innerHTML=rows.length?`<div class="session-accordion-list">${rows.map(x=>{const rework=Number(x.rework_qty||0);return `<article class="session-accordion-item ${x.status==='OPEN'?'open':''}"><button class="session-accordion-trigger" type="button" data-session-id="${x.session_id}" aria-label="Mở chi tiết Session ${x.session_id}"><span class="session-row-employee"><b>${esc(x.employee_name||'—')}</b><small>${esc(x.employee_code||'—')} · #${x.session_id}</small></span><span class="session-row-operation" title="${esc(`${x.operation_code||''} · ${x.operation_name||''}`)}"><b>${esc(x.operation_code||'—')} · ${esc(x.operation_name||'')}</b><small>${esc(x.po_code||'—')} / ${esc(x.part_code||'—')} · ${esc(x.part_name||'')}</small></span><span class="session-row-time"><b>${hm(x.started_at)} → ${x.ended_at?hm(x.ended_at):'Đang chạy'}</b><small>${displayDuration(x)}</small></span><span class="session-row-output"><b>${MFUI.formatQuantity(x.good_qty)} đạt · ${MFUI.formatQuantity(x.defect_qty)} lỗi</b><small>${rework?`${MFUI.formatQuantity(rework)} sửa được`:'Không có rework'}</small></span><span class="session-row-status">${MFUI.statusBadge(x.status)} ${unconfirmedQtyBadgeHtml(x)} ${excludedBadgeHtml(x)}</span></button></article>`}).join('')}</div>`:MFUI.emptyState('Không có Session phù hợp','Thử xóa bớt bộ lọc hoặc chọn ngày khác.');document.querySelectorAll('.session-accordion-trigger').forEach(button=>button.onclick=()=>SessionDetailDrawer.open(Number(button.dataset.sessionId),{onOpenManagement:x=>{
+  const drawSessions=()=>{const q=(el('smSearch').value||'').trim().toLowerCase(),all=sessionReport.items||[],rows=all.filter(x=>(!q||JSON.stringify(x).toLowerCase().includes(q))&&processingMatch(x));el('smSessionCount').textContent=`${rows.length} session`;el('smSessionList').innerHTML=rows.length?`<div class="session-accordion-list">${rows.map(x=>{const rework=Number(x.rework_qty||0);return `<article class="session-accordion-item ${x.status==='OPEN'?'open':''}"><button class="session-accordion-trigger" type="button" data-session-id="${x.session_id}" aria-label="Mở chi tiết Session ${x.session_id}"><span class="session-row-employee"><b>${esc(x.employee_name||'—')}</b><small>${esc(x.employee_code||'—')} · #${x.session_id}</small></span><span class="session-row-operation" title="${esc(`${x.operation_code||''} · ${x.operation_name||''}`)}"><b>${esc(x.operation_code||'—')} · ${esc(x.operation_name||'')}</b><small>${esc(x.po_code||'—')} / ${esc(x.part_code||'—')} · ${esc(x.part_name||'')}</small></span><span class="session-row-time"><b>${hm(x.started_at)} → ${x.ended_at?hm(x.ended_at):'Đang chạy'}</b><small>${displayDuration(x)}</small></span><span class="session-row-output"><b>${MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,recorded:mfOutputRecorded(x)})}</b><small>${mfOutputRecorded(x)?(rework?`${MFUI.formatQuantity(rework)} sửa được`:'Không có rework'):'Chưa nhập sản lượng'}</small></span><span class="session-row-status">${MFUI.statusBadge(x.status)} ${unconfirmedQtyBadgeHtml(x)} ${excludedBadgeHtml(x)}</span></button></article>`}).join('')}</div>`:MFUI.emptyState('Không có Session phù hợp','Thử xóa bớt bộ lọc hoặc chọn ngày khác.');document.querySelectorAll('.session-accordion-trigger').forEach(button=>button.onclick=()=>SessionDetailDrawer.open(Number(button.dataset.sessionId),{onOpenManagement:x=>{
     // Real bug found 2026-08-26: SessionDetailDrawer renders through
     // MFUI.openDrawer(), whose overlay z-index (--ui-z-drawer:1000) sits
     // above #smModal's plain .modal-backdrop (z-index:40). Opening "Mở

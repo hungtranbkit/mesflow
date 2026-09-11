@@ -65,7 +65,9 @@ const traceTimelineHtml=events=>events.length?`<ol class="trace-mini">${events.m
 
 // Core session field rows shared between the drawer and Session Management.
 function sessionCoreFieldRows(x){
-  const good=Number(x.good_qty||0),defect=Number(x.defect_qty||0),rework=Number(x.rework_qty||0);
+  // Số lượng đi qua MFUI.qtyLine() để "chưa nhập" và "đã chốt bằng 0" không
+  // in ra giống hệt nhau -- xem chú thích của hàm đó.
+  const recorded=mfOutputRecorded(x);
   return [
     {label:'Session ID',value:`#${esc(x.session_id)}`},
     {label:'Nhân viên',value:esc(x.employee_name||'—')},
@@ -80,7 +82,7 @@ function sessionCoreFieldRows(x){
     {label:'Bắt đầu',value:esc(fmt(x.started_at))},
     {label:'Kết thúc',value:x.ended_at?esc(fmt(x.ended_at)):'Đang chạy'},
     {label:'Thời lượng',value:esc(mfDisplayDuration(x.duration_seconds))},
-    {label:'Sản lượng',value:`${good} đạt · ${defect} lỗi · ${rework} sửa được`}
+    {label:'Sản lượng',value:MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,recorded})}
   ];
 }
 

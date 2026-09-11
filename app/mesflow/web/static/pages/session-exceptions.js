@@ -187,7 +187,6 @@ async function renderSessionExceptions(){
   const detailHtml=x=>{
     if(!x)return `<div class="se-detail-empty"><b>Không có mục phù hợp</b><span>Thử đổi bộ lọc hoặc làm mới.</span></div>`;
     const inactive=x.is_active===false;
-    const good=Number(x.good_qty||0),defect=Number(x.defect_qty||0),rework=Number(x.rework_qty||0);
     const canStart=x.workflow_status==='NEW';
     const canFinish=['NEW','IN_PROGRESS'].includes(x.workflow_status);
     return `
@@ -210,7 +209,7 @@ async function renderSessionExceptions(){
         <span><small>Công đoạn</small><b>${esc(x.operation_code||'')} · ${esc(x.operation_name||'')}</b></span>
         <span><small>Lệnh / chi tiết</small><b>${esc(x.po_code||'—')} / ${esc(x.part_code||'—')}</b></span>
         <span><small>Thời gian</small><b>${fmt(x.started_at)} → ${x.ended_at?fmt(x.ended_at):'Đang mở'}</b></span>
-        <span><small>Sản lượng</small><b>${good} đạt · ${defect} lỗi · ${rework} sửa được</b></span>
+        <span><small>Sản lượng</small><b>${MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,recorded:mfOutputRecorded(x)})}</b></span>
         <span><small>Trạm</small><b>${x.station_id||x.device_uuid?esc(x.device_uuid||`#${x.station_id}`):'Chưa có trạm'}</b></span>
         <span><small>Nguồn dữ liệu</small><b>${esc(({QA_TEST:'QA Test',TUTORIAL_DEMO:'Tutorial/Demo',REAL_USER:'Thực tế',UNKNOWN:'Không xác định'})[x.data_source]||'Không xác định')}</b>${x.source_trace_id?`<small>${esc(x.source_trace_id)}</small>`:''}</span>
       </div>

@@ -100,6 +100,51 @@ const MFUI=(()=>{
     '</span>';
   };
 
+  // --- Ba trạng thái của một con số sản lượng ----------------------------
+  //
+  // (1) CHƯA nhập / chưa chốt  -> "—"
+  // (2) ĐÃ chốt và bằng 0      -> "0"
+  // (3) ĐÃ chốt và lớn hơn 0   -> số thật
+  //
+  // Trạng thái (1) và (2) trước đây in ra y hệt nhau ("Đạt 0 · NG 0"): các
+  // cột số lượng trong CSDL là NOT NULL DEFAULT 0, nên `Number(x||0)` ở tầng
+  // hiển thị biến "chưa biết" thành "biết và bằng 0". Quản đốc đọc "NG 0"
+  // của một ca đang chạy thành "đã kiểm, không có hàng lỗi", trong khi thật
+  // ra chưa ai nhập gì.
+  //
+  // Vì vậy `recorded` là THAM SỐ RIÊNG, tách khỏi con số: người gọi phải lấy
+  // nó từ nguồn sự thật của mình và truyền vào, không được suy ra từ chính
+  // giá trị. Đoán "cả ba đều 0 nghĩa là chưa nhập" -- cách bản trước làm --
+  // sai đúng ở ca ngược lại: một ca chốt thật 0/0 bị giấu mất thành "—".
+  //
+  // Hàm này CỐ Ý không biết gì về hình dạng bản ghi của MESFlow: quyết định
+  // "đã chốt hay chưa" là luật nghiệp vụ, sống ở app.js (mfOutputRecorded).
+  const QTY_UNKNOWN='—';
+  const qtyValue=(value,recorded=true)=>{
+    if(!recorded)return QTY_UNKNOWN;
+    if(value===null||value===undefined||value==='')return QTY_UNKNOWN;
+    const n=Number(value);
+    return Number.isFinite(n)?n.toLocaleString('vi-VN'):QTY_UNKNOWN;
+  };
+  // Đạt/NG luôn hiện cả hai khi đã chốt -- "Đạt 32" trơ trọi không nói được
+  // NG vắng mặt vì bằng 0 hay vì chưa biết. Sửa/Phế chỉ hiện khi > 0: chúng
+  // là ngoại lệ của sản xuất, không phải cặp chỉ số đọc hằng ngày.
+  // plain=true trả chữ trần cho title= (thuộc tính này in thẳng markup ra
+  // thành chữ nếu nhận HTML).
+  const qtyLine=({good,defect,rework,scrap,recorded=true,plain=false}={})=>{
+    if(!recorded){
+      const text=`Đạt ${QTY_UNKNOWN} · NG ${QTY_UNKNOWN}`;
+      return plain?text:`<span class="qty-empty">${text}</span>`;
+    }
+    const num=v=>Number(v||0);
+    const parts=[['qty-good',`Đạt ${qtyValue(good,true)}`],['qty-ng',`NG ${qtyValue(defect,true)}`]];
+    if(num(rework)>0)parts.push(['qty-fix',`Sửa ${qtyValue(rework,true)}`]);
+    if(num(scrap)>0)parts.push(['qty-scrap',`Phế ${qtyValue(scrap,true)}`]);
+    return plain
+      ? parts.map(([,text])=>text).join(' · ')
+      : parts.map(([cls,text])=>`<span class="${cls}">${escHtml(text)}</span>`).join(' · ');
+  };
+
   let overlay=null;
   let origin=null;
   let popping=false;
@@ -273,6 +318,6 @@ const MFUI=(()=>{
   }).observe(document.documentElement, { childList: true, subtree: true });
   syncFilterDisclosures();
 
-  return {statusBadge,opIdentity,opIdentityText,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
+  return {statusBadge,opIdentity,opIdentityText,qtyValue,qtyLine,QTY_UNKNOWN,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
 })();
 window.MFUI=MFUI;

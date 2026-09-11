@@ -791,7 +791,11 @@ class DashboardRepository:
         duration_sql=' + '.join(duration_parts) if duration_parts else '0'
         # Four employee/day quantity windows (good, defect, rework, scrap)
         # plus the duration windows below.
-        params=[shift_end,shift_start]+[shift_start,shift_end]*8+[*duration_params,min(max(limit,1),2000)]
+        # 10 cặp (shift_start,shift_end): emp_rollup 4 tổng + emp_recorded_sessions,
+        # rollup 4 tổng + recorded_session_count. Thứ tự tham số bám ĐÚNG thứ tự
+        # xuất hiện trong SQL, nên hai bộ đếm mới phải nằm ngay sau 4 tổng của
+        # chính CTE đó (và recorded_session_count đứng TRƯỚC duration_sql).
+        params=[shift_end,shift_start]+[shift_start,shift_end]*10+[*duration_params,min(max(limit,1),2000)]
         # shift_sessions feeds day_good_qty/day_defect_qty/day_rework_qty
         # (KPI) AND open_session_count/active_workers/day_state (health) --
         # filtering once here at the source covers both.
@@ -810,7 +814,12 @@ class DashboardRepository:
             COALESCE(SUM(ds.good_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_good_qty,
             COALESCE(SUM(ds.defect_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_defect_qty,
             COALESCE(SUM(ds.rework_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_rework_qty,
-            COALESCE(SUM(ds.scrap_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_scrap_qty
+            COALESCE(SUM(ds.scrap_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) emp_scrap_qty,
+            -- Cùng lý do với output_recorded ở daily_sessions(): tổng 0 của
+            -- một người chưa ai nhập gì KHÁC tổng 0 của người đã chốt số 0.
+            -- Đếm riêng số session ĐÃ chốt trong đúng cửa sổ đang cộng.
+            COUNT(ds.id) FILTER (WHERE ds.status='CLOSED' AND ds.quantity_confirmed
+              AND ds.report_at >= %s AND ds.report_at < %s) emp_recorded_sessions
           FROM shift_sessions ds WHERE ds.employee_id IS NOT NULL GROUP BY ds.operation_id,ds.employee_id
         ), rollup AS (
           SELECT o.id operation_id,MIN(ds.started_at) first_started_at,MAX(ds.started_at) last_started_at,
@@ -820,6 +829,11 @@ class DashboardRepository:
             COALESCE(SUM(ds.defect_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_defect_qty,
             COALESCE(SUM(ds.rework_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_rework_qty,
             COALESCE(SUM(ds.scrap_qty) FILTER (WHERE ds.report_at >= %s AND ds.report_at < %s),0) day_scrap_qty,
+            -- Số session ĐÃ chốt sản lượng trong cửa sổ đang cộng. Bằng 0 thì
+            -- day_good_qty/day_defect_qty=0 là "chưa ai nhập", không phải
+            -- "sản xuất được 0" -- UI phải hiện "—" chứ không phải "0".
+            COUNT(ds.id) FILTER (WHERE ds.status='CLOSED' AND ds.quantity_confirmed
+              AND ds.report_at >= %s AND ds.report_at < %s) recorded_session_count,
             COALESCE(SUM({duration_sql}),0)::bigint day_work_seconds,
             -- "Người làm" must reflect who is CURRENTLY running the Operation,
             -- not everyone who ever touched it in the window. status='OPEN' is
@@ -846,7 +860,8 @@ class DashboardRepository:
             -- above -- each with their own share via emp_rollup.
             jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name,
               'good_qty',COALESCE(er.emp_good_qty,0),'defect_qty',COALESCE(er.emp_defect_qty,0),
-              'rework_qty',COALESCE(er.emp_rework_qty,0),'scrap_qty',COALESCE(er.emp_scrap_qty,0)))
+              'rework_qty',COALESCE(er.emp_rework_qty,0),'scrap_qty',COALESCE(er.emp_scrap_qty,0),
+              'recorded_sessions',COALESCE(er.emp_recorded_sessions,0)))
               FILTER (WHERE ds.employee_id IS NOT NULL) day_contributors,
             -- Production/Operation overview UI fix: NG (defect) quantity is
             -- normal production data, never a status condition by itself --
@@ -872,6 +887,7 @@ class DashboardRepository:
           (COALESCE(po.planned_quantity,0)*COALESCE(o.standard_seconds_per_unit,0))::bigint planned_work_seconds,
           COALESCE(r.session_count,0) session_count,COALESCE(r.open_session_count,0) open_session_count,
           COALESCE(r.day_good_qty,0) day_good_qty,COALESCE(r.day_defect_qty,0) day_defect_qty,COALESCE(r.day_rework_qty,0) day_rework_qty,COALESCE(r.day_scrap_qty,0) day_scrap_qty,
+          COALESCE(r.recorded_session_count,0) recorded_session_count,
           COALESCE(r.day_work_seconds,0) day_work_seconds,r.active_workers,r.all_participants,r.day_contributors,r.first_started_at,r.last_started_at,r.last_report_at,
           COALESCE(r.unconfirmed_count,0) unconfirmed_count,
           -- day_state describes OPERATIONAL/session state only (spec:
@@ -907,6 +923,26 @@ class DashboardRepository:
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint total_duration_seconds,
           ({work_sql})::bigint work_duration_seconds,
           COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,COALESCE(ws.scrap_qty,0) scrap_qty,
+          ws.quantity_confirmed,ws.closed_by_system,
+          -- output_recorded (2026-09-11, field BỔ SUNG): phân biệt "CHƯA nhập
+          -- sản lượng" với "đã chốt bằng 0". good_qty/defect_qty là NOT NULL
+          -- DEFAULT 0 (migration 0003) nên bản thân con số không nói được điều
+          -- đó, và migration 0042 đã cố ý KHÔNG đổi chúng sang nullable.
+          --
+          -- Nguồn sự thật có sẵn, không cần cột mới:
+          --   * CLOSED + quantity_confirmed  -> người thật đã đi qua bước nhập
+          --     số lượng (luồng kiosk bắt nhập trước khi kết thúc), kể cả khi
+          --     nhập đúng số 0. auto_close_for_shift_end() là chỗ DUY NHẤT đặt
+          --     quantity_confirmed=FALSE, nên ca bị máy tự đóng không bị tính
+          --     nhầm là đã xác nhận.
+          --   * OPEN thì mặc định là CHƯA nhập -- kiosk chỉ hỏi số lượng lúc
+          --     quét kết thúc. Trừ khi đã có số dương trên session (admin sửa
+          --     giữa chừng), lúc đó số thật phải được hiện chứ không nuốt đi.
+          -- quantity_confirmed một mình KHÔNG đủ: nó mặc định TRUE nên một
+          -- session vừa mở, chưa ai nhập gì, vẫn TRUE.
+          ((ws.status='CLOSED' AND ws.quantity_confirmed)
+            OR COALESCE(ws.good_qty,0)>0 OR COALESCE(ws.defect_qty,0)>0
+            OR COALESCE(ws.rework_qty,0)>0 OR COALESCE(ws.scrap_qty,0)>0) output_recorded,
           e.id employee_id,e.employee_no employee_code,e.name employee_name,
           po.id po_id,po.code po_code,p.id part_id,p.code part_code,p.name part_name,
           o.id operation_id,o.code operation_code,o.name operation_name

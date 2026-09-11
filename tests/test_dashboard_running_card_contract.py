@@ -49,6 +49,16 @@ def test_defect_quantity_no_longer_drives_a_derived_error_state():
 
 def test_ng_quantity_is_still_shown_plainly_not_as_an_error():
     text = Path("app/mesflow/web/static/app.js").read_text(encoding="utf-8")
+    foundation = Path("app/mesflow/web/static/core/ui.js").read_text(encoding="utf-8")
     # Defect/NG quantity must remain visible -- just relabeled from the
     # misleading "Lỗi" to "NG", with no error styling implied by the label.
-    assert "NG ${Number(x.day_defect_qty||0).toLocaleString('vi-VN')}" in text
+    #
+    # 2026-09-11: mỗi màn không còn tự nối chuỗi `NG ${Number(x||0)}` nữa --
+    # tất cả đi qua MFUI.qtyLine() để phân biệt "chưa nhập" ("—") với "đã chốt
+    # bằng 0" ("0"). Ràng buộc ở đây vì thế bám vào ĐIỀU CẦN GIỮ (NG vẫn được
+    # đưa ra màn hình, vẫn mang nhãn "NG") thay vì bám vào một chuỗi cụ thể --
+    # chuỗi cụ thể chính là thứ vừa làm bài test này đỏ dù NG không hề biến mất.
+    assert "defect:x.day_defect_qty" in text, "hàng OP theo ngày không còn đưa NG ra màn hình"
+    assert "NG ${qtyValue(defect" in foundation, "hàm dựng chung không còn gắn nhãn NG"
+    # Và NG vẫn không được phép trở thành một trạng thái lỗi suy diễn.
+    assert "HAS_DEFECT" not in text
