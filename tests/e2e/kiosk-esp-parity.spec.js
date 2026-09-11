@@ -23,7 +23,7 @@ const OPEN_SESSION = {
   operation_type: 'PRODUCTION', started_at: '2026-09-11T04:00:00Z', plan_qty: 100,
 };
 
-function freshState() { return { hasOpenSession: true, finished: [], failNext: false }; }
+function freshState() { return { hasOpenSession: true, finished: [], attempts: 0, failAll: false, abortNetwork: false }; }
 
 async function mockKiosk(page, state) {
   await page.route(/\/api\/kiosk-web\/scan/, route => {
@@ -37,8 +37,13 @@ async function mockKiosk(page, state) {
   await page.route(/\/api\/kiosk-web\/start/, route =>
     route.fulfill({ json: { ok: true, session: { id: 555 } } }));
   await page.route(/\/api\/kiosk-web\/finish/, route => {
-    if (state.failNext) {
-      state.failNext = false;
+    state.attempts += 1;
+    // Hai loại hỏng đi hai đường khác nhau ở lớp mạng: abort = fetch ném
+    // (TypeError, 'network'), còn 500 = máy chủ có trả lời ('server'). Gộp cả
+    // hai vào một mock để không phải đăng ký chồng route -- page.unroute() với
+    // cùng regex sẽ gỡ luôn handler gốc, và bài test im lặng đo sai.
+    if (state.abortNetwork) return route.abort('failed');
+    if (state.failAll) {
       return route.fulfill({ status: 500, json: { ok: false, message: 'server sập' } });
     }
     state.hasOpenSession = false;
@@ -217,9 +222,18 @@ test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
     expect(['', '0']).toContain(carried);
   });
 
-  test('gửi lỗi thì giữ nguyên số đã nhập để thử lại, không mất dữ liệu', async ({ page }) => {
+  test('lỗi DAI DẲNG: giữ nguyên số, hiện nút thử lại, gửi lại đúng số cũ', async ({ page }) => {
+    // Lỗi DAI DẲNG chứ không phải chớp nhoáng. Đây là ranh giới đúng của nút
+    // "Thử lại" thủ công: ESP v2 cũng chỉ hiện màn FINISH_RETRY khi nó THẬT SỰ
+    // không đi tiếp được (mất WiFi / chưa bind), còn lỗi tạm thời thì firmware
+    // tự gửi lại nền mỗi PENDING_RETRY_MS = 10s (mesflow_app.cpp:6136) mà
+    // không phiền tới người đứng máy.
+    //
+    // Vì thế bài test này KHÔNG dùng "hỏng đúng một lần": ở tổ hợp có lớp
+    // mạng tự thử lại, một lỗi chớp nhoáng sẽ tự lành và không bao giờ hiện
+    // nút — đúng như thiết kế, nhưng bài test sẽ đỏ vì lý do sai.
     const state = freshState();
-    state.failNext = true;
+    state.failAll = true;
     await openQuantityFlow(page, state);
     await typeQty(page, 'good-qty', 33);
     await page.locator('#good-next').click();
@@ -230,10 +244,93 @@ test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
     await expect(page.locator('#screen-finish-confirm')).toHaveClass(/active/);
     await expect(page.locator('#finish-submit-error')).toContainText('CHƯA GỬI ĐƯỢC');
     await expect(page.locator('#finish-submit-retry')).toBeVisible();
-    // Thử lại thành công và vẫn gửi đúng số cũ.
+    expect(state.finished.length).toBe(0);
+
+    // Máy chủ trở lại: bấm thử lại phải gửi ĐÚNG số đã nhập, đúng MỘT lần.
+    state.failAll = false;
     await page.locator('#finish-submit-retry').click();
     await expect.poll(() => state.finished.length).toBe(1);
     expect(state.finished[0].good_qty).toBe(33);
+    expect(state.finished[0].defect_qty).toBe(0);
+  });
+
+  test('mọi lần gửi lại đều mang CÙNG request_id nên máy chủ khử được trùng', async ({ page }) => {
+    // Đây là thứ khiến "tự thử lại" an toàn. request_id sinh MỘT lần lúc vào
+    // luồng (kiosk.js), không sinh lại mỗi lần gửi, nên backend khử trùng qua
+    // kiosk_idempotency. Nếu ai đó chuyển sang sinh id mỗi lần gửi thì mỗi lần
+    // thử lại thành một giao dịch mới -- bài test này đỏ ngay.
+    const state = freshState();
+    state.failAll = true;
+    await openQuantityFlow(page, state);
+    await typeQty(page, 'good-qty', 15);
+    await page.locator('#good-next').click();
+    await typeQty(page, 'defect-qty', 0);
+    await page.locator('#defect-next').click();
+
+    const seen = [];
+    await page.route(/\/api\/kiosk-web\/finish/, async route => {
+      seen.push((route.request().postDataJSON() || {}).request_id);
+      await route.fallback();
+    });
+
+    await page.locator('#finish-confirm-ok').click();
+    await expect(page.locator('#finish-submit-retry')).toBeVisible();
+    await page.locator('#finish-submit-retry').click();
+    await expect.poll(() => seen.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(seen).size).toBe(1);
+    expect(seen[0]).toBeTruthy();
+  });
+
+  test('mất mạng hẳn: vẫn giữ số và hiện nút thử lại (nhánh lỗi MẠNG, không phải 500)', async ({ page }) => {
+    // Hai loại hỏng đi hai đường khác nhau: HTTP 500 là "máy chủ trả lời nhưng
+    // lỗi", còn mất mạng là fetch ném luôn. Các bài trên dùng 500; bài này phủ
+    // nhánh còn lại, vì trên sàn xưởng rớt Wi-Fi mới là ca hay gặp.
+    const state = freshState();
+    await openQuantityFlow(page, state);
+    await typeQty(page, 'good-qty', 21);
+    await page.locator('#good-next').click();
+    await typeQty(page, 'defect-qty', 0);
+    await page.locator('#defect-next').click();
+
+    state.abortNetwork = true;
+    await page.locator('#finish-confirm-ok').click();
+    await expect(page.locator('#finish-submit-error')).toContainText('CHƯA GỬI ĐƯỢC');
+    await expect(page.locator('#finish-submit-retry')).toBeVisible();
+    expect(state.finished.length).toBe(0);
+
+    // Mạng trở lại: bấm thử lại gửi đúng số cũ, đúng một lần.
+    state.abortNetwork = false;
+    await page.locator('#finish-submit-retry').click();
+    await expect.poll(() => state.finished.length).toBe(1);
+    expect(state.finished[0].good_qty).toBe(21);
+  });
+
+  test('bấm XÁC NHẬN nhiều lần lúc đang gửi chỉ tạo MỘT lượt gửi', async ({ page }) => {
+    // ESP bỏ qua phím khi đang ở UiState::FINISHING. Trên bàn phím khoá cứng,
+    // màn hình đứng vài giây là người ta bấm lại -- không ghi trùng nhờ
+    // request_id dùng lại, nhưng mỗi lần bấm vẫn là một lượt gọi mạng thừa.
+    const state = freshState();
+    await openQuantityFlow(page, state);
+    await typeQty(page, 'good-qty', 8);
+    await page.locator('#good-next').click();
+    await typeQty(page, 'defect-qty', 0);
+    await page.locator('#defect-next').click();
+
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    await page.route(/\/api\/kiosk-web\/finish/, async route => {
+      await held;
+      await route.fallback();
+    });
+
+    await page.locator('#finish-confirm-ok').click();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('#');
+    await page.waitForTimeout(150);
+    release();
+
+    await expect.poll(() => state.finished.length).toBe(1);
+    expect(state.attempts).toBe(1);
   });
 
   test('tải lại trang giữa chừng thì về màn chờ thẻ, không giữ state cũ', async ({ page }) => {

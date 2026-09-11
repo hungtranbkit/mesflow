@@ -137,6 +137,24 @@ Cả hai **không đứng lại ở màn kết quả**. Web `reset()` xoá `empl
 
 ---
 
+## 5b. Gửi thất bại — tự thử lại hay để người bấm?
+
+| | ESP v2 | Kiosk web |
+|---|---|---|
+| Lỗi **tạm thời** | giữ giao dịch ở dạng *pending* và **tự gửi lại nền** mỗi `PENDING_RETRY_MS = 10s` (`mesflow_app.cpp:6136`), không phiền người đứng máy | lớp mạng tự thử lại (lane network-resilience) |
+| Lỗi **dai dẳng** | màn `FINISH_RETRY` — "CHƯA GỬI ĐƯỢC", `#` thử lại, `*` quay lại | ô lỗi "CHƯA GỬI ĐƯỢC" + nút Thử lại |
+
+Nói cách khác, ESP **luôn** làm cả hai: tự chữa lỗi chớp nhoáng, và chỉ gọi
+người khi thật sự không đi tiếp được. Nút thủ công ở web vì thế có nghĩa đúng
+như `FINISH_RETRY`: dành cho lỗi dai dẳng, không phải cho mọi lỗi.
+
+An toàn của việc tự thử lại nằm ở `request_id`: nó sinh **một lần** khi vào
+luồng (`kiosk.js`), không sinh lại mỗi lần gửi, nên mọi lần thử lại mang cùng
+một id và backend khử trùng qua `kiosk_idempotency`. Có bài test khoá đúng
+điều này; đổi sang sinh id mỗi lần gửi là bài test đỏ ngay.
+
+---
+
 ## 6. Tóm tắt khác biệt
 
 | # | Chỗ khác | Bên nào | Lý do |

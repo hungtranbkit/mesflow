@@ -2236,7 +2236,12 @@ sửa thật và ghi nhận qua Hàng chờ sửa.
 - **Kiểm tra hợp lệ**: `0 <= rework_qty <= defect_qty`, kiểm ở **cả** giao diện
   **và** server (`WorkSessionRepository._finish_within`).
 - **Lỗi**: `rework_qty > defect_qty` → `400`. Gửi thất bại → giữ nguyên số đã
-  nhập và hiện nút thử lại; **không** mất dữ liệu, **không** tự về màn chờ.
+  nhập, **không** mất dữ liệu, **không** tự về màn chờ. Lỗi **tạm thời** được
+  lớp mạng tự gửi lại (ESP cũng vậy: giao dịch pending, tự thử lại nền mỗi 10s
+  — `mesflow_app.cpp:6136`); nút **Thử lại** thủ công dành cho lỗi **dai dẳng**,
+  đúng vai của màn `FINISH_RETRY` trên ESP. Mọi lần gửi lại mang **cùng**
+  `request_id` (sinh một lần khi vào luồng) nên backend khử trùng qua
+  `kiosk_idempotency` — không có đường nào ghi hai lần.
 - **Ranh giới**: NG = 0; `rework = 0`; `rework = NG`; `rework = NG + 1`;
   tải lại trang giữa chừng → về màn chờ thẻ, không giữ state cũ.
 - **Quyền**: như Kiosk web hiện tại. **Nhật ký kiểm toán**: qua session/trace sẵn có.
