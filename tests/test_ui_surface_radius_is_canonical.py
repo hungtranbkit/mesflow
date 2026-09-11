@@ -276,3 +276,43 @@ def test_a_nested_block_is_never_rounder_than_the_block_containing_it():
         'Thứ bậc lồng nhau bị ngược:\n  ' + '\n  '.join(offenders)
         + '\n\nKhối lồng phải dùng bậc NHỎ HƠN khối bao nó: khối ngoài cùng '
           '--radius-surface, khối lồng --radius-surface-row.')
+
+
+def test_no_rule_references_a_radius_token_that_does_not_exist():
+    """Tham chiếu tới một token đã bị xoá là hỏng IM LẶNG.
+
+    CSS không báo lỗi: `var(--radius-surface)` khi token không còn sẽ làm cả
+    khai báo `border-radius` thành không hợp lệ, và phần tử rơi về góc vuông.
+    Không có cảnh báo nào trong trình duyệt, không có gì đỏ trong build.
+
+    Ca này KHÔNG phải giả định. Lane hp3 nhánh ra trước khi thang canonical vào
+    integration; diff của họ gỡ `--radius-surface` và `--radius-surface-row`
+    khỏi :root trong khi hàng chục rule vẫn tham chiếu chúng. Merge nhầm là cả
+    giao diện quay về vuông mà không một dòng log nào.
+
+    Bài này cũng vá một điểm câm của chính bộ test này: bài chống lồng ngược
+    đọc số px từ :root, nên khi token biến mất nó IM LẶNG bỏ qua cặp đó thay vì
+    đỏ. Một bộ dò im lặng trông y hệt một hệ thống sạch -- đúng thứ đã để lọt
+    hai lỗi khác trong cùng đợt này.
+    """
+    css = COMMENT.sub('', CSS.read_text(encoding='utf-8'))
+    defined = set(re.findall(r'(--radius-[a-z-]+)\s*:', css))
+    assert defined, 'không đọc được token bo góc nào từ :root'
+
+    dangling: dict[str, list[str]] = {}
+    for selector, body in _rules():
+        radius = _radius_of(body)
+        if radius is None:
+            continue
+        for referenced in re.findall(r'var\((--radius-[a-z-]+)', radius):
+            if referenced not in defined:
+                dangling.setdefault(referenced, []).append(selector.strip()[:60])
+
+    report = '\n  '.join(
+        f'{token} (không có trong :root) -- {len(users)} nơi dùng, ví dụ: {users[0]}'
+        for token, users in sorted(dangling.items()))
+    assert not dangling, (
+        'Có rule trỏ tới token bo góc không tồn tại:\n  ' + report
+        + '\n\nCSS sẽ bỏ nguyên khai báo border-radius và phần tử về góc vuông, '
+          'không một cảnh báo nào. Hoặc khôi phục token trong :root, hoặc đổi các '
+          'rule đó sang bậc còn tồn tại.')
