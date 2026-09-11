@@ -389,3 +389,153 @@ test.describe('Phím nhập số giống bàn phím ESP', () => {
     await expect(page.locator('#screen-quantity-defect')).toHaveClass(/active/);
   });
 });
+
+// --- Vị trí nút trên màn hình -------------------------------------------------
+//
+// Bàn phím ESP không có chuột: công nhân nhớ VỊ TRÍ chứ không đọc chữ. Firmware
+// vẽ mọi màn qua drawFooterTwoActions(left, right) (mesflow_app.cpp:1386) và
+// MỌI lời gọi đều là ("* ...", "# ...") -- lùi bên trái, xác nhận bên phải.
+// Kiosk web từng xếp ngược ở màn XÁC NHẬN (# bên trái, * bên phải) vì
+// #finish-confirm-ok đứng trước trong DOM. Ở đây đo TOẠ ĐỘ THẬT sau layout,
+// không đọc markup: đó là thứ duy nhất nói đúng người dùng nhìn thấy gì.
+
+/** Hình học từng hàng nút của một màn: hộp của các ô back/confirm đang hiện. */
+async function actionRows(page, screenId) {
+  return page.evaluate(id => {
+    const screen = document.getElementById(id);
+    const seen = el => !!el.offsetParent && !el.hidden;
+    const box = el => { const r = el.getBoundingClientRect(); return { id: el.id, left: r.left, right: r.right, top: r.top, height: r.height, width: r.width }; };
+    return [...screen.querySelectorAll('.actions, .choice-grid')].map(row => ({
+      back: [...row.querySelectorAll('[data-action-slot="back"]')].filter(seen).map(box),
+      confirm: [...row.querySelectorAll('[data-action-slot="confirm"]')].filter(seen).map(box),
+    }));
+  }, screenId);
+}
+
+/** Trả về số hàng đã thực sự kiểm -- để không có bài test xanh vì rỗng. */
+async function expectConfirmOnTheRight(page, screenId) {
+  const rows = await actionRows(page, screenId);
+  let checked = 0;
+  for (const row of rows) {
+    if (!row.back.length || !row.confirm.length) continue;
+    checked += 1;
+    const backEdge = Math.max(...row.back.map(b => b.right));
+    for (const c of row.confirm) {
+      expect(c.left, `${screenId}: ${c.id} phải nằm bên PHẢI ô lùi`).toBeGreaterThanOrEqual(backEdge - 0.5);
+    }
+  }
+  return checked;
+}
+
+/** Đi tới màn xác nhận, có hoặc không đi qua bước lỗi sửa được. */
+async function reachConfirm(page, state, { defect = 0 } = {}) {
+  await openQuantityFlow(page, state);
+  await typeQty(page, 'good-qty', 40);
+  await page.locator('#good-next').click();
+  await typeQty(page, 'defect-qty', defect);
+  await page.locator('#defect-next').click();
+  if (defect > 0) {
+    await expect(page.locator('#screen-ask-rework')).toHaveClass(/active/);
+    await page.keyboard.press('2');
+  }
+  await expect(page.locator('#screen-finish-confirm')).toHaveClass(/active/);
+}
+
+test.describe('Ô XÁC NHẬN nằm bên phải, giống footer ESP', () => {
+  test('màn XÁC NHẬN: * QUAY LẠI bên trái, # XÁC NHẬN bên phải', async ({ page }) => {
+    const state = freshState();
+    await reachConfirm(page, state);
+
+    const ok = page.locator('#finish-confirm-ok');
+    const edit = page.locator('#finish-confirm-edit');
+    await expect(ok).toContainText('XÁC NHẬN');
+    await expect(edit).toContainText('QUAY LẠI');
+    expect(await expectConfirmOnTheRight(page, 'screen-finish-confirm')).toBe(1);
+
+    // Đảo vị trí mà vẫn bấm đúng nút: click # vẫn phải gửi.
+    await ok.click();
+    await expect.poll(() => state.finished.length).toBe(1);
+  });
+
+  test('nút THỬ LẠI cũng là ô "#" nên cũng phải ở bên phải', async ({ page }) => {
+    const state = freshState();
+    state.failAll = true;
+    await reachConfirm(page, state);
+    await page.locator('#finish-confirm-ok').click();
+    await expect(page.locator('#finish-submit-retry')).toBeVisible();
+    expect(await expectConfirmOnTheRight(page, 'screen-finish-confirm')).toBe(1);
+  });
+
+  test('mọi màn nhập số cũng xếp lùi-trái / tiến-phải', async ({ page }) => {
+    const state = freshState();
+    await openQuantityFlow(page, state);
+    expect(await expectConfirmOnTheRight(page, 'screen-quantity-good')).toBe(1);
+
+    await typeQty(page, 'good-qty', 40);
+    await page.locator('#good-next').click();
+    expect(await expectConfirmOnTheRight(page, 'screen-quantity-defect')).toBe(1);
+
+    await typeQty(page, 'defect-qty', 6);
+    await page.locator('#defect-next').click();
+    await page.keyboard.press('1');
+    await expect(page.locator('#screen-quantity-rework')).toHaveClass(/active/);
+    expect(await expectConfirmOnTheRight(page, 'screen-quantity-rework')).toBe(1);
+  });
+
+  test('phím vật lý # vẫn xác nhận, phím * vẫn quay lại (vị trí đổi, ngữ nghĩa không)', async ({ page }) => {
+    const state = freshState();
+    await reachConfirm(page, state, { defect: 6 });
+
+    await page.keyboard.press('*');
+    await expect(page.locator('#screen-quantity-defect')).toHaveClass(/active/);
+    await page.locator('#defect-next').click();
+    await page.keyboard.press('2');
+    await expect(page.locator('#screen-finish-confirm')).toHaveClass(/active/);
+
+    await page.keyboard.press('#');
+    await expect.poll(() => state.finished.length).toBe(1);
+  });
+
+  test('390px: không tràn ngang, nút vẫn đủ to để bấm, # vẫn bên phải', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    const state = freshState();
+    await reachConfirm(page, state, { defect: 6 });
+
+    expect(await expectConfirmOnTheRight(page, 'screen-finish-confirm')).toBe(1);
+    const rows = await actionRows(page, 'screen-finish-confirm');
+    for (const b of [...rows[0].back, ...rows[0].confirm]) {
+      expect(b.height, `${b.id} quá thấp để bấm bằng ngón tay`).toBeGreaterThanOrEqual(44);
+      expect(b.left).toBeGreaterThanOrEqual(-0.5);
+      expect(b.right).toBeLessThanOrEqual(390.5);
+    }
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, 'trang tràn ngang ở 390px').toBeLessThanOrEqual(0);
+  });
+
+  test('390px: các màn nhập số và màn hỏi lỗi sửa được cũng không tràn ngang', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    const state = freshState();
+    await openQuantityFlow(page, state);
+    const noOverflow = async where => {
+      const over = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(over, `tràn ngang ở ${where}`).toBeLessThanOrEqual(0);
+    };
+    await noOverflow('SẢN PHẨM ĐẠT');
+    expect(await expectConfirmOnTheRight(page, 'screen-quantity-good')).toBe(1);
+
+    await typeQty(page, 'good-qty', 40);
+    await page.locator('#good-next').click();
+    await noOverflow('SẢN PHẨM LỖI');
+
+    await typeQty(page, 'defect-qty', 6);
+    await page.locator('#defect-next').click();
+    await expect(page.locator('#screen-ask-rework')).toHaveClass(/active/);
+    await noOverflow('CÓ LỖI SỬA ĐƯỢC?');
+
+    await page.keyboard.press('1');
+    await noOverflow('LỖI SỬA ĐƯỢC');
+    expect(await expectConfirmOnTheRight(page, 'screen-quantity-rework')).toBe(1);
+  });
+});

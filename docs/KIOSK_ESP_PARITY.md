@@ -13,6 +13,7 @@ Neo trong firmware:
 | Phím bàn phím | `handleKeypadKey`, `mesflow_app.cpp:5904-5981` |
 | Màn "CÓ LỖI SỬA ĐƯỢC?" | `drawAskRework`, `mesflow_app.cpp` |
 | Về màn chờ thẻ sau khi xong | `resetForNextWorker` → `setUi(UiState::READY)` |
+| Vẽ hai nút hành động dưới màn | `drawFooterTwoActions(left, right)`, `mesflow_app.cpp:1386` |
 
 ---
 
@@ -34,6 +35,60 @@ Neo trong firmware:
 ---
 
 ## 2. Phím — và chỗ web CỐ Ý khác firmware
+
+## 2.0 Vị trí nút trên màn hình — `*` bên TRÁI, `#` bên PHẢI
+
+Đây là phần **bố cục**, tách khỏi phần ngữ nghĩa phím ở §2.1–2.3. Người đứng
+máy dùng bàn phím cứng và nhớ **vị trí**, không đọc lại chữ mỗi lần bấm; hai
+thiết bị đảo chỗ hai nút là mời bấm nhầm.
+
+Firmware chỉ có **một** đường vẽ hàng nút: `drawFooterTwoActions(left, right)`
+(`mesflow_app.cpp:1386`) — vẽ `left` vào nửa trái, `right` vào nửa phải. Mọi
+lời gọi trong firmware đều theo đúng một khuôn:
+
+| Màn ESP | Trái | Phải |
+|---|---|---|
+| `WAIT_OPERATION` | `* HỦY` | — |
+| bắt đầu công đoạn | `* QUAY LẠI` | `# BẮT ĐẦU` |
+| kết thúc công đoạn | `* HỦY` | `# KẾT THÚC` |
+| nhập số (`drawQtyInput`) | `* XÓA` | `# TIẾP` |
+| `ASK_REWORK` | `* QUAY LẠI` | — |
+| `CONFIRM_QTY` | `* QUAY LẠI` | `# XÁC NHẬN` |
+| `FINISH_RETRY` | `* QUAY LẠI` | `# THỬ LẠI` |
+
+**Quy tắc rút ra: ô "lùi/huỷ" luôn bên trái, ô "tiến/xác nhận" luôn bên phải.
+Không có ngoại lệ nào trong firmware.**
+
+Kiosk web phải theo đúng quy tắc đó trên **mọi** màn nhập liệu. Cách khoá
+trong web không dựa vào thứ tự DOM (thứ tự DOM từng xếp ngược đúng ở màn
+`XÁC NHẬN`), mà dựa vào **slot**:
+
+| Attribute | Ý nghĩa | CSS |
+|---|---|---|
+| `data-action-slot="back"` | ô lùi/huỷ | `order:1` → luôn bên trái |
+| `data-action-slot="confirm"` | ô tiến/xác nhận (`#`) | `order:2` → luôn bên phải |
+
+Áp cho cả hai primitive bố cục đang dùng: `.actions` (các màn nhập số) và
+`.choice-grid` (màn hỏi lỗi sửa được, màn xác nhận) — nên thêm màn mới cũng
+không phải nhớ lại quy tắc, chỉ cần gắn đúng slot.
+
+> **Từng sai ở đâu**: `#screen-finish-confirm` xếp `#finish-confirm-ok`
+> (`# XÁC NHẬN`) TRƯỚC `#finish-confirm-edit` (`* QUAY LẠI`) trong markup, mà
+> `.choice-grid` đặt phần tử theo đúng thứ tự DOM → web hiện `#` bên trái,
+> ngược hẳn ESP. Sửa bằng cách đổi thứ tự DOM **và** gắn slot; bài test đo toạ
+> độ thật (`tests/e2e/kiosk-esp-parity.spec.js`, nhóm "Ô XÁC NHẬN nằm bên
+> phải") đỏ ngay nếu ai xếp ngược lại, kể cả khi markup trông vẫn hợp lý.
+
+**Chỗ web còn khác về bố cục** (có chủ ý, không phải nợ):
+
+| Chỗ | ESP | Web | Lý do |
+|---|---|---|---|
+| nhãn `*`/`#` ở màn nhập số | in ngay trên footer | nút ghi `QUAY LẠI` / `TIẾP TỤC`, không in ký tự | web có chuột/cảm ứng nên nhãn chữ đọc nhanh hơn ký tự; vị trí vẫn đúng quy tắc |
+| `*` ở màn `SẢN PHẨM ĐẠT` | `XÓA` (xoá lùi) | **chưa gán phím** — nút `HỦY` chỉ bấm được | màn đầu luồng không có màn trước để quay lại; xoá lùi đã có `Backspace` (§2.1). Nút `HỦY` vẫn nằm đúng ô trái. |
+| `ASK_REWORK` | hai dòng option dọc | hai nút cạnh nhau | màn web rộng hơn nhiều; ô "tiếp tục" (`#`) vẫn nằm bên phải |
+
+---
+
 
 ### 2.1 Màn nhập số (đạt / lỗi / lỗi sửa được)
 
@@ -164,6 +219,7 @@ một id và backend khử trùng qua `kiosk_idempotency`. Có bài test khoá �
 | 3 | `rework = 0` được chấp nhận | web rộng hơn | tránh kẹt màn hình; kết quả giống "tiếp tục" |
 | 4 | `*` = quay lại thay vì xoá lùi ở màn nhập số | web khác | bàn phím web đã có Backspace |
 | 5 | `Enter` ở mọi màn | web thêm | bàn phím web có, bàn phím ESP không |
+| 6 | `*` chưa gán ở màn `SẢN PHẨM ĐẠT` | web hẹp hơn | không có màn trước để quay lại; xem §2.0 |
 
 Khác biệt 2–5 là **web rộng hơn** ở chỗ ESP không dùng tới, không đổi ngữ nghĩa.
 Chỉ khác biệt **1** là hai thiết bị nói ngược nhau và cần quyết định về firmware.

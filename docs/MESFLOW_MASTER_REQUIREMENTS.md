@@ -1887,6 +1887,29 @@ are the test-entry-points into it.
 - **Priority**: P0 — this is the tutorial's explicitly required "Kiosk năng suất nhân viên" chapter subject (video 10_employee_productivity of the 15-video set — not its own chapter, but the closing portion of the "Employee Productivity Report" chapter; confirmed by a 2026-09-06 audit to actually open the real kiosk/slideshow UI, both via Preview and the real published Kiosk, and to wait for and assert one real auto-page-flip cycle via `#wbPageIndicator` changing value — not narration alone).
 - **Dimensions**: positive, boundary (preview-does-not-mutate), unauth access (confirm intended), the 3 special states above (not-configured/empty-data/connection-lost), multi-page auto-flip.
 
+### REQ-KIOSK-011 — Web Kiosk finish flow matches the ESP v2 device
+
+> **Source of truth:** the web Kiosk's quantity-entry flow must produce the same
+> result, and be driven by the same keys, as the ESP v2 device — except for the
+> differences listed explicitly in `docs/KIOSK_ESP_PARITY.md`. That file (VI) is
+> the full state/screen/key comparison, with firmware line anchors; this entry is
+> the English test-entry-point.
+
+- **Module**: web Kiosk (`/kiosk`) — the browser at the station. Distinct from the ESP v2 device (REQ-KIOSK-002) and from the wall-mounted control screen (REQ-KIOSK-010).
+- **Purpose**: same worker, same action, two devices — the result must be identical. A flow that diverges between devices is where untraceable wrong numbers come from.
+- **Actors**: shop-floor worker. **Preconditions**: an open session belongs to the badge just scanned. **Trigger**: scanning an employee badge while a session is open.
+- **Main flow**: `GOOD` → `DEFECT`; NG = 0 skips the repairable question entirely (`rework = 0`, as the firmware does); NG > 0 asks it; then the confirmation screen; then submit and return to the badge-wait screen, clearing employee/session/all entered quantities.
+- **Keys**: `0-9` enter digits; `#`/`Enter` confirm and advance; `*` goes back to the previous screen. On the question screen `1` = yes (enter a number), `2`/`#`/`Enter` = continue with none. Full table, including where the web deliberately differs from the firmware, in `docs/KIOSK_ESP_PARITY.md` §2.
+- **Button position — `*` on the LEFT, `#` on the RIGHT**: workers use a hard keypad and remember **position**, not wording. The firmware has exactly one way to draw an action row — `drawFooterTwoActions(left, right)` (`mesflow_app.cpp:1386`) — and **every** call site passes `("* …", "# …")`. The web Kiosk must therefore place the back/cancel slot on the left and the forward/confirm (`#`) slot on the right, on **every** entry screen, with no exception. Position is decided by slot, not by DOM order: `data-action-slot="back"` (`order:1`) and `data-action-slot="confirm"` (`order:2`), applied to both layout primitives in use (`.actions` and `.choice-grid`). At 390px the two slots stay side by side, keep a ≥44px touch target, and the page must not scroll horizontally.
+- **Expected output**: `good_qty`, `defect_qty`, `rework_qty` are submitted as **three separate numbers**. `rework_qty` means "how many of those NG are repairable" and must **never** be folded into `good_qty` at declaration time — a repaired unit only becomes good output once someone actually repairs it and it is recorded through the Rework Queue; folding it in here counts the same unit twice.
+- **Validation**: `0 <= rework_qty <= defect_qty`, enforced in **both** the UI and the server (`WorkSessionRepository._finish_within`).
+- **Errors / special states**: `rework_qty > defect_qty` → `400`. A failed submit keeps the entered numbers, does not lose data, and does not auto-return to the wait screen. **Transient** failures are retried by the network layer (the firmware does the same: pending transaction, background retry every 10s — `mesflow_app.cpp:6136`); the manual **Retry** button is for **persistent** failures only, mirroring the ESP `FINISH_RETRY` screen. Every retry carries the **same** `request_id` (generated once on entering the flow), so the backend de-duplicates via `kiosk_idempotency`.
+- **Boundary**: NG = 0; `rework = 0`; `rework = NG`; `rework = NG + 1`; page reload mid-flow returns to the badge-wait screen with no stale state.
+- **Permission**: as the existing web Kiosk. **Audit**: through the existing session/trace records.
+- **Related**: REQ-KIOSK-002 (ESP device protocol), REQ-KIOSK-001, REQ-REWORK-* (the Rework Queue is where repaired units are credited).
+- **Priority**: P1.
+- **Dimensions**: positive (NG=0; NG>0 choosing 2/#/Enter; choosing 1 then entering), negative (`rework > NG`), boundary (`rework = 0`), stale state (after submit, after reload), computed layout (confirm slot on the right on every screen, desktop and 390px).
+
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 
 Full detail in §6.4 and §4.10's `work_shifts`/`work_shift_intervals`
@@ -2463,6 +2486,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-001 (v1) | `tests/e2e/kiosk-setup-flow.spec.js`, `tests/e2e/kiosk-quantity-entry-p0.spec.js`, `tests/e2e/kiosk-result-auto-return.spec.js` (15 s screen lifecycle, fake clock), `tests/test_kiosk_web_result_auto_return_15s.py`; otherwise indirect via `tests/e2e/mesflow.spec.js` | P (A for the screen lifecycle) |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — most heavily tested module in the system |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
+| REQ-KIOSK-011 (web Kiosk ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (incl. the "Ô XÁC NHẬN nằm bên phải" group — real measured geometry, desktop and 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
