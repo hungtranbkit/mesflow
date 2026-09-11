@@ -2227,6 +2227,27 @@ Chưa có nguồn đáng tin nên **chưa hiển thị** (không bịa):
 | hỏi lỗi sửa được | `1` = có, `2` = tiếp tục | tiếp tục | quay lại |
 | xác nhận | `1` gửi, `2` quay lại | gửi | quay lại |
 
+**Vị trí nút trên màn hình — `*` bên TRÁI, `#` bên PHẢI**
+
+Công nhân dùng bàn phím cứng và nhớ **vị trí** nút, không đọc lại chữ mỗi lần
+bấm. Firmware chỉ có một đường vẽ hàng nút — `drawFooterTwoActions(left, right)`
+(`mesflow_app.cpp:1386`) — và **mọi** lời gọi đều là `("* …", "# …")`. Vì thế
+Kiosk web **phải** xếp: ô lùi/huỷ bên trái, ô tiến/xác nhận (`#`) bên phải, trên
+**mọi** màn nhập liệu — không có ngoại lệ.
+
+| Màn | Trái | Phải |
+|---|---|---|
+| `SẢN PHẨM ĐẠT` | `HỦY` | `TIẾP TỤC` |
+| `SẢN PHẨM LỖI` | `QUAY LẠI` | `TIẾP TỤC` |
+| `CÓ LỖI SỬA ĐƯỢC?` | `1 CÓ, NHẬP SỐ` | `2 TIẾP TỤC, KHÔNG CÓ` (chính là phím `#`) |
+| `LỖI SỬA ĐƯỢC` | `QUAY LẠI` | `TIẾP TỤC` |
+| `XÁC NHẬN` | `* QUAY LẠI` | `# XÁC NHẬN` — và `# THỬ LẠI` khi gửi hỏng |
+
+Vị trí do **slot** quyết định chứ không do thứ tự DOM: `data-action-slot="back"`
+(`order:1`) và `data-action-slot="confirm"` (`order:2`), áp cho cả `.actions`
+lẫn `.choice-grid`. Bảng đối chiếu đầy đủ kèm neo dòng firmware ở
+`docs/KIOSK_ESP_PARITY.md` §2.0.
+
 **Sản lượng — không đếm hai lần**
 
 `good_qty`, `defect_qty`, `rework_qty` gửi **tách bạch**. `rework_qty` nghĩa là
@@ -2255,6 +2276,7 @@ sửa thật và ghi nhận qua Hàng chờ sửa.
 | `#` ở màn hỏi | không gán | tiếp tục | web thêm, ESP để trống nên không đụng gì |
 | `rework = 0` | từ chối | chấp nhận | tránh kẹt màn hình; kết quả giống "tiếp tục" |
 | `*` ở màn nhập số | xoá lùi | quay lại | bàn phím web đã có Backspace |
+| `*` ở màn `SẢN PHẨM ĐẠT` | xoá lùi | **chưa gán** | màn đầu luồng không có màn trước để quay lại; nút `HỦY` vẫn nằm đúng ô trái |
 
 - **Liên quan**: REQ-KIOSK-002 (giao thức thiết bị ESP), REQ-KIOSK-001,
   REQ-REWORK-* (Hàng chờ sửa là nơi credit sản phẩm đã sửa).
@@ -2862,7 +2884,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 case), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
 | REQ-KIOSK-010 (tương phản vùng điều khiển kiosk) | `tests/e2e/kiosk-control-contrast.spec.js`, `tests/test_daily_dashboard_kiosk_contract.py` | A |
-| REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js`, `docs/KIOSK_ESP_PARITY.md` | A |
+| REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (gồm nhóm "Ô XÁC NHẬN nằm bên phải" — đo toạ độ thật, cả ở 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |

@@ -51,7 +51,7 @@
       </div>
       <p id="good-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
       <input id="finish-note" type="hidden" value="">
-      <div class="actions"><button class="secondary" data-action="cancel">HỦY</button><button id="good-next" data-testid="kiosk-quantity-next">TIẾP TỤC</button></div>
+      <div class="actions"><button class="secondary" data-action="cancel" data-action-slot="back">HỦY</button><button id="good-next" data-testid="kiosk-quantity-next" data-action-slot="confirm">TIẾP TỤC</button></div>
     </section>
 
     <section id="screen-quantity-defect" class="screen quantity-screen">
@@ -62,7 +62,7 @@
         <label>SẢN PHẨM LỖI<input id="defect-qty" data-testid="kiosk-defect-quantity" type="number" min="0" step="1" inputmode="numeric" value="0"></label>
       </div>
       <p id="defect-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
-      <div class="actions"><button id="defect-back" class="secondary">QUAY LẠI</button><button id="defect-next" data-testid="kiosk-quantity-next">TIẾP TỤC</button></div>
+      <div class="actions"><button id="defect-back" class="secondary" data-action-slot="back">QUAY LẠI</button><button id="defect-next" data-testid="kiosk-quantity-next" data-action-slot="confirm">TIẾP TỤC</button></div>
     </section>
 
     <section id="screen-ask-rework" class="screen confirm-screen">
@@ -70,7 +70,7 @@
       <h1>CÓ LỖI SỬA ĐƯỢC KHÔNG?</h1>
       <div class="choice-grid two-choice">
         <button id="rework-yes" data-testid="kiosk-rework-choice-yes" class="choice-button"><strong>1</strong><span>CÓ, NHẬP SỐ</span></button>
-        <button id="rework-none" data-testid="kiosk-rework-choice-none" class="choice-button secondary"><strong>2</strong><span>TIẾP TỤC, KHÔNG CÓ</span></button>
+        <button id="rework-none" data-testid="kiosk-rework-choice-none" data-action-slot="confirm" class="choice-button secondary"><strong>2</strong><span>TIẾP TỤC, KHÔNG CÓ</span></button>
       </div>
       <p class="choice-hint">Bấm <strong>#</strong> hoặc <strong>Enter</strong> để tiếp tục mà không nhập lỗi sửa được.</p>
       <button id="ask-rework-back" class="text-back">QUAY LẠI (*)</button>
@@ -84,7 +84,7 @@
         <label>LỖI SỬA ĐƯỢC<input id="rework-qty" data-testid="kiosk-rework-quantity" type="number" min="0" step="1" inputmode="numeric" value="0"></label>
       </div>
       <p id="rework-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
-      <div class="actions"><button id="rework-back" class="secondary">QUAY LẠI</button><button id="rework-next" data-testid="kiosk-quantity-next">TIẾP TỤC</button></div>
+      <div class="actions"><button id="rework-back" class="secondary" data-action-slot="back">QUAY LẠI</button><button id="rework-next" data-testid="kiosk-quantity-next" data-action-slot="confirm">TIẾP TỤC</button></div>
     </section>
 
     <section id="screen-finish-confirm" class="screen confirm-screen">
@@ -93,9 +93,9 @@
       <div id="finish-confirm-summary" class="quantity-summary"></div>
       <p id="finish-submit-error" class="quantity-validation" role="alert" aria-live="polite"></p>
       <div class="choice-grid two-choice">
-        <button id="finish-confirm-ok" data-testid="kiosk-quantity-confirm" class="choice-button"><strong>#</strong><span>XÁC NHẬN</span></button>
-        <button id="finish-confirm-edit" data-testid="kiosk-quantity-back" class="choice-button secondary"><strong>*</strong><span>QUAY LẠI</span></button>
-        <button id="finish-submit-retry" data-testid="kiosk-submit-retry" class="choice-button" hidden><strong>#</strong><span>THỬ LẠI</span></button>
+        <button id="finish-confirm-edit" data-testid="kiosk-quantity-back" data-action-slot="back" class="choice-button secondary"><strong>*</strong><span>QUAY LẠI</span></button>
+        <button id="finish-confirm-ok" data-testid="kiosk-quantity-confirm" data-action-slot="confirm" class="choice-button"><strong>#</strong><span>XÁC NHẬN</span></button>
+        <button id="finish-submit-retry" data-testid="kiosk-submit-retry" data-action-slot="confirm" class="choice-button" hidden><strong>#</strong><span>THỬ LẠI</span></button>
       </div>
     </section>
 
