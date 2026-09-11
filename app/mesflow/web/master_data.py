@@ -13,7 +13,8 @@ from mesflow.db.repositories.production_state import reconcile_production_order,
 from mesflow.db.repositories.setup_ops import display_key_sql
 from mesflow.db.repositories.analytics import AuditRepository
 from mesflow.db.repositories.scheduling import RUNNABLE_STATUSES,RUNNABLE_PO_STATUSES
-from mesflow.domain.policy import LABELLED_TYPES,SETUP_TYPE,type_in_sql,type_is_sql
+from mesflow.domain.policy import (LABELLED_TYPES,SETUP_TYPE,production_only_sql,
+                                   type_in_sql,type_is_sql,type_value_sql)
 from mesflow.core.upload_policy import validate_drawing_upload
 from mesflow.web.errors import api_error_response
 from mesflow.domain.trace import record_event
@@ -24,6 +25,17 @@ from mesflow.domain.trace import record_event
 # định thứ được in ra tem dán ngoài xưởng.
 LABELLED_ONLY_O = type_in_sql(LABELLED_TYPES, 'o')
 IS_SETUP_O = type_is_sql(SETUP_TYPE, 'o')
+TYPE_VALUE_O = type_value_sql('o')
+PRODUCTION_ONLY_O = production_only_sql('o')
+
+# operation_count của một PO là số BƯỚC SẢN XUẤT, không phải số dòng trong bảng
+# operations. reconcile_production_order() đã đếm theo nghĩa đó từ trước (nó
+# quyết định PO có COMPLETED hay không); endpoint Start thì đếm trần, nên hai
+# nơi trả về hai con số khác nhau cho cùng một PO ngay khi có bàn SỬA HÀNG hoặc
+# tem setup. Câu điều kiện "PO chưa có Operation" cũng phải hỏi cùng câu hỏi:
+# một PO chỉ có OP phụ thì không có gì để sản xuất.
+COUNT_PRODUCTION_OPS_SQL = (
+    f"SELECT COUNT(*) AS n FROM operations o WHERE o.production_order_id=%s AND {PRODUCTION_ONLY_O}")
 
 bp=Blueprint('master_data',__name__,url_prefix='/api')
 RESOURCES={
@@ -432,11 +444,11 @@ def start_production_order(po_id):
                 raise NotFoundError('production order not found')
             current=str(po.get('status') or '').strip().upper()
             if current=='IN_PROGRESS':
-                op_count=conn.execute('SELECT COUNT(*) AS n FROM operations WHERE production_order_id=%s',(po_id,)).fetchone()['n']
+                op_count=conn.execute(COUNT_PRODUCTION_OPS_SQL,(po_id,)).fetchone()['n']
                 return jsonify(ok=True,item=dict(po),operation_count=int(op_count or 0),already_started=True)
             if current in {'COMPLETED','CANCELLED'}:
                 raise ConflictError('PO đã hoàn thành hoặc đã hủy nên không thể Start')
-            op_count=int(conn.execute('SELECT COUNT(*) AS n FROM operations WHERE production_order_id=%s',(po_id,)).fetchone()['n'] or 0)
+            op_count=int(conn.execute(COUNT_PRODUCTION_OPS_SQL,(po_id,)).fetchone()['n'] or 0)
             if op_count<=0:
                 raise ConflictError('PO chưa có Operation. Hãy thêm Operation trước khi Start.')
             started=conn.execute("""UPDATE production_orders
@@ -738,7 +750,7 @@ def qr_labels():
                 po.code AS group_name,
                 p.code AS part_code,COALESCE(p.name,'') AS part_name,
                 COALESCE(p.sort_order,0) AS part_sort,COALESCE(o.sort_order,0) AS operation_sort,
-                COALESCE(o.operation_type,'PRODUCTION') AS operation_type,o.parent_operation_id,
+                {TYPE_VALUE_O} AS operation_type,o.parent_operation_id,
                 parent.name AS parent_name,
                 p.code||' · '||COALESCE(p.name,'')||
                   CASE WHEN {IS_SETUP_O} THEN ' · Setup máy' ELSE '' END AS detail,

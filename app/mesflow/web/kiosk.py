@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request, render_template
 
 from mesflow import __version__
 from mesflow.domain.qr_identity import is_operation_qr, resolve_operation_id
+from mesflow.domain.policy import STARTABLE_TYPES, type_in_sql
 from mesflow.web.auth import login_required, production_client_required
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
@@ -12,6 +13,12 @@ from mesflow.db.repositories.base import NotFoundError, ConflictError, Repositor
 from mesflow.domain.errors import PermissionDeniedError
 
 bp = Blueprint('web_kiosk', __name__)
+
+# Danh sách việc trên kiosk chỉ được chứa loại Operation MỞ ĐƯỢC session.
+# lock_startable_operation() từ chối bàn SỬA HÀNG, nên liệt kê nó ở đây là đưa
+# cho công nhân một dòng việc mà chính máy sẽ từ chối khi họ chọn -- đúng lỗi
+# danh mục QR đã sửa từ trước bằng cùng tập này (xem master_data.qr_labels).
+STARTABLE_ONLY_O = type_in_sql(STARTABLE_TYPES, 'o')
 
 
 def _error(exc):
@@ -108,13 +115,14 @@ def kiosk_demo_data():
                LIMIT 300"""
         )
         operations = fetch_all(
-            """SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
+            f"""SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
                       p.code part_code,p.name part_name,po.code po_code,po.product
                FROM operations o
                LEFT JOIN parts p ON p.id=o.part_id
                LEFT JOIN production_orders po ON po.id=o.production_order_id
                WHERE UPPER(TRIM(COALESCE(po.status,'')))='IN_PROGRESS'
                  AND UPPER(TRIM(COALESCE(o.status,''))) NOT IN ('COMPLETED','CANCELLED')
+                 AND {STARTABLE_ONLY_O}
                ORDER BY po.code NULLS LAST,p.sort_order NULLS LAST,p.id,o.sort_order NULLS LAST,o.id
                LIMIT 500"""
         )

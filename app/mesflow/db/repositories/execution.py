@@ -5,7 +5,8 @@ from decimal import Decimal
 from uuid import UUID
 from psycopg.types.json import Jsonb
 from typing import Any
-from mesflow.domain.policy import PRODUCTION_TYPE, SETUP_TYPE, is_production
+from mesflow.domain.policy import (PRODUCTION_TYPE, REWORK_TYPE, SETUP_TYPE, is_support,
+                                   type_is_sql, type_value_sql)
 from mesflow.db.connection import transaction,fetch_all,fetch_one
 from .base import NotFoundError,ConflictError,RepositoryError,SessionChangedError
 from .production_state import lock_idempotency_key,lock_startable_operation,reconcile_operation_and_po,lock_production_order_for_operation_first
@@ -13,6 +14,11 @@ from .scheduling import dispatch_state_from_db
 from mesflow.domain.audit import record_audit
 from mesflow.domain.trace import record_event,record_quantities
 from mesflow.core.time_policy import trusted_event_time
+
+# Bộ lọc/biểu thức loại Operation lấy từ mesflow.domain.policy -- KHÔNG chép
+# lại COALESCE(...) hay tên loại ở từng câu truy vấn.
+TYPE_VALUE_O = type_value_sql('o')
+IS_SETUP_BARE = type_is_sql(SETUP_TYPE, '')
 
 
 def _parse_client_timestamp(value):
@@ -395,9 +401,49 @@ def _guard_rework_ledger(cur,session_id,*,rework,scrap):
             f'Không thể đặt số phế xuống {scrap}.')
 
 
+def _guard_support_operation_quantity(cur, operation_id, *, good=0, defect=0, rework=0, scrap=0,
+                                      operation_type=None, operation_code=None):
+    """Session mang sản lượng KHÔNG được nằm trên OP phụ.
+
+    SETUP và SỬA HÀNG cố ý bị loại khỏi mọi rollup sản xuất, nên một session có
+    good/NG/rework/phế nằm trên OP phụ làm số đó BIẾN MẤT khỏi tiến độ PO mà
+    không để lại dấu vết: OP nguồn mất sản lượng, OP đích không nhận, tổng
+    không cân. Đối soát sẽ báo nó về sau dưới dạng "OP phụ có sản lượng"
+    (integrity_audit_service._support_operation_with_production_quantity), tức
+    là sau khi số đã sai rồi.
+
+    Luật này TRƯỚC ĐÂY chỉ có ở transfer_operation(). edit_session() cũng đổi
+    được operation_id VÀ số lượng trong cùng một lệnh, adjust() cũng ghi được
+    số lượng lên bất kỳ OP nào -- cả hai đi vòng qua guard. Hai đường ghi cùng
+    một hệ quả nghiệp vụ mà hai luật khác nhau chính là thứ B2 tồn tại để đóng,
+    nên luật nằm ở đây và ba đường ghi cùng gọi nó.
+
+    ``operation_type``/``operation_code`` truyền vào khi nơi gọi đã đọc sẵn
+    dòng đó (khỏi truy vấn thừa); không thì tự đọc.
+    """
+    if operation_type is None:
+        cur.execute(f'SELECT code,{TYPE_VALUE_O} operation_type FROM operations o WHERE o.id=%s',
+                    (int(operation_id),))
+        row = cur.fetchone() or {}
+        operation_type = row.get('operation_type')
+        operation_code = operation_code or row.get('code')
+    operation_type = str(operation_type or PRODUCTION_TYPE).upper()
+    if not is_support(operation_type):
+        return
+    carried = sum(max(int(x or 0), 0) for x in (good, defect, rework, scrap))
+    if carried <= 0:
+        return
+    label = 'bàn SỬA HÀNG' if operation_type == REWORK_TYPE else 'OP setup'
+    raise ConflictError(
+        f'Session này có {carried} sản phẩm đã ghi nhận, không thể gắn vào '
+        f'{label} {operation_code or operation_id} ({operation_type}): '
+        'OP phụ không tính vào sản lượng nên số này sẽ biến mất khỏi tiến độ PO. '
+        'Hãy dùng một Operation sản xuất, hoặc chỉnh số lượng về 0 trước.')
+
+
 def _setup_parent_operation(cur,operation_id):
     """The production Operation a SETUP row prepares, or None for anything else."""
-    cur.execute(f"SELECT parent_operation_id FROM operations WHERE id=%s AND operation_type='{SETUP_TYPE}'",(operation_id,))
+    cur.execute(f'SELECT parent_operation_id FROM operations WHERE id=%s AND {IS_SETUP_BARE}',(operation_id,))
     row=cur.fetchone()
     return row['parent_operation_id'] if row and row['parent_operation_id'] else None
 
@@ -763,6 +809,15 @@ class SupervisorRepository:
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
                 if not row: raise NotFoundError('session not found')
                 _guard_quantity_shape(good=good,defect=defect,rework=rework,scrap=int(row.get('scrap_qty') or 0))
+                # Một session cũ có thể đã nằm sẵn trên OP phụ (dữ liệu có
+                # trước guard này). Điều chỉnh số lượng lên đó là ghi thêm sản
+                # lượng vào chỗ không ai cộng -- chặn ở đây, cùng luật với
+                # edit_session()/transfer_operation(). Chỉ soi phần lệnh này
+                # ĐANG ĐẶT: scrap là số cũ mang theo chứ không phải thứ adjust()
+                # ghi, tính cả nó thì một session phụ lỡ có scrap>0 sẽ không sửa
+                # được gì nữa -- khoá luôn cả đường sửa sai.
+                _guard_support_operation_quantity(cur,row['operation_id'],
+                    good=good,defect=defect,rework=rework)
                 if row['status']=='CLOSED':
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 _guard_rework_ledger(cur,session_id,rework=rework,scrap=int(row.get('scrap_qty') or 0))
@@ -870,10 +925,18 @@ class SupervisorRepository:
                 note=str(data.get('note',old.get('note') or ''))
                 cur.execute('SELECT 1 FROM employees WHERE id=%s AND active=TRUE',(employee_id,))
                 if not cur.fetchone(): raise ValueError('Nhân viên không tồn tại hoặc đã khóa')
-                cur.execute('SELECT status,code FROM operations WHERE id=%s FOR UPDATE',(operation_id,)); target_operation=cur.fetchone()
+                cur.execute(f'SELECT o.status,o.code,{TYPE_VALUE_O} operation_type FROM operations o WHERE o.id=%s FOR UPDATE',(operation_id,)); target_operation=cur.fetchone()
                 if not target_operation: raise ValueError('Operation không tồn tại')
                 if status=='OPEN' and target_operation and str(target_operation.get('status') or '').upper()=='CANCELLED':
                     raise ConflictError(f"Operation {target_operation.get('code') or operation_id} đã CANCELLED, không thể reopen session")
+                # Cùng luật với transfer_operation(): edit_session() cũng đổi
+                # được operation_id VÀ số lượng trong một lệnh, nên nó phải qua
+                # đúng guard đó chứ không phải một luật riêng (hoặc không có
+                # luật nào, như trước 71.0.0.277).
+                _guard_support_operation_quantity(
+                    cur,operation_id,operation_type=target_operation.get('operation_type'),
+                    operation_code=target_operation.get('code'),
+                    good=good,defect=defect,rework=rework)
                 cur.execute('SELECT %s::timestamptz st,%s::timestamptz en',(started_at,ended_at)); times=cur.fetchone()
                 if times['en'] is not None and times['en'] < times['st']: raise ValueError('Giờ kết thúc phải sau giờ bắt đầu')
                 _raise_overlap(_find_employee_session_overlap(cur,employee_id,times['st'],times['en'],session_id))
@@ -945,8 +1008,8 @@ class SupervisorRepository:
                     po.code po_code FROM operations o JOIN parts p ON p.id=o.part_id
                     JOIN production_orders po ON po.id=o.production_order_id WHERE o.id=%s FOR UPDATE OF o""",(old['operation_id'],))
                 source_op=cur.fetchone()
-                cur.execute("""SELECT o.id,o.code,o.name,o.status,o.part_id,o.production_order_id,
-                    COALESCE(o.operation_type,'PRODUCTION') operation_type,p.code part_code,
+                cur.execute(f"""SELECT o.id,o.code,o.name,o.status,o.part_id,o.production_order_id,
+                    {TYPE_VALUE_O} operation_type,p.code part_code,
                     po.code po_code FROM operations o JOIN parts p ON p.id=o.part_id
                     JOIN production_orders po ON po.id=o.production_order_id WHERE o.id=%s FOR UPDATE OF o""",(new_operation_id,))
                 target_op=cur.fetchone()
@@ -961,15 +1024,11 @@ class SupervisorRepository:
                 # lượng, OP đích không nhận, tổng không cân. Chặn ở tầng
                 # service chứ không phải ở giao diện: kiosk, API và Excel đều
                 # đi qua đây.
-                target_type=str(target_op.get('operation_type') or PRODUCTION_TYPE).upper()
-                if not is_production(target_type):
-                    carried=sum(int(old.get(f) or 0) for f in ('good_qty','defect_qty','rework_qty','scrap_qty'))
-                    if carried>0:
-                        raise ConflictError(
-                            f"Session này có {carried} sản phẩm đã ghi nhận, không thể chuyển sang "
-                            f"OP phụ {target_op.get('code') or new_operation_id} ({target_type}): "
-                            'OP phụ không tính vào sản lượng nên số này sẽ biến mất khỏi tiến độ PO. '
-                            'Hãy chuyển sang một Operation sản xuất, hoặc chỉnh số lượng về 0 trước.')
+                _guard_support_operation_quantity(
+                    cur,new_operation_id,operation_type=target_op.get('operation_type'),
+                    operation_code=target_op.get('code'),
+                    good=old.get('good_qty'),defect=old.get('defect_qty'),
+                    rework=old.get('rework_qty'),scrap=old.get('scrap_qty'))
                 if int(target_op['production_order_id'])!=int(source_op['production_order_id']):
                     if str(actor_role or '').lower()!='admin':
                         raise ConflictError(f"Operation mới thuộc PO khác ({target_op.get('po_code')} khác {source_op.get('po_code')}); chỉ admin mới được chuyển khác PO")
