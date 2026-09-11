@@ -2718,3 +2718,181 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
   .kiosk-tr>span:nth-child(4),.kiosk-tr>span:nth-child(5),.kiosk-tr>span:nth-child(6),
   .kiosk-th>span:nth-child(4),.kiosk-th>span:nth-child(5),.kiosk-th>span:nth-child(6){display:none}
 }
+
+/* ===========================================================================
+   Kiosk điều hành v1 — PO focus, mật độ cao cho TV/màn hình lớn
+   ---------------------------------------------------------------------------
+   Vì sao có breakpoint RIÊNG thay vì chỉnh chung: màn hình treo tường được
+   nhìn từ 3-5 mét, nhưng nó cũng RỘNG. Cỡ chữ tối ưu cho laptop 1366 làm một
+   TV 1920 chỉ chứa được 6-7 hàng task -- tức là quản đốc phải đứng đợi vòng
+   lật trang để thấy hết việc. Nên chữ NHỎ LẠI khi màn RỘNG RA, và chỉ khi đó.
+   Dashboard thường và mobile không đụng tới: mọi luật dưới đây đều nằm trong
+   .kiosk-focus, và bản thân trang kiosk chỉ bật khi body[data-page].
+
+   Thứ bậc giữ nguyên ở mọi cỡ: TÊN Operation là dòng chính, mã là dòng phụ
+   nhỏ hơn và mờ hơn. Thu nhỏ đồng loạt sẽ phá thứ bậc đó, nên hai dòng co
+   theo hai tỉ lệ khác nhau.
+   =========================================================================== */
+.kiosk-focus .kiosk-po{display:flex;flex-direction:column;gap:2px;min-width:0}
+.kiosk-focus .kiosk-po strong{font-size:22px;line-height:1.1;letter-spacing:.01em}
+.kiosk-focus .kiosk-po span{color:#9fb0cc;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-focus .kiosk-po-progress{display:flex;flex-direction:column;gap:3px;min-width:150px}
+.kiosk-focus .kiosk-po-progress strong{font-size:19px}
+.kiosk-focus .kiosk-po-pick select{background:#16243c;color:#e8eefb;border:1px solid #2a3c5c;border-radius:8px;
+  padding:7px 10px;font-size:13px;max-width:330px}
+
+/* Panel task phải CHIẾM HẾT chiều cao còn lại, nếu không nó co theo nội dung
+   và phép đo "một trang chứa được bao nhiêu hàng" sẽ đo nhầm khung đã co --
+   càng ít hàng thì khung càng nhỏ, khung càng nhỏ thì lại càng ít hàng. */
+/* grid-template-rows là phần bắt buộc, không phải trang trí: thiếu nó thì hàng
+   grid cao theo NỘI DUNG, align-items:stretch chỉ kéo item trong hàng chứ không
+   kéo hàng ra đầy khung -- panel đứng ở 224px giữa một khung 512px và phép đo
+   số hàng/trang ra 4 thay vì 8. */
+.kiosk-body-focus{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(320px,.85fr);
+  grid-template-rows:minmax(0,1fr);gap:12px;min-height:0;align-items:stretch}
+.kiosk-focus .kiosk-col-main,.kiosk-focus .kiosk-col-side{display:flex;flex-direction:column;gap:12px;min-height:0}
+.kiosk-focus .kiosk-task-panel{flex:1;display:flex;flex-direction:column;min-height:0}
+.kiosk-focus .kiosk-task-panel .kiosk-panel-body{flex:1;min-height:0;overflow:hidden}
+
+/* --- một hàng task ------------------------------------------------------- */
+.kiosk-task-list{display:flex;flex-direction:column;gap:6px}
+/* Chiều cao hàng là ràng buộc THẬT của màn này: mỗi 10px thừa là bớt đi một
+   hàng task trên TV. Nên mọi thứ trong hàng đều một dòng, line-height chặt, và
+   thanh tiến độ mỏng đi (5px -> 3px) với margin nhỏ. Ở 1920 hàng ~46px, tức
+   ~13 hàng/trang thay vì 8 như bản đầu. */
+.kiosk-task{display:grid;grid-template-columns:minmax(0,2.1fr) 148px minmax(0,1fr) 168px 70px;
+  gap:10px;align-items:center;padding:5px 12px;border-radius:9px;background:#131f33;
+  border-left:3px solid #2b3b57;line-height:1.2;
+  transition:background .25s ease,border-color .25s ease}
+.kiosk-task .kiosk-meter{height:3px;margin-top:3px}
+.kiosk-task .kiosk-state{display:inline-block;padding:1px 7px;border-radius:999px;font-size:12px;line-height:1.5}
+.kiosk-task-main{min-width:0;display:flex;flex-direction:column;gap:1px}
+.kiosk-task-main b{font-size:16px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-task-main small{font-size:12px;color:#8194b4;letter-spacing:.02em}
+.kiosk-task-people{color:#c6d3e8;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-task-qty{display:flex;flex-direction:column;gap:0;font-size:14px;line-height:1.2}
+.kiosk-task-qty b{font-size:16px}
+.kiosk-task-ng{text-align:right;font-size:16px;color:#8194b4}
+.kiosk-task-ng.has{color:#ff8a8a;font-weight:700}
+.kiosk-task-state small{display:block;font-size:11px;line-height:1.25;color:#93a6c4;margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-task.state-running{border-left-color:#3d7dff}
+.kiosk-task.state-needs_review{border-left-color:#ffb020}
+/* Vừa hoàn thành: xanh NHẸ, giữ vài giây rồi mới rời danh sách. Không nháy,
+   không đổi vị trí -- mục tiêu là "thấy nó xong", không phải gây chú ý. */
+.kiosk-task.state-justdone{border-left-color:#35c98a;background:#14301f}
+.kiosk-task.state-justdone .kiosk-state{background:#1d5c3d;color:#8ef0be}
+
+/* --- chỉ báo trang ------------------------------------------------------- */
+.kiosk-pager{display:flex;align-items:center;gap:10px;font-size:13px;color:#9fb0cc}
+.kiosk-page-count{font-weight:700;color:#dbe5f5}
+.kiosk-dots{display:inline-flex;gap:4px}
+.kiosk-dots i{width:7px;height:7px;border-radius:50%;background:#33455f;display:block}
+.kiosk-dots i.on{background:#4f8dff}
+.kiosk-paused{color:#ffce6b}
+
+/* --- dòng sự kiện -------------------------------------------------------- */
+.kiosk-focus .kiosk-feed-panel{flex:1.25;display:flex;flex-direction:column;min-height:0}
+.kiosk-focus .kiosk-feed-panel .kiosk-panel-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:5px}
+.kiosk-event{display:grid;grid-template-columns:62px minmax(0,1fr);gap:9px;padding:6px 9px;border-radius:8px;
+  background:#132034;border-left:3px solid #33455f}
+.kiosk-event time{display:flex;flex-direction:column;line-height:1.15}
+.kiosk-event time b{font-size:14px}
+.kiosk-event time small{font-size:11px;color:#8194b4}
+.kiosk-event p{margin:0;font-size:13.5px;line-height:1.35;color:#dbe5f5}
+.kiosk-event p i{font-style:normal;color:#a9bcdd}
+.kiosk-event p u{text-decoration:none;color:#8ef0be}
+.kiosk-actor{color:#fff}
+.kiosk-actor.is-system{color:#9fb0cc;font-style:italic}
+/* Màu ngữ nghĩa: xanh xong, vàng cần chú ý, đỏ lỗi/NG, xanh dương bắt đầu. */
+.kiosk-event.tone-ok{border-left-color:#35c98a}
+.kiosk-event.tone-warn{border-left-color:#ffb020}
+.kiosk-event.tone-bad{border-left-color:#ff6b6b}
+.kiosk-event.tone-bad p u{color:#ff9a9a}
+.kiosk-event.tone-start{border-left-color:#4f8dff}
+/* Sự kiện mới: hiện lên nhẹ trong ~2,5s. Animation ngắn và CHỈ trên dòng đó --
+   một màn hình treo tường rung toàn khung mỗi vài giây là thứ không ai chịu nổi. */
+@keyframes kioskEventIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.kiosk-event.is-new{animation:kioskEventIn .22s ease-out;background:#17304a}
+
+/* --- biến động PO khác --------------------------------------------------- */
+.kiosk-other-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;
+  padding:6px 9px;border-radius:8px;background:#132034;border-left:3px solid #33455f;margin-bottom:5px}
+.kiosk-other-row>div{grid-column:1/-1;font-size:12px;color:#9fb0cc}
+.kiosk-other-po{color:#dbe5f5;font-weight:700}
+.kiosk-other-row p{margin:0;font-size:13px;color:#c6d3e8;min-width:0}
+.kiosk-other-row.tone-ok{border-left-color:#35c98a}
+.kiosk-other-row.tone-bad{border-left-color:#ff6b6b}
+.kiosk-other-row.tone-warn{border-left-color:#ffb020}
+.kiosk-other-row.tone-start{border-left-color:#4f8dff}
+.kiosk-btn-sm{padding:4px 9px;font-size:12px}
+.kiosk-empty-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px;justify-content:center}
+.kiosk-empty-note{color:#8194b4;font-size:13px}
+.kiosk-empty-done b{color:#8ef0be}
+
+/* --- kiosk-large: 1920 trở lên ------------------------------------------- */
+/* Mục tiêu đo được: ở 1920x1080 chứa >= 12 hàng task thay vì 6-7 như bản cũ. */
+@media(min-width:1800px){
+  .kiosk-focus .kiosk-task{padding:4px 12px;gap:9px}
+  .kiosk-focus .kiosk-task-main b{font-size:16px}
+  .kiosk-focus .kiosk-task-main small{font-size:11.5px}
+  .kiosk-focus .kiosk-task-qty b{font-size:17px}
+  .kiosk-focus .kiosk-task-list{gap:5px}
+  .kiosk-focus .kiosk-panel-head{padding-block:7px}
+  .kiosk-focus .kiosk-panel-head h2{font-size:15px}
+  .kiosk-focus .kiosk-kpi strong{font-size:30px}
+  .kiosk-focus .kiosk-event{padding:5px 9px}
+  .kiosk-focus .kiosk-event p{font-size:13px;line-height:1.3}
+}
+/* --- 4K: rộng gấp đôi nên vẫn giảm tiếp, nhưng có sàn để còn đọc được xa --- */
+@media(min-width:3000px){
+  .kiosk-focus .kiosk-task-main b{font-size:22px}
+  .kiosk-focus .kiosk-task-main small{font-size:15px}
+  .kiosk-focus .kiosk-event p{font-size:17px}
+  .kiosk-focus .kiosk-task{padding:8px 16px}
+  .kiosk-focus .kiosk-kpi strong{font-size:42px}
+}
+/* --- laptop/1366: giữ đọc được, bỏ cột ít giá trị nhất trước ------------- */
+@media(max-width:1500px){
+  .kiosk-body-focus{grid-template-columns:minmax(0,1.35fr) minmax(280px,.9fr)}
+  .kiosk-task{grid-template-columns:minmax(0,1.9fr) 128px minmax(0,.9fr) 140px 56px;gap:8px}
+  .kiosk-task-main b{font-size:15px}
+  .kiosk-focus .kiosk-po strong{font-size:18px}
+}
+@media(max-width:1100px){
+  .kiosk-body-focus{grid-template-columns:minmax(0,1fr)}
+  .kiosk-task{grid-template-columns:minmax(0,1.6fr) 116px 120px;gap:8px}
+  .kiosk-task-people,.kiosk-task-ng{display:none}
+}
+
+/* Panel task giữ phần lớn chiều cao; biểu đồ giờ và "Cần xử lý ngay" là phụ
+   trợ nên cao cố định. Nếu để cả ba cùng co giãn thì đúng thứ quan trọng nhất
+   (danh sách task) lại là thứ bị bóp trước. */
+.kiosk-focus .kiosk-chart-panel{flex:0 0 auto}
+.kiosk-focus .kiosk-chart-panel .kiosk-panel-body{height:118px}
+.kiosk-focus .kiosk-attention-panel{flex:0 0 auto;max-height:34%}
+.kiosk-focus .kiosk-attention-panel .kiosk-panel-body{overflow:hidden}
+.kiosk-focus .kiosk-other-panel{flex:0 0 auto}
+.kiosk-attn{display:flex;flex-direction:column;gap:1px;padding:5px 9px;border-radius:8px;
+  background:#132034;border-left:3px solid #ffb020;margin-bottom:5px}
+.kiosk-attn.sev-0{border-left-color:#ff6b6b}
+.kiosk-attn em{font-style:normal;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#ffce6b}
+.kiosk-attn.sev-0 em{color:#ff9a9a}
+.kiosk-attn b{font-size:14px;line-height:1.25}
+.kiosk-attn small{font-size:11.5px;color:#93a6c4}
+@media(min-width:1800px){
+  .kiosk-focus .kiosk-chart-panel .kiosk-panel-body{height:150px}
+}
+@media(max-width:1500px){
+  .kiosk-focus .kiosk-chart-panel .kiosk-panel-body{height:96px}
+  /* Màn hẹp thì panel phụ phải nhường trước. Danh sách cảnh báo dài ra theo số
+     Operation có NG, nên nếu không chặn, một ngày nhiều NG sẽ tự bóp danh sách
+     task xuống còn vài hàng -- đúng lúc người ta cần nhìn task nhất. */
+  .kiosk-focus .kiosk-attention-panel{max-height:24%}
+  /* Dưới 1500px không còn là màn treo tường mà là bản xem trước trên laptop.
+     Ở đó biểu đồ giờ là thứ hy sinh được -- nó có sẵn nguyên vẹn ở "Dashboard
+     theo ngày" -- còn danh sách task thì không: bóp nó xuống 4 hàng biến màn
+     điều hành thành một ô cửa sổ hẹp. Ẩn hẳn thay vì thu nhỏ, vì một biểu đồ
+     cao 60px không đọc được cũng chẳng giúp ai. */
+  .kiosk-focus .kiosk-chart-panel{display:none}
+}

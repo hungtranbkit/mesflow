@@ -2051,6 +2051,87 @@ dưới đây là điểm-vào để sinh testcase từ đó.
 - **Độ ưu tiên**: P0 — đây chính là chủ đề chương video hướng dẫn **bắt buộc** "Kiosk năng suất nhân viên" (video 10_employee_productivity trong bộ 15 video hướng dẫn — không phải một chapter riêng, mà là phần cuối của chapter "Báo cáo năng suất nhân viên", đã xác nhận qua audit 2026-09-06 là có mở đúng UI kiosk/slideshow thật, cả bằng "Xem trước" lẫn Kiosk công khai thật, và có chờ + xác nhận đúng 1 chu kỳ tự chuyển trang qua nhiều nhân viên bằng bằng chứng `#wbPageIndicator` đổi giá trị, không chỉ lời thoại).
 - **Khía cạnh kiểm thử**: positive, boundary (preview không làm thay đổi dữ liệu thật), truy cập không xác thực (xác nhận là có chủ đích), 3 trạng thái đặc biệt ở trên (not-configured/empty-data/connection-lost), auto-page-flip qua nhiều trang.
 
+### REQ-KIOSK-010 — Kiosk điều hành: chi tiết MỘT Production Order
+
+> **Nguồn sự thật:** Kiosk v1 hiển thị chi tiết cho một PO tại một thời điểm;
+> thay đổi từ PO khác chỉ xuất hiện dưới dạng notification summary và không ảnh
+> hưởng layout/task ordering của PO đang focus.
+
+- **Mô-đun**: Kiosk điều hành (màn hình lớn treo tường, chỉ đọc). KHÔNG phải
+  thiết bị quét thẻ ngoài xưởng (REQ-KIOSK-001/002/003), cũng không phải
+  wallboard năng suất (REQ-KIOSK-004).
+- **Mục đích**: người đứng trước TV đang theo dõi MỘT đơn hàng. Trộn task/KPI
+  của nhiều PO làm mọi con số mất nghĩa — "đạt 120" là của PO nào?
+- **Đối tượng thực hiện**: mọi role đăng nhập được (chỉ xem).
+- **Điều kiện tiên quyết**: có ít nhất một PO ở `RELEASED`/`IN_PROGRESS`/`PAUSED`.
+- **Đầu vào**: `?page=daily-dashboard-kiosk&date=YYYY-MM-DD&po_id=<id>`.
+- **Kích hoạt bởi**: `GET /api/kiosk-board` (KPI + task, nhịp 10–15s) và
+  `GET /api/kiosk-board/activity` (dòng sự kiện, nhịp 3–5s, có con trỏ `since_id`).
+
+**Luồng chính**
+
+1. Luôn có đúng một PO được focus. Không truyền `po_id` → chọn PO đứng đầu bộ
+   chọn (đang có session mở → có hoạt động gần đây → còn lại).
+2. Header hiện mã PO + sản phẩm + tiến độ. Mọi KPI, task, NG, session, dòng
+   hoạt động chi tiết đều **đã thu hẹp theo PO đó ở phía server**.
+3. `po_id` nằm trong URL → refresh/Back/Forward giữ đúng PO.
+4. Đổi PO bằng bộ chọn hoặc bấm "Xem PO" ở vùng biến động: toàn bộ context đổi
+   **nguyên khối**, không panel nào còn dữ liệu PO cũ.
+
+**Kết quả mong đợi**
+
+| Hạng mục | Yêu cầu |
+|---|---|
+| Phân trang task | Tự động 8–12 task/trang tùy chiều cao đo thực tế; tự lật mỗi 8–12s; có `Trang x/y` + dots + tổng số task. **Mọi** task active đều có lượt lên màn — không cắt top-N rồi bỏ phần còn lại. |
+| Trang ổn định | Danh sách hiển thị được chụp lại (snapshot) trong một chu kỳ. Dữ liệu mới về giữa chừng chỉ có hiệu lực ở ranh giới trang kế tiếp — không sắp xếp lại dưới mắt người đang đọc. |
+| Tạm dừng | Hover/chạm vào danh sách task tạm dừng lật trang để đọc. |
+| Task hoàn thành | **Không biến mất ngay.** Ở lại 5–10 giây với nhãn `Vừa hoàn thành`, viền xanh nhẹ, kèm người vừa cập nhật và delta sản lượng nếu dữ liệu có. Rời danh sách ở chu kỳ sau. |
+| Dòng hoạt động | 8–15 sự kiện gần nhất của PO đang focus. Mỗi dòng trả lời đủ **AI · LÀM GÌ · TRÊN CÁI GÌ · RA SAO · LÚC NÀO**. Không có actor → ghi `Hệ thống`, tuyệt đối không bịa tên người. |
+| Biến động PO khác | Vùng riêng, tối đa 5 dòng: thời gian · PO · actor · action · impact ngắn, kèm nút `Xem PO`. **Không** được làm reorder/nhảy task của PO đang focus. |
+| Empty state | PO hết task active → `PO này hiện không còn task đang chạy` + gợi ý PO khác đang có session mở, bấm được để chuyển. Không để màn hình trống. |
+| Mật độ | Breakpoint riêng `kiosk-large` (≥1800px) và 4K (≥3000px): chữ/padding nhỏ lại khi màn rộng ra. Thứ bậc giữ nguyên — **tên** Operation là dòng chính, **mã** là dòng phụ nhỏ và mờ hơn. Dashboard thường/mobile không đổi. |
+| Nhịp | KPI/task 10–15s, hoạt động 3–5s; tab ẩn giãn nhịp; quay lại focus thì làm mới ngay. |
+| Khử trùng lặp | Theo `id` ổn định của `production_trace_events`, không theo thứ tự DOM. |
+
+- **Chuyển trạng thái**: N/A (chỉ đọc, không ghi gì).
+- **Kiểm tra hợp lệ**: `po_id` phải là số nguyên và phải tồn tại.
+- **Lỗi**: `po_id` không phải số → `400`. PO không tồn tại → `400`/`404`. **Cố ý
+  KHÔNG lặng lẽ rơi về "PO đầu danh sách"**: trên màn hình lớn, người xem tin
+  rằng mình đang nhìn đúng PO mình chọn; thay thầm là kiểu hỏng tệ nhất.
+  `/api/kiosk-board/activity` thiếu `po_id` → `400`.
+- **Ranh giới**: PO có nhiều task hơn một trang → đi hết các trang thấy đủ, không
+  trùng, không thiếu. PO khác có biến động → chỉ hiện ở vùng tóm tắt.
+- **Quyền**: như quyền đọc dashboard; hai endpoint đều `login_required`, không mở
+  rộng quyền, không ghi dữ liệu.
+- **Đồng thời**: nhiều màn hình cùng mở là bình thường; đều chỉ đọc.
+- **Nhật ký kiểm toán**: N/A.
+
+**Nguồn dữ liệu sự kiện — và phần CHƯA đủ**
+
+Dòng hoạt động đọc `production_trace_events` (nguồn sự thật server-side, không
+sinh sự kiện ở client). Đã ánh xạ: nhận việc (`SESSION_STARTED`), kết thúc/tự
+đóng (`SESSION_FINISHED`, `SESSION_AUTO_CLOSED`), cập nhật sản lượng
+(`GOOD_/DEFECT_/REPAIRABLE_*`), OP/PO đổi trạng thái và hoàn thành, setup xong,
+xử lý hàng chờ sửa, chỉnh số liệu thủ công.
+
+Chưa có nguồn đáng tin nên **chưa hiển thị** (không bịa):
+
+| Mong muốn | Tình trạng |
+|---|---|
+| "task mới trở thành active/next" như một sự kiện nhân quả | Không có event riêng. Suy ra từ việc OP trước `COMPLETED` là **suy diễn**, không phải dữ liệu — hiện chỉ hiện `OPERATION_STARTED` khi nó thật sự xảy ra. |
+| task bị pause/blocked/reopened | Hệ thống chưa có khái niệm pause/block ở mức Operation ngoài `status`; `OPERATION_STATUS_CHANGED` là thứ gần nhất. |
+| station/kiosk đổi trạng thái | Nằm ở `kiosk_events`/heartbeat thiết bị, không ở `production_trace_events`; chưa gộp vào dòng này. |
+| warning được tạo/resolve | `exception_records` có vòng đời riêng, chưa phát ra trace event. |
+
+- **Liên quan**: REQ-KIOSK-004 (wallboard — màn hình khác, cũng tự lật trang),
+  REQ-DASH-*, REQ-PO-005 (cùng nguyên tắc: lọc trong truy vấn, không lọc sau khi cắt).
+- **Độ ưu tiên**: P1 (màn hình vận hành; "task biến mất" làm mất lòng tin vào số liệu).
+- **Khía cạnh kiểm thử**: positive, negative (`po_id` rác/không tồn tại, thiếu
+  `po_id`), cô lập PO (task/KPI/feed của PO khác không lọt vào), boundary (nhiều
+  hơn một trang task), hành vi theo thời gian (giữ task vừa hoàn thành, lật
+  trang, tạm dừng khi hover), responsive 1366/1920/4K.
+
+
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 
 Chi tiết đầy đủ ở §6.4 và schema `work_shifts`/`work_shift_intervals`
@@ -2609,6 +2690,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-001 (v1) | chỉ gián tiếp, qua `tests/e2e/mesflow.spec.js` | P |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — module được test nhiều nhất hệ thống |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 case), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
+| REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |

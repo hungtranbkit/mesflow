@@ -24,6 +24,7 @@ from mesflow.web.kiosk_v2 import bp as kiosk_v2_bp
 from mesflow.web.internal_ota import bp as internal_ota_bp
 from mesflow.web.users import bp as users_bp
 from mesflow.web.action_logging import bp as action_logging_bp, begin_request, finish_request, unhandled_error
+from mesflow.web.kiosk_board import bp as kiosk_board_bp
 from mesflow.web.auth import admin_required
 from mesflow.domain.events import event_bus
 from mesflow.domain.event_handlers import register_default_handlers
@@ -126,6 +127,7 @@ def create_app():
     app.register_blueprint(internal_ota_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(action_logging_bp)
+    app.register_blueprint(kiosk_board_bp)
     app.before_request(begin_request)
     # V66 domain event foundation: register the built-in handlers exactly
     # once per process. create_app() itself is only called once at process

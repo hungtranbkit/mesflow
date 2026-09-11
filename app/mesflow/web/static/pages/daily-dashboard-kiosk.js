@@ -1,70 +1,158 @@
-// Kiosk điều hành (control-room display) -- the big-screen companion to
-// "Dashboard theo ngày".
+// Kiosk điều hành (control-room display) -- màn hình lớn treo tường xưởng.
 //
-// SEMANTICS, because "kiosk" is an overloaded word in this codebase:
-//   * kiosk.py / kiosk_v2.py / templates/kiosk.html  -> the SHOP-FLOOR device
-//     an operator scans a QR badge on. Device runtime, touch input, writes.
-//   * THIS file -> a passive CONTROL-ROOM DISPLAY for a TV on the wall of the
-//     production office. Read-only, no input, no device identity, nothing to
-//     scan. It never talks to any kiosk-device endpoint.
-// Keeping the two apart matters: an admin opening "Mở màn hình lớn" must never
-// land on anything that looks like a badge-scan terminal.
+// SEMANTICS, vì "kiosk" là từ bị dùng cho hai thứ khác nhau trong repo này:
+//   * kiosk.py / kiosk_v2.py / templates/kiosk.html -> THIẾT BỊ ngoài xưởng,
+//     công nhân quét thẻ QR lên đó. Có input, có ghi dữ liệu, có device identity.
+//   * FILE NÀY -> màn hình TREO TƯỜNG, chỉ đọc, không quét, không ghi gì.
+// Một admin bấm "Mở màn hình lớn" không bao giờ được rơi vào thứ trông giống
+// terminal quét thẻ.
 //
-// DATA SOURCES -- all three already exist and are already used by shipped
-// pages; this view adds no endpoint and re-derives no business rule:
-//   /api/dashboard/day?date=   -> the authoritative CALENDAR-DAY rollup
-//                                 (context/items/sessions/activity). Exactly
-//                                 what renderDashboard() reads.
-//   /api/dashboard/overview    -> PO-level plan/remaining/repair backlog.
-//   /api/production-control    -> the dispatch engine's OWN control_state /
-//                                 control_label / recommended_action. The
-//                                 "dưới kế hoạch / làm ngay" judgement is read
-//                                 from here, never recomputed locally.
-// The last two are the same pair renderOverview() already fetches together.
+// v1 CHỈ HIỂN THỊ CHI TIẾT MỘT PO TẠI MỘT THỜI ĐIỂM.
+// (nguồn sự thật: docs/MESFLOW_MASTER_REQUIREMENTS_VI.md, REQ-KIOSK-010)
+//
+// Lý do là một quan sát về người xem, không phải về kỹ thuật: người đứng trước
+// TV đang theo dõi MỘT đơn hàng. Trộn task của nhiều PO lên cùng màn làm mọi
+// con số mất nghĩa -- "đạt 120" là của PO nào? Biến động của PO khác vẫn cần
+// biết, nhưng chỉ ở mức "có chuyện xảy ra, bấm để xem", và tuyệt đối không
+// được làm xô lệch danh sách task đang xem.
+//
+// BA NGUYÊN TẮC CHỐNG "TASK BIẾN MẤT NHƯ MA THUẬT":
+//   1. Phân trang tự động thay vì cắt top-N. Bản cũ đo chiều cao rồi giấu bớt
+//      hàng kèm dòng "+N Operation khác" -- nghĩa là có task không bao giờ
+//      xuất hiện. Nay mọi task active đều có lượt lên màn.
+//   2. Trang được CHỤP LẠI (snapshot) trong suốt một chu kỳ. Dữ liệu mới về
+//      giữa chừng không được phép sắp xếp lại danh sách dưới mắt người đang
+//      đọc; nó chỉ có hiệu lực ở ranh giới trang kế tiếp.
+//   3. Task hoàn thành KHÔNG biến mất ngay. Nó ở lại vài giây với nhãn "Vừa
+//      hoàn thành" kèm người cập nhật, rồi mới rời danh sách ở chu kỳ sau.
+//
+// DỮ LIỆU. Hai endpoint chỉ-đọc dựng riêng cho màn này (app/mesflow/web/
+// kiosk_board.py), cả hai đều gọi lại repository sẵn có chứ không viết lại quy
+// tắc nghiệp vụ nào:
+//   /api/kiosk-board?po_id=          -> PO + KPI + task, đã thu hẹp theo PO
+//   /api/kiosk-board/activity?po_id= -> dòng sự kiện, có con trỏ since_id
 (()=>{
   const PAGE_ID='daily-dashboard-kiosk';
-  const REFRESH_MS=20000;            // inside the 15-30s window asked for
-  // A transparent, clearly-labelled threshold -- NOT a fabricated "NG cao"
-  // rule pretending to come from the backend. The row always shows the real
-  // ratio next to it so a quản đốc can see why it was flagged.
-  const NG_RATIO_ALERT=0.10;
-  // "Session mở quá lâu": same shape as the daily dashboard's own
-  // "Session mở quá cuối ca" marker -- an OPEN session that has outlived the
-  // calendar day it belongs to, or has been running an implausibly long time.
-  const LONG_OPEN_HOURS=10;
+
+  // --- nhịp ----------------------------------------------------------------
+  const BOARD_MS=12000;          // KPI + task: trong khoảng 10-15s đã chốt
+  const ACTIVITY_MS=4000;        // dòng sự kiện: nhanh hơn, payload nhỏ
+  const HIDDEN_FACTOR=5;         // tab ẩn thì giãn nhịp ra, không spam API
+  const PAGE_MS=10000;           // mỗi trang task đứng yên 10s (khoảng 8-12s)
+  const INTERACT_PAUSE_MS=15000; // chạm/rê chuột thì dừng lật trang để đọc
+  const COMPLETION_HOLD_MS=8000; // giữ task vừa xong trên màn (khoảng 5-10s)
+  const NEW_EVENT_HIGHLIGHT_MS=2500;
+  const FEED_MAX=15;             // giữ 8-15 sự kiện gần nhất
+  const OTHER_MAX=5;             // "Biến động PO khác": 3-5 dòng
 
   const E=v=>window.esc?window.esc(v??''):String(v??'');
   const N=v=>Number(v||0).toLocaleString('vi-VN');
   const hcmToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const clock=d=>new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(d);
+  const hhmm=v=>{const d=new Date(v);return Number.isNaN(d.getTime())?'':new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(d)};
+  const hhmmss=v=>{const d=new Date(v);return Number.isNaN(d.getTime())?'':clock(d)};
   const dateLabel=v=>{const d=new Date(`${v}T12:00:00+07:00`);return Number.isNaN(d.getTime())?v:new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}).format(d)};
-  const hourOf=v=>{if(!v)return null;const d=new Date(v);if(Number.isNaN(d.getTime()))return null;return Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',hour12:false}).format(d))};
   const pct=(a,b)=>Number(b)>0?Math.round(Number(a)/Number(b)*100):null;
   const validDate=v=>/^\d{4}-\d{2}-\d{2}$/.test(String(v||''));
 
+  /** "vừa xong" / "3 phút trước" -- thời gian tương đối, kèm giờ tuyệt đối. */
+  function relative(iso){
+    const t=new Date(iso).getTime();
+    if(Number.isNaN(t))return '';
+    const s=Math.max(0,Math.round((Date.now()-t)/1000));
+    if(s<45)return 'vừa xong';
+    if(s<3600)return `${Math.round(s/60)} phút trước`;
+    if(s<86400)return `${Math.round(s/3600)} giờ trước`;
+    return hhmm(iso);
+  }
+
+  // --- câu chữ cho một sự kiện ---------------------------------------------
+  // Mỗi dòng phải trả lời đủ: AI · LÀM GÌ · TRÊN CÁI GÌ · RA SAO · LÚC NÀO.
+  // Không có actor thì nói thẳng "Hệ thống", KHÔNG bịa ra một cái tên người.
+  const TONE={
+    GOOD_QUANTITY_RECORDED:'ok', OPERATION_COMPLETED:'ok', PO_COMPLETED:'ok', SETUP_COMPLETED:'ok',
+    DEFECT_QUANTITY_RECORDED:'bad', REPAIRABLE_DEFECT_RECORDED:'warn', REWORK_RESOLVED:'warn',
+    SESSION_STARTED:'start', OPERATION_STARTED:'start', PO_STARTED:'start',
+    SESSION_FINISHED:'neutral', SESSION_AUTO_CLOSED:'warn',
+    VALUE_CHANGED:'warn', OPERATION_STATUS_CHANGED:'neutral', PO_STATUS_CHANGED:'neutral',
+  };
+  function actorOf(ev){
+    return ev.actor_kind==='SYSTEM'||!ev.actor_name?'Hệ thống':ev.actor_name;
+  }
+  function objectOf(ev){
+    if(ev.operation_name)return `OP ${ev.operation_name}`;
+    if(ev.operation_code)return `OP ${ev.operation_code}`;
+    if(ev.po_code)return `PO ${ev.po_code}`;
+    return '';
+  }
+  /** Phần "làm gì" + "ra sao". Chỉ dùng dữ liệu có thật trong event. */
+  function phraseOf(ev){
+    const delta=ev.quantity_delta==null?null:Number(ev.quantity_delta);
+    const signed=delta==null?'':`${delta>0?'+':''}${N(delta)}`;
+    switch(ev.event_type){
+      case 'GOOD_QUANTITY_RECORDED':return {action:`cập nhật ${signed} SP đạt`,impact:progressImpact(ev)};
+      case 'DEFECT_QUANTITY_RECORDED':return {action:`ghi nhận ${signed} NG`,impact:''};
+      case 'REPAIRABLE_DEFECT_RECORDED':return {action:`ghi nhận ${signed} lỗi sửa được`,impact:'vào hàng chờ sửa'};
+      case 'SESSION_STARTED':return {action:'nhận việc',impact:'bắt đầu session'};
+      case 'SESSION_FINISHED':return {action:'kết thúc việc',impact:''};
+      case 'SESSION_AUTO_CLOSED':return {action:'tự đóng session cuối ca',impact:'chưa xác nhận số liệu'};
+      case 'OPERATION_COMPLETED':return {action:'hoàn thành',impact:progressImpact(ev)};
+      case 'OPERATION_STARTED':return {action:'bắt đầu chạy',impact:''};
+      case 'SETUP_COMPLETED':return {action:'hoàn tất setup máy',impact:''};
+      case 'REWORK_RESOLVED':return {action:'xử lý hàng chờ sửa',impact:''};
+      case 'PO_COMPLETED':return {action:'hoàn thành toàn bộ PO',impact:''};
+      case 'PO_STARTED':return {action:'bắt đầu sản xuất',impact:''};
+      case 'VALUE_CHANGED':return {action:'chỉnh số liệu',impact:''};
+      default:return {action:ev.title||ev.event_type,impact:''};
+    }
+  }
+  /** "đạt 120/120, hoàn thành" -- chỉ khi biết cả hai số, không suy diễn. */
+  function progressImpact(ev){
+    const done=Number(ev.operation_done_qty||0),plan=Number(ev.operation_plan_qty||0);
+    if(!plan)return '';
+    const p=pct(done,plan);
+    return p!==null&&p>=100?`đạt ${N(done)}/${N(plan)}, hoàn thành`:`đạt ${N(done)}/${N(plan)}`;
+  }
+
   async function renderDailyDashboardKiosk(){
-    // Take over the shared page timer so any previously rendered page's
-    // polling stops, exactly like renderDashboard()/renderOverview() do.
     if(typeof dashboardTimer!=='undefined'&&dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
     const query=new URLSearchParams(location.search);
     const date=validDate(query.get('date'))?query.get('date'):hcmToday();
-    // The date must survive refresh / Back / Forward / a copied link. openPage()
-    // already put ?page= in the URL; make sure ?date= is there too even when the
-    // view was deep-linked without one.
+    const initialPo=Number(query.get('po_id')||0)||null;
     if(query.get('date')!==date)AppNav.setQuery({date});
-    // Drives the full-bleed dark layout in ui.css and lets the popstate handler
-    // in app.js recognise which screen is on show. Reverts by itself the moment
-    // another page calls setActive().
     document.body.dataset.page=PAGE_ID;
     title.textContent='Kiosk điều hành';
-    subtitle.textContent='Màn hình lớn cho xưởng — tổng hợp toàn ngày, chỉ để theo dõi.';
+    subtitle.textContent='Màn hình lớn cho xưởng — theo dõi chi tiết một Production Order.';
 
-    content.innerHTML=`<div class="kiosk-display" id="kioskRoot" data-kiosk-date="${E(date)}">
+    // Toàn bộ trạng thái của màn nằm trong một chỗ, để không có hai nguồn sự
+    // thật về "đang xem PO nào / đang ở trang mấy".
+    const S={
+      poId:initialPo,
+      po:null,
+      tasks:[],            // dữ liệu mới nhất từ server
+      snapshot:[],         // danh sách ĐANG hiển thị, đóng băng trong chu kỳ
+      completedHold:new Map(), // operation_id -> {task, until, actor, delta}
+      page:0,
+      perPage:8,
+      pauseUntil:0,
+      feed:[],
+      seen:new Set(),
+      latestId:null,
+      lastOk:null,
+    };
+
+    content.innerHTML=`<div class="kiosk-display kiosk-focus" id="kioskRoot" data-kiosk-date="${E(date)}">
     <header class="kiosk-header">
       <div class="kiosk-identity">
         <b>MESFlow</b>
-        <span id="kioskScope">Điều hành sản xuất</span>
+        <span>Điều hành sản xuất</span>
       </div>
+      <div class="kiosk-po" id="kioskPoBox">
+        <small>Production Order đang theo dõi</small>
+        <strong id="kioskPoCode">—</strong>
+        <span id="kioskPoProduct"></span>
+      </div>
+      <div class="kiosk-po-progress" id="kioskPoProgress"></div>
       <div class="kiosk-day">
         <small>Ngày làm việc</small>
         <strong id="kioskDate">${E(dateLabel(date))}</strong>
@@ -73,37 +161,37 @@
         <small>Giờ hiện tại</small>
         <strong id="kioskClock">${E(clock(new Date()))}</strong>
       </div>
-      <div class="kiosk-shift" id="kioskShift">
-        <small>Ca hiện tại (tham khảo)</small>
-        <strong>—</strong>
-      </div>
       <div class="kiosk-live" id="kioskLive" data-state="loading">
         <i aria-hidden="true"></i>
         <span id="kioskLiveText">Đang tải dữ liệu…</span>
       </div>
       <div class="kiosk-actions">
-        <button class="kiosk-btn" id="kioskRefresh" type="button">Làm mới ngay</button>
+        <label class="kiosk-po-pick">
+          <span class="sr-only">Chọn Production Order</span>
+          <select id="kioskPoSelect" aria-label="Chọn Production Order"></select>
+        </label>
+        <button class="kiosk-btn" id="kioskRefresh" type="button">Làm mới</button>
         <button class="kiosk-btn" id="kioskExit" type="button">Thoát</button>
       </div>
     </header>
 
     <section class="kiosk-kpis" id="kioskKpis" aria-live="polite"></section>
 
-    <div class="kiosk-body">
+    <div class="kiosk-body kiosk-body-focus">
       <div class="kiosk-col-main">
+        <section class="kiosk-panel kiosk-task-panel">
+          <div class="kiosk-panel-head">
+            <h2>Task đang chạy</h2>
+            <span class="kiosk-pager" id="kioskPager"></span>
+          </div>
+          <div class="kiosk-panel-body" id="kioskTasks"></div>
+        </section>
         <section class="kiosk-panel kiosk-chart-panel">
           <div class="kiosk-panel-head">
             <h2>Sản lượng theo giờ</h2>
             <span class="kiosk-panel-note" id="kioskChartNote"></span>
           </div>
           <div class="kiosk-panel-body" id="kioskHourly"></div>
-        </section>
-        <section class="kiosk-panel kiosk-station-panel">
-          <div class="kiosk-panel-head">
-            <h2>Trạng thái Operation</h2>
-            <span class="kiosk-panel-note" id="kioskStationNote"></span>
-          </div>
-          <div class="kiosk-panel-body" id="kioskStations"></div>
         </section>
       </div>
       <div class="kiosk-col-side">
@@ -115,320 +203,403 @@
           <div class="kiosk-panel-body" id="kioskAttention"></div>
           <p class="kiosk-panel-foot" id="kioskAttentionFoot"></p>
         </section>
-        <section class="kiosk-panel kiosk-mini-panel kiosk-panel-ng">
-          <div class="kiosk-panel-head"><h2>NG theo Operation</h2></div>
-          <div class="kiosk-panel-body" id="kioskNg"></div>
+        <section class="kiosk-panel kiosk-feed-panel">
+          <div class="kiosk-panel-head">
+            <h2>Hoạt động vừa xảy ra</h2>
+            <span class="kiosk-panel-note" id="kioskFeedNote"></span>
+          </div>
+          <div class="kiosk-panel-body" id="kioskFeed" aria-live="polite"></div>
         </section>
-        <section class="kiosk-panel kiosk-mini-panel kiosk-panel-people">
-          <div class="kiosk-panel-head"><h2>Nhân viên đang làm</h2></div>
-          <div class="kiosk-panel-body" id="kioskPeople"></div>
-        </section>
-        <section class="kiosk-panel kiosk-mini-panel kiosk-panel-repair">
-          <div class="kiosk-panel-head"><h2>Hàng chờ sửa</h2></div>
-          <div class="kiosk-panel-body" id="kioskRepair"></div>
+        <section class="kiosk-panel kiosk-other-panel">
+          <div class="kiosk-panel-head"><h2>Biến động PO khác</h2></div>
+          <div class="kiosk-panel-body" id="kioskOther"></div>
         </section>
       </div>
     </div>
   </div>`;
 
-    const root=()=>document.getElementById('kioskRoot');
+    const $=id=>document.getElementById(id);
+    const root=()=>$('kioskRoot');
     const alive=()=>{const el=root();return !!el&&el.dataset.kioskDate===date};
 
-    document.getElementById('kioskExit').onclick=()=>openPage('dashboard',document.querySelector('[data-page="dashboard"]'));
+    $('kioskExit').onclick=()=>openPage('dashboard',document.querySelector('[data-page="dashboard"]'));
 
-    // ---- header clock (1s) -------------------------------------------------
-    const tickClock=()=>{const el=document.getElementById('kioskClock');if(el)el.textContent=clock(new Date())};
+    const setLive=(state,text)=>{const c=$('kioskLive'),l=$('kioskLiveText');if(c)c.dataset.state=state;if(l)l.textContent=text};
+    const tickClock=()=>{const el=$('kioskClock');if(el)el.textContent=clock(new Date())};
 
-    // ---- shift metadata: REFERENCE ONLY, never a filter ---------------------
-    // Requirement B: ca is metadata. The whole view is a calendar day; nothing
-    // below ever narrows by shift.
-    const paintShift=shifts=>{
-      const box=document.getElementById('kioskShift');if(!box)return;
-      const nowParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date()).split(':').map(Number);
-      const minute=nowParts[0]*60+nowParts[1];
-      const toMin=v=>{const [h,m]=String(v||'00:00').split(':').map(Number);return h*60+m};
-      const hit=(shifts||[]).filter(x=>x.active!==false).find(x=>{const s=toMin(x.anchor_start),e=toMin(x.anchor_end);return (x.cross_midnight||e<=s)?(minute>=s||minute<e):(minute>=s&&minute<e)});
-      box.innerHTML=`<small>Ca hiện tại (tham khảo)</small><strong>${hit?E(hit.name):'Ngoài ca'}</strong>`;
-    };
+    // ---- header PO ----------------------------------------------------------
+    function paintPo(po,kpis){
+      $('kioskPoCode').textContent=po?po.code:'—';
+      $('kioskPoProduct').textContent=po&&po.product?po.product:'';
+      const box=$('kioskPoProgress');
+      if(!po){box.innerHTML='';return}
+      const plan=Number(po.planned_quantity||0),done=Number((kpis&&kpis.day_good_qty)||0);
+      const p=pct(done,plan);
+      box.innerHTML=`<small>Tiến độ hôm nay</small>
+        <strong>${N(done)}${plan?` / ${N(plan)}`:''}</strong>
+        ${p===null?'':`<i class="kiosk-meter"><u style="width:${Math.min(100,p)}%"></u></i>`}`;
+    }
 
-    // ---- KPI strip ---------------------------------------------------------
-    // Every tile below is backed by a field the API actually returns. Where a
-    // number cannot be sourced honestly it is rendered as "—" with the reason,
-    // never back-filled with a guess.
-    const paintKpis=(day,pos,attentionCount)=>{
-      const box=document.getElementById('kioskKpis');if(!box)return;
-      const sessions=day.sessions||[],items=day.items||[];
-      const good=sessions.reduce((n,x)=>n+Number(x.good_qty||0),0);
-      const ng=sessions.reduce((n,x)=>n+Number(x.defect_qty||0),0);
-      const runningOps=items.filter(x=>Number(x.open_session_count)>0).length;
-      const openSessions=sessions.filter(x=>x.session_status==='OPEN');
-      const working=new Set(openSessions.map(x=>x.employee_id)).size;
-      const present=new Set(sessions.map(x=>x.employee_id)).size;
-      // PO scope = the POs that actually produced today. Summing planned_quantity
-      // over `items` would multiply each PO's plan by its operation count; these
-      // come from the PO-level rows instead, de-duplicated by po_id.
-      const todayPoIds=new Set(items.map(x=>Number(x.po_id)));
-      const scoped=(pos||[]).filter(x=>todayPoIds.has(Number(x.po_id)));
-      const plan=scoped.reduce((n,x)=>n+Number(x.planned_quantity||0),0);
-      const cumGood=scoped.reduce((n,x)=>n+Number(x.good_quantity||0),0);
-      const remaining=scoped.reduce((n,x)=>n+Number(x.remaining_quantity||0),0);
-      const planPct=pct(cumGood,plan);
-      const tiles=[
-        {k:'good',label:'Sản lượng đạt',value:N(good),unit:'SP',note:`${sessions.length} session trong ngày`},
-        {k:'plan',label:'Kế hoạch PO đang chạy',value:plan?N(plan):'—',unit:plan?'SP':'',note:plan?`${scoped.length} PO có sản xuất hôm nay`:'Chưa có PO gắn kế hoạch'},
-        {k:(planPct===null?'plain':planPct>=100?'good':planPct>=80?'warn':'bad'),label:'% đạt kế hoạch',value:planPct===null?'—':`${planPct}%`,unit:'',note:planPct===null?'Chưa có kế hoạch để đối chiếu':`Lũy kế PO: ${N(cumGood)} / ${N(plan)} SP`},
-        {k:'plain',label:'Còn phải sản xuất',value:plan?N(remaining):'—',unit:plan?'SP':'',note:plan?'Lũy kế theo PO đang chạy':'Chưa có kế hoạch để đối chiếu'},
-        {k:'run',label:'Operation đang chạy',value:N(runningOps),unit:'OP',note:`${openSessions.length} session đang mở`},
-        {k:'run',label:'Nhân viên đang làm',value:N(working),unit:'người',note:`${N(present)} người có hoạt động hôm nay`},
-        {k:ng>0?'warn':'plain',label:'NG trong ngày',value:N(ng),unit:'SP',note:`${items.filter(x=>Number(x.day_defect_qty)>0).length} OP phát sinh NG`},
-        {k:attentionCount>0?'bad':'good',label:'Cần xử lý ngay',value:N(attentionCount),unit:'điểm',note:attentionCount>0?'Xem danh sách bên phải':'Không có điểm cần xử lý'}
+    function paintSelector(options){
+      const sel=$('kioskPoSelect');
+      if(!sel||sel.dataset.count===String(options.length)&&sel.value===String(S.poId))return;
+      sel.innerHTML=options.map(o=>{
+        const marks=[];
+        if(Number(o.open_sessions||0)>0)marks.push(`${o.open_sessions} đang làm`);
+        return `<option value="${o.id}" ${Number(o.id)===Number(S.poId)?'selected':''}>${E(o.code)}${o.product?` · ${E(o.product)}`:''}${marks.length?` — ${E(marks.join(', '))}`:''}</option>`;
+      }).join('');
+      sel.dataset.count=String(options.length);
+      sel.onchange=()=>switchPo(Number(sel.value));
+    }
+
+    /** Đổi PO: đổi NGUYÊN KHỐI, không để panel nào còn dữ liệu PO cũ. */
+    async function switchPo(poId){
+      if(!poId||poId===S.poId)return;
+      S.poId=poId;S.tasks=[];S.snapshot=[];S.page=0;
+      S.completedHold.clear();S.feed=[];S.seen=new Set();S.latestId=null;
+      AppNav.setQuery({po_id:poId});
+      $('kioskTasks').innerHTML='<div class="kiosk-empty"><b>Đang tải…</b></div>';
+      $('kioskFeed').innerHTML='';
+      $('kioskOther').innerHTML='';
+      setLive('loading','Đang đổi Production Order…');
+      await loadBoard();
+      await loadActivity();
+    }
+
+    // ---- KPI ---------------------------------------------------------------
+    function paintKpis(k){
+      const cards=[
+        {label:'Sản lượng đạt hôm nay',value:N(k.day_good_qty),tone:''},
+        {label:'NG hôm nay',value:N(k.day_defect_qty),tone:Number(k.day_defect_qty)>0?'bad':''},
+        {label:'Lỗi sửa được',value:N(k.day_rework_qty),tone:Number(k.day_rework_qty)>0?'warn':''},
+        {label:'Session đang mở',value:N(k.open_session_count),tone:''},
+        {label:'Người đang làm',value:N(k.active_worker_count),tone:''},
+        {label:'Operation của PO',value:N(k.operation_count),tone:''},
       ];
-      box.innerHTML=tiles.map(t=>`<article class="kiosk-kpi ${t.k}"><small>${E(t.label)}</small><strong>${E(t.value)}${t.unit?`<u>${E(t.unit)}</u>`:''}</strong><span>${E(t.note)}</span></article>`).join('');
-    };
+      $('kioskKpis').innerHTML=cards.map(c=>`<article class="kiosk-kpi ${c.tone}"><small>${E(c.label)}</small><strong>${E(c.value)}</strong></article>`).join('');
+    }
 
-    // ---- hourly output -----------------------------------------------------
-    // Bucketed by the moment a session's numbers were last recorded
-    // (effective_end_at is COALESCE(ended_at, CURRENT_TIMESTAMP) server-side, so
-    // an OPEN session lands in the current hour). There is NO hourly plan
-    // anywhere in the data model, so none is drawn -- the reference line is the
-    // day's own average and is labelled as exactly that.
-    const paintHourly=day=>{
-      const box=document.getElementById('kioskHourly'),note=document.getElementById('kioskChartNote');if(!box)return;
-      const buckets=Array.from({length:24},()=>({good:0,ng:0}));
-      let placed=0;
-      for(const s of day.sessions||[]){
-        const h=hourOf(s.ended_at||s.effective_end_at||s.started_at);
-        if(h===null||h<0||h>23)continue;
-        buckets[h].good+=Number(s.good_qty||0);buckets[h].ng+=Number(s.defect_qty||0);placed++;
-      }
-      const totalGood=buckets.reduce((n,b)=>n+b.good,0);
-      const active=buckets.filter(b=>b.good>0||b.ng>0);
-      const avg=active.length?totalGood/active.length:0;
-      const peak=Math.max(1,...buckets.map(b=>b.good+b.ng));
-      if(note)note.textContent=placed?`Chưa cấu hình kế hoạch theo giờ · đường TB ${Math.round(avg).toLocaleString('vi-VN')} SP/giờ`:'Chưa cấu hình kế hoạch theo giờ';
-      if(!placed){box.innerHTML='<div class="kiosk-empty"><b>Chưa có sản lượng ghi nhận</b><span>Biểu đồ sẽ hiện khi có session báo số lượng trong ngày.</span></div>';return}
-      const avgTop=avg>0?(avg/peak*100):0;
-      box.innerHTML=`<div class="kiosk-chart">
-        <div class="kiosk-chart-plot">
-          ${avg>0?`<i class="kiosk-chart-avg" style="bottom:${avgTop.toFixed(2)}%" aria-hidden="true"><b>TB ${Math.round(avg).toLocaleString('vi-VN')}</b></i>`:''}
-          ${buckets.map((b,h)=>{
-            const total=b.good+b.ng;
-            const state=total===0?'none':b.good>=avg?'over':'under';
-            return `<div class="kiosk-bar ${state}" title="${E(`${String(h).padStart(2,'0')}:00 · Đạt ${N(b.good)} · NG ${N(b.ng)}`)}">
-              <span class="kiosk-bar-value">${total?N(b.good):''}</span>
-              <span class="kiosk-bar-stack" style="height:${(total/peak*100).toFixed(2)}%">
-                ${b.ng?`<i class="ng" style="height:${(b.ng/total*100).toFixed(2)}%"></i>`:''}
-                <i class="good"></i>
-              </span>
-              <span class="kiosk-bar-label">${String(h).padStart(2,'0')}</span>
-            </div>`}).join('')}
-        </div>
-        <div class="kiosk-chart-legend">
-          <span><i class="sw over"></i>Đạt ≥ TB giờ</span>
-          <span><i class="sw under"></i>Dưới TB giờ</span>
-          <span><i class="sw ng"></i>NG</span>
-          <span class="kiosk-legend-note">Kế hoạch theo giờ: chưa có trong dữ liệu</span>
-        </div>
-      </div>`;
-    };
+    // ---- task list + auto paging -------------------------------------------
+    // Thứ tự ổn định: đang có người làm trước, rồi theo sản lượng, rồi id. KHÔNG
+    // phụ thuộc thứ tự server trả về, để một lần server đổi ORDER BY không làm
+    // màn hình nhảy.
+    const rank=t=>Number(t.open_session_count||0)>0?0:(t.day_state==='NEEDS_REVIEW'?1:2);
+    const orderTasks=list=>[...list].sort((a,b)=>
+      rank(a)-rank(b)||Number(b.day_good_qty||0)-Number(a.day_good_qty||0)||Number(a.operation_id)-Number(b.operation_id));
 
-    // ---- Operation / station table ----------------------------------------
-    // Convention: Vietnamese Operation NAME is the primary line, the code is the
-    // small secondary line underneath. Ratios reuse the exact formulas the daily
-    // dashboard already uses (total_good_qty/planned_quantity for product
-    // progress, day_work_seconds/planned_work_seconds for time efficiency), so
-    // the two screens can never disagree.
-    let lastStationFit=null;
-    const stateLabel=s=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý',UPDATED:'Đã cập nhật',IDLE:'Không có người'}[s]||s||'—');
-    const paintStations=day=>{
-      const box=document.getElementById('kioskStations'),note=document.getElementById('kioskStationNote');if(!box)return;
-      const rank=x=>x.day_state==='NEEDS_REVIEW'?0:Number(x.open_session_count)>0?1:2;
-      const rows=[...(day.items||[])].sort((a,b)=>rank(a)-rank(b)||Number(b.day_good_qty||0)-Number(a.day_good_qty||0));
-      if(note)note.textContent=rows.length?`${rows.length} Operation có hoạt động · hiển thị ${Math.min(rows.length,12)}`:'';
-      if(!rows.length){box.innerHTML='<div class="kiosk-empty"><b>Chưa có Operation hoạt động</b><span>Danh sách hiện khi có session bắt đầu trong ngày.</span></div>';return}
-      box.innerHTML=`<div class="kiosk-table">
-        <div class="kiosk-tr kiosk-th"><span>Operation</span><span>Trạng thái</span><span>Người làm</span><span>Đạt / Kế hoạch</span><span>NG</span><span>Hiệu suất giờ</span></div>
-        ${rows.slice(0,12).map(x=>{
-          const planQty=Number(x.planned_quantity||0),doneQty=Number(x.total_good_qty||0);
-          const productPct=pct(doneQty,planQty);
-          const plannedSec=Number(x.planned_work_seconds||0),actualSec=Number(x.day_work_seconds||0);
-          const timePct=pct(actualSec,plannedSec);
-          const timeState=timePct===null?'none':timePct>110?'bad':timePct>=80?'warn':'good';
-          const workers=(x.active_workers||[]).map(w=>w&&w.name).filter(Boolean);
-          return `<div class="kiosk-tr state-${E(String(x.day_state||'').toLowerCase())}">
-            <span class="kiosk-op">
-              <b>${E(x.operation_name||'—')}</b>
-              <small>${E(x.operation_code||'')}${x.po_code?` · ${E(x.po_code)}`:''}</small>
-            </span>
-            <span><em class="kiosk-state ${E(String(x.day_state||'').toLowerCase())}">${E(stateLabel(x.day_state))}</em></span>
-            <span class="kiosk-workers">${workers.length?E(workers.slice(0,2).join(', ')):'—'}${workers.length>2?` <u>+${workers.length-2}</u>`:''}</span>
-            <span class="kiosk-qty"><b>${N(doneQty)}</b>${planQty?` / ${N(planQty)}`:' / —'}${productPct===null?'':`<i class="kiosk-meter"><u style="width:${Math.min(100,productPct)}%"></u></i>`}</span>
-            <span class="kiosk-ng ${Number(x.day_defect_qty)>0?'has':''}">${N(x.day_defect_qty)}</span>
-            <span class="kiosk-eff ${timeState}">${timePct===null?'<u>Chưa có định mức</u>':`${timePct}%`}</span>
-          </div>`}).join('')}
-        <div class="kiosk-tr kiosk-more" hidden></div>
-      </div>`;
-      lastStationFit={box,total:rows.length};
-      fitWholeRows(box,rows.length);
-    };
-    // The panel's usable height changes with the viewport (a TV switched to a
-    // different mode, a browser window resized), so the whole-row trim has to
-    // be re-measured then too -- not only when new data is painted.
-    window.addEventListener('resize',()=>{
-      if(!alive()||!lastStationFit)return;
-      fitWholeRows(lastStationFit.box,lastStationFit.total);
-    });
-    // A wall display nobody can scroll must never show half a row: a row cut
-    // through the middle reads as a broken layout, not as "there is more".
-    // Measured after layout (the panel's height depends on the viewport, the
-    // KPI strip and the chart above it), then trimmed to whole rows with an
-    // honest "+N" count of what did not fit.
-    const fitWholeRows=(box,total)=>requestAnimationFrame(()=>{
-      const table=box.querySelector('.kiosk-table');if(!table)return;
-      const more=table.querySelector('.kiosk-more');
-      const rows=[...table.querySelectorAll('.kiosk-tr')].filter(el=>!el.classList.contains('kiosk-th')&&el!==more);
-      rows.forEach(el=>{el.hidden=false});
-      if(more)more.hidden=true;
-      const limit=box.getBoundingClientRect().bottom;
-      // Reserve room for the "+N" line itself, otherwise adding it would push
-      // the last kept row back out of view.
-      const reserve=more?22:0;
-      let hidden=0;
-      for(const el of rows){
-        if(el.getBoundingClientRect().bottom>limit-reserve){el.hidden=true;hidden++}
-      }
-      if(hidden&&more){
-        const shown=rows.length-hidden;
-        more.textContent=`+${(total-shown).toLocaleString('vi-VN')} Operation khác`;
-        more.hidden=false;
-      }
-    });
+    /** Số hàng vừa một trang, đo THẬT trên DOM đã render.
+     *
+     * Đo BƯỚC NHẢY giữa hai hàng liền nhau, không phải chiều cao một hàng: giữa
+     * hai hàng còn có `gap`, bỏ qua nó thì phép chia ra thừa một hàng và hàng
+     * cuối bị cắt ngang đáy panel. Trên màn treo tường không ai cuộn được, một
+     * hàng cắt đôi đọc như layout vỡ chứ không như "còn nữa".
+     */
+    function measurePerPage(){
+      const box=$('kioskTasks');if(!box)return S.perPage;
+      const rows=box.querySelectorAll('.kiosk-task');
+      if(!rows.length)return S.perPage;
+      const first=rows[0].getBoundingClientRect();
+      const pitch=rows.length>1
+        ?rows[1].getBoundingClientRect().top-first.top
+        :first.height+6;
+      if(!(pitch>0))return S.perPage;
+      const usable=box.getBoundingClientRect().height;
+      // +gap vì hàng CUỐI không có gap phía sau nó.
+      return Math.max(4,Math.min(12,Math.floor((usable+(pitch-first.height))/pitch)));
+    }
 
-    // ---- "Cần xử lý ngay" --------------------------------------------------
-    // Assembled from signals that already exist. Nothing here invents a new
-    // exception engine: NEEDS_REVIEW comes straight from daily_progress()'s own
-    // day_state, the dispatch verdict comes from /api/production-control's
-    // control_label + recommended_action, the repair backlog from the overview
-    // endpoint. Only the NG ratio and the long-open-session cutoff are local,
-    // and both display the raw number that triggered them.
-    const buildAttention=(day,pos,controlOps)=>{
-      const out=[];
-      const dayEnd=day.context&&day.context.day_end?new Date(day.context.day_end).getTime():null;
+    /** Danh sách hiển thị = task active + task vừa hoàn thành còn trong thời gian giữ. */
+    function displayList(){
       const now=Date.now();
-      for(const x of day.items||[]){
-        if(Number(x.unconfirmed_count||0)>0)out.push({sev:0,tag:'Session chưa xác nhận',title:x.operation_name||x.operation_code,sub:`${x.operation_code||''} · ${N(x.unconfirmed_count)} session tự đóng chưa xác nhận số liệu`});
+      for(const [id,hold] of [...S.completedHold]){if(hold.until<=now)S.completedHold.delete(id)}
+      const active=orderTasks(S.tasks);
+      const activeIds=new Set(active.map(t=>Number(t.operation_id)));
+      // Task đang được giữ nối SAU danh sách active, không chen lên đầu: chen
+      // lên đầu là tự tay tạo ra cú nhảy mà cả màn này đang tránh.
+      const held=[...S.completedHold.values()].filter(h=>!activeIds.has(Number(h.task.operation_id))).map(h=>({...h.task,__justDone:h}));
+      return [...active,...held];
+    }
+
+    function paintTasks(){
+      const box=$('kioskTasks');if(!box)return;
+      const list=S.snapshot;
+      if(!list.length){
+        box.innerHTML=`<div class="kiosk-empty kiosk-empty-done">
+          <b>PO này hiện không còn task đang chạy</b>
+          <span id="kioskEmptyHint">Xem hoạt động gần nhất bên phải, hoặc chuyển sang PO khác đang có việc.</span>
+          <div class="kiosk-empty-actions" id="kioskEmptySuggest"></div></div>`;
+        paintEmptySuggestions();
+        $('kioskPager').textContent='';
+        return;
       }
-      for(const s of day.sessions||[]){
-        if(s.session_status!=='OPEN')continue;
-        const started=new Date(s.started_at).getTime();
+      const pages=Math.max(1,Math.ceil(list.length/S.perPage));
+      if(S.page>=pages)S.page=0;
+      const slice=list.slice(S.page*S.perPage,S.page*S.perPage+S.perPage);
+      box.innerHTML=`<div class="kiosk-task-list">${slice.map(renderTask).join('')}</div>`;
+      $('kioskPager').innerHTML=`<span class="kiosk-page-count">Trang ${S.page+1}/${pages}</span>
+        <span class="kiosk-dots">${Array.from({length:pages},(_,i)=>`<i class="${i===S.page?'on':''}"></i>`).join('')}</span>
+        <span class="kiosk-page-total">${N(list.length)} task</span>
+        ${Date.now()<S.pauseUntil?'<span class="kiosk-paused">Đang tạm dừng lật trang</span>':''}`;
+    }
+
+    function renderTask(t){
+      const plan=Number(t.planned_quantity||0),done=Number(t.total_good_qty||0);
+      const p=pct(done,plan);
+      const workers=(t.active_workers||[]).map(w=>w&&w.name).filter(Boolean);
+      const just=t.__justDone;
+      const state=just?'justdone':String(t.day_state||'').toLowerCase();
+      const stateText=just?'Vừa hoàn thành':({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý',UPDATED:'Đã cập nhật',IDLE:'Không có người'}[t.day_state]||'—');
+      return `<article class="kiosk-task state-${E(state)}" data-op="${E(t.operation_id)}">
+        <div class="kiosk-task-main">
+          <b>${E(t.operation_name||'—')}</b>
+          <small>${E(t.operation_code||'')}</small>
+        </div>
+        <div class="kiosk-task-state"><em class="kiosk-state ${E(state)}">${E(stateText)}</em>
+          ${just&&just.actor?`<small>${E(just.actor)}${just.delta?` · ${just.delta>0?'+':''}${N(just.delta)} SP`:''}</small>`:''}</div>
+        <div class="kiosk-task-people">${workers.length?E(workers.slice(0,2).join(', ')):'—'}${workers.length>2?` <u>+${workers.length-2}</u>`:''}</div>
+        <div class="kiosk-task-qty"><b>${N(done)}</b>${plan?` / ${N(plan)}`:''}
+          ${p===null?'':`<i class="kiosk-meter"><u style="width:${Math.min(100,p)}%"></u></i>`}</div>
+        <div class="kiosk-task-ng ${Number(t.day_defect_qty)>0?'has':''}">${N(t.day_defect_qty)}</div>
+      </article>`;
+    }
+
+    function paintEmptySuggestions(){
+      const box=$('kioskEmptySuggest');if(!box)return;
+      const others=(S.options||[]).filter(o=>Number(o.id)!==Number(S.poId)&&Number(o.open_sessions||0)>0).slice(0,3);
+      box.innerHTML=others.length
+        ?others.map(o=>`<button class="kiosk-btn" type="button" data-goto="${o.id}">${E(o.code)} · ${o.open_sessions} đang làm</button>`).join('')
+        :'<span class="kiosk-empty-note">Hiện không có PO nào đang có session mở.</span>';
+      box.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>switchPo(Number(b.dataset.goto)));
+    }
+
+    // ---- sản lượng theo giờ (chỉ của PO đang xem) --------------------------
+    // Cột giờ dựng từ chính session của PO này, không phải của cả xưởng. Cùng
+    // một phép cộng với "Dashboard theo ngày", chỉ khác phạm vi.
+    const hourOf=v=>{if(!v)return null;const d=new Date(v);if(Number.isNaN(d.getTime()))return null;
+      return Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',hour12:false}).format(d))};
+    function paintHourly(sessions){
+      const box=$('kioskHourly'),note=$('kioskChartNote');if(!box)return;
+      const buckets=Array.from({length:24},()=>({good:0,ng:0}));
+      let total=0;
+      for(const s0 of sessions||[]){
+        const h=hourOf(s0.ended_at||s0.report_at||s0.started_at);
+        if(h===null||h<0||h>23)continue;
+        buckets[h].good+=Number(s0.good_qty||0);buckets[h].ng+=Number(s0.defect_qty||0);
+        total+=Number(s0.good_qty||0);
+      }
+      if(!total){box.innerHTML='<div class="kiosk-empty"><b>Chưa có sản lượng ghi nhận</b><span>Cột giờ hiện khi có session đầu tiên kết thúc.</span></div>';if(note)note.textContent='';return}
+      const peak=Math.max(...buckets.map(b=>b.good),1);
+      if(note)note.textContent=`Tổng ${N(total)} SP đạt trong ngày`;
+      box.innerHTML=`<div class="kiosk-chart-plot">${buckets.map((b,h)=>`
+        <div class="kiosk-bar" title="${h}:00 — ${N(b.good)} đạt, ${N(b.ng)} NG">
+          <span class="kiosk-bar-value">${b.good?N(b.good):''}</span>
+          <i style="height:${Math.round(b.good/peak*100)}%"></i>
+          <small>${String(h).padStart(2,'0')}</small>
+        </div>`).join('')}</div>`;
+    }
+
+    // ---- cần xử lý ngay (chỉ của PO đang xem) ------------------------------
+    // Không phát minh thêm luật ngoại lệ nào: unconfirmed_count đến thẳng từ
+    // daily_progress, còn hai ngưỡng cục bộ (tỉ lệ NG, session mở quá lâu) luôn
+    // in ra con số đã kích hoạt chúng để người đọc tự đánh giá.
+    const NG_RATIO_ALERT=0.10, LONG_OPEN_HOURS=10;
+    function buildAttention(tasks,sessions){
+      const out=[];
+      for(const x of tasks||[]){
+        if(Number(x.unconfirmed_count||0)>0)
+          out.push({sev:0,tag:'Session chưa xác nhận',title:x.operation_name||x.operation_code,
+            sub:`${x.operation_code||''} · ${N(x.unconfirmed_count)} session tự đóng chưa xác nhận số liệu`});
+        const good=Number(x.day_good_qty||0),ng=Number(x.day_defect_qty||0);
+        if(ng>0&&good+ng>0&&ng/(good+ng)>=NG_RATIO_ALERT)
+          out.push({sev:1,tag:'Tỉ lệ NG cao',title:x.operation_name||x.operation_code,
+            sub:`${x.operation_code||''} · ${N(ng)} NG / ${N(good+ng)} SP (${Math.round(ng/(good+ng)*100)}%)`});
+      }
+      const now=Date.now();
+      for(const s0 of sessions||[]){
+        if(String(s0.status||'').toUpperCase()!=='OPEN')continue;
+        const started=new Date(s0.started_at).getTime();
+        if(Number.isNaN(started))continue;
         const hours=(now-started)/3600000;
-        const overDay=dayEnd!==null&&now>dayEnd;
-        if(hours>=LONG_OPEN_HOURS||overDay)out.push({sev:1,tag:'Session mở quá lâu',title:s.employee_name||s.employee_code||'—',sub:`${s.operation_name||s.operation_code||''} · đã mở ${Math.floor(hours)} giờ`});
-      }
-      for(const x of day.items||[]){
-        const ng=Number(x.day_defect_qty||0),good=Number(x.day_good_qty||0),base=ng+good;
-        if(ng>0&&base>0&&ng/base>=NG_RATIO_ALERT)out.push({sev:1,tag:'NG cao',title:x.operation_name||x.operation_code,sub:`${x.operation_code||''} · NG ${N(ng)}/${N(base)} = ${Math.round(ng/base*100)}%`});
-      }
-      // Dispatch verdict, read as-is from the control endpoint.
-      const todayOps=new Set((day.items||[]).map(x=>Number(x.operation_id)));
-      for(const x of controlOps||[]){
-        if(x.control_state!=='CRITICAL')continue;
-        if(todayOps.size&&!todayOps.has(Number(x.operation_id)))continue;
-        out.push({sev:1,tag:E(x.control_label||'Làm ngay'),title:x.operation_name||x.operation_code,sub:`${x.operation_code||''} · ${x.recommended_action||'Ưu tiên điều phối'}`});
-      }
-      for(const po of pos||[]){
-        const pending=Number(po.repair_pending_quantity||0);
-        if(pending>0)out.push({sev:2,tag:'Chờ sửa',title:po.po_code||'—',sub:`${N(pending)} SP chờ sửa${po.product?` · ${po.product}`:''}`});
+        if(hours>=LONG_OPEN_HOURS)
+          out.push({sev:1,tag:'Session mở quá lâu',title:s0.employee_name||s0.operation_name||'—',
+            sub:`${s0.operation_code||''} · mở ${Math.round(hours)} giờ`});
       }
       return out.sort((a,b)=>a.sev-b.sev);
-    };
-    const paintAttention=list=>{
-      const box=document.getElementById('kioskAttention'),count=document.getElementById('kioskAttentionCount'),foot=document.getElementById('kioskAttentionFoot');
+    }
+    function paintAttention(list){
+      const box=$('kioskAttention'),count=$('kioskAttentionCount'),foot=$('kioskAttentionFoot');
       if(!box)return;
-      if(count){count.textContent=list.length?`${list.length} điểm`:'Sạch';count.classList.toggle('clear',!list.length)}
-      // Requirement E lists two signals this system genuinely has no source for.
-      // Say so, rather than shipping an empty widget that reads as "no problems".
-      if(foot)foot.textContent='Thiếu vật tư và phút dừng theo lý do: chưa có nguồn dữ liệu trong hệ thống.';
+      if(count)count.textContent=list.length?N(list.length):'Sạch';
+      if(foot)foot.textContent='Cảnh báo thiết bị/kiosk và ngoại lệ chưa xử lý chưa có nguồn dữ liệu ở màn này.';
       box.innerHTML=list.length
-        ?`<div class="kiosk-alert-list">${list.slice(0,8).map(x=>`<article class="kiosk-alert sev${x.sev}"><span class="kiosk-alert-tag">${E(x.tag)}</span><b>${E(x.title)}</b><small>${E(x.sub)}</small></article>`).join('')}${list.length>8?`<div class="kiosk-alert-more">+${list.length-8} điểm khác</div>`:''}</div>`
-        :'<div class="kiosk-empty ok"><b>Không có điểm cần xử lý</b><span>Mọi Operation trong ngày đang ở trạng thái bình thường.</span></div>';
-    };
+        ?list.map(x=>`<article class="kiosk-attn sev-${x.sev}"><em>${E(x.tag)}</em><b>${E(x.title)}</b><small>${E(x.sub)}</small></article>`).join('')
+        :'<div class="kiosk-empty"><b>Không có điểm cần xử lý</b><span>Mọi Operation của PO này đang bình thường.</span></div>';
+    }
 
-    // ---- side panels -------------------------------------------------------
-    const paintSidePanels=(day,pos)=>{
-      const ngBox=document.getElementById('kioskNg');
-      if(ngBox){
-        const rows=(day.items||[]).filter(x=>Number(x.day_defect_qty)>0).sort((a,b)=>Number(b.day_defect_qty)-Number(a.day_defect_qty));
-        ngBox.innerHTML=rows.length?`<ul class="kiosk-list">${rows.slice(0,5).map(x=>`<li><span><b>${E(x.operation_name||x.operation_code)}</b><small>${E(x.operation_code||'')}</small></span><strong class="bad">${N(x.day_defect_qty)}</strong></li>`).join('')}</ul>`:'<div class="kiosk-empty ok compact"><b>Không có NG hôm nay</b></div>';
-      }
-      const peopleBox=document.getElementById('kioskPeople');
-      if(peopleBox){
-        const open=(day.sessions||[]).filter(x=>x.session_status==='OPEN');
-        const byEmp=new Map();
-        for(const s of open)if(!byEmp.has(s.employee_id))byEmp.set(s.employee_id,s);
-        const rows=[...byEmp.values()];
-        peopleBox.innerHTML=rows.length?`<ul class="kiosk-list">${rows.slice(0,6).map(s=>`<li><span><b>${E(s.employee_name||'—')}</b><small>${E(s.operation_name||s.operation_code||'')}</small></span><strong class="ok">Đang làm</strong></li>`).join('')}${rows.length>6?`<li class="more">+${rows.length-6} người</li>`:''}</ul>`:'<div class="kiosk-empty compact"><b>Không có ai đang làm</b></div>';
-      }
-      const repairBox=document.getElementById('kioskRepair');
-      if(repairBox){
-        const rows=(pos||[]).filter(x=>Number(x.repair_pending_quantity)>0).sort((a,b)=>Number(b.repair_pending_quantity)-Number(a.repair_pending_quantity));
-        repairBox.innerHTML=rows.length?`<ul class="kiosk-list">${rows.slice(0,5).map(x=>`<li><span><b>${E(x.po_code)}</b><small>${E(x.product||'')}</small></span><strong class="warn">${N(x.repair_pending_quantity)} SP</strong></li>`).join('')}</ul>`:'<div class="kiosk-empty ok compact"><b>Không có hàng chờ sửa</b></div>';
-      }
-    };
+    // ---- activity feed ------------------------------------------------------
+    function paintFeed(){
+      const box=$('kioskFeed');if(!box)return;
+      if(!S.feed.length){box.innerHTML='<div class="kiosk-empty"><b>Chưa có hoạt động</b><span>Sự kiện hiện ra ngay khi xưởng thao tác.</span></div>';return}
+      const now=Date.now();
+      box.innerHTML=S.feed.map(ev=>{
+        const {action,impact}=phraseOf(ev);
+        const fresh=ev.__at&&now-ev.__at<NEW_EVENT_HIGHLIGHT_MS;
+        return `<article class="kiosk-event tone-${E(TONE[ev.event_type]||'neutral')}${fresh?' is-new':''}" data-event="${E(ev.id)}">
+          <time datetime="${E(ev.occurred_at||'')}"><b>${E(hhmm(ev.occurred_at))}</b><small>${E(relative(ev.occurred_at))}</small></time>
+          <p><b class="kiosk-actor ${ev.actor_kind==='SYSTEM'?'is-system':''}">${E(actorOf(ev))}</b>
+            <span>${E(action)}</span>
+            ${objectOf(ev)?`<i>${E(objectOf(ev))}</i>`:''}
+            ${impact?`<u>→ ${E(impact)}</u>`:''}</p>
+        </article>`;
+      }).join('');
+      $('kioskFeedNote').textContent=`${S.feed.length} sự kiện gần nhất · ${hhmmss(new Date())}`;
+    }
 
-    // ---- polling -----------------------------------------------------------
-    // In-place update only: the shell above is never re-rendered, so a refresh
-    // cannot make the TV flash or lose scroll. On failure the last good screen
-    // stays exactly as it was and only the status chip changes -- a control-room
-    // display going blank is worse than one showing slightly stale numbers.
-    let shiftsLoaded=false,lastOk=null;
-    const setLive=(state,text)=>{
-      const chip=document.getElementById('kioskLive'),label=document.getElementById('kioskLiveText');
-      if(chip)chip.dataset.state=state;
-      if(label)label.textContent=text;
-    };
-    const load=async()=>{
+    function paintOther(events){
+      const box=$('kioskOther');if(!box)return;
+      if(!events.length){box.innerHTML='<div class="kiosk-empty"><b>Không có biến động</b><span>Các PO khác chưa có thay đổi mới.</span></div>';return}
+      box.innerHTML=events.slice(0,OTHER_MAX).map(ev=>{
+        const {action,impact}=phraseOf(ev);
+        return `<article class="kiosk-other-row tone-${E(TONE[ev.event_type]||'neutral')}">
+          <div><b>${E(hhmm(ev.occurred_at))}</b> · <span class="kiosk-other-po">${E(ev.po_code||'—')}</span></div>
+          <p>${E(actorOf(ev))} ${E(action)}${objectOf(ev)?` · ${E(objectOf(ev))}`:''}${impact?` → ${E(impact)}`:''}</p>
+          <button class="kiosk-btn kiosk-btn-sm" type="button" data-view-po="${E(ev.po_id)}">Xem PO</button>
+        </article>`;
+      }).join('');
+      box.querySelectorAll('[data-view-po]').forEach(b=>b.onclick=()=>switchPo(Number(b.dataset.viewPo)));
+    }
+
+    // ---- tải dữ liệu --------------------------------------------------------
+    async function loadBoard(){
       try{
-        if(!shiftsLoaded){
-          try{const s=await api('/api/settings/work-shifts');paintShift(s.items||[]);shiftsLoaded=true}
-          catch(_e){/* ca chỉ là metadata tham khảo -- không được chặn cả màn hình */}
-        }
-        const [day,overview,control]=await Promise.all([
-          api(`/api/dashboard/day?date=${encodeURIComponent(date)}&limit=1000`),
-          api('/api/dashboard/overview?limit=5000'),
-          api('/api/production-control?limit=2000')
-        ]);
+        const q=new URLSearchParams({date});
+        if(S.poId)q.set('po_id',String(S.poId));
+        const data=await api(`/api/kiosk-board?${q.toString()}`);
         if(!alive())return;
-        const pos=overview.production_orders||[];
-        const attention=buildAttention(day,pos,control.operations||[]);
-        paintKpis(day,pos,attention.length);
-        paintHourly(day);
-        paintStations(day);
-        paintAttention(attention);
-        paintSidePanels(day,pos);
-        lastOk=new Date();
-        setLive('live',`Trực tiếp · Cập nhật lần cuối ${clock(lastOk)}`);
+        S.options=data.po_options||[];
+        if(!data.production_order){
+          $('kioskTasks').innerHTML='<div class="kiosk-empty"><b>Chưa có Production Order nào đang chạy</b><span>Màn hình sẽ hiện ngay khi có PO được Start.</span></div>';
+          setLive('live','Trực tiếp · chưa có PO');
+          return;
+        }
+        const before=new Map(S.tasks.map(t=>[Number(t.operation_id),t]));
+        S.po=data.production_order;
+        if(!S.poId){S.poId=Number(S.po.id);AppNav.setQuery({po_id:S.poId})}
+        S.tasks=data.tasks||[];
+        markCompletions(before,S.tasks);
+        paintPo(S.po,data.kpis||{});
+        paintSelector(S.options);
+        paintKpis(data.kpis||{});
+        paintHourly(data.sessions||[]);
+        paintAttention(buildAttention(S.tasks,data.sessions||[]));
+        reconcilePages();
+        S.lastOk=new Date();
+        setLive('live',`Trực tiếp · cập nhật ${clock(S.lastOk)}`);
       }catch(e){
         if(!alive())return;
-        setLive('stale',lastOk?`Mất kết nối · Số liệu lúc ${clock(lastOk)}`:`Không tải được dữ liệu · ${e.message||e}`);
-        if(!lastOk){
-          const box=document.getElementById('kioskKpis');
-          if(box&&!box.children.length)box.innerHTML=`<article class="kiosk-kpi bad kiosk-kpi-error"><small>Không tải được dữ liệu</small><strong>—</strong><span>${E(e.message||e)}</span></article>`;
-        }
+        setLive('stale',S.lastOk?`Mất kết nối · số liệu lúc ${clock(S.lastOk)}`:`Không tải được dữ liệu · ${e.message||e}`);
       }
-    };
+    }
 
-    document.getElementById('kioskRefresh').onclick=()=>{setLive('loading','Đang làm mới…');load()};
+    /** Task rời khỏi danh sách active -> giữ lại vài giây với nhãn "Vừa hoàn thành". */
+    function markCompletions(before,now){
+      if(!before.size)return;
+      const nowIds=new Set(now.map(t=>Number(t.operation_id)));
+      for(const [id,task] of before){
+        const still=now.find(t=>Number(t.operation_id)===id);
+        const finished=!nowIds.has(id)||(still&&String(still.operation_status||'').toUpperCase()==='COMPLETED'&&String(task.operation_status||'').toUpperCase()!=='COMPLETED');
+        if(!finished)continue;
+        const source=still||task;
+        // Người vừa cập nhật + delta lấy từ chính dòng sự kiện, không đoán.
+        const ev=[...S.feed].reverse().find(x=>Number(x.operation_id)===id&&x.actor_kind==='PERSON');
+        const hold={task:source,until:Date.now()+COMPLETION_HOLD_MS,
+          actor:ev?ev.actor_name:'',delta:ev&&ev.quantity_delta!=null?Number(ev.quantity_delta):0};
+        S.completedHold.set(id,hold);
+        // Nếu task đang NẰM TRÊN MÀN, đổi nhãn NGAY TẠI CHỖ của nó. Không chờ
+        // ranh giới trang: chờ thì người xem thấy nó lặng lẽ biến mất ở lần lật
+        // sau, đúng cái cảm giác "task bốc hơi" mà màn này sinh ra để xoá bỏ.
+        // Đổi tại chỗ nên hàng không đổi vị trí -- vừa thấy rõ, vừa không xô
+        // lệch trang đang đọc.
+        const at=S.snapshot.findIndex(t=>Number(t.operation_id)===id);
+        if(at>=0)S.snapshot[at]={...source,__justDone:hold};
+      }
+      if([...before.keys()].some(id=>S.completedHold.has(id)))paintTasks();
+    }
 
-    await load();
-    // One timer drives both the clock and the data poll, so it is a single
-    // handle the next page's `clearInterval(dashboardTimer)` can cancel. The
-    // alive() guard stops it even if some future page forgets to.
-    let ticks=0;
+    async function loadActivity(){
+      if(!S.poId)return;
+      try{
+        const q=new URLSearchParams({po_id:String(S.poId)});
+        if(S.latestId)q.set('since_id',String(S.latestId));
+        const data=await api(`/api/kiosk-board/activity?${q.toString()}`);
+        if(!alive())return;
+        let added=false;
+        for(const ev of data.events||[]){
+          if(S.seen.has(ev.id))continue;      // khử trùng lặp theo id ổn định
+          S.seen.add(ev.id);ev.__at=Date.now();
+          S.feed.unshift(ev);added=true;
+        }
+        if(S.feed.length>FEED_MAX)S.feed.length=FEED_MAX;
+        if(data.latest_id)S.latestId=data.latest_id;
+        if(added||!$('kioskFeed').children.length)paintFeed();
+        if((data.other_events||[]).length||!$('kioskOther').children.length){
+          S.otherFeed=[...(data.other_events||[]).reverse(),...(S.otherFeed||[])]
+            .filter((e,i,a)=>a.findIndex(x=>x.id===e.id)===i).slice(0,OTHER_MAX);
+          paintOther(S.otherFeed||[]);
+        }
+      }catch(_e){/* feed hỏng không được làm sập cả màn hình */}
+    }
+
+    // ---- vòng lật trang -----------------------------------------------------
+    // Snapshot chỉ được thay ở RANH GIỚI trang. Dữ liệu về giữa chừng nằm chờ
+    // trong S.tasks, không đụng vào thứ người ta đang đọc.
+    function reconcilePages(){
+      if(!S.snapshot.length){S.snapshot=displayList();S.perPage=measurePerPage();paintTasks();S.perPage=measurePerPage();paintTasks();}
+    }
+    function advancePage(){
+      if(Date.now()<S.pauseUntil)return;
+      const list=displayList();
+      const pages=Math.max(1,Math.ceil((S.snapshot.length||list.length)/S.perPage));
+      if(S.page+1>=pages){S.snapshot=list;S.page=0}   // hết vòng -> nạp dữ liệu mới
+      else S.page+=1;
+      paintTasks();
+    }
+
+    const holdPaging=()=>{S.pauseUntil=Date.now()+INTERACT_PAUSE_MS;paintTasks()};
+    ['pointerenter','pointerdown','touchstart'].forEach(evt=>
+      $('kioskTasks').addEventListener(evt,holdPaging,{passive:true}));
+
+    $('kioskRefresh').onclick=()=>{setLive('loading','Đang làm mới…');loadBoard();loadActivity()};
+
+    // Tab ẩn thì giãn nhịp; quay lại thì làm mới ngay -- người vừa nhìn lại màn
+    // hình không nên thấy số liệu của mười phút trước.
+    document.addEventListener('visibilitychange',()=>{
+      if(!alive())return;
+      if(!document.hidden){loadBoard();loadActivity()}
+    });
+    window.addEventListener('resize',()=>{if(alive()){S.perPage=measurePerPage();paintTasks()}});
+
+    await loadBoard();
+    await loadActivity();
+
+    // Hai mối nối cho test. Hành vi cần kiểm ở đây phụ thuộc THỜI GIAN (lật
+    // trang mỗi 10s, giữ task vừa xong 8s); chờ đồng hồ thật trong e2e vừa
+    // chậm vừa là nguồn flaky. Chúng chỉ GỌI LẠI đúng hàm mà timer gọi, không
+    // có nhánh logic riêng -- nên không có đường nào để test xanh trong khi
+    // màn hình thật sai.
+    window.__kioskAdvance=()=>advancePage();
+    window.__kioskReload=()=>loadBoard();
+
+    let ms=0;
     dashboardTimer=setInterval(()=>{
       if(!alive()){clearInterval(dashboardTimer);dashboardTimer=null;return}
       tickClock();
-      if(++ticks*1000>=REFRESH_MS){ticks=0;load()}
+      ms+=1000;
+      const factor=document.hidden?HIDDEN_FACTOR:1;
+      if(ms%(ACTIVITY_MS*factor)===0)loadActivity();
+      if(ms%(BOARD_MS*factor)===0)loadBoard();
+      if(ms%PAGE_MS===0&&!document.hidden)advancePage();
+      if(ms%1000===0&&S.feed.length)paintFeed();
     },1000);
   }
 
