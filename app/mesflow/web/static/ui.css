@@ -2437,3 +2437,268 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
    nowrap + ellipsis cho CẢ chip). Khi chip là một .op-identity thì việc cắt
    thuộc về từng dòng con bên trong, không phải cả chip. */
 .employee-session-chips>span.op-identity{white-space:normal;text-overflow:clip;text-align:left}
+
+/* ===== Kiosk điều hành — control-room display (page=daily-dashboard-kiosk) =====
+   Every rule below is scoped to body[data-page="daily-dashboard-kiosk"] or to
+   .kiosk-display, which only that page renders. The admin shell stays light;
+   this one screen goes dark and full-bleed for a wall-mounted TV. Because the
+   scope hangs off body[data-page], it reverts by itself the moment app.js's
+   setActive() names another page -- there is no cleanup step that can be
+   forgotten. Tuned for 1920x1080 first, with a 1366x768 step that must not
+   introduce horizontal overflow. Animation is deliberately near-zero: a
+   control-room display is read from across a room, not interacted with. */
+body[data-page="daily-dashboard-kiosk"]{background:#0b1018;color:#e8eef7}
+body[data-page="daily-dashboard-kiosk"] .app-sidebar,
+body[data-page="daily-dashboard-kiosk"] .sidebar-overlay,
+body[data-page="daily-dashboard-kiosk"] .workspace-header{display:none}
+body[data-page="daily-dashboard-kiosk"] .app-layout{grid-template-columns:1fr;display:block}
+body[data-page="daily-dashboard-kiosk"] .workspace-main,
+body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width:none;background:#0b1018}
+
+.kiosk-display{--k-bg:#0b1018;--k-panel:#141c28;--k-line:#25313f;--k-text:#e8eef7;--k-dim:#8fa3bb;
+  --k-ok:#2fbf71;--k-warn:#e8a13a;--k-bad:#e2544c;--k-run:#3d8ede;
+  height:100vh;overflow:hidden;padding:16px 20px 20px;display:flex;flex-direction:column;gap:14px;
+  background:var(--k-bg);color:var(--k-text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}
+
+/* header ------------------------------------------------------------------ */
+.kiosk-header{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
+  background:var(--k-panel);border:1px solid var(--k-line);border-radius:12px;padding:12px 20px}
+.kiosk-identity{display:flex;flex-direction:column;min-width:0}
+.kiosk-identity b{font-size:24px;letter-spacing:.02em;line-height:1.1}
+.kiosk-identity span{font-size:13px;color:var(--k-dim)}
+.kiosk-header>div>small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--k-dim)}
+.kiosk-header>div>strong{display:block;font-size:20px;font-weight:700;margin-top:2px;white-space:nowrap}
+.kiosk-clock>strong{font-variant-numeric:tabular-nums;font-size:26px}
+.kiosk-shift>strong{font-size:17px;color:#cbd8e8}
+.kiosk-live{margin-left:auto;display:flex;align-items:center;gap:9px;padding:9px 15px;border-radius:999px;
+  border:1px solid var(--k-line);background:#101824;font-size:14px;font-weight:600;white-space:nowrap}
+.kiosk-live i{width:10px;height:10px;border-radius:50%;background:var(--k-dim);flex:none}
+.kiosk-live[data-state="live"]{color:#9fe9c1;border-color:#1d4a35}
+.kiosk-live[data-state="live"] i{background:var(--k-ok);box-shadow:0 0 0 4px #2fbf7126}
+.kiosk-live[data-state="stale"]{color:#f2c98e;border-color:#5a4423}
+.kiosk-live[data-state="stale"] i{background:var(--k-warn)}
+.kiosk-actions{display:flex;gap:8px}
+.kiosk-btn{border:1px solid var(--k-line);background:#101824;color:#cfdcec;border-radius:8px;
+  padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+.kiosk-btn:hover{background:#1a2534;color:#fff}
+
+/* KPI strip --------------------------------------------------------------- */
+.kiosk-kpis{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}
+.kiosk-kpi{background:var(--k-panel);border:1px solid var(--k-line);border-top:4px solid var(--k-dim);
+  border-radius:11px;padding:12px 14px;min-width:0}
+.kiosk-kpi small{display:block;font-size:12px;color:var(--k-dim);font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kiosk-kpi strong{display:block;font-size:36px;line-height:1.15;font-weight:800;margin:4px 0 2px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.kiosk-kpi strong u{font-size:14px;font-weight:600;color:var(--k-dim);text-decoration:none;margin-left:5px}
+.kiosk-kpi span{display:block;font-size:11.5px;color:var(--k-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kiosk-kpi.good{border-top-color:var(--k-ok)}
+.kiosk-kpi.run{border-top-color:var(--k-run)}
+.kiosk-kpi.warn{border-top-color:var(--k-warn)}
+.kiosk-kpi.bad{border-top-color:var(--k-bad)}
+.kiosk-kpi.bad strong{color:#ff9a94}
+.kiosk-kpi.good strong{color:#7ee0ab}
+.kiosk-kpi-error{grid-column:1/-1}
+
+/* body grid --------------------------------------------------------------- */
+.kiosk-body{display:grid;grid-template-columns:minmax(0,2.05fr) minmax(320px,1fr);gap:14px;flex:1;min-height:0}
+.kiosk-col-main,.kiosk-col-side{display:flex;flex-direction:column;gap:14px;min-width:0;min-height:0}
+.kiosk-panel{background:var(--k-panel);border:1px solid var(--k-line);border-radius:12px;
+  padding:14px 16px;display:flex;flex-direction:column;min-width:0;min-height:0}
+.kiosk-panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--k-line)}
+.kiosk-panel-head h2{margin:0;font-size:17px;font-weight:700;letter-spacing:.01em}
+.kiosk-panel-note{font-size:12px;color:var(--k-dim);text-align:right}
+.kiosk-panel-body{flex:1;min-height:0;overflow:hidden}
+.kiosk-panel-foot{margin:9px 0 0;font-size:11px;color:var(--k-dim);border-top:1px solid var(--k-line);padding-top:8px}
+.kiosk-chart-panel{flex:0 0 auto}
+.kiosk-station-panel{flex:1 1 auto}
+.kiosk-station-panel .kiosk-panel-body{overflow:hidden}
+/* .kiosk-tr sets `display:grid`, which OUTRANKS the UA stylesheet's
+   `[hidden]{display:none}` -- without this rule a row the whole-row trim
+   marks hidden keeps painting, and the panel still shows a half-cut row.
+   Found live on the deployed preview, not by a unit test. */
+.kiosk-tr[hidden]{display:none}
+.kiosk-tr.kiosk-more{display:block;grid-template-columns:none;text-align:center;font-size:12.5px;
+  color:var(--k-dim);border-bottom:0;padding:6px 4px 0}
+.kiosk-col-side{overflow:hidden}
+
+/* hourly chart ------------------------------------------------------------ */
+.kiosk-chart{display:flex;flex-direction:column;gap:8px}
+.kiosk-chart-plot{position:relative;display:grid;grid-template-columns:repeat(24,minmax(0,1fr));
+  gap:5px;align-items:end;height:196px;padding-top:16px}
+.kiosk-bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
+  height:100%;min-width:0;gap:3px}
+.kiosk-bar-value{font-size:11px;color:var(--k-dim);font-variant-numeric:tabular-nums;line-height:1}
+.kiosk-bar-stack{display:flex;flex-direction:column-reverse;width:100%;border-radius:4px 4px 0 0;
+  overflow:hidden;min-height:2px;background:#1b2532}
+.kiosk-bar-stack i{display:block;width:100%}
+.kiosk-bar-stack i.good{flex:1;background:var(--k-run)}
+.kiosk-bar-stack i.ng{background:var(--k-bad);flex:none}
+.kiosk-bar.over .kiosk-bar-stack i.good{background:var(--k-ok)}
+.kiosk-bar.under .kiosk-bar-stack i.good{background:var(--k-warn)}
+.kiosk-bar.none .kiosk-bar-stack{background:#161f2b}
+.kiosk-bar-label{font-size:11px;color:var(--k-dim);font-variant-numeric:tabular-nums;line-height:1}
+.kiosk-chart-avg{position:absolute;left:0;right:0;height:0;border-top:2px dashed #6f8298;pointer-events:none}
+.kiosk-chart-avg b{position:absolute;right:0;top:-17px;font-size:11px;color:#9db0c6;font-weight:600}
+.kiosk-chart-legend{display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--k-dim)}
+.kiosk-chart-legend .sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.kiosk-chart-legend .sw.over{background:var(--k-ok)}
+.kiosk-chart-legend .sw.under{background:var(--k-warn)}
+.kiosk-chart-legend .sw.ng{background:var(--k-bad)}
+.kiosk-legend-note{margin-left:auto;font-style:italic}
+
+/* operation table --------------------------------------------------------- */
+.kiosk-table{display:flex;flex-direction:column;height:100%;overflow:hidden}
+.kiosk-tr{display:grid;grid-template-columns:minmax(0,2.4fr) 130px minmax(0,1.1fr) minmax(0,1.3fr) 78px 120px;
+  gap:12px;align-items:center;padding:9px 4px;border-bottom:1px solid #1d2734;min-width:0}
+.kiosk-th{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--k-dim);font-weight:700;
+  border-bottom:1px solid var(--k-line);padding-bottom:7px}
+.kiosk-tr>span{min-width:0}
+/* Convention: Vietnamese Operation NAME is the headline, the code is the
+   small supporting line -- never the other way round, and never a long code
+   used as the row's main content. */
+.kiosk-op b{display:block;font-size:17px;font-weight:700;line-height:1.25;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-op small{display:block;font-size:11.5px;color:var(--k-dim);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-state{display:inline-block;font-style:normal;font-size:12.5px;font-weight:700;
+  padding:4px 10px;border-radius:999px;background:#1d2734;color:#b9c8da;white-space:nowrap}
+.kiosk-state.running{background:#123a2a;color:#7ee0ab}
+.kiosk-state.needs_review{background:#40201e;color:#ff9a94}
+.kiosk-state.updated{background:#16304b;color:#8dc3f0}
+.kiosk-workers{font-size:13.5px;color:#cbd8e8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-workers u{color:var(--k-dim);text-decoration:none;font-size:12px}
+.kiosk-qty{font-size:14px;color:#cbd8e8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kiosk-qty b{font-size:18px;font-weight:700;color:var(--k-text)}
+.kiosk-meter{display:block;height:5px;border-radius:3px;background:#1d2734;margin-top:5px;overflow:hidden}
+.kiosk-meter u{display:block;height:100%;background:var(--k-run);text-decoration:none}
+.kiosk-ng{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--k-dim)}
+.kiosk-ng.has{color:#ff9a94}
+.kiosk-eff{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kiosk-eff.good{color:#7ee0ab}
+.kiosk-eff.warn{color:#f2c98e}
+.kiosk-eff.bad{color:#ff9a94}
+.kiosk-eff.none u{font-size:11.5px;font-weight:600;color:var(--k-dim);text-decoration:none}
+
+/* attention --------------------------------------------------------------- */
+.kiosk-attention-panel{flex:0 0 auto}
+.kiosk-attention-count{font-size:14px;font-weight:800;color:#ff9a94;background:#40201e;
+  padding:4px 11px;border-radius:999px;white-space:nowrap}
+.kiosk-attention-count.clear{color:#7ee0ab;background:#123a2a}
+.kiosk-alert-list{display:flex;flex-direction:column;gap:8px}
+.kiosk-alert{display:grid;grid-template-columns:auto 1fr;grid-template-areas:"tag title" "tag sub";
+  gap:1px 11px;align-items:center;padding:9px 12px;border-radius:9px;
+  background:#101824;border-left:4px solid var(--k-dim)}
+.kiosk-alert.sev0{border-left-color:var(--k-bad);background:#1c1315}
+.kiosk-alert.sev1{border-left-color:var(--k-warn);background:#1b1711}
+.kiosk-alert.sev2{border-left-color:var(--k-run)}
+.kiosk-alert-tag{grid-area:tag;align-self:center;font-size:10.5px;font-weight:800;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--k-dim);writing-mode:horizontal-tb;max-width:92px;line-height:1.2}
+.kiosk-alert b{grid-area:title;font-size:15.5px;font-weight:700;line-height:1.25;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-alert small{grid-area:sub;font-size:12px;color:var(--k-dim);line-height:1.3;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-alert-more{font-size:12px;color:var(--k-dim);text-align:center;padding-top:2px}
+
+/* side mini panels -------------------------------------------------------- */
+.kiosk-mini-panel{flex:1 1 0;min-height:0}
+.kiosk-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.kiosk-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.kiosk-list li>span{min-width:0}
+.kiosk-list b{display:block;font-size:14.5px;font-weight:700;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-list small{display:block;font-size:11.5px;color:var(--k-dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-list strong{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kiosk-list strong.bad{color:#ff9a94}
+.kiosk-list strong.warn{color:#f2c98e}
+.kiosk-list strong.ok{color:#7ee0ab;font-size:13px}
+.kiosk-list li.more{font-size:12px;color:var(--k-dim);justify-content:center}
+
+/* empty states ------------------------------------------------------------ */
+.kiosk-empty{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:5px;
+  text-align:center;padding:26px 14px;border:1px dashed var(--k-line);border-radius:10px;height:100%}
+.kiosk-empty.compact{padding:14px 10px}
+.kiosk-empty b{font-size:15px;font-weight:700;color:#cbd8e8}
+.kiosk-empty span{font-size:12.5px;color:var(--k-dim)}
+.kiosk-empty.ok b{color:#7ee0ab}
+
+/* 1366x768: same layout, smaller type. No column is dropped and nothing may
+   overflow horizontally -- the KPI strip halves into two rows of four. */
+@media(max-width:1500px){
+  .kiosk-display{padding:10px 12px 12px;gap:9px}
+  .kiosk-kpis{gap:7px}
+  .kiosk-kpi{padding:8px 10px;border-top-width:3px}
+  .kiosk-kpi small{font-size:10.5px}
+  .kiosk-kpi strong{font-size:25px;margin:2px 0 1px}
+  .kiosk-kpi strong u{font-size:11px;margin-left:3px}
+  .kiosk-kpi span{font-size:10px}
+  .kiosk-header{gap:14px;padding:8px 13px}
+  .kiosk-identity b{font-size:19px}
+  .kiosk-identity span{font-size:11.5px}
+  .kiosk-header>div>small{font-size:10px}
+  .kiosk-header>div>strong{font-size:16px}
+  .kiosk-clock>strong{font-size:20px}
+  .kiosk-live{font-size:12.5px;padding:7px 12px}
+  .kiosk-btn{padding:7px 11px;font-size:12.5px}
+  .kiosk-panel{padding:11px 13px}
+  .kiosk-panel-head{padding-bottom:8px;margin-bottom:8px}
+  .kiosk-panel-head h2{font-size:15px}
+  .kiosk-chart-plot{height:76px;padding-top:11px}
+  /* The colour key is how the chart is read from across a room -- it must
+     survive the tighter height, so it shrinks rather than being squeezed out
+     of the panel by `overflow:hidden`. */
+  .kiosk-chart-legend{font-size:10.5px;gap:11px}
+  .kiosk-chart-legend .sw{width:9px;height:9px;margin-right:4px}
+  .kiosk-chart-panel .kiosk-panel-body{overflow:visible}
+  .kiosk-tr{grid-template-columns:minmax(0,2.2fr) 104px minmax(0,1fr) minmax(0,1.15fr) 54px 92px;gap:9px;padding:7px 3px}
+  .kiosk-op b{font-size:14.5px}
+  .kiosk-alert{padding:7px 10px}
+  .kiosk-alert b{font-size:14px}
+  .kiosk-list b{font-size:13.5px}
+  /* At this height the side column cannot stack four panels without clipping
+     one mid-row, which reads as broken rather than dense. `display:contents`
+     dissolves the two column wrappers so the same DOM re-flows into a
+     three-column grid: the dispatch panel keeps a tall column of its own and
+     the three small panels move to a full-width strip along the bottom.
+     Nothing is hidden -- only re-placed. */
+  /* Height budget at 768px is tight: reserve a floor for the Operation table
+     so the whole-row trim can never starve it down to zero rows, and let the
+     chart and the three small panels give up the space instead. */
+  .kiosk-body{gap:10px;
+    grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr);
+    grid-template-rows:auto minmax(264px,1fr) auto;
+    grid-template-areas:"chart chart attention" "stations stations attention" "ng people repair"}
+  .kiosk-col-main,.kiosk-col-side{display:contents}
+  .kiosk-chart-panel{grid-area:chart}
+  .kiosk-station-panel{grid-area:stations}
+  .kiosk-attention-panel{grid-area:attention;overflow:hidden}
+  .kiosk-attention-panel .kiosk-panel-body{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2b3747 transparent}
+  .kiosk-panel-ng{grid-area:ng}
+  .kiosk-panel-people{grid-area:people}
+  .kiosk-panel-repair{grid-area:repair}
+  .kiosk-mini-panel{flex:0 0 auto}
+  .kiosk-mini-panel .kiosk-list li:nth-child(n+3){display:none}
+  .kiosk-mini-panel .kiosk-list{gap:4px}
+  .kiosk-mini-panel .kiosk-list b{font-size:13px}
+  .kiosk-mini-panel .kiosk-list small{font-size:11px}
+}
+/* Mobile is a graceful fallback only -- this screen is designed for a TV. */
+@media(max-width:900px){
+  .kiosk-display{height:auto;min-height:100vh;overflow:visible}
+  .kiosk-station-panel .kiosk-panel-body{overflow-y:visible}
+  .kiosk-col-side{overflow:visible}
+  .kiosk-col-main,.kiosk-col-side{display:flex}
+  .kiosk-body{grid-template-areas:none;grid-template-rows:auto}
+  .kiosk-mini-panel .kiosk-list li:nth-child(n+3){display:flex}
+  .kiosk-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kiosk-body{grid-template-columns:minmax(0,1fr)}
+  .kiosk-live{margin-left:0}
+  .kiosk-chart-plot{gap:3px}
+  .kiosk-bar-value{display:none}
+  .kiosk-tr{grid-template-columns:minmax(0,1.6fr) 96px minmax(0,1fr);gap:8px}
+  .kiosk-tr>span:nth-child(4),.kiosk-tr>span:nth-child(5),.kiosk-tr>span:nth-child(6),
+  .kiosk-th>span:nth-child(4),.kiosk-th>span:nth-child(5),.kiosk-th>span:nth-child(6){display:none}
+}
