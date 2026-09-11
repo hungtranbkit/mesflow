@@ -35,7 +35,8 @@ test('Dashboard → danh sách PO → chi tiết PO → Back phải về danh s�
   await page.evaluate(() => openPage('production-orders'));
   await expect(page.locator('.po-actions').first()).toBeVisible({ timeout: 20000 });
 
-  await page.locator('tbody tr').first().locator('td').first().click();
+  // REQ-UI-022: danh sách PO là thẻ .po-card, không còn <tbody><tr>.
+  await page.locator('.po-card').first().locator('.po-card-identity').click();
   await expect(page.locator('#poBack')).toBeVisible({ timeout: 15000 });
   expect(new URL(page.url()).searchParams.get('po_id')).toBe('1');
 
@@ -55,7 +56,8 @@ test('F5 khi đang ở chi tiết PO thì vẫn ở chi tiết PO', async ({ pag
   await mockPo(page);
   await page.goto('/app?page=production-orders');
   await expect(page.locator('.po-actions').first()).toBeVisible({ timeout: 20000 });
-  await page.locator('tbody tr').first().locator('td').first().click();
+  // REQ-UI-022: danh sách PO là thẻ .po-card, không còn <tbody><tr>.
+  await page.locator('.po-card').first().locator('.po-card-identity').click();
   await expect(page.locator('#poBack')).toBeVisible({ timeout: 15000 });
 
   await page.reload();
@@ -67,7 +69,8 @@ test('nút "← Danh sách PO" cũng dọn ?po khỏi URL', async ({ page }) => 
   await mockPo(page);
   await page.goto('/app?page=production-orders');
   await expect(page.locator('.po-actions').first()).toBeVisible({ timeout: 20000 });
-  await page.locator('tbody tr').first().locator('td').first().click();
+  // REQ-UI-022: danh sách PO là thẻ .po-card, không còn <tbody><tr>.
+  await page.locator('.po-card').first().locator('.po-card-identity').click();
   await expect(page.locator('#poBack')).toBeVisible({ timeout: 15000 });
   await page.locator('#poBack').click();
   await expect(page.locator('.po-actions').first()).toBeVisible({ timeout: 15000 });

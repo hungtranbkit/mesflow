@@ -6,6 +6,11 @@
 // lúc trong menu. Và menu là <details> nằm trong .table-wrap{overflow:auto},
 // nên mở ra là bị cắt + wrapper mọc thanh cuộn dọc (đo được 2229px so với
 // 2104px trước khi sửa).
+//
+// REQ-UI-022 đổi danh sách PO từ <table> sang thẻ .po-card, nên khung chứa
+// cần đo không còn là .table-wrap mà là .po-card-list, và "dòng" là thẻ.
+// Nội dung hợp đồng (một primary theo trạng thái, menu chỉ thao tác phụ,
+// không cắt, không đẻ thanh cuộn) giữ nguyên.
 const { test, expect } = require('@playwright/test');
 
 const PROD = { id: 1, code: 'QA-PO-RUN', product: 'Khung máy', planned_quantity: 100,
@@ -29,18 +34,18 @@ async function openList(page, items = [PROD, DRAFT, DONE, PAUSED]) {
   await expect(page.locator('.po-actions').first()).toBeVisible({ timeout: 20000 });
 }
 
-const rowFor = (page, code) => page.locator('tr', { has: page.locator(`strong:text-is("${code}")`) });
+const rowFor = (page, code) => page.locator('.po-card', { has: page.locator(`strong:text-is("${code}")`) });
 
 test('mỗi trạng thái đúng một primary, và menu không lặp lại nó', async ({ page }) => {
   await openList(page);
 
   // Chỉ trạng thái chạy được mới có primary. "Mở PO"/"Xem PO" đã bỏ vì bấm
-  // cả dòng đã mở PO rồi -- thêm một nút làm đúng việc đó là thừa.
+  // cả thẻ đã mở PO rồi -- thêm một nút làm đúng việc đó là thừa.
   await expect(rowFor(page, 'QA-PO-DRAFT').locator('.po-actions .btn.primary')).toHaveText('Bắt đầu sản xuất');
   await expect(rowFor(page, 'QA-PO-PAUSED').locator('.po-actions .btn.primary')).toHaveText('Tiếp tục sản xuất');
   await expect(rowFor(page, 'QA-PO-RUN').locator('.po-actions .btn.primary')).toHaveCount(0);
   await expect(rowFor(page, 'QA-PO-DONE').locator('.po-actions .btn.primary')).toHaveCount(0);
-  // Và không nút nào trong bảng làm mỗi việc "mở PO" nữa.
+  // Và không nút nào trong danh sách làm mỗi việc "mở PO" nữa.
   await expect(page.locator('.po-actions button', { hasText: /^(Mở PO|Xem PO)$/ })).toHaveCount(0);
 
   // Menu chỉ có thao tác phụ — không có "Mở PO"/"Bắt đầu sản xuất" trong đó.
@@ -57,26 +62,26 @@ test('mỗi trạng thái đúng một primary, và menu không lặp lại nó'
 test('mở menu không đẻ thanh cuộn và không làm cao thêm dòng', async ({ page }) => {
   await openList(page);
   const before = await page.evaluate(() => {
-    const w = document.querySelector('.table-wrap');
+    const w = document.querySelector('.po-card-list');
     return { scrollH: w.scrollHeight, clientH: w.clientHeight,
-             rowH: document.querySelector('tbody tr').getBoundingClientRect().height };
+             rowH: document.querySelector('.po-card').getBoundingClientRect().height };
   });
   await page.locator('[data-po-menu]').first().click();
   await expect(page.locator('.ui-row-menu')).toBeVisible();
   const after = await page.evaluate(() => {
-    const w = document.querySelector('.table-wrap');
+    const w = document.querySelector('.po-card-list');
     return { scrollH: w.scrollHeight, clientH: w.clientHeight,
-             rowH: document.querySelector('tbody tr').getBoundingClientRect().height,
+             rowH: document.querySelector('.po-card').getBoundingClientRect().height,
              menuParent: document.querySelector('.ui-row-menu').parentElement.tagName };
   });
-  expect(after.menuParent).toBe('BODY');                    // portal, không nằm trong ô
-  expect(after.scrollH).toBe(before.scrollH);               // wrapper không cao thêm
+  expect(after.menuParent).toBe('BODY');                    // portal, không nằm trong thẻ
+  expect(after.scrollH).toBe(before.scrollH);               // khung không cao thêm
   expect(after.scrollH).toBeLessThanOrEqual(after.clientH + 1); // không có thanh cuộn dọc
-  expect(after.rowH).toBeCloseTo(before.rowH, 0);           // dòng không giãn ra
+  expect(after.rowH).toBeCloseTo(before.rowH, 0);           // thẻ không giãn ra
 });
 
 for (const [label, width, height] of [['1920', 1920, 1080], ['1366', 1366, 768], ['thấp', 1366, 560]]) {
-  test(`menu của dòng cuối không bị cắt tại ${label}`, async ({ page }) => {
+  test(`menu của thẻ cuối không bị cắt tại ${label}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await openList(page);
     await page.locator('[data-po-menu]').last().click();
@@ -117,11 +122,11 @@ test('đóng bằng Escape, bằng click ra ngoài, và aria-expanded đúng', a
   await expect(page.locator('[data-po-menu]').first()).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('bấm vào dòng là mở PO', async ({ page }) => {
+test('bấm vào thẻ là mở PO', async ({ page }) => {
   await openList(page);
   await page.route(/\/api\/production-orders\/1(\?|$)/, route =>
     route.fulfill({ json: { ok: true, item: PROD } }));
-  await rowFor(page, 'QA-PO-RUN').locator('td').first().click();
+  await rowFor(page, 'QA-PO-RUN').locator('.po-card-identity').click();
   // Điều hướng sang không gian chi tiết PO (tiêu đề đổi theo mã PO).
   await expect(page.locator('#pageTitle, h1').first()).toContainText('QA-PO-RUN', { timeout: 15000 });
 });
