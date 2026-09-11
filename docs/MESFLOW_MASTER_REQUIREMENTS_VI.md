@@ -2572,6 +2572,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |
+| REQ-QR-001 (payload nhãn QR Operation) | `tests/integration/test_qr_label_payload_is_scannable.py` (4 case: đổi mã, mơ hồ chéo cột, và hai ca giữ an toàn cho nhãn thường/SETUP) | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (cho đúng 2 màn hình đó) |
 | REQ-TUT-* | `tests/e2e/tutorial-*.spec.js` (3 file), 5 file `test_v6584*.py` | A |
 | REQ-SYS-001/002 | họ file `test_v69_system_health.py` | P |
