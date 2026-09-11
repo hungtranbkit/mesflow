@@ -64,8 +64,14 @@ def test_dashboard_exposes_the_open_button_carrying_the_date():
     # history entry may be pushed (page= and date= together) so a single Back
     # press returns to the dashboard.
     assert "url.searchParams.set('page','daily-dashboard-kiosk')" in app
-    assert "url.searchParams.set('date',kioskDate)" in app
+    # Từ REQ-DASH-006, cú bấm mang theo CẢ ngày lẫn PO: Kiosk v1 chỉ có nghĩa
+    # khi biết đang xem PO nào.
+    assert "url.searchParams.set('date',document.getElementById('dailyDate').value)" in app
+    assert "url.searchParams.set('po_id',String(poId))" in app
     assert "openPage('daily-dashboard-kiosk',null,{historyMode:'none'})" in app
+    # Đang "Tất cả PO" thì HỎI, không đoán -- đoán là đẩy lên màn hình lớn một
+    # đơn hàng người dùng không hề chọn.
+    assert 'askKioskPo' in app and 'kiosk-pick-modal' in app
 
 
 def test_kiosk_layout_css_exists():
@@ -84,17 +90,30 @@ def test_kiosk_layout_css_exists():
     assert '@media(max-width:1500px)' in css
 
 
-def test_kiosk_adds_no_new_endpoint():
+def test_kiosk_uses_only_its_two_read_only_endpoints():
+    """Kiosk đọc đúng hai endpoint chỉ-đọc của nó, và không gì khác.
+
+    Bản trước của bài test này khẳng định "kiosk KHÔNG thêm endpoint nào" -- nó
+    dùng thẳng /api/dashboard/day + overview + production-control rồi lọc ở
+    trình duyệt. Điều đó không còn đúng được nữa sau REQ-KIOSK-010: phạm vi một
+    PO phải nằm trong truy vấn, mà ba endpoint kia không nhận phạm vi đó. Hai
+    endpoint mới là chỉ-đọc và gọi lại chính repository sẵn có, nên phần "không
+    viết lại quy tắc nghiệp vụ" vẫn giữ nguyên -- đó mới là điều bài test này
+    thật sự canh.
+    """
     page=PAGE.read_text(encoding='utf-8')
+    board=(ROUTES.parent/'kiosk_board.py').read_text(encoding='utf-8')
+    assert '/api/kiosk-board?' in page
+    assert '/api/kiosk-board/activity?' in page
+    assert "@bp.get('/kiosk-board')" in board
+    assert "@bp.get('/kiosk-board/activity')" in board
+    # Chỉ đọc: không có đường ghi nào trong blueprint của màn hình lớn.
+    for write in ("@bp.post", "@bp.patch", "@bp.put", "@bp.delete"):
+        assert write not in board, f'màn hình lớn không được có đường ghi: {write}'
+    # Không tự viết lại quy tắc: dữ liệu đến từ repository sẵn có.
+    assert 'DashboardRepository' in board
+    # Vẫn không có route "gom sẵn cho một màn hình" nào chui vào analytics.
     routes=ROUTES.read_text(encoding='utf-8')
-    # Exactly the endpoints already shipped and already used by other pages.
-    assert '/api/dashboard/day?date=' in page
-    assert '/api/dashboard/overview' in page
-    assert '/api/production-control' in page
-    assert "@bp.get('/dashboard/day')" in routes
-    assert "@bp.get('/dashboard/overview')" in routes
-    assert "@bp.get('/production-control')" in routes
-    # No bespoke aggregate route invented for this screen.
     assert 'kiosk-display' not in routes
     assert "@bp.get('/dashboard/kiosk" not in routes
 
@@ -120,13 +139,20 @@ def test_kiosk_is_not_a_device_kiosk():
 
 
 def test_kiosk_does_not_fabricate_an_hourly_plan():
-    """No hourly plan exists in the data model -- the view must say so rather
-    than draw an invented target line."""
+    """Mô hình dữ liệu không có kế hoạch theo giờ, nên màn hình không được vẽ ra một đường mục tiêu tưởng tượng.
+
+    Bản trước kiểm bằng cách đòi có câu "Chưa cấu hình kế hoạch theo giờ". Bản
+    hiện tại không nói câu đó vì nó không còn vẽ khung kế hoạch nào để mà chú
+    thích -- cột giờ chỉ là sản lượng THẬT đã ghi nhận. Nên bài test chuyển sang
+    khẳng định điều đáng canh hơn: không có chữ "kế hoạch/mục tiêu" nào gắn vào
+    biểu đồ giờ.
+    """
     page=PAGE.read_text(encoding='utf-8')
-    assert 'Chưa cấu hình kế hoạch theo giờ' in page
-    assert 'Kế hoạch theo giờ: chưa có trong dữ liệu' in page
-    # Missing dispatch sources are named explicitly, not silently omitted.
-    assert 'Thiếu vật tư và phút dừng theo lý do: chưa có nguồn dữ liệu' in page
+    assert 'paintHourly' in page
+    for invented in ('plan_per_hour', 'hourly_plan', 'target_per_hour', 'kế hoạch/giờ'):
+        assert invented not in page, f'biểu đồ giờ bịa ra kế hoạch: {invented}'
+    # Phần nguồn dữ liệu còn thiếu vẫn phải được nói ra, không im lặng bỏ qua.
+    assert 'chưa có nguồn dữ liệu' in page
 
 
 def test_kiosk_keeps_last_good_data_on_api_failure():

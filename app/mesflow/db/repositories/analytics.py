@@ -780,7 +780,18 @@ class DashboardRepository:
         return {'summary':summary,'production_orders':pos,'operations':flat,'generated_at':now}
 
 
-    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+
+    #: Mảnh WHERE thu hẹp một truy vấn theo Production Order.
+    #:
+    #: Phải nằm TRONG truy vấn, không phải lọc sau khi đã lấy về: cả ba truy vấn
+    #: của "Dashboard theo ngày" đều cắt theo LIMIT, nên lọc ở trình duyệt sẽ lọc
+    #: trên phần đã bị cắt và một PO ít hoạt động có thể ra rỗng dù thật sự có
+    #: dữ liệu. Cùng một bài học với REQ-PO-005.
+    @staticmethod
+    def _po_scope(po_id):
+        return (' AND po.id=%s', [int(po_id)]) if po_id else ('', [])
+
+    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False,po_id:int|None=None):
         ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         shift_start,shift_end=ctx['range_start'],ctx['range_end']
         work_windows=[(x['start_at'],x['end_at']) for x in ctx['intervals'] if x.get('interval_type')=='WORK']
@@ -795,7 +806,8 @@ class DashboardRepository:
         # rollup 4 tổng + recorded_session_count. Thứ tự tham số bám ĐÚNG thứ tự
         # xuất hiện trong SQL, nên hai bộ đếm mới phải nằm ngay sau 4 tổng của
         # chính CTE đó (và recorded_session_count đứng TRƯỚC duration_sql).
-        params=[shift_end,shift_start]+[shift_start,shift_end]*10+[*duration_params,min(max(limit,1),2000)]
+        po_clause,po_params=self._po_scope(po_id)
+        params=[shift_end,shift_start]+[shift_start,shift_end]*10+[*duration_params,*po_params,min(max(limit,1),2000)]
         # shift_sessions feeds day_good_qty/day_defect_qty/day_rework_qty
         # (KPI) AND open_session_count/active_workers/day_state (health) --
         # filtering once here at the source covers both.
@@ -900,7 +912,7 @@ class DashboardRepository:
             WHEN COALESCE(r.session_count,0)>0 THEN 'UPDATED' ELSE 'IDLE' END day_state
         FROM operations o JOIN parts p ON p.id=o.part_id JOIN production_orders po ON po.id=o.production_order_id
         LEFT JOIN rollup r ON r.operation_id=o.id
-        WHERE COALESCE(r.session_count,0)>0 AND {PRODUCTION_ONLY_O}
+        WHERE COALESCE(r.session_count,0)>0 AND {PRODUCTION_ONLY_O}{po_clause}
         ORDER BY CASE WHEN COALESCE(r.unconfirmed_count,0)>0 THEN 0 WHEN COALESCE(r.open_session_count,0)>0 THEN 1 ELSE 2 END,
           r.last_report_at DESC NULLS LAST LIMIT %s""",params)
         for row in rows:
@@ -909,7 +921,7 @@ class DashboardRepository:
             row['day_contributors']=_worker_list(row.get('day_contributors'))
         return rows
 
-    def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+    def daily_sessions(self,shift_date:str|None=None,limit:int=1000,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False,po_id:int|None=None):
         ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         work_parts=[];work_params=[]
         for interval in ctx['intervals']:
@@ -917,6 +929,7 @@ class DashboardRepository:
             work_parts.append("GREATEST(EXTRACT(EPOCH FROM (LEAST(COALESCE(ws.ended_at,CURRENT_TIMESTAMP),%s)-GREATEST(ws.started_at,%s))),0)")
             work_params.extend([interval['end_at'],interval['start_at']])
         work_sql=' + '.join(work_parts) if work_parts else '0'
+        po_clause,po_params=self._po_scope(po_id)
         return fetch_all(f"""SELECT ws.id session_id,ws.status session_status,ws.started_at,ws.ended_at,
           COALESCE(ws.ended_at,CURRENT_TIMESTAMP) effective_end_at,
           GREATEST(EXTRACT(EPOCH FROM (LEAST(COALESCE(ws.ended_at,CURRENT_TIMESTAMP),%s)-GREATEST(ws.started_at,%s))),0)::bigint duration_seconds,
@@ -966,11 +979,12 @@ class DashboardRepository:
         -- repaired pieces. "Tiến độ theo Operation" still excludes the
         -- workbench: that panel is about routing steps with a target.
         WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
-          AND {reportable_session_sql('ws')}
-        ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['day_end'],ctx['day_start'],min(max(limit,1),3000)))
+          AND {reportable_session_sql('ws')}{po_clause}
+        ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['day_end'],ctx['day_start'],*po_params,min(max(limit,1),3000)))
 
-    def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False):
+    def shift_activity(self,shift_date:str|None=None,limit:int=100,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False,po_id:int|None=None):
         ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
+        po_clause,po_params=self._po_scope(po_id)
         return fetch_all(f"""SELECT * FROM (
           -- operation_name là field BỔ SUNG (2026-09-11), không thay `subject`:
           -- "Diễn biến trong ngày" trên Dashboard phải đọc được TÊN công đoạn
@@ -983,7 +997,7 @@ class DashboardRepository:
             0::integer good_qty,0::integer defect_qty
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
-          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')} AND {PRODUCTION_ONLY_O}
+          WHERE ws.started_at >= %s AND ws.started_at < %s AND {reportable_session_sql('ws')} AND {PRODUCTION_ONLY_O}{po_clause}
           UNION ALL
           SELECT 'QUANTITY_REPORTED',ws.id::text,COALESCE(ws.ended_at,ws.updated_at),e.name,o.name,
             CASE WHEN ws.status='OPEN' THEN 'QUANTITY_UPDATED' ELSE 'FINISHED' END,po.code,o.code,
@@ -992,8 +1006,8 @@ class DashboardRepository:
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
           JOIN production_orders po ON po.id=o.production_order_id
           WHERE COALESCE(ws.ended_at,ws.updated_at) >= %s AND COALESCE(ws.ended_at,ws.updated_at) < %s
-            AND {reportable_session_sql('ws')} AND {PRODUCTION_ONLY_O}
-        ) activity ORDER BY activity_at DESC LIMIT %s""",(ctx['range_start'],ctx['range_end'],ctx['range_start'],ctx['range_end'],min(max(limit,1),500)))
+            AND {reportable_session_sql('ws')} AND {PRODUCTION_ONLY_O}{po_clause}
+        ) activity ORDER BY activity_at DESC LIMIT %s""",(ctx['range_start'],ctx['range_end'],*po_params,ctx['range_start'],ctx['range_end'],*po_params,min(max(limit,1),500)))
 
     def shift_dashboard(self,shift_date:str|None=None,shift_id:int|None=None,limit:int=1000):
         ctx=resolve_shift_context(shift_date,shift_id)
@@ -1009,13 +1023,20 @@ class DashboardRepository:
           'items':self.daily_progress(shift_date,limit,shift_id),'sessions':self.daily_sessions(shift_date,min(limit*2,3000),shift_id),
           'activity':self.shift_activity(shift_date,100,shift_id)}
 
-    def daily_dashboard(self,shift_date:str|None=None,limit:int=1000):
+    def daily_dashboard(self,shift_date:str|None=None,limit:int=1000,po_id:int|None=None):
+        """Toàn bộ một ngày lịch, tuỳ chọn thu hẹp về MỘT Production Order.
+
+        po_id=None nghĩa là "Tất cả PO" -- hành vi cũ, không đổi gì cho nơi gọi
+        sẵn có. Khi có po_id, phạm vi được đẩy xuống tận WHERE của cả ba truy
+        vấn (xem _po_scope) để LIMIT cắt SAU khi đã lọc.
+        """
         ctx=self._calendar_day_context(shift_date)
         return {'context':{'date':ctx['shift_date'].isoformat(),'timezone':ctx['shift']['timezone'],
-          'day_start':ctx['day_start'].isoformat(),'day_end':ctx['day_end'].isoformat()},
-          'items':self.daily_progress(shift_date,limit,calendar_day=True),
-          'sessions':self.daily_sessions(shift_date,min(limit*2,3000),calendar_day=True),
-          'activity':self.shift_activity(shift_date,100,calendar_day=True)}
+          'day_start':ctx['day_start'].isoformat(),'day_end':ctx['day_end'].isoformat(),
+          'po_id':int(po_id) if po_id else None},
+          'items':self.daily_progress(shift_date,limit,calendar_day=True,po_id=po_id),
+          'sessions':self.daily_sessions(shift_date,min(limit*2,3000),calendar_day=True,po_id=po_id),
+          'activity':self.shift_activity(shift_date,100,calendar_day=True,po_id=po_id)}
 
     def recent_activity(self,limit:int=100):
         return fetch_all(f"""SELECT 'SESSION_STARTED' item_type,ws.id::text item_id,ws.started_at activity_at,

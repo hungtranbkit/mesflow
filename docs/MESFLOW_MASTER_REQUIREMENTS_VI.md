@@ -1421,6 +1421,63 @@ không bao giờ ở bên ngoài.
 - **Độ ưu tiên**: P2 — lỗi trình bày, không sai số liệu.
 - **Khía cạnh kiểm thử**: visual/geometry regression ở 320/390/430/768/1024/1366/1920, dữ liệu thưa/dày/sát biên ngày.
 
+### REQ-DASH-006 — Lọc "Dashboard theo ngày" theo Production Order
+
+> **Nguồn sự thật:** Dashboard theo ngày mặc định là "Tất cả PO" cho phân tích
+> tổng hợp. Khi đã chọn một PO, cả ba tab đều thu hẹp theo cùng `date` + `po_id`,
+> và phạm vi đó được áp **trong truy vấn ở server**, không lọc ở trình duyệt.
+
+- **Mô-đun**: Dashboard theo ngày (3 tab: Tổng quan Operation / Nhân viên-Session
+  / Sản lượng & NG-chờ sửa).
+- **Mục đích**: người dùng cần mở Kiosk cho đúng PO, nhưng trước đây Dashboard
+  không có chỗ nào chọn PO — không có nguồn context nào để chuyển sang màn lớn.
+- **Đối tượng thực hiện**: mọi role đọc được Dashboard.
+- **Đầu vào**: `?page=dashboard&tab=<overview|people|output>&date=YYYY-MM-DD&po_id=<id>`.
+  `po_id` vắng mặt = "Tất cả PO".
+- **Kích hoạt bởi**: `GET /api/dashboard/day?date=&limit=&po_id=`;
+  bộ chọn PO đọc `GET /api/kiosk-board/po-options`.
+
+**Luồng chính**
+
+1. Bộ chọn PO nằm ở header, **dùng chung cho cả ba tab** — chọn ở tab nào thì
+   cả ba cùng đổi, không phải mỗi tab một bộ lọc riêng.
+2. Có `po_id` → `daily_progress` / `daily_sessions` / `shift_activity` đều nhận
+   thêm `AND po.id=%s` **trước** khi `LIMIT` cắt.
+3. `tab` + `date` + `po_id` cùng nằm trong URL (replaceState), nên đổi tab,
+   refresh, Back/Forward và gửi link đều ra đúng một màn hình.
+4. Bộ chọn xếp PO đang có session mở → có hoạt động gần đây → còn lại, **cùng
+   thứ tự với bộ chọn của Kiosk**: hai màn không được nói hai chuyện khác nhau
+   về "PO nào đang chạy". Hiển thị mã + tên sản phẩm; không phụ thuộc vào việc
+   mã Operation có unique toàn cục hay không.
+
+**Cầu nối sang Kiosk**
+
+| Trạng thái Dashboard | Bấm "Mở màn hình lớn" |
+|---|---|
+| Đang chọn một PO | Mở Kiosk kèm `date` + `po_id` của chính PO đó |
+| Đang "Tất cả PO" | **HỎI, không đoán**: hiện hộp chọn PO (PO đang có người làm xếp trước) rồi mới mở. Kiosk v1 chỉ có nghĩa khi biết đang xem PO nào; tự chọn giùm là đẩy lên màn hình lớn một đơn hàng người dùng không hề chọn mà họ không có cách nào biết. |
+
+- **Chuyển trạng thái**: N/A (chỉ đọc).
+- **Kiểm tra hợp lệ**: `po_id` phải là số nguyên.
+- **Lỗi**: `po_id` không phải số → `400`, "po_id phải là số nguyên". **Cố ý
+  không làm ngơ tham số không hiểu**: làm ngơ thì màn hình tưởng đã lọc trong khi
+  đang đọc cả xưởng, và người dùng không có dấu hiệu nào để nghi ngờ.
+- **Ranh giới**: `po_id` trỏ tới PO không tồn tại → trả **rỗng**, tuyệt đối
+  không rơi về "tất cả PO". PO được chọn nhưng không có hoạt động trong ngày →
+  nói rõ là PO đó chưa có hoạt động, không tự chuyển sang PO khác.
+- **Quyền**: như quyền đọc Dashboard; tham số không mở rộng quyền.
+- **Đồng thời**: N/A. **Nhật ký kiểm toán**: N/A (chỉ đọc).
+- **Liên quan**: REQ-KIOSK-010 (Kiosk nhận `po_id` từ đây), REQ-DASH-001/002/004,
+  REQ-PO-005 (**cùng một bài học**: lọc phải nằm trong truy vấn, vì cả ba truy vấn
+  của ngày đều có `LIMIT` — lọc sau khi lấy về là lọc trên phần đã bị cắt, và một
+  PO ít hoạt động sẽ ra rỗng dù dữ liệu vẫn còn nguyên trong DB).
+- **Độ ưu tiên**: P1 (Kiosk phụ thuộc vào PO context này).
+- **Khía cạnh kiểm thử**: positive (một PO, tất cả PO), cô lập PO trên cả ba tab,
+  đổi PO, giữ state qua tab/refresh/Back-Forward/deep-link, negative (`po_id`
+  rác → 400; PO không tồn tại → rỗng chứ không phải tất cả), cầu nối Kiosk ở cả
+  hai trạng thái.
+
+
 ## 15.3 Production Order (`REQ-PO-*`)
 
 ### REQ-PO-001 — Tạo PO chỉ bằng cách khởi tạo từ Template
@@ -2691,6 +2748,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — module được test nhiều nhất hệ thống |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 case), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
+| REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |

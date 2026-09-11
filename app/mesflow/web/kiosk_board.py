@@ -267,3 +267,19 @@ def kiosk_board_activity():
                        latest_id=max(seen) if seen else since_id)
     except Exception as exc:  # noqa: BLE001
         return api_error_response(exc, logger_name=__name__)
+
+
+@bp.get('/kiosk-board/po-options')
+@login_required
+def kiosk_board_po_options():
+    """Danh sách PO cho bộ chọn, dùng chung cho Dashboard theo ngày và Kiosk.
+
+    Tách riêng khỏi /api/kiosk-board vì Dashboard chỉ cần danh sách: gọi endpoint
+    kia sẽ kéo theo cả một lượt gom dữ liệu ngày mà nó không dùng tới. Cùng một
+    thứ tự ưu tiên ở cả hai màn, nên PO đứng đầu ở Dashboard cũng là PO đứng đầu
+    ở Kiosk -- hai màn không được nói hai chuyện khác nhau về "PO nào đang chạy".
+    """
+    try:
+        return jsonify(ok=True, items=[dict(x) for x in _po_options()])
+    except Exception as exc:  # noqa: BLE001
+        return api_error_response(exc, logger_name=__name__)

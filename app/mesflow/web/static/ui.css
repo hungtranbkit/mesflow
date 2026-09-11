@@ -2738,7 +2738,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-focus .kiosk-po span{color:#9fb0cc;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kiosk-focus .kiosk-po-progress{display:flex;flex-direction:column;gap:3px;min-width:150px}
 .kiosk-focus .kiosk-po-progress strong{font-size:19px}
-.kiosk-focus .kiosk-po-pick select{background:#16243c;color:#e8eefb;border:1px solid #2a3c5c;border-radius:8px;
+.kiosk-focus .kiosk-po-pick select{background:#16243c;color:#e8eefb;border:1px solid #2a3c5c;border-radius:var(--radius-panel);
   padding:7px 10px;font-size:13px;max-width:330px}
 
 /* Panel task phải CHIẾM HẾT chiều cao còn lại, nếu không nó co theo nội dung
@@ -2761,7 +2761,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
    thanh tiến độ mỏng đi (5px -> 3px) với margin nhỏ. Ở 1920 hàng ~46px, tức
    ~13 hàng/trang thay vì 8 như bản đầu. */
 .kiosk-task{display:grid;grid-template-columns:minmax(0,2.1fr) 148px minmax(0,1fr) 168px 70px;
-  gap:10px;align-items:center;padding:5px 12px;border-radius:9px;background:#131f33;
+  gap:10px;align-items:center;padding:5px 12px;border-radius:var(--radius-overlay);background:#131f33;
   border-left:3px solid #2b3b57;line-height:1.2;
   transition:background .25s ease,border-color .25s ease}
 .kiosk-task .kiosk-meter{height:3px;margin-top:3px}
@@ -2794,7 +2794,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 /* --- dòng sự kiện -------------------------------------------------------- */
 .kiosk-focus .kiosk-feed-panel{flex:1.25;display:flex;flex-direction:column;min-height:0}
 .kiosk-focus .kiosk-feed-panel .kiosk-panel-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:5px}
-.kiosk-event{display:grid;grid-template-columns:62px minmax(0,1fr);gap:9px;padding:6px 9px;border-radius:8px;
+.kiosk-event{display:grid;grid-template-columns:62px minmax(0,1fr);gap:9px;padding:6px 9px;border-radius:var(--radius-panel);
   background:#132034;border-left:3px solid #33455f}
 .kiosk-event time{display:flex;flex-direction:column;line-height:1.15}
 .kiosk-event time b{font-size:14px}
@@ -2817,7 +2817,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 
 /* --- biến động PO khác --------------------------------------------------- */
 .kiosk-other-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;
-  padding:6px 9px;border-radius:8px;background:#132034;border-left:3px solid #33455f;margin-bottom:5px}
+  padding:6px 9px;border-radius:var(--radius-panel);background:#132034;border-left:3px solid #33455f;margin-bottom:5px}
 .kiosk-other-row>div{grid-column:1/-1;font-size:12px;color:#9fb0cc}
 .kiosk-other-po{color:#dbe5f5;font-weight:700}
 .kiosk-other-row p{margin:0;font-size:13px;color:#c6d3e8;min-width:0}
@@ -2873,7 +2873,7 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-focus .kiosk-attention-panel{flex:0 0 auto;max-height:34%}
 .kiosk-focus .kiosk-attention-panel .kiosk-panel-body{overflow:hidden}
 .kiosk-focus .kiosk-other-panel{flex:0 0 auto}
-.kiosk-attn{display:flex;flex-direction:column;gap:1px;padding:5px 9px;border-radius:8px;
+.kiosk-attn{display:flex;flex-direction:column;gap:1px;padding:5px 9px;border-radius:var(--radius-panel);
   background:#132034;border-left:3px solid #ffb020;margin-bottom:5px}
 .kiosk-attn.sev-0{border-left-color:#ff6b6b}
 .kiosk-attn em{font-style:normal;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#ffce6b}
@@ -2895,4 +2895,22 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
      điều hành thành một ô cửa sổ hẹp. Ẩn hẳn thay vì thu nhỏ, vì một biểu đồ
      cao 60px không đọc được cũng chẳng giúp ai. */
   .kiosk-focus .kiosk-chart-panel{display:none}
+}
+
+/* Bộ chọn PO dùng chung ở Dashboard theo ngày (REQ-DASH-006) và hộp chọn PO
+   khi mở màn hình lớn từ trạng thái "Tất cả PO". */
+.daily-po-picker{display:flex;flex-direction:column;gap:4px;min-width:0}
+.daily-po-picker>span{font-size:12px;font-weight:700;color:var(--ink-2)}
+.daily-po-picker select{padding:9px 11px;border:1px solid #d7dfeb;border-radius:10px;background:#fff;
+  max-width:320px;font-size:13px}
+.kiosk-pick-modal{max-width:480px}
+.kiosk-pick-list{display:flex;flex-direction:column;gap:7px;margin:14px 0;max-height:52vh;overflow:auto}
+.kiosk-pick-row{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr) auto;gap:10px;
+  align-items:baseline;text-align:left;width:100%;padding:10px 12px}
+.kiosk-pick-row b{font-size:14px}
+.kiosk-pick-row span{color:var(--ink-2);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kiosk-pick-row em{font-style:normal;font-size:11.5px;color:#1f7a4d;white-space:nowrap}
+@media(max-width:760px){
+  .daily-po-picker select{max-width:none;width:100%}
+  .kiosk-pick-row{grid-template-columns:minmax(0,1fr);gap:2px}
 }

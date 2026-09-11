@@ -162,9 +162,17 @@ def dashboard_day():
     remains available to shift reports and existing integrations.
     """
     try:
+        # po_id tuỳ chọn: không truyền = "Tất cả PO" (hành vi cũ). Giá trị rác bị
+        # TỪ CHỐI chứ không làm ngơ -- làm ngơ thì màn hình tưởng đã lọc theo PO
+        # trong khi đang đọc cả xưởng, và người dùng không có cách nào biết.
+        raw_po=request.args.get('po_id')
+        po_id=None
+        if raw_po not in (None,''):
+            try: po_id=int(raw_po)
+            except (TypeError,ValueError): raise ValueError('po_id phải là số nguyên') from None
         return jsonify(ok=True,**DashboardRepository().daily_dashboard(
             request.args.get('date') or request.args.get('shift_date'),
-            int(request.args.get('limit',1000))))
+            int(request.args.get('limit',1000)),po_id=po_id))
     except Exception as exc: return error(exc)
 
 @bp.get('/dashboard/recent-activity')

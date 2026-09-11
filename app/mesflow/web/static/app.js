@@ -299,12 +299,15 @@ async function renderDashboard(){
   const dashboardTabIds=['overview','people','output'];
   const initialDashboardTab=dashboardTabIds.includes(dashQuery.get('tab'))?dashQuery.get('tab'):'overview';
   const initialDashboardDate=/^\d{4}-\d{2}-\d{2}$/.test(dashQuery.get('date')||'')?dashQuery.get('date'):todayHcm();
+  // "" = Tất cả PO. Dashboard là màn phân tích tổng hợp nên mặc định vẫn là tất
+  // cả; Kiosk thì ngược lại, luôn phải có đúng một PO (REQ-KIOSK-010).
+  const initialDashboardPo=/^\d+$/.test(dashQuery.get('po_id')||'')?dashQuery.get('po_id'):'';
   const dashTabActive=t=>t===initialDashboardTab;
   const currentCtx={date:initialDashboardDate};
   const shiftReference=workShifts.map(x=>`${esc(x.name)} · ${esc(x.anchor_start)}–${esc(x.anchor_end)}`).join(' &nbsp;·&nbsp; ');
   const dayView={id:'CALENDAR_DAY',target_minutes:1440,intervals:[{interval_type:'WORK',start_minute:0,end_minute:1440,sort_order:0}]};
   content.innerHTML=`<div class="page-shell">
-  ${MFUI.filterBar({content:`<label class="daily-date-picker"><span>Ngày làm việc</span><input type="date" id="dailyDate" value="${currentCtx.date}"></label><span class="daily-shift-reference"><b>Phạm vi dữ liệu</b><span>Toàn bộ ngày đã chọn · không lọc theo ca</span><small>${shiftReference||'Ca ngày · 07:30–17:00 · Ca tối · 18:00–00:00'}</small></span>`,actions:'<button class="btn daily-kiosk-button" id="dailyOpenKiosk" type="button">Mở màn hình lớn</button><button class="btn daily-list-button" id="dailyOpenAll">Danh sách Operation</button><button class="btn primary daily-refresh" id="dailyRefresh"><i aria-hidden="true"></i>Làm mới dữ liệu</button>'})}
+  ${MFUI.filterBar({content:`<label class="daily-date-picker"><span>Ngày làm việc</span><input type="date" id="dailyDate" value="${currentCtx.date}"></label><label class="daily-po-picker"><span>Production Order</span><select id="dailyPo"><option value="">Tất cả PO</option></select></label><span class="daily-shift-reference"><b>Phạm vi dữ liệu</b><span>Toàn bộ ngày đã chọn · không lọc theo ca</span><small>${shiftReference||'Ca ngày · 07:30–17:00 · Ca tối · 18:00–00:00'}</small></span>`,actions:'<button class="btn daily-kiosk-button" id="dailyOpenKiosk" type="button">Mở màn hình lớn</button><button class="btn daily-list-button" id="dailyOpenAll">Danh sách Operation</button><button class="btn primary daily-refresh" id="dailyRefresh"><i aria-hidden="true"></i>Làm mới dữ liệu</button>'})}
   <section class="daily-kpis" id="dailyKpis" aria-live="polite"></section>
   <nav class="dashboard-tabs" role="tablist" aria-label="Nội dung Dashboard theo ngày"><button class="dashboard-tab ${dashTabActive('overview')?'active':''}" type="button" role="tab" aria-selected="${dashTabActive('overview')}" data-dashboard-tab="overview">A · Tổng quan Operation</button><button class="dashboard-tab ${dashTabActive('people')?'active':''}" type="button" role="tab" aria-selected="${dashTabActive('people')}" data-dashboard-tab="people">B · Nhân viên / Session</button><button class="dashboard-tab ${dashTabActive('output')?'active':''}" type="button" role="tab" aria-selected="${dashTabActive('output')}" data-dashboard-tab="output">C · Sản lượng &amp; NG / chờ sửa</button></nav>
   <div class="dashboard-tab-pane ${dashTabActive('overview')?'active':''}" data-dashboard-pane="overview" role="tabpanel" ${dashTabActive('overview')?'':'hidden'}><section class="content-panel op-time-panel daily-section"><div class="content-panel-head"><div><h3>Tiến độ theo Operation</h3><p>Đối chiếu thời gian thực tế với định mức và sản lượng kế hoạch.</p></div><div class="content-panel-actions"><button class="btn" id="opTimeOpenAll">Xem danh sách Operation</button></div></div><div class="content-panel-body" id="opTimeProgress"></div></section></div>
@@ -315,7 +318,9 @@ async function renderDashboard(){
   // the date keeps refresh/deep-link/Back-Forward correct without piling a
   // history entry onto every click -- the same replace-by-default convention
   // Session Management's syncSessionUrl() already uses for its own filters.
-  const syncDashboardUrl=()=>AppNav.setQuery({tab:content.querySelector('[data-dashboard-tab].active')?.dataset.dashboardTab||'overview',date:document.getElementById('dailyDate').value});
+  // po_id đi cùng tab+date trong URL: refresh / Back-Forward / gửi link cho
+  // người khác đều phải ra đúng một màn hình, không phải "đúng ngày nhưng nhầm PO".
+  const syncDashboardUrl=()=>AppNav.setQuery({tab:content.querySelector('[data-dashboard-tab].active')?.dataset.dashboardTab||'overview',date:document.getElementById('dailyDate').value,po_id:document.getElementById('dailyPo').value||null});
   content.querySelectorAll('[data-dashboard-tab]').forEach(tab=>tab.onclick=()=>{content.querySelectorAll('[data-dashboard-tab]').forEach(x=>{const active=x===tab;x.classList.toggle('active',active);x.setAttribute('aria-selected',active?'true':'false')});content.querySelectorAll('[data-dashboard-pane]').forEach(p=>{const active=p.dataset.dashboardPane===tab.dataset.dashboardTab;p.classList.toggle('active',active);p.hidden=!active});syncDashboardUrl()});
   document.querySelector('.employee-timeline-actions')?.insertAdjacentHTML('beforeend','<span class="employee-session-status" id="dailySessionStatus" aria-live="polite"></span>');
   // Production/Operation overview UI fix: day_state now describes
@@ -465,7 +470,10 @@ async function renderDashboard(){
       })}<small>${MFUI.qtyLine({good:g.good,defect:g.bad,recorded:g.recorded>0})}</small><div class="employee-session-chips">${ordered.slice(0,10).map(sessionChip).join('')}${g.sessions.length>10?`<span>+${g.sessions.length-10} session</span>`:''}</div></div></article>`;
     }).join('')}</div>`;
   };
-  const load=async()=>{try{const date=document.getElementById('dailyDate').value,shiftId=dayView;const data=await api(`/api/dashboard/day?date=${encodeURIComponent(date)}&limit=1000`);
+  const load=async()=>{try{const date=document.getElementById('dailyDate').value,shiftId=dayView;const poId=document.getElementById('dailyPo').value;
+    // Phạm vi PO đi xuống SERVER, không lọc lại ở đây: ba truy vấn của ngày đều
+    // có LIMIT nên lọc phía trình duyệt là lọc trên phần đã bị cắt (REQ-DASH-006).
+    const data=await api(`/api/dashboard/day?date=${encodeURIComponent(date)}&limit=1000${poId?`&po_id=${encodeURIComponent(poId)}`:''}`);
     // Stale-render guard (live bug, reproduced via Playwright against
     // mesflow.net 2026-09-09): this fetch can resolve after the user has
     // already navigated to a different page -- Back/Forward and rapid nav
@@ -484,7 +492,61 @@ async function renderDashboard(){
     // có số", không phải "làm ra 0 sản phẩm". Hai KPI đầu (đếm người/đếm
     // session) thì 0 luôn là 0 thật -- đếm được, không phụ thuộc ai nhập gì.
     recordedSessionCount=sessions.filter(x=>mfOutputRecorded(x)).length;document.getElementById('dailyKpis').innerHTML=[['Nhân viên có hoạt động',people.toLocaleString('vi-VN'),sessions.length+' session'],['Đang làm việc',new Set(runningSessions.map(x=>x.employee_id)).size.toLocaleString('vi-VN'),runningSessions.length+' session đang mở'],['Sản lượng đạt',MFUI.qtyValue(good,recordedSessionCount>0),recordedSessionCount?`${recordedSessionCount} session đã chốt số`:'Chưa session nào chốt số'],['Sản lượng NG',MFUI.qtyValue(bad,recordedSessionCount>0),ngOps.length+' OP có NG']].map((x,i)=>`<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${x[1]}</strong><span>${x[2]}</span></article>`).join('');document.getElementById('sessionTimeline').innerHTML=timeline(sessions,date,shiftId);layoutTimelineScale(document.getElementById('sessionTimeline'));const sessionStatus=document.getElementById('dailySessionStatus');if(sessionStatus)sessionStatus.textContent=`${runningSessions.length} session đang chạy · Cập nhật ${hm(new Date())}`;const opTimeRows=[...items].sort((a,b)=>Number(b.day_work_seconds||0)-Number(a.day_work_seconds||0));document.getElementById('opTimeProgress').innerHTML=opTimeRows.length?`<div class="op-time-table"><div class="op-time-row head"><span>Operation</span><span>Thời gian thực tế</span><span>Tiến độ thời gian / sản phẩm</span><span>Người làm</span></div>${opTimeRows.slice(0,20).map(x=>{const actual=Number(x.day_work_seconds||0),planned=Number(x.planned_work_seconds||0),timeRatio=planned>0?actual/planned*100:0,variance=planned>0?actual-planned:0,plannedQty=Number(x.planned_quantity||0),goodTotal=Number(x.total_good_qty||0),productRatio=plannedQty>0?goodTotal/plannedQty*100:0,state=planned<=0?'unconfigured':timeRatio>110?'slow':timeRatio>=80?'near':'fast';return `<div class="op-time-row ${state}"><span>${MFUI.opIdentity({name:x.operation_name,code:x.operation_code,meta:`${x.po_code||''} · ${x.part_code||''}`.trim()})}</span><span><b>${fmtDuration(actual)}</b><small>${x.session_count} session · ${x.open_session_count} đang chạy</small></span><span class="op-dual-progress"><div class="op-progress-line time"><div class="op-progress-title"><span class="op-progress-kind time"><i aria-hidden="true">◷</i><b>Tiến độ thời gian</b></span><strong>${planned>0?`${Math.round(timeRatio)}%`:'—'}</strong></div><div class="op-time-timeline ${state}"><span class="time-start">0%</span><div class="op-time-meter"><i style="width:${Math.min(Math.max(timeRatio,0),100)}%"></i><em style="left:${Math.min(Math.max(timeRatio,0),100)}%" aria-label="Thời điểm hiện tại"></em></div><span class="time-end">100%</span></div><small>${planned>0?`${variance>0?`Đã vượt ${fmtDuration(variance)}`:variance===0?'Đã dùng hết thời gian định mức':`Còn lại ${fmtDuration(-variance)}`} · Định mức ${fmtDuration(planned)}`:`Chưa cấu hình định mức · ${Number(x.standard_seconds_per_unit||0)} giây/SP`}</small></div><div class="op-progress-line product"><div class="op-progress-title"><span class="op-progress-kind product"><i aria-hidden="true">▦</i><b>Tiến độ sản phẩm</b></span><strong>${plannedQty>0?`${Math.round(productRatio)}%`:'—'}</strong></div><div class="op-product-meter"><i style="width:${Math.min(Math.max(productRatio,0),100)}%"></i></div><small><b>${goodTotal.toLocaleString('vi-VN')}</b> / ${plannedQty>0?plannedQty.toLocaleString('vi-VN'):'—'} sản phẩm đạt</small></div></span><span><b title="${esc(activeWorkersTitle(x))}">${activeWorkersLabel(x)}</b><small>Trong ca: ${MFUI.qtyLine({good:x.day_good_qty,defect:x.day_defect_qty,rework:x.day_rework_qty,recorded:opOutputRecorded(x)})}</small>${activeWorkersBreakdown(x)}</span></div>`}).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có thời gian làm việc theo OP</b><span>Dữ liệu xuất hiện khi nhân viên bắt đầu session.</span></div>';const day=activity;document.getElementById('dailyFeed').innerHTML=day.length?`<div class="control-activity-list">${day.slice(0,25).map(x=>`<div class="control-activity ${x.item_type==='SESSION_STARTED'?'started':'reported'}"><i>${x.item_type==='SESSION_STARTED'?'▶':'SL'}</i><span><b>${x.item_type==='SESSION_STARTED'?'Bắt đầu session':'Nhập sản lượng'}</b><small title="${esc(MFUI.opIdentityText({name:x.operation_name||x.subject,code:x.operation_code}))}">${esc(x.actor||'')} · ${esc(x.po_code||'')} · ${esc(String(x.operation_name||x.subject||x.operation_code||'').trim()||'—')} ${x.item_type==='QUANTITY_REPORTED'?`· Đạt ${x.good_qty||0} · NG ${x.defect_qty||0}`:''}</small></span><time>${fmt(x.activity_at)}</time></div>`).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có hoạt động trong ngày</b><span>Chọn ngày khác hoặc bắt đầu session từ Kiosk.</span></div>';const runningOps=items.filter(x=>Number(x.open_session_count)>0),attention=[...needsReview,...runningOps.filter(x=>!needsReview.includes(x)),...items.filter(x=>!needsReview.includes(x)&&!runningOps.includes(x))];document.getElementById('dailyAttention').innerHTML=attention.length?`<div class="daily-op-table"><div class="daily-op-row head"><span>Operation</span><span>Nhân viên / Session</span><span>Sản lượng ngày</span><span>Trạng thái</span></div>${attention.slice(0,20).map(row).join('')}</div>`:'<div class="control-clear-state"><b>Chưa có OP phát sinh</b><span>Dashboard theo ngày không tải toàn bộ hàng trăm OP để tránh rối.</span></div>'}catch(e){const timelineEl=document.getElementById('sessionTimeline');if(timelineEl)timelineEl.innerHTML=`<div class="empty danger">Không tải được session: ${esc(e.message)}</div>`}};
-  document.getElementById('dailyOpenKiosk').onclick=()=>{const kioskDate=document.getElementById('dailyDate').value;const url=new URL(location.href);url.searchParams.set('page','daily-dashboard-kiosk');url.searchParams.set('date',kioskDate);history.pushState({...history.state,mfPage:'daily-dashboard-kiosk'},'',url);openPage('daily-dashboard-kiosk',null,{historyMode:'none'})};document.getElementById('dailyDate').onchange=()=>{syncDashboardUrl();load()};document.getElementById('dailyEmployeeSort').onchange=load;document.getElementById('dailyRefresh').onclick=()=>load();document.getElementById('dailyOpenAll').onclick=document.getElementById('dailyOpenOperations').onclick=document.getElementById('opTimeOpenAll').onclick=()=>openPage('production-orders',document.querySelector('[data-page="production-orders"]'));syncDashboardUrl();await load();watchTimelineScale(document.getElementById('sessionTimeline'));dashboardTimer=setInterval(()=>{if(document.getElementById('sessionTimeline'))load()},10000)
+  // --- nạp danh sách PO cho bộ chọn (dùng chung thứ tự ưu tiên với Kiosk) ---
+  const poSelect=document.getElementById('dailyPo');
+  let poOptions=[];
+  const loadPoOptions=async()=>{
+    try{
+      const data=await api('/api/kiosk-board/po-options');
+      poOptions=data.items||[];
+      poSelect.innerHTML='<option value="">Tất cả PO</option>'+poOptions.map(o=>{
+        const note=Number(o.open_sessions||0)>0?` — ${o.open_sessions} đang làm`:'';
+        return `<option value="${o.id}" ${String(o.id)===String(initialDashboardPo)?'selected':''}>${esc(o.code)}${o.product?` · ${esc(o.product)}`:''}${esc(note)}</option>`;
+      }).join('');
+      poSelect.value=initialDashboardPo||'';
+    }catch(_e){/* bộ chọn hỏng không được chặn cả dashboard */}
+  };
+
+  /** Mở Kiosk cho MỘT PO cụ thể, mang theo cả date. */
+  const openKioskFor=poId=>{
+    const url=new URL(location.href);
+    url.searchParams.set('page','daily-dashboard-kiosk');
+    url.searchParams.set('date',document.getElementById('dailyDate').value);
+    url.searchParams.set('po_id',String(poId));
+    history.pushState({...history.state,mfPage:'daily-dashboard-kiosk'},'',url);
+    openPage('daily-dashboard-kiosk',null,{historyMode:'none'});
+  };
+
+  /** Đang "Tất cả PO" thì HỎI, không đoán.
+   *
+   * Kiosk v1 chỉ có nghĩa khi biết đang xem PO nào; tự chọn giùm một PO nào đó
+   * là đẩy lên màn hình lớn một đơn hàng người dùng không hề chọn, và họ không
+   * có cách nào biết đó không phải PO mình muốn.
+   */
+  const askKioskPo=()=>{
+    const box=document.createElement('div');box.className='modal-backdrop';
+    const list=poOptions.length
+      ?poOptions.map(o=>`<button class="btn kiosk-pick-row" type="button" data-pick="${o.id}"><b>${esc(o.code)}</b><span>${esc(o.product||'')}</span>${Number(o.open_sessions||0)>0?`<em>${o.open_sessions} đang làm</em>`:''}</button>`).join('')
+      :'<p class="modal-note">Chưa có Production Order nào đang chạy.</p>';
+    box.innerHTML=`<div class="modal kiosk-pick-modal" role="dialog" aria-modal="true" aria-labelledby="kioskPickTitle">
+      <h2 id="kioskPickTitle">Chọn Production Order để mở màn hình lớn</h2>
+      <p class="modal-note">Màn hình lớn hiển thị chi tiết <b>một</b> PO tại một thời điểm, nên cần chọn PO trước. PO đang có người làm được xếp lên đầu.</p>
+      <div class="kiosk-pick-list">${list}</div>
+      <div class="modal-actions"><button type="button" class="btn" data-close-pick>Hủy</button></div></div>`;
+    document.body.appendChild(box);
+    const close=()=>box.remove();
+    box.querySelector('[data-close-pick]').onclick=close;
+    box.onclick=e=>{if(e.target===box)close()};
+    box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{close();openKioskFor(Number(b.dataset.pick))});
+  };
+
+  document.getElementById('dailyOpenKiosk').onclick=()=>{
+    const chosen=poSelect.value;
+    if(chosen)openKioskFor(Number(chosen));
+    else askKioskPo();
+  };
+  poSelect.onchange=()=>{syncDashboardUrl();load()};
+  document.getElementById('dailyDate').onchange=()=>{syncDashboardUrl();load()};document.getElementById('dailyEmployeeSort').onchange=load;document.getElementById('dailyRefresh').onclick=()=>load();document.getElementById('dailyOpenAll').onclick=document.getElementById('dailyOpenOperations').onclick=document.getElementById('opTimeOpenAll').onclick=()=>openPage('production-orders',document.querySelector('[data-page="production-orders"]'));syncDashboardUrl();await loadPoOptions();await load();watchTimelineScale(document.getElementById('sessionTimeline'));dashboardTimer=setInterval(()=>{if(document.getElementById('sessionTimeline'))load()},10000)
 }
 
 async function renderDailyOperations(){
