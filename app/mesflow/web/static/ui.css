@@ -763,6 +763,15 @@ body[data-page="system-logs"] .workspace-main,body[data-page="system-logs"] #con
 html{background:var(--surface-canvas);scrollbar-color:#9aa6b2 transparent}body{color:var(--text-primary);background:var(--surface-canvas);font-size:14px;line-height:1.43}button,input,select,textarea{font:inherit}button,a,input,select,textarea{touch-action:manipulation}svg{display:block}
 .skip-link{position:fixed;z-index:100;top:8px;left:8px;transform:translateY(-150%);padding:8px 12px;border-radius:var(--radius-control);background:#fff;color:var(--bg-command);font-weight:700}.skip-link:focus{transform:none}
 :where(button,a,input,select,textarea,[tabindex]):focus-visible{outline:2px solid var(--action-primary)!important;outline-offset:2px!important}
+/* .sr-only ĐANG ĐƯỢC DÙNG ở hai chỗ (bộ chọn PO của kiosk điều hành và ô tìm
+   trong modal "Mở màn hình lớn") nhưng CHƯA TỪNG được định nghĩa ở đâu cả --
+   nên hai nhãn đó vẫn được VẼ RA màn hình. Trên header tối của kiosk, nhãn
+   "Chọn Production Order" ra màu mờ trên nền tối (~2.2:1) và người dùng đọc
+   nó như một phần của lỗi "chữ trắng trên nền trắng".
+   Giữ chữ trong cây a11y (clip chứ không display:none) vì đó là đúng ý chỗ
+   dùng: control kèm nó đã có aria-label/placeholder riêng. */
+.sr-only{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .app-layout{grid-template-columns:248px minmax(0,1fr);background:var(--surface-canvas)}.app-sidebar{width:248px;padding:0;background:var(--bg-command-strong);border-right:1px solid #29495f;color:#fff;box-shadow:none}.sidebar-brand{min-height:64px;padding:12px 14px;border-bottom:1px solid #29495f;gap:10px}.sidebar-logo{width:32px;height:32px;border:1px solid #7190a6;border-radius:var(--radius-control);background:transparent;color:#fff;font-size:12px}.sidebar-brand-text b{font-size:15px}.sidebar-brand-text small{color:#aec0ce}.sidebar-toggle,.mobile-menu-toggle{display:grid;place-items:center;width:36px;height:36px;padding:8px;border:1px solid #48677d;border-radius:var(--radius-control);background:transparent;color:#fff}.sidebar-toggle svg,.mobile-menu-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}.sidebar-nav{padding:12px 8px 16px;gap:2px}.sidebar-nav .nav-group,.nav-group{padding:16px 10px 6px;color:#91a8b9;font-size:10px;letter-spacing:.06em}.sidebar-nav .nav-item,.nav-item{position:relative;min-height:38px;padding:8px 10px;border-radius:var(--radius-control);color:#c9d5de;font-size:13px;line-height:20px}.sidebar-nav .nav-item:hover,.nav-item:hover{background:#183b53;color:#fff}.sidebar-nav .nav-item.active,.nav-item.active{background:#244a64;color:#fff;font-weight:650}.sidebar-nav .nav-item.active:before,.nav-item.active:before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:1px;background:#fff}.sidebar-account{padding:12px 14px;border-top:1px solid #29495f}.sidebar-user small{color:#aec0ce}.sidebar-account button{min-height:34px;border:1px solid #48677d;border-radius:var(--radius-control);background:transparent;color:#fff}.sidebar-account button:hover{background:#244a64}
 .app-workspace{min-width:0;background:var(--surface-canvas)}.workspace-header{min-height:72px;margin:0;padding:12px 24px;border-bottom:1px solid var(--border-default);background:var(--surface-default);box-shadow:none}.workspace-header h1{margin:0;font-size:24px;line-height:30px;letter-spacing:-.015em;color:var(--text-primary)}.workspace-header p{margin:2px 0 0;color:var(--text-secondary);font-size:13px}.legacy-brand{gap:0}.workspace-main{padding:20px 24px 28px}.workspace-main>section,#content{display:grid;gap:16px;min-width:0}.mobile-menu-toggle{display:none;color:var(--bg-command);border-color:var(--border-default)}
 /* #content is an implicit single-column CSS grid; without this, its direct
@@ -2463,7 +2472,7 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
    forgotten. Tuned for 1920x1080 first, with a 1366x768 step that must not
    introduce horizontal overflow. Animation is deliberately near-zero: a
    control-room display is read from across a room, not interacted with. */
-body[data-page="daily-dashboard-kiosk"]{background:#0b1018;color:#e8eef7}
+body[data-page="daily-dashboard-kiosk"]{background:#0b1018;color:#e8eef7;color-scheme:dark}
 body[data-page="daily-dashboard-kiosk"] .app-sidebar,
 body[data-page="daily-dashboard-kiosk"] .sidebar-overlay,
 body[data-page="daily-dashboard-kiosk"] .workspace-header{display:none}
@@ -2473,6 +2482,21 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 
 .kiosk-display{--k-bg:#0b1018;--k-panel:#141c28;--k-line:#25313f;--k-text:#e8eef7;--k-dim:#8fa3bb;
   --k-ok:#2fbf71;--k-warn:#e8a13a;--k-bad:#e2544c;--k-run:#3d8ede;
+  /* MỘT bề mặt điều khiển cho CẢ nút và select của kiosk (REQ-KIOSK-010).
+     Trước đây nút lấy #101824 viết cứng còn select lấy #16243c viết cứng, nên
+     khi luật nền chung ở §"Industrial Soft-3D" ép `background:#fff!important`
+     lên MỌI select thì chỉ select đổi -- và đổi thành TRẮNG, chữ vẫn sáng:
+     tỉ lệ tương phản đo được 1.16:1, tức chữ trắng trên nền trắng. Gộp về
+     token ở đây để không còn chỗ nào phải nhớ hai giá trị. */
+  --k-control-bg:#101824;--k-control-bg-hover:#1a2534;
+  --k-control-text:#cfdcec;--k-control-text-hover:#fff;
+  --k-control-line:var(--k-line);--k-control-line-hover:#3a4d63;--k-control-focus:#5aa2e8;
+  --k-control-bg-disabled:#0e141d;--k-control-text-disabled:#7e8fa5;
+  /* color-scheme:dark là phần KHÔNG thay được bằng background/color: nó điều
+     khiển thứ CSS của trang không chạm tới được -- popup <option> của select
+     native, mũi tên của select, thanh cuộn. Thiếu nó thì trên Chromium/Safari
+     danh sách PO bung ra vẫn là popup SÁNG mặc định. */
+  color-scheme:dark;
   height:100vh;overflow:hidden;padding:16px 20px 20px;display:flex;flex-direction:column;gap:14px;
   background:var(--k-bg);color:var(--k-text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}
 
@@ -2494,9 +2518,13 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-live[data-state="stale"]{color:#f2c98e;border-color:#5a4423}
 .kiosk-live[data-state="stale"] i{background:var(--k-warn)}
 .kiosk-actions{display:flex;gap:8px}
-.kiosk-btn{border:1px solid var(--k-line);background:#101824;color:#cfdcec;border-radius:var(--radius-control);
+.kiosk-btn{border:1px solid var(--k-control-line);background:var(--k-control-bg);color:var(--k-control-text);
+  border-radius:var(--radius-control);
   padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
-.kiosk-btn:hover{background:#1a2534;color:#fff}
+.kiosk-btn:hover{background:var(--k-control-bg-hover);color:var(--k-control-text-hover);border-color:var(--k-control-line-hover)}
+.kiosk-btn:focus-visible{outline:2px solid var(--k-control-focus)!important;outline-offset:2px!important}
+.kiosk-btn:disabled{background:var(--k-control-bg-disabled);color:var(--k-control-text-disabled);
+  border-color:var(--k-control-line);cursor:not-allowed}
 
 /* KPI strip --------------------------------------------------------------- */
 .kiosk-kpis{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}
@@ -2738,8 +2766,44 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-focus .kiosk-po span{color:#9fb0cc;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kiosk-focus .kiosk-po-progress{display:flex;flex-direction:column;gap:3px;min-width:150px}
 .kiosk-focus .kiosk-po-progress strong{font-size:19px}
-.kiosk-focus .kiosk-po-pick select{background:#16243c;color:#e8eefb;border:1px solid #2a3c5c;border-radius:var(--radius-control);
-  padding:7px 10px;font-size:13px;max-width:330px}
+/* Bộ chọn PO -- CHỖ NÀY !important LÀ BẮT BUỘC, KHÔNG PHẢI THÓI QUEN XẤU.
+   Lớp "Industrial Soft-3D" ở trên đặt cho MỌI select trong ứng dụng:
+       input...,select,textarea{background:#fff!important;
+                                box-shadow:var(--shadow-control-inset)!important}
+   và hai luật :hover/:focus kèm theo cũng !important. Đó là luật của shell
+   SÁNG, đúng với 40+ màn còn lại. Kiosk là màn TỐI duy nhất, nên nếu ở đây chỉ
+   ghi `background:var(--k-control-bg)` thường thì nền vẫn ra TRẮNG trong khi
+   `color` (không !important, thắng nhờ specificity) vẫn sáng -- đúng lỗi đã đo
+   được: 1.16:1, chữ trắng trên nền trắng, không đọc được chữ nào.
+   Bỏ !important ở đây là lỗi quay lại ngay. Bài canh:
+   tests/e2e/kiosk-control-contrast.spec.js.
+
+   Scope lấy .kiosk-display (không phải .kiosk-focus) vì màu là hợp đồng của
+   CẢ màn kiosk, còn .kiosk-focus chỉ là biến thể mật độ của bố cục. */
+.kiosk-display .kiosk-po-pick select{
+  background:var(--k-control-bg)!important;color:var(--k-control-text);
+  border:1px solid var(--k-control-line)!important;border-radius:var(--radius-control);
+  box-shadow:none!important;
+  padding:7px 10px;font-size:13px;max-width:330px;font-weight:600;cursor:pointer}
+.kiosk-display .kiosk-po-pick select:hover{
+  background:var(--k-control-bg-hover)!important;color:var(--k-control-text-hover);
+  border-color:var(--k-control-line-hover)!important}
+.kiosk-display .kiosk-po-pick select:focus,
+.kiosk-display .kiosk-po-pick select:focus-visible{
+  background:var(--k-control-bg-hover)!important;color:var(--k-control-text-hover);
+  border-color:var(--k-control-focus)!important;
+  box-shadow:none!important;outline:2px solid var(--k-control-focus)!important;outline-offset:2px!important}
+.kiosk-display .kiosk-po-pick select:disabled{
+  background:var(--k-control-bg-disabled)!important;color:var(--k-control-text-disabled);
+  border-color:var(--k-control-line)!important;cursor:not-allowed}
+/* Popup native: color-scheme:dark (khối token .kiosk-display) lo phần nền
+   popup + mũi tên trên Chromium/Safari; hai dòng dưới là phần Chromium/Firefox
+   ĐỌC ĐƯỢC từ CSS. Cả hai cùng lấy một token, không có màu viết cứng theo
+   từng <option> -- danh sách PO do JS dựng, không chỗ nào gắn màu vào option. */
+.kiosk-display .kiosk-po-pick select option{
+  background-color:var(--k-control-bg);color:var(--k-control-text)}
+.kiosk-display .kiosk-po-pick select option:checked{
+  background-color:var(--k-control-bg-hover);color:var(--k-control-text-hover)}
 
 /* Panel task phải CHIẾM HẾT chiều cao còn lại, nếu không nó co theo nội dung
    và phép đo "một trang chứa được bao nhiêu hàng" sẽ đo nhầm khung đã co --
@@ -2820,9 +2884,13 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-event.tone-bad p u{color:#ff9a9a}
 .kiosk-event.tone-start{border-left-color:#4f8dff}
 /* Sự kiện mới: hiện lên nhẹ trong ~2,5s. Animation ngắn và CHỈ trên dòng đó --
-   một màn hình treo tường rung toàn khung mỗi vài giây là thứ không ai chịu nổi. */
+   một màn hình treo tường rung toàn khung mỗi vài giây là thứ không ai chịu nổi.
+   Nền highlight ĐI KÈM một ràng buộc: dòng giờ phụ (.kiosk-event time small,
+   #8194b4) nằm TRÊN nền này. Bản cũ #17304a sáng tới mức tỉ lệ tụt còn 4.38:1
+   -- dưới ngưỡng AA 4.5. #102a4e giữ gần nguyên độ "nảy" so với nền thường
+   (#132034) nhưng đo được 4.67:1. Muốn sáng hơn thì phải nâng #8194b4 trước. */
 @keyframes kioskEventIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
-.kiosk-event.is-new{animation:kioskEventIn .22s ease-out;background:#17304a}
+.kiosk-event.is-new{animation:kioskEventIn .22s ease-out;background:#102a4e}
 
 /* --- biến động PO khác --------------------------------------------------- */
 .kiosk-other-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;

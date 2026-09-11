@@ -22,7 +22,26 @@ each test below names the single thing whose removal turns it red.
   * test_kiosk_is_not_a_device_kiosk
         -> red if this control-room display starts pulling in the
            shop-floor badge-scan kiosk runtime.
+  * test_kiosk_controls_share_one_token_surface
+        -> red if the kiosk's control tokens (--k-control-*) or
+           `color-scheme:dark` are dropped from the .kiosk-display block, or
+           if a kiosk button/select goes back to a hardcoded hex. Those tokens
+           are what keeps the PO selector and its two buttons on ONE dark
+           surface.
+  * test_kiosk_po_select_outranks_the_light_shell_surface
+        -> red if the `!important` on the PO select's background is dropped.
+           That is not stylistic: the shared "Industrial Soft-3D" layer sets
+           `background:#fff!important` on EVERY select in the app, so without
+           it the kiosk selector renders white with light text -- 1.16:1
+           measured, i.e. unreadable. The measured counterpart is
+           tests/e2e/kiosk-control-contrast.spec.js.
+  * test_sr_only_label_is_actually_hidden
+        -> red if the `.sr-only` rule is dropped again. It was MISSING
+           entirely: both call sites painted their screen-reader label as
+           ordinary text, and on the kiosk's dark header that label sat at
+           ~2.2:1.
 """
+import re
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -163,3 +182,96 @@ def test_kiosk_keeps_last_good_data_on_api_failure():
     # The paint* helpers are only called on the success path, so a failed poll
     # leaves the previous screen untouched.
     assert 'if(!alive())return;' in page
+
+
+# --------------------------------------------------------------- vùng điều khiển
+# Bề mặt điều khiển của kiosk (select chọn PO + nút "Làm mới"/"Thoát"). Phần đo
+# THẬT nằm ở tests/e2e/kiosk-control-contrast.spec.js -- computed style là chỗ
+# duy nhất nói được màu đang chạy, vì ui.css có nhiều lớp ghi đè nhau. Hai bài
+# static dưới đây canh thứ mà e2e KHÔNG canh được: cấu trúc của bản sửa, tức là
+# nó vẫn đi qua token và vẫn còn lý do tồn tại của `!important`.
+
+KIOSK_CONTROL_TOKENS=(
+    '--k-control-bg', '--k-control-bg-hover',
+    '--k-control-text', '--k-control-text-hover',
+    '--k-control-line', '--k-control-line-hover', '--k-control-focus',
+    '--k-control-bg-disabled', '--k-control-text-disabled',
+)
+
+
+def _rule(css:str, selector:str)->str:
+    """Thân của MỘT rule CSS, ĐÃ BỎ COMMENT, tìm theo selector nguyên văn.
+
+    Bỏ comment là phần bắt buộc, không phải dọn dẹp: khối .kiosk-display có một
+    comment nhắc chính chữ `color-scheme:dark`, nên nếu không bỏ thì bài test
+    dưới đây vẫn xanh khi CÂU LỆNH bị xoá và chỉ còn lời nhắc về nó -- test
+    canh chú thích của chính mình. Cùng lý do cho phép kiểm "không còn hex".
+    """
+    start=css.index(selector+'{')+len(selector)+1
+    return re.sub(r'/\*.*?\*/', ' ', css[start:css.index('}', start)], flags=re.S)
+
+
+def test_kiosk_controls_share_one_token_surface():
+    css=UI_CSS.read_text(encoding='utf-8')
+    display=_rule(css, '.kiosk-display')
+    for token in KIOSK_CONTROL_TOKENS:
+        assert token+':' in display, f'thiếu token bề mặt điều khiển {token}'
+    # color-scheme là thứ DUY NHẤT tác động được vào popup <option> native, mũi
+    # tên select và thanh cuộn -- CSS của trang không vẽ được mấy thứ đó. Thiếu
+    # nó thì danh sách PO bung ra vẫn là popup SÁNG trên Chromium/Safari.
+    assert 'color-scheme:dark' in display
+    assert 'color-scheme:dark' in _rule(css, 'body[data-page="daily-dashboard-kiosk"]')
+
+    # Nút và select cùng lấy MỘT bộ token, không ai giữ hex riêng nữa.
+    for selector in ('.kiosk-btn', '.kiosk-btn:hover', '.kiosk-btn:disabled',
+                     '.kiosk-display .kiosk-po-pick select',
+                     '.kiosk-display .kiosk-po-pick select:hover',
+                     '.kiosk-display .kiosk-po-pick select:disabled',
+                     '.kiosk-display .kiosk-po-pick select option'):
+        body=_rule(css, selector)
+        assert 'var(--k-control-' in body, f'{selector} không dùng token điều khiển'
+        assert '#' not in body, f'{selector} còn màu viết cứng: {body.strip()}'
+
+    # Danh sách option do JS dựng; màu phải đến từ CSS token, không gắn vào
+    # từng <option> (yêu cầu: "not per-option hardcoded colors").
+    page=PAGE.read_text(encoding='utf-8')
+    option_markup=page[page.index('function paintSelector'):]
+    option_markup=option_markup[:option_markup.index('</select>')] if '</select>' in option_markup else option_markup[:1200]
+    assert 'style=' not in option_markup, 'option của bộ chọn PO mang style inline'
+
+
+def test_sr_only_label_is_actually_hidden():
+    """`.sr-only` được DÙNG thì phải được ĐỊNH NGHĨA.
+
+    Đỏ nếu luật .sr-only bị xoá: lúc đó nhãn `Chọn Production Order` trong bộ
+    chọn PO của kiosk (và `Tìm Production Order` trong modal "Mở màn hình lớn")
+    được VẼ RA thành chữ thường -- trên header tối của kiosk là ~2.2:1, đúng
+    phần thứ hai của báo cáo "không đọc được chữ".
+    """
+    css=UI_CSS.read_text(encoding='utf-8')
+    assert '.sr-only{' in css, '.sr-only được dùng trong markup nhưng không có luật CSS nào định nghĩa'
+    body=_rule(css, '.sr-only')
+    # Ẩn bằng clip, KHÔNG bằng display:none -- phải còn trong cây a11y.
+    assert 'position:absolute' in body and 'clip-path:inset(50%)' in body
+    assert 'display:none' not in body
+    # Và chỗ dùng vẫn còn, nếu không thì luật này thành rác.
+    assert 'class="sr-only">Chọn Production Order' in PAGE.read_text(encoding='utf-8')
+
+
+def test_kiosk_po_select_outranks_the_light_shell_surface():
+    css=UI_CSS.read_text(encoding='utf-8')
+    # Điều kiện làm cho !important bên dưới là BẮT BUỘC chứ không phải thói
+    # quen: lớp nền chung vẫn đang ép nền trắng lên MỌI select của ứng dụng.
+    shared=_rule(css, 'input:not([type="checkbox"]):not([type="radio"]),select,textarea')
+    assert 'background:#fff!important' in shared, (
+        'lớp nền chung không còn ép nền trắng lên select -- nếu đúng là đã bỏ '
+        'thật thì gỡ !important ở khối kiosk và sửa bài test này cùng lúc'
+    )
+    select=_rule(css, '.kiosk-display .kiosk-po-pick select')
+    assert 'background:var(--k-control-bg)!important' in select
+    # Cùng lớp đó đặt một inset shadow SÁNG (vệt trắng bên trong) bằng
+    # !important; trên nền tối nó thành một vết bẩn, phải tắt hẳn.
+    assert 'box-shadow:none!important' in select
+    # Và luật :focus-visible chung dùng --action-primary của shell sáng.
+    focus=_rule(css, '.kiosk-display .kiosk-po-pick select:focus,\n.kiosk-display .kiosk-po-pick select:focus-visible')
+    assert 'outline:2px solid var(--k-control-focus)!important' in focus
