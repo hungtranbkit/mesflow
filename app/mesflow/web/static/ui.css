@@ -1992,7 +1992,7 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 .part-block{
   padding:0;                             /* .po-part-card cũng mang .panel */
   border:1px solid var(--border-block);
-  border-radius:var(--radius-card);
+  border-radius:var(--radius-surface);
   background:var(--surface-default);
   box-shadow:var(--shadow-card);
   overflow:hidden;
@@ -2089,7 +2089,7 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 .op-list{
   margin:0 var(--ui-space-4);
   border:1px solid var(--border-subtle);
-  border-radius:var(--radius-control);
+  border-radius:var(--radius-surface-row);overflow:hidden;
   background:var(--surface-default);
   /* Cuộn NGANG chứ không cắt: PO detail đặt min-width:1050px cho hàng OP nên
      cột THAO TÁC phải cuộn tới được. overflow:hidden ở đây đã cắt mất nó --

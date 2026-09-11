@@ -222,3 +222,57 @@ def test_only_a_real_overlay_may_use_the_overlay_tier():
         + '\n\nChọn bậc theo NGHĨA, không theo giá trị nào đang khớp: nút -> '
           '--radius-control, khối nội dung -> --radius-surface, khối lồng -> '
           '--radius-surface-row. Chỉ modal/sheet/dropdown mới là --radius-overlay.')
+
+
+#: Các cặp (khối NGOÀI, khối LỒNG bên trong) có thật trong giao diện. Khối lồng
+#: không bao giờ được bo tròn HƠN khối bao nó.
+NESTED_PAIRS = [
+    ('.part-block', '.op-list'),          # PO detail: khối Part chứa bảng Operation
+    ('.ct-po', '.ct-part'),               # Control tower: PO chứa Part
+    ('.schedule-po', '.schedule-part'),   # Lịch sản xuất: PO chứa Part
+]
+
+#: Giá trị px của từng bậc, đọc thẳng từ :root để bài test không tự chép số.
+def _token_pixels() -> dict[str, int]:
+    css = CSS.read_text(encoding='utf-8')
+    out = {}
+    for name, value in re.findall(r'(--radius-[a-z-]+)\s*:\s*([0-9]+)px', css):
+        out[name] = int(value)
+    return out
+
+
+def test_a_nested_block_is_never_rounder_than_the_block_containing_it():
+    """Góc trong tròn hơn góc ngoài là sai thứ bậc, và mắt thấy ngay.
+
+    Ca có thật, lane hp đo được trên PO detail: `.op-list-head` bo tròn hơn
+    `.op-list` đang cắt nó. Rồi khi --radius-control lên 8px, `.op-list` (8px)
+    hoá tròn hơn cả `.part-block` (7px) bao ngoài -- một cái sai SẴN CÓ
+    (`.op-list` khai --radius-control, mà một list container không phải control)
+    chỉ lộ ra khi bậc đổi.
+
+    Bài này so BẰNG SỐ PX đọc từ :root, nên nó vẫn đúng khi ai đó chỉnh lại một
+    bậc: sửa --radius-surface xuống dưới --radius-surface-row là đỏ ngay.
+    """
+    pixels = _token_pixels()
+    declared = {}
+    for selector, body in _rules():
+        radius = _radius_of(body)
+        if radius is None:
+            continue
+        key = selector.strip().split('\n')[-1].strip()
+        token = re.search(r'var\((--radius-[a-z-]+)\)', radius)
+        if token and token.group(1) in pixels:
+            declared.setdefault(key, pixels[token.group(1)])
+
+    offenders = []
+    for outer, inner in NESTED_PAIRS:
+        if outer not in declared or inner not in declared:
+            continue        # cặp này không còn -> bài test khác lo
+        if declared[inner] > declared[outer]:
+            offenders.append(
+                f'{inner} ({declared[inner]}px) tròn hơn {outer} ({declared[outer]}px) bao nó')
+
+    assert not offenders, (
+        'Thứ bậc lồng nhau bị ngược:\n  ' + '\n  '.join(offenders)
+        + '\n\nKhối lồng phải dùng bậc NHỎ HƠN khối bao nó: khối ngoài cùng '
+          '--radius-surface, khối lồng --radius-surface-row.')
