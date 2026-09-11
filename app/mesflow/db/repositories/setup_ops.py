@@ -37,9 +37,15 @@ identity audit. The PRINTED text on that label is the display key instead
 """
 from __future__ import annotations
 
-from mesflow.domain.policy import SETUP_TYPE, is_production, is_setup
+from mesflow.domain.policy import SETUP_TYPE, is_production, is_setup, type_is_sql
 from mesflow.db.connection import fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError
+
+# Điều kiện "dòng này là SETUP" dựng một lần từ policy, cho từng alias dùng
+# trong file. Trước đây mỗi truy vấn tự gõ operation_type='SETUP'.
+IS_SETUP_O = type_is_sql(SETUP_TYPE, 'o')
+IS_SETUP_S = type_is_sql(SETUP_TYPE, 's')
+IS_SETUP_BARE = type_is_sql(SETUP_TYPE, '')
 
 SETUP_QR_PREFIX = 'WF|OPID|'
 
@@ -91,9 +97,9 @@ def _create_setup_row(cur, parent):
     code = f"{parent['code']}{SETUP_CODE_SUFFIX}"
     cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,done_qty,defect_qty,
             rework_qty,scrap_qty,status,sort_order,qr,operation_type,parent_operation_id)
-        VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',%s,%s,'SETUP',%s) RETURNING id""",
+        VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',%s,%s,%s,%s) RETURNING id""",
         (parent['production_order_id'], parent['part_id'], code,
-         f"Setup {parent['name']}", 2147483646, f'PENDING-{parent["id"]}', parent['id']))
+         f"Setup {parent['name']}", 2147483646, f'PENDING-{parent["id"]}', SETUP_TYPE, parent['id']))
     setup_id = cur.fetchone()['id']
     # QR is assigned from the immutable id, which only exists after the insert.
     cur.execute('UPDATE operations SET qr=%s WHERE id=%s', (setup_qr_for(setup_id), setup_id))
@@ -113,7 +119,7 @@ class SetupRepository:
         setup = fetch_one(f"""SELECT o.id,o.code,o.name,o.expected_setup_minutes,o.qr,o.setup_note,
                 {display_key_sql('o','p')} display_key
             FROM operations o LEFT JOIN parts p ON p.id=o.part_id
-            WHERE o.parent_operation_id=%s AND o.operation_type='{SETUP_TYPE}'""",
+            WHERE o.parent_operation_id=%s AND {IS_SETUP_O}""",
             (int(operation_id),))
         session = None
         if setup:
@@ -160,7 +166,7 @@ class SetupRepository:
                 if not is_production(main['operation_type']):
                     raise ConflictError('Chỉ Operation sản xuất mới cấu hình được setup.')
                 cur.execute(f"""SELECT id FROM operations
-                    WHERE parent_operation_id=%s AND operation_type='{SETUP_TYPE}' FOR UPDATE""", (main['id'],))
+                    WHERE parent_operation_id=%s AND {IS_SETUP_BARE} FOR UPDATE""", (main['id'],))
                 existing = cur.fetchone()
                 if not requires:
                     # Keep the SETUP row and its instructions: switching the
@@ -190,7 +196,7 @@ class SetupRepository:
         """
         session = fetch_one(f"""SELECT ws.id,ws.status FROM work_sessions ws
             JOIN operations o ON o.id=ws.operation_id
-            WHERE ws.id=%s AND o.operation_type='{SETUP_TYPE}'""", (int(session_id),))
+            WHERE ws.id=%s AND {IS_SETUP_O}""", (int(session_id),))
         if not session:
             raise NotFoundError('Không tìm thấy phiên setup')
         if session['status'] != 'OPEN':
@@ -226,7 +232,7 @@ class SetupRepository:
                 p.code part_code,p.name part_name,po.code po_code,po.product,
                 e.code equipment_code,e.name equipment_name
             FROM operations m
-            LEFT JOIN operations s ON s.parent_operation_id=m.id AND s.operation_type='{SETUP_TYPE}'
+            LEFT JOIN operations s ON s.parent_operation_id=m.id AND {IS_SETUP_S}
             LEFT JOIN parts p ON p.id=m.part_id
             LEFT JOIN production_orders po ON po.id=m.production_order_id
             LEFT JOIN equipment e ON e.id=m.equipment_id

@@ -5,7 +5,7 @@
 # PO vừa phát hành đơn giản là không xuất hiện trên dashboard mà không báo gì.
 # test_po_status_policy_is_single_sourced.py khoá hai bên lại với nhau.
 from __future__ import annotations
-from mesflow.domain.policy import production_only_sql, support_only_sql
+from mesflow.domain.policy import production_only_sql, support_only_sql, type_value_sql
 import json
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
@@ -23,9 +23,9 @@ from psycopg.types.json import Jsonb
 # bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
 # PO, hoặc PO không bao giờ đạt COMPLETED.
 PRODUCTION_ONLY_O = production_only_sql('o')
-PRODUCTION_ONLY_BARE = production_only_sql('')[:len("COALESCE(")] + \
-    production_only_sql('')[len("COALESCE(."):]
+PRODUCTION_ONLY_BARE = production_only_sql('')
 SUPPORT_ONLY_O = support_only_sql('o')
+TYPE_VALUE_O = type_value_sql('o')
 
 
 class AuditRepository:
@@ -1643,7 +1643,7 @@ class ReportRepository:
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
             {SUPPORT_ONLY_O} is_repair,
-            COALESCE(o.operation_type,'PRODUCTION') operation_type
+            {TYPE_VALUE_O} operation_type
           FROM work_sessions ws
           JOIN employees e ON e.id=ws.employee_id
           JOIN operations o ON o.id=ws.operation_id
@@ -1719,7 +1719,7 @@ class ReportRepository:
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
             o.code operation_code,o.name operation_name,po.code po_code,p.code part_code,
             {SUPPORT_ONLY_O} is_repair,
-            COALESCE(o.operation_type,'PRODUCTION') operation_type,
+            {TYPE_VALUE_O} operation_type,
             ws.excluded_from_reports,ws.exclusion_reason
           FROM work_sessions ws
           JOIN operations o ON o.id=ws.operation_id

@@ -8,8 +8,7 @@ from mesflow.domain.trace import record_event
 # COALESCE(...) ở từng câu truy vấn. Trước 2026-09-10 mỗi module tự viết một
 # bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
 # PO, hoặc PO không bao giờ đạt COMPLETED.
-PRODUCTION_ONLY_BARE = production_only_sql('')[:len("COALESCE(")] + \
-    production_only_sql('')[len("COALESCE(."):]
+PRODUCTION_ONLY_BARE = production_only_sql('')
 
 
 

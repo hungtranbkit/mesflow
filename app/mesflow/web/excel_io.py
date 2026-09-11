@@ -1,5 +1,5 @@
 from __future__ import annotations
-from mesflow.domain.policy import is_production, production_only_sql
+from mesflow.domain.policy import is_production, production_only_sql, type_value_sql
 
 from datetime import datetime
 from io import BytesIO
@@ -27,6 +27,7 @@ from mesflow.db.repositories.template_imports import (TemplateImportRepository,
 # bản, và mỗi lần quên một chỗ là một lần sản lượng của OP phụ lọt vào tiến độ
 # PO, hoặc PO không bao giờ đạt COMPLETED.
 PRODUCTION_ONLY_O = production_only_sql('o')
+TYPE_VALUE_O = type_value_sql('o')
 
 bp = Blueprint('excel_io', __name__, url_prefix='/api/operations')
 template_excel_bp = Blueprint('template_excel_io', __name__, url_prefix='/api/templates')
@@ -328,8 +329,38 @@ def import_operations():
                         VALUES(%s,%s,%s,%s,%s,true) RETURNING id
                     ''', (po['id'], part_code, row['part_name'], row['drawing'], row['part_order'])).fetchone()
                     part_created += 1
-                existing = conn.execute('''SELECT id,COALESCE(operation_type,'PRODUCTION') operation_type
-                    FROM operations WHERE UPPER(code)=UPPER(%s)''', (row['code'],)).fetchone()
+                # operations.code có UNIQUE toàn cục (operations_code_key),
+                # nhưng câu tra này so KHÔNG PHÂN BIỆT HOA THƯỜNG, nên nó vẫn
+                # khớp nhiều dòng khi tồn tại biến thể hoa/thường ('OP02' và
+                # 'op02' là hai dòng hợp lệ với ràng buộc đó). Cùng giả định
+                # này đã có sẵn trong danh mục QR: master_data.qr_labels chuyển
+                # sang payload theo id đúng khi
+                # EXISTS(upper(d.code)=upper(o.code) AND d.id<>o.id).
+                #
+                # Bản cũ ở đây quét toàn bảng rồi lấy fetchone() -- tức là ĐOÁN
+                # trong đúng ca đó, và dòng nó đoán trúng có thể bị nhánh
+                # UPDATE bên dưới kéo sang PO/Part khác. Cùng luật với resolver
+                # QR (domain/qr_identity.py): mơ hồ thì TỪ CHỐI, không lấy đại
+                # một dòng. LIMIT 5 chứ không LIMIT 1 để phân biệt được "một"
+                # với "nhiều".
+                #
+                # LƯU Ý HỢP NHẤT: lane audit/operation-identity-2 viết lại
+                # chính đoạn tra cứu này theo operation_row_id + phạm vi PO.
+                # Đó là bản sâu hơn; khi merge hãy lấy bản của lane đó và chỉ
+                # giữ lại nguyên tắc "mơ hồ thì từ chối" nếu bản kia chưa có.
+                candidates = conn.execute(f'''SELECT o.id,{TYPE_VALUE_O} operation_type,
+                        po.code po_code,pt.code part_code
+                    FROM operations o
+                    JOIN production_orders po ON po.id=o.production_order_id
+                    LEFT JOIN parts pt ON pt.id=o.part_id
+                    WHERE UPPER(o.code)=UPPER(%s) ORDER BY o.id LIMIT 5''', (row['code'],)).fetchall()
+                if len(candidates) > 1:
+                    seen = ', '.join(f"{c['po_code']}/{c['part_code'] or '?'}" for c in candidates[:4])
+                    raise ValueError(
+                        f"Mã Operation {row['code']} đang khớp nhiều Operation ({seen}) khi bỏ qua "
+                        'hoa/thường, không xác định được dòng nào phải cập nhật. Hãy đổi mã cho duy '
+                        'nhất, hoặc sửa các Operation này trực tiếp trên màn hình PO thay vì bằng Excel.')
+                existing = candidates[0] if candidates else None
                 if existing and not is_production(existing['operation_type']):
                     # Một file xuất TRƯỚC bản vá vẫn còn dòng OP phụ trong đó.
                     raise ValueError(

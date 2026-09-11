@@ -12,8 +12,15 @@ from mesflow.db.connection import fetch_all, fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError, RepositoryError
 from mesflow.db.repositories.execution import WorkSessionRepository
 from mesflow.domain.qr_identity import resolve_operation_id
+from mesflow.domain.policy import STARTABLE_TYPES, type_in_sql
 from mesflow.services.kiosk_reconciliation import ReconciliationResult, compute_missing, ranges
 
+
+# Snapshot offline chỉ mang loại Operation MỞ ĐƯỢC session. Thiết bị dùng
+# snapshot này làm danh sách việc khi mất mạng; một bàn SỬA HÀNG trong đó là
+# một dòng việc mà server sẽ từ chối lúc đồng bộ ngược -- tức là công đã làm
+# nhưng không ghi được, đúng thứ chế độ offline sinh ra để tránh.
+STARTABLE_ONLY_O = type_in_sql(STARTABLE_TYPES, 'o')
 
 BUSINESS_ERRORS = (ValueError, ConflictError, NotFoundError, RepositoryError)
 
@@ -83,12 +90,13 @@ class OfflineSyncRepository:
         from mesflow.db.connection import fetch_all
         employees = fetch_all("""SELECT employee_no,employee_no code,name,qr,active
             FROM employees WHERE active=TRUE ORDER BY employee_no""")
-        operations = fetch_all("""SELECT o.code,o.name,o.qr,po.code po,p.code part,
+        operations = fetch_all(f"""SELECT o.code,o.name,o.qr,po.code po,p.code part,
                    %s::text station_code,o.status,po.status po_status
             FROM operations o
             JOIN production_orders po ON po.id=o.production_order_id
             LEFT JOIN parts p ON p.id=o.part_id
             WHERE po.status='IN_PROGRESS' AND o.status NOT IN ('COMPLETED','CANCELLED')
+              AND {STARTABLE_ONLY_O}
             ORDER BY po.code,o.code""", (station_code,))
         revision_source = json.dumps({'e': employees, 'o': operations}, default=str, sort_keys=True, separators=(',', ':'))
         revision = hashlib.sha256(revision_source.encode()).hexdigest()[:20]

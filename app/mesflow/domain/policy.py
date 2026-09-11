@@ -84,6 +84,20 @@ SUPPORT_TYPES: frozenset[str] = frozenset({SETUP_TYPE, REWORK_TYPE})
 #: quét tem đó là cách duy nhất để ghi nhận việc chuẩn bị máy.
 LABELLED_TYPES: frozenset[str] = frozenset({PRODUCTION_TYPE, SETUP_TYPE})
 
+#: Loại Operation mà kiosk MỞ ĐƯỢC session.
+#:
+#: Cùng một tập với LABELLED_TYPES, và đó không phải trùng hợp: tem QR tồn tại
+#: để được quét, nên "in được tem" và "quét vào mở được việc" phải luôn là một
+#: câu trả lời. Đặt là bí danh chứ không phải một frozenset thứ hai -- hai tập
+#: viết rời nhau là đúng cái đã làm SETUP/SỬA HÀNG trôi ra khỏi nhau lần trước.
+#:
+#: Nguồn thực thi là lock_startable_operation(): nó từ chối REWORK vì hàng chờ
+#: sửa gắn theo SESSION NGUỒN, không theo tem bàn sửa. Mọi màn hình liệt kê
+#: "việc quét được" -- danh mục QR, bootstrap kiosk web, snapshot offline của
+#: ESP -- phải lọc theo đúng tập này, nếu không xưởng nhìn thấy một dòng việc mà
+#: máy quét sẽ từ chối.
+STARTABLE_TYPES: frozenset[str] = LABELLED_TYPES
+
 ALL_OPERATION_TYPES: frozenset[str] = frozenset({PRODUCTION_TYPE}) | SUPPORT_TYPES
 
 
@@ -100,14 +114,32 @@ def is_support(operation_type: str | None) -> bool:
     return not is_production(operation_type)
 
 
+def type_value_sql(alias: str = 'o') -> str:
+    """Biểu thức SQL cho LOẠI của một Operation, đã áp mặc định.
+
+    Đây là mảnh nhỏ nhất, và cũng là mảnh bị chép tay nhiều nhất: năm câu
+    truy vấn (analytics, master_data, excel_io, execution) tự gõ
+    ``COALESCE(o.operation_type,'PRODUCTION')`` để CHIẾU loại ra ngoài. Phần
+    dễ quên không bao giờ là tên loại mà là cái mặc-định-là-PRODUCTION cho dữ
+    liệu cũ; quên nó thì loại về ``None`` và mọi so sánh phía Python trượt.
+
+    ``alias`` rỗng dành cho câu truy vấn chỉ có một bảng (``FROM operations``
+    không đặt tên). Trước đây ba module tự cắt chuỗi kết quả của
+    ``production_only_sql('')`` để bỏ dấu chấm thừa -- ba bản chép của một mẹo
+    chuỗi, hỏng lặng lẽ nếu ai đó đổi một ký tự trong hàm này.
+    """
+    prefix = f'{alias}.' if alias else ''
+    return f"COALESCE({prefix}operation_type,'{PRODUCTION_TYPE}')"
+
+
 #: Điều kiện SQL "đây là OP sản xuất", dùng lại thay vì chép COALESCE ở mỗi
-#: truy vấn. Truyền alias bảng operations vào.
+#: truy vấn. Truyền alias bảng operations vào, hoặc '' nếu không có alias.
 def production_only_sql(alias: str = 'o') -> str:
-    return f"COALESCE({alias}.operation_type,'{PRODUCTION_TYPE}')='{PRODUCTION_TYPE}'"
+    return f"{type_value_sql(alias)}='{PRODUCTION_TYPE}'"
 
 
 def support_only_sql(alias: str = 'o') -> str:
-    return f"COALESCE({alias}.operation_type,'{PRODUCTION_TYPE}')<>'{PRODUCTION_TYPE}'"
+    return f"{type_value_sql(alias)}<>'{PRODUCTION_TYPE}'"
 
 
 def type_in_sql(types: frozenset[str], alias: str = 'o') -> str:
@@ -122,7 +154,7 @@ def type_in_sql(types: frozenset[str], alias: str = 'o') -> str:
     if unknown:
         raise ValueError(f'loại Operation không tồn tại: {sorted(unknown)}')
     listed = ','.join(f"'{t}'" for t in sorted(types))
-    return f"COALESCE({alias}.operation_type,'{PRODUCTION_TYPE}') IN ({listed})"
+    return f'{type_value_sql(alias)} IN ({listed})'
 
 
 def type_is_sql(operation_type: str, alias: str = 'o') -> str:
@@ -135,7 +167,7 @@ def type_is_sql(operation_type: str, alias: str = 'o') -> str:
     """
     if operation_type not in ALL_OPERATION_TYPES:
         raise ValueError(f'loại Operation không tồn tại: {operation_type}')
-    return f"COALESCE({alias}.operation_type,'{PRODUCTION_TYPE}')='{operation_type}'"
+    return f"{type_value_sql(alias)}='{operation_type}'"
 
 
 def is_setup(operation_type: str | None) -> bool:
@@ -149,3 +181,12 @@ def is_rework(operation_type: str | None) -> bool:
 def is_labelled(operation_type: str | None) -> bool:
     """Operation này có được in tem QR không?"""
     return str(operation_type or PRODUCTION_TYPE).upper() in LABELLED_TYPES
+
+
+def is_startable_type(operation_type: str | None) -> bool:
+    """Loại này có mở được session ở kiosk không?
+
+    Chỉ trả lời phần LOẠI. Trạng thái Operation và trạng thái PO là hai điều
+    kiện riêng, do lock_startable_operation() kiểm; hàm này không thay thế nó.
+    """
+    return str(operation_type or PRODUCTION_TYPE).upper() in STARTABLE_TYPES

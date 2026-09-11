@@ -59,8 +59,8 @@ def _rework_operation(cur, production_order_id: int, part_id: int):
     cur.execute("""INSERT INTO operations(
         production_order_id,part_id,code,name,done_qty,defect_qty,rework_qty,
         scrap_qty,status,sort_order,qr,operation_type)
-        VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',2147483647,%s,'REWORK')
-        RETURNING *""", (production_order_id, part_id, code, "SỬA HÀNG", f"WF|OP|{code}"))
+        VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',2147483647,%s,%s)
+        RETURNING *""", (production_order_id, part_id, code, "SỬA HÀNG", f"WF|OP|{code}", REWORK_TYPE))
     return cur.fetchone()
 
 

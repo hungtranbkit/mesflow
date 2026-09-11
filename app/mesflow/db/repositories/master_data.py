@@ -8,6 +8,7 @@ from .base import BaseRepository, NotFoundError, ConflictError, RepositoryError,
 from .production_state import reconcile_operation_and_po, lock_production_order_for_operation_first
 from .dependency_graph import validate_operation_dependencies
 from .setup_ops import SETUP_CODE_SUFFIX, display_key_sql
+from mesflow.domain.policy import SETUP_TYPE
 from mesflow.domain.trace import record_event
 
 class EmployeeRepository(BaseRepository):
@@ -685,9 +686,9 @@ class TemplateTreeRepository:
                         """INSERT INTO operations(production_order_id,part_id,code,name,done_qty,defect_qty,
                             rework_qty,scrap_qty,status,sort_order,qr,operation_type,parent_operation_id,
                             expected_setup_minutes)
-                           VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',%s,%s,'SETUP',%s,%s) RETURNING id""",
+                           VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',%s,%s,%s,%s,%s) RETURNING id""",
                         (po['id'],part_id,setup_code,f"Setup {op['name']}",2147483646,
-                         f'PENDING-{created["id"]}',created['id'],op.get('expected_setup_minutes')),
+                         f'PENDING-{created["id"]}',SETUP_TYPE,created['id'],op.get('expected_setup_minutes')),
                     ).fetchone()
                     # The printed instruction travels with the Template, so a
                     # cloned PO arrives with the sheet ready to print.
