@@ -178,3 +178,47 @@ def test_the_shared_enforcement_rule_still_targets_the_canonical_token():
     body = sweep.group(1)
     assert 'border-radius:var(--radius-surface)!important' in body.replace(' ', ''), (
         'rule quét không còn trỏ vào --radius-surface:\n  ' + body[:200])
+
+
+def test_only_a_real_overlay_may_use_the_overlay_tier():
+    """--radius-overlay chỉ dành cho thứ NỔI trên mặt phẳng khác.
+
+    Lỗ này nằm đúng giữa hai bài trên và đã để lọt 9 phần tử: chúng khai token
+    TƯỜNG MINH nên không đi qua rule quét (bài "không tự đặt số" bỏ qua), mà
+    cũng không phải số cứng (bài "không dùng token phần tử nhỏ" cũng bỏ qua).
+
+    Cách chúng lọt vào cũng đáng ghi lại, vì nó sẽ lặp: `.kiosk-btn` từng là
+    `border-radius:8px` viết cứng; một lane trước đổi nó sang
+    `var(--radius-overlay)` để qua bài lint token, và chọn `overlay` CHỈ VÌ giá
+    trị lúc đó khớp 9px -- không vì ngữ nghĩa. Đến khi bậc overlay được nâng lên
+    16px cho modal, chín phần tử không-modal đi ké. Chọn token theo giá trị
+    trùng thay vì theo nghĩa là một lỗi im lặng cho tới lần đổi giá trị kế tiếp.
+
+    Nên bài này kiểm NGỮ NGHĨA chứ không kiểm giá trị: tên selector phải nói nó
+    là lớp phủ.
+    """
+    overlay_like = re.compile(r'modal|sheet|overlay|dropdown|menu|popover|tooltip|backdrop',
+                              re.IGNORECASE)
+    # Lớp phủ mà TÊN không tự nói ra. Danh sách phải ngắn: một tên mới đặt đúng
+    # thì không cần có mặt ở đây.
+    overlay_by_name = {'.shift-edit-card', '#shiftEditor>.shift-edit-card'}
+    offenders = []
+    for selector, body in _rules():
+        radius = _radius_of(body)
+        if radius is None or '--radius-overlay' not in radius:
+            continue
+        if selector.startswith('@'):
+            continue
+        # Đủ khi MỌI phần trong danh sách selector đều là lớp phủ; một cái không
+        # phải là đã kéo cả nhóm đi theo.
+        parts = [p.strip() for p in selector.split(',') if p.strip()]
+        if parts and all(overlay_like.search(p) or p in overlay_by_name for p in parts):
+            continue
+        offenders.append(f'{selector[:80]}  ->  {radius}')
+
+    assert not offenders, (
+        'Các selector sau dùng bậc lớp phủ nhưng không phải lớp phủ:\n  '
+        + '\n  '.join(offenders)
+        + '\n\nChọn bậc theo NGHĨA, không theo giá trị nào đang khớp: nút -> '
+          '--radius-control, khối nội dung -> --radius-surface, khối lồng -> '
+          '--radius-surface-row. Chỉ modal/sheet/dropdown mới là --radius-overlay.')
