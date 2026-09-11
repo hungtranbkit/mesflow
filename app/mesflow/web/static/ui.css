@@ -168,7 +168,7 @@ th{background:#edf1f4;color:#354352;text-align:left;border-bottom:1px solid #ccd
 .ct-time-track>i{transition:width .9s linear}
 .template-old-op-header.no-order,.template-old-op-row.no-order{grid-template-columns:minmax(95px,1fr) minmax(160px,1.7fr) minmax(130px,1.2fr) minmax(90px,.8fr) minmax(170px,1.45fr) 34px}
 
-.schedule-po{border:1px solid var(--line,#d9dee7);border-radius:10px;margin:12px 0;overflow:hidden}.schedule-part{padding:10px 14px;border-top:1px solid #e5e7eb}.schedule-part h3{margin:0 0 8px}.schedule-op{display:grid;grid-template-columns:1.3fr 1fr 1.4fr 1.4fr auto;gap:10px;align-items:center;padding:9px 10px;margin:6px 0;border-left:4px solid #94a3b8;background:#fff;border-radius:6px}.schedule-op>div:first-child{display:flex;flex-direction:column}.schedule-op small{display:block;color:#64748b}.schedule-op.running{border-left-color:#f59e0b;background:#fffbeb}.schedule-op.done{border-left-color:#22c55e;background:#f0fdf4}.schedule-op.blocked{border-left-color:#ef4444;background:#fef2f2}.schedule-state{font-weight:600;white-space:nowrap}.schedule-dep{color:#475569}@media(max-width:1000px){.schedule-op{grid-template-columns:1fr 1fr}.schedule-state{white-space:normal}}
+.schedule-po{border:1px solid var(--line,#d9dee7);border-radius:var(--radius-surface);margin:12px 0;overflow:hidden}.schedule-part{padding:10px 14px;border-top:1px solid #e5e7eb}.schedule-part h3{margin:0 0 8px}.schedule-op{display:grid;grid-template-columns:1.3fr 1fr 1.4fr 1.4fr auto;gap:10px;align-items:center;padding:9px 10px;margin:6px 0;border-left:4px solid #94a3b8;background:#fff;border-radius:var(--radius-surface-row)}.schedule-op>div:first-child{display:flex;flex-direction:column}.schedule-op small{display:block;color:#64748b}.schedule-op.running{border-left-color:#f59e0b;background:#fffbeb}.schedule-op.done{border-left-color:#22c55e;background:#f0fdf4}.schedule-op.blocked{border-left-color:#ef4444;background:#fef2f2}.schedule-state{font-weight:600;white-space:nowrap}.schedule-dep{color:#475569}@media(max-width:1000px){.schedule-op{grid-template-columns:1fr 1fr}.schedule-state{white-space:normal}}
 /* v65.7.7 material-flow controls */
 .template-flow-row{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(220px,1fr) auto;gap:10px;align-items:center;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:var(--radius-panel)}
 .template-flow-row label{display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;white-space:nowrap}.template-flow-row select{min-width:0;padding:7px 9px;border:1px solid #cbd5e1;border-radius:var(--radius-control);background:#fff}.po-flow-note{display:block;color:#0f766e;margin-top:3px;font-weight:600}.po-op-modal .form-check{display:flex;align-items:center;gap:8px}.po-op-modal .form-check input{width:auto;margin:0}@media(max-width:760px){.template-flow-row{grid-template-columns:1fr}.template-flow-row label{white-space:normal}}
@@ -213,7 +213,7 @@ th{background:#edf1f4;color:#354352;text-align:left;border-bottom:1px solid #ccd
 .template-po-preview{display:grid;gap:4px;padding:11px 12px;border:1px solid #d7dee7;border-radius:var(--radius-surface);background:#f7f9fb;color:#425466}.template-po-preview b{color:#1f3a52}.template-po-preview span,.template-po-preview em{font-size:12px}.template-po-preview em{color:#b54708;font-style:normal;font-weight:700}.cell-sub{display:block;margin-top:3px;color:#6d7b88;font-size:10px}.badge.warning{background:#fff1d6;color:#8b5e0b}
 
 /* v65.8.10 Gantt + Material Flow */
-.schedule-control-panel{overflow:hidden}.schedule-legend{display:flex;gap:18px;flex-wrap:wrap;padding:10px 0 16px;color:var(--muted);font-size:12px}.schedule-legend span{display:flex;align-items:center;gap:6px}.gantt-dot{width:10px;height:10px;border-radius:3px;display:inline-block}.gantt-dot.planned,.gantt-bar.planned{background:#8da2c7}.gantt-dot.running,.gantt-bar.running{background:#315efb}.gantt-dot.done,.gantt-bar.done{background:#22a06b}.gantt-dot.blocked,.gantt-bar.blocked{background:#e6a23c}.schedule-po-head>div:first-child{display:grid;gap:4px}.schedule-po-head small{color:var(--muted);font-weight:500}.schedule-po-head>div:last-child{display:flex;align-items:center;gap:8px}.btn.mini{padding:6px 9px;font-size:12px}.gantt-wrap{display:grid;grid-template-columns:230px minmax(650px,1fr);overflow:auto}.gantt-axis-label{padding:12px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-right:1px solid var(--line)}.gantt-axis{height:46px;position:relative;border-bottom:1px solid var(--line);min-width:650px;background:#fbfcff}.gantt-axis span{position:absolute;top:10px;transform:translateX(-50%);white-space:nowrap;color:var(--muted);font-size:10px}.gantt-part{display:contents}.gantt-row{display:contents}.gantt-label{padding:10px 14px;border-right:1px solid var(--line);border-bottom:1px solid #edf0f5;display:grid;gap:2px;min-height:62px}.gantt-label b{font-size:12px}.gantt-label span{font-size:12px}.gantt-label small{color:var(--muted)}.gantt-track{position:relative;min-width:650px;border-bottom:1px solid #edf0f5;min-height:62px;background:linear-gradient(to right,transparent 24.8%,#edf0f5 25%,transparent 25.2%,transparent 49.8%,#edf0f5 50%,transparent 50.2%,transparent 74.8%,#edf0f5 75%,transparent 75.2%)}.gantt-bar{position:absolute;top:18px;height:26px;border-radius:var(--radius-card);color:#fff;min-width:8px;box-shadow:0 2px 8px #243a6b22;overflow:hidden}.gantt-bar span{display:block;padding:6px 8px;font-size:10px;white-space:nowrap}.gantt-bar.blocked{background:repeating-linear-gradient(135deg,#e6a23c,#e6a23c 8px,#f3bd63 8px,#f3bd63 16px)}.gantt-dependency{position:absolute;left:6px;bottom:2px;color:#8b5e00;font-size:10px}.material-flow-section{padding:16px;border-top:1px solid var(--line);background:#fbfcff}.material-flow-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}.material-flow-head h3,.material-flow-head p{margin:0}.material-flow-head p{color:var(--muted);font-size:12px;margin-top:3px}.material-flow-head>span{font-size:12px;color:var(--muted)}.flow-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.flow-card{background:#fff;border:1px solid var(--line);padding:13px}.flow-card.flow-starved{border-color:#f0b4b4;background:#fff9f9}.flow-link{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center}.flow-link>div{display:grid;gap:2px}.flow-link>span{font-size:20px;color:var(--brand)}.flow-link small,.flow-card>small{color:var(--muted)}.flow-meter{height:8px;background:#edf1f7;border-radius:999px;overflow:hidden;margin:12px 0 9px}.flow-meter i{display:block;height:100%;background:#315efb;border-radius:inherit}.flow-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:8px}.flow-stats span{background:#f5f7fb;border-radius:var(--radius-panel);padding:7px;text-align:center;font-size:10px}.flow-stats b{display:block;font-size:15px}.empty-hint.compact{padding:12px}
+.schedule-control-panel{overflow:hidden}.schedule-legend{display:flex;gap:18px;flex-wrap:wrap;padding:10px 0 16px;color:var(--muted);font-size:12px}.schedule-legend span{display:flex;align-items:center;gap:6px}.gantt-dot{width:10px;height:10px;border-radius:3px;display:inline-block}.gantt-dot.planned,.gantt-bar.planned{background:#8da2c7}.gantt-dot.running,.gantt-bar.running{background:#315efb}.gantt-dot.done,.gantt-bar.done{background:#22a06b}.gantt-dot.blocked,.gantt-bar.blocked{background:#e6a23c}.schedule-po-head>div:first-child{display:grid;gap:4px}.schedule-po-head small{color:var(--muted);font-weight:500}.schedule-po-head>div:last-child{display:flex;align-items:center;gap:8px}.btn.mini{padding:6px 9px;font-size:12px}.gantt-wrap{display:grid;grid-template-columns:230px minmax(650px,1fr);overflow:auto}.gantt-axis-label{padding:12px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);border-right:1px solid var(--line)}.gantt-axis{height:46px;position:relative;border-bottom:1px solid var(--line);min-width:650px;background:#fbfcff}.gantt-axis span{position:absolute;top:10px;transform:translateX(-50%);white-space:nowrap;color:var(--muted);font-size:10px}.gantt-part{display:contents}.gantt-row{display:contents}.gantt-label{padding:10px 14px;border-right:1px solid var(--line);border-bottom:1px solid #edf0f5;display:grid;gap:2px;min-height:62px}.gantt-label b{font-size:12px}.gantt-label span{font-size:12px}.gantt-label small{color:var(--muted)}.gantt-track{position:relative;min-width:650px;border-bottom:1px solid #edf0f5;min-height:62px;background:linear-gradient(to right,transparent 24.8%,#edf0f5 25%,transparent 25.2%,transparent 49.8%,#edf0f5 50%,transparent 50.2%,transparent 74.8%,#edf0f5 75%,transparent 75.2%)}.gantt-bar{position:absolute;top:18px;height:26px;border-radius:var(--radius-surface-row);color:#fff;min-width:8px;box-shadow:0 2px 8px #243a6b22;overflow:hidden}.gantt-bar span{display:block;padding:6px 8px;font-size:10px;white-space:nowrap}.gantt-bar.blocked{background:repeating-linear-gradient(135deg,#e6a23c,#e6a23c 8px,#f3bd63 8px,#f3bd63 16px)}.gantt-dependency{position:absolute;left:6px;bottom:2px;color:#8b5e00;font-size:10px}.material-flow-section{padding:16px;border-top:1px solid var(--line);background:#fbfcff}.material-flow-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}.material-flow-head h3,.material-flow-head p{margin:0}.material-flow-head p{color:var(--muted);font-size:12px;margin-top:3px}.material-flow-head>span{font-size:12px;color:var(--muted)}.flow-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.flow-card{background:#fff;border:1px solid var(--line);padding:13px}.flow-card.flow-starved{border-color:#f0b4b4;background:#fff9f9}.flow-link{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center}.flow-link>div{display:grid;gap:2px}.flow-link>span{font-size:20px;color:var(--brand)}.flow-link small,.flow-card>small{color:var(--muted)}.flow-meter{height:8px;background:#edf1f7;border-radius:999px;overflow:hidden;margin:12px 0 9px}.flow-meter i{display:block;height:100%;background:#315efb;border-radius:inherit}.flow-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:8px}.flow-stats span{background:#f5f7fb;border-radius:var(--radius-panel);padding:7px;text-align:center;font-size:10px}.flow-stats b{display:block;font-size:15px}.empty-hint.compact{padding:12px}
 @media(max-width:900px){.gantt-wrap{grid-template-columns:170px minmax(650px,1fr)}.flow-grid{grid-template-columns:1fr}}
 
 /* v65.8.11 daily supervisor dashboard */
@@ -513,7 +513,7 @@ body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
 .schedule-sticky-toolbar .ui-filter-bar{margin-bottom:8px}
 .schedule-sticky-toolbar .schedule-legend{padding:6px 0 10px}
 .schedule-po.gantt-po{overflow:visible;scroll-margin-top:calc(var(--schedule-workspace-offset) + var(--schedule-toolbar-height))}
-.schedule-po-head{position:sticky;top:calc(var(--schedule-workspace-offset) + var(--schedule-toolbar-height));z-index:10;display:grid;grid-template-columns:minmax(220px,1fr) auto auto;min-height:58px;border-radius:9px 9px 0 0;background:var(--surface-subtle,#f8fafc)}
+.schedule-po-head{position:sticky;top:calc(var(--schedule-workspace-offset) + var(--schedule-toolbar-height));z-index:10;display:grid;grid-template-columns:minmax(220px,1fr) auto auto;min-height:58px;border-radius:var(--radius-surface) var(--radius-surface) 0 0;background:var(--surface-subtle,#f8fafc)}
 .schedule-po-identity,.schedule-po-progress{min-width:0;display:grid;gap:3px}
 .schedule-po-identity b{color:var(--text-primary,#17212b);font-size:15px}
 .schedule-po-identity span{overflow:hidden;color:var(--text-secondary,#647180);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
@@ -2202,7 +2202,7 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 .gantt-po{
   margin:0 0 var(--ui-space-4);
   border:1px solid var(--border-block);
-  border-radius:var(--radius-card);
+  border-radius:var(--radius-surface);
   background:var(--surface-default);
   box-shadow:var(--shadow-card);
 }
@@ -2990,3 +2990,41 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .rq-card .rq-act{justify-items:start;align-content:start}
 @media(min-width:860px){.rq-card .rq-act{justify-items:end}}
 .rq-card .rq-who b{white-space:normal;overflow:visible;text-overflow:clip}
+
+/* ==========================================================================
+   "Tiến trình sản xuất" (Gantt) trên màn hẹp.
+
+   Báo từ người dùng kèm ảnh thật trên iPhone: mốc thời gian và chữ OPERATION
+   chồng lên card PO/Part, bar timeline vượt/che nội dung.
+
+   Đo lại ở 390px, kéo timeline sang phải 300px thì thấy đúng nguyên nhân, và
+   nó KHÔNG phải "chồng" theo nghĩa z-index:
+     * `.gantt-wrap` là lưới [nhãn | trục], cả hai cùng nằm trong một vùng
+       `overflow:auto` -- nên khi kéo ngang, CỘT NHÃN TRÔI RA KHỎI MÀN HÌNH
+       (đo được: .gantt-label x = -287px). Bar còn lại lơ lửng, không biết
+       thuộc Operation nào; dải Part cũng trôi mất vì nó `grid-column:1/-1`.
+     * Mỗi mốc trục in đủ `HH:mm:ss dd/MM/yyyy`. Năm mốc như vậy không thể nằm
+       vừa một trục 650px, nên chúng cắt nhau và bị cắt cụt ở hai mép.
+     * `.gantt-axis span{transform:translateX(-50%)}` áp cho MỌI mốc, kể cả mốc
+       đầu (left:0%) và mốc cuối (left:100%) -- hai cái đó bị đẩy ra ngoài vùng
+       nhìn thấy đúng một nửa chiều rộng chữ.
+
+   Cách sửa giữ đúng ý "horizontal timeline nếu cần thì phải scroll CÓ CHỦ ĐÍCH":
+   vẫn cuộn ngang, nhưng cột định danh NEO lại để luôn biết đang đọc dòng nào.
+   ========================================================================== */
+/* Cột nhãn neo trái khi kéo timeline. Nền đục là bắt buộc: không có nó thì bar
+   chạy BÊN DƯỚI chữ và đó mới đúng là "chồng chữ". */
+.gantt-axis-label,.gantt-label{position:sticky;left:0;z-index:3}
+.gantt-label{background:var(--surface-default)}
+.gantt-axis-label{background:var(--surface-subtle)}
+/* Dải Part trải hết chiều ngang lưới, nên chính CHỮ mới là thứ cần neo. */
+.gantt-part>h3{overflow:visible}
+.gantt-part>h3>span{position:sticky;left:var(--ui-space-3);display:inline-block}
+/* Mốc trục: giờ đậm, ngày nhỏ bên dưới; hai mốc mép không được tràn ra ngoài. */
+.gantt-tick{display:grid;justify-items:center;line-height:1.25}
+.gantt-tick>b{font-weight:700;font-size:11px;color:var(--text-secondary)}
+.gantt-tick>i{font-style:normal;font-size:9.5px;color:var(--muted)}
+.gantt-axis span.edge-start{transform:none;justify-items:start}
+.gantt-axis span.edge-end{transform:translateX(-100%);justify-items:end}
+/* Bar không được vẽ đè lên cột nhãn đang neo. */
+.gantt-track{z-index:1}

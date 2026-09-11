@@ -206,17 +206,21 @@ for (const [w, h, name] of [[1920, 1080, '1920'], [1366, 768, '1366'], [390, 844
     for (const q of ['dashboard&tab=overview', 'dashboard&tab=people', 'dashboard&tab=output',
                      'session-management', 'session-exceptions', 'business-audit']) {
       await page.goto(`/app?page=${q}`);
-      await page.waitForTimeout(1500);
-      const g = await page.evaluate(() => {
+      // Chờ trang vẽ xong THẬT thay vì đợi một mốc thời gian cố định: dưới tải
+      // của cả bộ suite, 1500ms không đủ và phép đo rơi vào một khung hình giữa
+      // chừng -- bài này từng đỏ đúng vì thế khi chạy --retries=0, trong khi
+      // chạy riêng thì xanh. Đo tràn ngang phải đo trên layout đã ổn định.
+      await expect(page.locator('#content .ui-filter-bar, #content .content-panel').first())
+        .toBeVisible({ timeout: 20000 });
+      await expect.poll(async () => page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth),
+        { message: `${q} tràn ngang @${name}`, timeout: 10000 }).toBe(false);
+      const tabsOk = await page.evaluate(() => {
         const n = document.querySelector('.dashboard-tabs');
-        return {
-          bodyOverflows: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-          // Dải tab hẹp hơn nội dung thì PHẢI cuộn được, không được cắt cụt.
-          tabsOk: !n || n.scrollWidth <= n.clientWidth || getComputedStyle(n).overflowX === 'auto',
-        };
+        // Dải tab hẹp hơn nội dung thì PHẢI cuộn được, không được cắt cụt.
+        return !n || n.scrollWidth <= n.clientWidth || getComputedStyle(n).overflowX === 'auto';
       });
-      expect(g.bodyOverflows, `${q} tràn ngang @${name}`).toBe(false);
-      expect(g.tabsOk, `dải tab bị cắt cụt @${name} trên ${q}`).toBe(true);
+      expect(tabsOk, `dải tab bị cắt cụt @${name} trên ${q}`).toBe(true);
     }
   });
 }
