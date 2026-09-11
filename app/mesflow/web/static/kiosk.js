@@ -185,7 +185,7 @@
           document.getElementById('finish-operation').textContent =
             `${openSession.operation_display_key || openSession.operation_code} · ${openSession.operation_name}`;
           pendingFinish.requestId = `${deviceUuid}-FINISH-${Date.now()}`;
-          if (String(openSession.operation_type || '') === 'SETUP') {
+          if (OpPolicy.isSetup(openSession)) {
             // A setup produces nothing, so there is nothing to type. The
             // backend discards quantities for a setup session anyway (see
             // WorkSessionRepository._finish_within), which is exactly how the
@@ -271,7 +271,7 @@
   }
   function renderFinishConfirmation() {
     const scrap = pendingFinish.defect - pendingFinish.rework;
-    const isSetup = String((openSession && openSession.operation_type) || '') === 'SETUP';
+    const isSetup = OpPolicy.isSetup(openSession);
     const rows = isSetup
       ? [['Setup máy','Hoàn tất']]
       : (pendingFinish.hasRework

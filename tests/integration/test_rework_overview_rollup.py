@@ -165,7 +165,21 @@ def test_repair_labour_shows_in_the_day_view_without_touching_operation_progress
     assert (repair_sessions[0]['good_qty'], repair_sessions[0]['defect_qty']) == (0, 0)
 
     # The KPIs are summed off this same list, so they must be unchanged by it.
-    assert sum(x['good_qty'] for x in payload['sessions']) == 98
-    assert sum(x['defect_qty'] for x in payload['sessions']) == 8
+    #
+    # Scoped to THIS test's own employee (seeded_factory creates a fresh one
+    # per test), not to every session in the factory that day. The unscoped
+    # version only ever held because no other test in the suite happened to
+    # leave a closed production session on the same business day -- a property
+    # of the suite, not of the code under test, and one that broke the moment
+    # tests/integration/test_b2_operation_type_policy_convergence.py was added
+    # (observed once at 182 instead of 98, and not reproducible on a rerun:
+    # exactly the shape of an order-dependent flake). Scoping keeps the claim
+    # intact -- the repair session belongs to this employee, so if it ever
+    # carried quantity again this sum would move -- while removing a
+    # dependency on what the rest of the suite happens to do.
+    mine = [x for x in payload['sessions'] if x['employee_id'] == graph['employee_id']]
+    assert len(mine) == 2, f'expected the production session and the repair session, got {mine}'
+    assert sum(x['good_qty'] for x in mine) == 98
+    assert sum(x['defect_qty'] for x in mine) == 8
     # ...and the Operation progress panel still ignores the workbench.
     assert not [x for x in payload['items'] if x['operation_id'] == rework_op_id]

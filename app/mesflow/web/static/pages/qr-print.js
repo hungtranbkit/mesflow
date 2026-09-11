@@ -22,7 +22,7 @@ async function renderQrPrintCenter(){
       part_name:String(row.part_name??''),
       part_sort:Number(row.part_sort??0),
       operation_sort:Number(row.operation_sort??0),
-      operation_type:String(row.operation_type??'PRODUCTION').toUpperCase(),
+      operation_type:OpPolicy.typeOf(row),
       parent_name:String(row.parent_name??''),
       qr_payload:String(row.qr_payload??row.qr??row.payload??(['EMPLOYEE','OPERATION','PART','PRODUCTION_ORDER'].includes(String(type).toUpperCase())?`WF|${String(type).toUpperCase()==='PRODUCTION_ORDER'?'PO':String(type).toUpperCase()==='OPERATION'?'OP':String(type).toUpperCase()==='EMPLOYEE'?'EMP':'PART'}|${row.code??row.employee_no??row.operation_code??row.part_code??row.po_code??''}`:''))
     })).filter(x=>x.code||x.qr_payload);
@@ -49,11 +49,11 @@ async function renderQrPrintCenter(){
 
   // Tem SETUP phải đọc ra ngay là setup của việc nào -- không bắt người dùng
   // nhận biết bằng hậu tố '-SU' ở cuối mã.
-  const displayName=x=>x.operation_type==='SETUP'
+  const displayName=x=>OpPolicy.isSetup(x)
     ? `Setup · ${x.parent_name||String(x.name||'').replace(/^Setup\s+/i,'')||x.code}`
     : (x.name||x.code||'—');
   const cardHtml=x=>{
-    const key=itemKey(x),isSetup=x.operation_type==='SETUP';
+    const key=itemKey(x),isSetup=OpPolicy.isSetup(x);
     const context=x.qr_type==='OPERATION'
       ? [x.part_code,x.part_name].filter(Boolean).join(' · ')
       : [x.group_name,x.detail].filter(Boolean).join(' · ');
@@ -86,7 +86,7 @@ async function renderQrPrintCenter(){
       const partKey=x.part_code||'—';
       const parts=pos.get(poKey);
       if(!parts.has(partKey))parts.set(partKey,{code:x.part_code,name:x.part_name,sort:x.part_sort,main:[],support:[]});
-      (x.operation_type==='PRODUCTION'?parts.get(partKey).main:parts.get(partKey).support).push(x);
+      (OpPolicy.isProduction(x)?parts.get(partKey).main:parts.get(partKey).support).push(x);
     }
     const singlePo=pos.size===1;
     return [...pos.entries()].map(([poCode,parts])=>{
