@@ -494,6 +494,11 @@
   document.getElementById('finish-submit-retry').addEventListener('click', () => finish());
 
 
+  // --- Bảng mô phỏng quét QR (REQ-KIOSK-012) --------------------------------
+  // Xưởng chạy hàng chục PO song song. Một <select> phẳng gom hết công đoạn
+  // của mọi PO là không tìm nổi, và phần đuôi bị LIMIT cắt thì không cách nào
+  // chọn tới. Nên phạm vi (PO) và tìm kiếm đi XUỐNG SERVER: lọc lại ở trình
+  // duyệt trên tập đã bị cắt chỉ giấu vấn đề chứ không giải quyết nó.
   const demoPanel = document.getElementById('demo-panel');
   const demoToggle = document.getElementById('demo-toggle');
   const demoClose = document.getElementById('demo-close');
@@ -501,7 +506,42 @@
   const demoContent = document.getElementById('demo-content');
   const demoEmployee = document.getElementById('demo-employee');
   const demoOperation = document.getElementById('demo-operation');
+  const demoPo = document.getElementById('demo-po');
+  const demoSearch = document.getElementById('demo-operation-search');
+  const demoCount = document.getElementById('demo-operation-count');
+  const demoEmpty = document.getElementById('demo-operation-empty');
+  const DEMO_PO_KEY = 'mesflow_kiosk_demo_po';
   let demoLoaded = false;
+  let demoPoList = [];
+  let demoPoTotal = 0;
+  // Khi người dùng đã tự chọn PO thì không có đường nào tự đổi giúp họ nữa --
+  // đổi phạm vi dưới tay người đang quét là cách nhanh nhất để công của lệnh
+  // này bị ghi sang lệnh khác.
+  let demoPoTouched = false;
+  let demoSearchTimer = null;
+  // Tìm kiếm có debounce + nạp lại theo chu kỳ chạy song song; chỉ phản hồi
+  // của lần gọi MỚI NHẤT được phép vẽ, nếu không một phản hồi cũ về muộn sẽ
+  // ghi đè kết quả đúng.
+  let demoRequestSeq = 0;
+
+  function canonicalPoId(raw) {
+    const value = Number.parseInt(String(raw ?? '').trim(), 10);
+    return Number.isInteger(value) && value > 0 ? String(value) : '';
+  }
+  function storedPoId() {
+    try { return localStorage.getItem(DEMO_PO_KEY) || ''; } catch (_) { return ''; }
+  }
+  function rememberPoId(value) {
+    try {
+      if (value) localStorage.setItem(DEMO_PO_KEY, value);
+      else localStorage.removeItem(DEMO_PO_KEY);
+    } catch (_) { /* chế độ riêng tư: mất trí nhớ chứ không gãy panel */ }
+  }
+  // URL thắng bộ nhớ cục bộ ở lần mở đầu tiên: mở `/kiosk?po_id=…` là một chỉ
+  // định rõ ràng của người vừa bấm link, còn localStorage chỉ là lần trước.
+  // '' = "Tất cả PO" (khác với "chưa chọn gì").
+  let demoPoId = canonicalPoId(new URLSearchParams(window.location.search).get('po_id'))
+    || canonicalPoId(storedPoId());
 
   function employeeQr() {
     const option = demoEmployee.options[demoEmployee.selectedIndex];
@@ -514,6 +554,9 @@
   function updateDemoQr() {
     document.getElementById('demo-employee-qr').textContent = employeeQr() || 'Chưa có QR nhân viên';
     document.getElementById('demo-operation-qr').textContent = operationQr() || 'Chưa có QR Operation';
+    const hasOperation = !!operationQr();
+    document.getElementById('demo-scan-operation').disabled = !hasOperation;
+    document.getElementById('demo-copy-operation').disabled = !hasOperation;
   }
   function ensureTutorialDemoOptions() {
     if (!tutorialMode) return;
@@ -540,47 +583,141 @@
     demoOperation.innerHTML='';
     ensureTutorialDemoOptions();
     demoLoaded=true;
+    renderDemoPoOptions();
+    renderOperationSummary(demoOperation.options.length, demoOperation.options.length);
     updateDemoQr();
     demoLoading.hidden=true;
     demoContent.hidden=false;
     if (reason) document.getElementById('scan-status').textContent='Đang dùng dữ liệu hướng dẫn dự phòng';
   }
 
-  async function loadDemoData(force=false) {
-    if (demoLoaded && !force) return;
-    const selectedEmployee = demoEmployee.value;
+  function selectedPoLabel() {
+    if (!demoPoId) return 'tất cả PO';
+    const found = demoPoList.find(po => String(po.id) === demoPoId);
+    return found ? (found.code || `#${found.id}`) : `PO #${demoPoId}`;
+  }
+
+  function renderDemoPoOptions() {
+    demoPo.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = '';
+    all.textContent = demoPoTotal ? `Tất cả PO (${demoPoTotal})` : 'Tất cả PO';
+    demoPo.appendChild(all);
+    demoPoList.forEach(po => {
+      const option = document.createElement('option');
+      option.value = String(po.id);
+      const count = Number(po.operation_count || 0);
+      option.textContent = `${po.code || `#${po.id}`}${po.product ? ` · ${po.product}` : ''} · ${count} OP`;
+      demoPo.appendChild(option);
+    });
+    // PO đang chọn không còn trong danh sách (vừa đóng lệnh, hoặc `po_id` trên
+    // URL trỏ vào PO không chạy): GIỮ nó lại và nói thẳng, thay vì lặng lẽ
+    // rơi về "Tất cả PO" và bày ra công đoạn của mọi lệnh khác.
+    if (demoPoId && !demoPoList.some(po => String(po.id) === demoPoId)) {
+      const stale = document.createElement('option');
+      stale.value = demoPoId;
+      stale.textContent = `PO #${demoPoId} · không còn đang chạy`;
+      demoPo.appendChild(stale);
+    }
+    demoPo.value = demoPoId;
+  }
+
+  function emptyOperationMessage(term) {
+    const scoped = !!demoPoId;
+    if (term && scoped) return `Không có công đoạn nào khớp “${term}” trong ${selectedPoLabel()}. Xoá ô tìm kiếm, hoặc chọn “Tất cả PO”.`;
+    if (term) return `Không có công đoạn nào khớp “${term}” trong các lệnh đang chạy.`;
+    if (scoped) return `${selectedPoLabel()} chưa có công đoạn nào quét được. Chọn PO khác hoặc “Tất cả PO”.`;
+    return 'Chưa có công đoạn từ lệnh đang chạy.';
+  }
+
+  function renderOperationSummary(shown, total) {
+    const term = demoSearch.value.trim();
+    const has = shown > 0;
+    demoOperation.hidden = !has;
+    demoEmpty.hidden = has;
+    // `total` đếm TRƯỚC LIMIT ở server, nên "500/812" là lời thú nhận trung
+    // thực rằng danh sách đang thiếu -- lọc hẹp lại thì con số tự khớp.
+    demoCount.textContent = has
+      ? (total > shown ? `${shown}/${total} công đoạn` : `${shown} công đoạn`)
+      : '0 công đoạn';
+    demoCount.classList.toggle('is-capped', total > shown);
+    if (!has) demoEmpty.textContent = emptyOperationMessage(term);
+  }
+
+  function demoDataUrl(include) {
+    const params = new URLSearchParams();
+    if (include) params.set('include', include);
+    if (demoPoId) params.set('po_id', demoPoId);
+    const term = demoSearch.value.trim();
+    if (term) params.set('q', term);
+    const query = params.toString();
+    return `/api/kiosk-web/demo-data${query ? `?${query}` : ''}`;
+  }
+
+  function renderDemoOperations(data) {
     const selectedOperation = demoOperation.value;
+    demoOperation.innerHTML = '';
+    (data.operations || []).forEach(op => {
+      const option = document.createElement('option');
+      option.value = op.id; option.dataset.qr = op.qr || `WF|OP|${op.code}`;
+      option.dataset.poId = op.po_id == null ? '' : String(op.po_id);
+      option.textContent = `${op.po_code || '-'} · ${op.part_code || '-'} · ${op.code} · ${op.name}`;
+      demoOperation.appendChild(option);
+    });
+    ensureTutorialDemoOptions();
+    const shown = demoOperation.options.length;
+    if (selectedOperation && [...demoOperation.options].some(x => x.value === selectedOperation)) {
+      demoOperation.value = selectedOperation;
+    }
+    renderOperationSummary(shown, Math.max(Number(data.operations_total || 0), shown));
+  }
+
+  function renderDemoEmployees(data) {
+    const selectedEmployee = demoEmployee.value;
+    demoEmployee.innerHTML = '';
+    (data.employees || []).forEach(emp => {
+      const option = document.createElement('option');
+      option.value = emp.id; option.dataset.qr = emp.qr || `WF|EMP|${emp.employee_no}`;
+      option.textContent = `${emp.employee_no} · ${emp.name}${emp.department ? ` · ${emp.department}` : ''}`;
+      demoEmployee.appendChild(option);
+    });
+    ensureTutorialDemoOptions();
+    if (!demoEmployee.options.length) demoEmployee.innerHTML = '<option value="">Chưa có nhân viên hoạt động</option>';
+    if (selectedEmployee && [...demoEmployee.options].some(x => x.value === selectedEmployee)) {
+      demoEmployee.value = selectedEmployee;
+    }
+  }
+
+  async function loadDemoData(force=false, include='') {
+    if (demoLoaded && !force) return;
+    const seq = ++demoRequestSeq;
+    const operationsOnly = include === 'operations';
     demoLoading.textContent = 'Đang tải dữ liệu...';
-    demoLoading.hidden = false;
-    if (!demoLoaded) demoContent.hidden = true;
+    if (!demoLoaded) { demoLoading.hidden = false; demoContent.hidden = true; }
     try {
-      const request=api('/api/kiosk-web/demo-data');
+      const request=api(demoDataUrl(include));
       const data=tutorialMode
         ? await Promise.race([
             request,
             new Promise((_,reject)=>setTimeout(()=>reject(new Error('demo-data timeout')),6000))
           ])
         : await request;
-      demoEmployee.innerHTML = ''; demoOperation.innerHTML = '';
-      (data.employees || []).forEach(emp => {
-        const option = document.createElement('option');
-        option.value = emp.id; option.dataset.qr = emp.qr || `WF|EMP|${emp.employee_no}`;
-        option.textContent = `${emp.employee_no} · ${emp.name}${emp.department ? ` · ${emp.department}` : ''}`;
-        demoEmployee.appendChild(option);
-      });
-      (data.operations || []).forEach(op => {
-        const option = document.createElement('option');
-        option.value = op.id; option.dataset.qr = op.qr || `WF|OP|${op.code}`;
-        option.textContent = `${op.po_code || '-'} · ${op.part_code || '-'} · ${op.code} · ${op.name}`;
-        demoOperation.appendChild(option);
-      });
-      ensureTutorialDemoOptions();
-      if (!demoEmployee.options.length) demoEmployee.innerHTML = '<option value="">Chưa có nhân viên hoạt động</option>';
-      if (!demoOperation.options.length) demoOperation.innerHTML = '<option value="">Chưa có công đoạn từ lệnh đang chạy</option>';
-      if (selectedEmployee && [...demoEmployee.options].some(x => x.value === selectedEmployee)) demoEmployee.value = selectedEmployee;
-      if (selectedOperation && [...demoOperation.options].some(x => x.value === selectedOperation)) demoOperation.value = selectedOperation;
+      if (seq !== demoRequestSeq) return;   // đã có lần gọi mới hơn
+      if (!operationsOnly) {
+        renderDemoEmployees(data);
+        demoPoList = Array.isArray(data.production_orders) ? data.production_orders : demoPoList;
+        demoPoTotal = Number(data.production_orders_total || demoPoList.length || 0);
+        // `po_id` trên URL là chỉ định của người vừa mở màn này nên mỗi lần
+        // nạp lại vẫn phải giữ đúng PO đó -- TRỪ KHI người dùng đã tự chọn PO
+        // khác. Sau một lần chọn tay, không có gì được đổi phạm vi nữa.
+        const urlPoId = canonicalPoId(new URLSearchParams(window.location.search).get('po_id'));
+        if (urlPoId && !demoPoTouched && demoPoId !== urlPoId) demoPoId = urlPoId;
+        renderDemoPoOptions();
+      }
+      renderDemoOperations(data);
       demoLoaded = true; updateDemoQr(); demoLoading.hidden = true; demoContent.hidden = false;
     } catch (error) {
+      if (seq !== demoRequestSeq) return;
       if (tutorialMode) {
         showTutorialDemoFallback(error.message);
         return;
@@ -591,8 +728,21 @@
       demoLoading.textContent = String(error.code || '').includes('401') || error.code === 'AUTH_REQUIRED'
         ? 'Danh sách mô phỏng chỉ dành cho tài khoản đã đăng nhập. Máy quét thật vẫn hoạt động bình thường.'
         : `Không tải được dữ liệu mô phỏng: ${error.message}`;
+      demoLoading.hidden = false;
     }
   }
+
+  // Đổi PO / gõ tìm kiếm chỉ cần nạp lại danh sách công đoạn. Nạp lại cả danh
+  // sách nhân viên sẽ dựng lại <select> đó và làm mất nhân viên đang chọn.
+  const reloadDemoOperations = () => loadDemoData(true, 'operations');
+
+  function onDemoPoChange() {
+    demoPoId = canonicalPoId(demoPo.value);
+    demoPoTouched = true;
+    rememberPoId(demoPoId);
+    reloadDemoOperations();
+  }
+
   function openDemo() { clearTimeout(resetTimer); demoPanel.classList.add('open'); demoPanel.setAttribute('aria-hidden','false'); demoToggle.setAttribute('aria-expanded','true'); loadDemoData(true); }
   function closeDemo() { demoPanel.classList.remove('open'); demoPanel.setAttribute('aria-hidden','true'); demoToggle.setAttribute('aria-expanded','false'); focusScanner(); }
   async function copyText(text) {
@@ -609,6 +759,10 @@
     reload: () => { demoLoaded=false; return loadDemoData(true); },
     scanEmployee: () => scan(employeeQr()),
     scanOperation: () => scan(operationQr()),
+    // Đổi phạm vi PO qua đúng đường mà cái <select> đi, để cái gọi từ script
+    // và cái người dùng bấm không bao giờ lệch nhau. '' = Tất cả PO.
+    selectProductionOrder: id => { demoPo.value = canonicalPoId(id); return onDemoPoChange(); },
+    searchOperations: term => { demoSearch.value = String(term || ''); return reloadDemoOperations(); },
     // Feed an arbitrary payload through the same path a scanner gun uses --
     // the demo selects can only offer QRs that exist in the demo dataset.
     scan: qr => scan(String(qr || ''))
@@ -618,7 +772,20 @@
   demoClose.addEventListener('click', closeDemo);
   document.getElementById('demo-refresh').addEventListener('click', () => { demoLoaded=false; loadDemoData(true); });
   demoEmployee.addEventListener('change', updateDemoQr); demoOperation.addEventListener('change', updateDemoQr);
-  setInterval(() => { if (demoIsOpen()) loadDemoData(true); }, 10000);
+  demoPo.addEventListener('change', onDemoPoChange);
+  demoSearch.addEventListener('input', () => {
+    clearTimeout(demoSearchTimer);
+    demoSearchTimer = setTimeout(reloadDemoOperations, 220);
+  });
+  demoSearch.addEventListener('search', () => { clearTimeout(demoSearchTimer); reloadDemoOperations(); });
+  // Nạp lại nền để danh sách không cũ đi. Bỏ qua khi người dùng đang gõ hoặc
+  // đang mở chính hai ô chọn -- dựng lại <select> dưới tay họ là mất lựa chọn.
+  setInterval(() => {
+    if (!demoIsOpen()) return;
+    const busy = document.activeElement;
+    if (busy === demoSearch || busy === demoOperation || busy === demoPo || busy === demoEmployee) return;
+    loadDemoData(true);
+  }, 10000);
   document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr()));
   document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr()));
   document.getElementById('demo-copy-employee').addEventListener('click', () => copyText(employeeQr()));

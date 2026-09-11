@@ -118,7 +118,7 @@
 
     <aside id="demo-panel" data-testid="kiosk-demo-panel" class="demo-panel" aria-hidden="true">
       <div class="demo-panel-head">
-        <div><strong>Mô phỏng quét QR</strong><small>Chọn nhân viên và công đoạn của lệnh đang chạy</small></div>
+        <div><strong>Mô phỏng quét QR</strong><small>Chọn nhân viên, lọc theo Production Order rồi chọn công đoạn</small></div>
         <button id="demo-close" class="demo-close" type="button" aria-label="Đóng"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </div>
       <div id="demo-loading" class="demo-loading">Đang tải dữ liệu...</div>
@@ -132,9 +132,23 @@
         </div>
         <div id="demo-employee-qr" class="demo-qr"></div>
 
-        <label>Công đoạn
-          <select id="demo-operation"></select>
-        </label>
+        <div class="demo-scope" data-testid="kiosk-demo-scope">
+          <label for="demo-po">Production Order
+            <select id="demo-po" data-testid="kiosk-demo-po"></select>
+          </label>
+          <label for="demo-operation-search">Tìm công đoạn
+            <input id="demo-operation-search" data-testid="kiosk-demo-op-search" type="search"
+                   autocomplete="off" autocapitalize="off" spellcheck="false"
+                   placeholder="Mã, tên công đoạn hoặc Part">
+          </label>
+        </div>
+
+        <div class="demo-list-head">
+          <label for="demo-operation" class="demo-list-title">Công đoạn</label>
+          <span id="demo-operation-count" data-testid="kiosk-demo-op-count" class="demo-count"></span>
+        </div>
+        <select id="demo-operation" data-testid="kiosk-demo-op"></select>
+        <p id="demo-operation-empty" data-testid="kiosk-demo-op-empty" class="demo-empty" hidden></p>
         <div class="demo-buttons">
           <button id="demo-scan-operation" type="button">Quét công đoạn</button>
           <button id="demo-copy-operation" class="secondary" type="button">Sao chép mã QR</button>

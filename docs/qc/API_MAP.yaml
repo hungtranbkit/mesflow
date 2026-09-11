@@ -133,7 +133,10 @@ by_feature:
     - {method: POST, path: /api/kiosk-web/scan, roles: none (unauthenticated device flow, by design), surface: device}
     - {method: POST, path: /api/kiosk-web/start, roles: none, surface: device}
     - {method: POST, path: /api/kiosk-web/finish/<session_id>, roles: none, surface: device}
-    - {method: GET,  path: /api/kiosk-web/demo-data, roles: none, surface: device}
+    # REQ-KIOSK-012. `roles: none` ở đây đã sai từ bản vá 2026-09-09: dữ liệu
+    # trả về mang QR thẻ của toàn bộ nhân viên nên endpoint là @login_required.
+    - {method: GET,  path: /api/kiosk-web/demo-data, roles: any_authenticated, surface: ui,
+       query: "po_id (int, id canonical của PO), q (tìm mã/tên OP + mã/tên Part), include (employees|production_orders|operations)"}
     - {method: GET,  path: /api/kiosk-web/health, roles: none, surface: device}
     - {method: POST, path: /api/kiosk-web/heartbeat, roles: none, surface: device}
     - {method: GET,  path: /kiosk, roles: none, surface: ui}

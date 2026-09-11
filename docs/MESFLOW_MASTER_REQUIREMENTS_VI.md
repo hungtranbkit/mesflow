@@ -2276,6 +2276,80 @@ ngay khi ai đó sửa. Sửa đúng cần tách "repairable đã khai báo" kh�
 xong" và chạm vào rollup + hàng chờ sửa + đối soát → thuộc lane Rework.
 
 
+### REQ-KIOSK-012 — Bảng mô phỏng quét QR: lọc theo Production Order + tìm Operation
+
+> **Chỉ thuộc đường mô phỏng/demo.** Đây là bảng "Mô phỏng quét QR" của Kiosk
+> web (`/kiosk`) và nguồn dữ liệu `GET /api/kiosk-web/demo-data` của nó. Máy
+> thật không đi qua đây: súng quét gõ thẳng vào ô nhận mã, còn thiết bị ESP v2
+> dùng giao thức `kiosk_v2` (REQ-KIOSK-002). Không điều nào trong yêu cầu này
+> được phép đụng vào luồng quét/bắt đầu/kết thúc session.
+
+- **Mô-đun**: Kiosk web — bảng mô phỏng quét QR.
+- **Mục đích**: xưởng chạy hàng chục lệnh cùng lúc, mỗi lệnh vài chục công
+  đoạn. Bảng này trước đây đổ công đoạn của MỌI lệnh đang chạy vào một
+  `<select>` phẳng bị cắt ở 500 dòng: đầu danh sách thì không tìm nổi, còn
+  phần sau chỗ cắt thì **không có đường nào chạm tới**. Lọc theo PO là thứ làm
+  bảng này dùng được trở lại, và làm cái trần thôi là một bức tường.
+- **Đối tượng thực hiện**: chỉ người đã đăng nhập — dữ liệu trả về mang QR thẻ
+  của toàn bộ nhân viên, tức là credential (giữ nguyên bản vá 2026-09-09).
+- **Điều kiện tiên quyết**: có ít nhất một PO `IN_PROGRESS`.
+- **Đầu vào**: `GET /api/kiosk-web/demo-data?po_id=<int>&q=<text>&include=<phần>`
+  — đều tuỳ chọn; không truyền gì thì hành vi y hệt hợp đồng cũ.
+- **Kích hoạt bởi**: mở bảng, đổi PO, gõ vào ô tìm công đoạn, bấm "Tải lại
+  danh sách", và nhịp làm mới nền 10 giây.
+
+**Luồng chính**
+
+1. Bảng có **ô chọn Production Order** đặt TRƯỚC danh sách công đoạn. Nếu URL
+   của trang có `po_id` thì chọn đúng PO đó khi mở; nếu không thì phạm vi là
+   **"Tất cả PO"** (hoặc PO mà chính máy này đã chọn lần trước).
+2. Chọn một PO thì danh sách công đoạn bị giới hạn theo **id canonical của PO**
+   (`production_orders.id`, tức khoá chính — KHÔNG theo `po.code`, vì code là
+   chuỗi người nhập, có thể trùng hoặc bị sửa).
+3. **Ô tìm công đoạn** lọc trong đúng phạm vi đang chọn, khớp trên mã Operation,
+   tên Operation, mã Part và tên Part.
+4. Số kết quả hiện ngay cạnh danh sách. Khi trần của server cắt bớt, con số
+   đọc là `đang hiện/tổng` và được đánh dấu, để giao diện không bao giờ lặng lẽ
+   giấu mất phần đuôi.
+
+- **Đầu ra mong đợi**: `{ok, po_id, q, employees[], production_orders[],
+  production_orders_total, operations[], operations_total}`; `operations_total`
+  đếm **trước** `LIMIT`. Mỗi dòng PO mang `id`, `code`, `product`,
+  `operation_count`; mỗi dòng Operation mang `po_id` của chính nó.
+- **Phạm vi cắt ở SERVER, không cắt ở trình duyệt.** Lọc lại một mảng đã bị cắt
+  ngay trong trình duyệt thì phần đuôi vĩnh viễn không tới được — đó chính là
+  khiếm khuyết đang sửa, không phải một lựa chọn cách làm.
+- **Chuyển trạng thái**: không có — chỉ đọc.
+- **Kiểm tra hợp lệ**: `po_id` phải là số nguyên dương; `include` chỉ nhận
+  `employees`, `production_orders`, `operations`.
+- **Lỗi**: `po_id` sai định dạng hoặc `include` lạ → `400`, `error_code
+  REQ-400`. Cấm im lặng bỏ qua `po_id` sai: làm vậy là bày công đoạn của mọi
+  lệnh lên một màn hình đang tưởng mình chỉ hiện một lệnh.
+- **Ranh giới**: PO đang chạy mà **không có** công đoạn nào quét được vẫn phải
+  chọn được và trả lời bằng một empty state rõ ràng (giấu nó đi thì người dùng
+  chỉ thấy PO của mình biến mất mà không hiểu vì sao); `po_id` trỏ vào PO không
+  còn chạy thì GIỮ nguyên phạm vi và nói thẳng, không rơi về "Tất cả PO"; hơn
+  40 PO và hơn 40 công đoạn mỗi PO đều phải tới được, không xếp hạng, không phụ
+  thuộc vào trần.
+- **Giữ lựa chọn**: PO đang chọn phải sống qua lần làm mới và qua tải lại
+  trang. Sau khi người dùng tự tay chọn PO thì **không gì** được đổi phạm vi
+  giúp họ nữa — URL cũng không, nhịp làm mới nền cũng không. Đổi phạm vi dưới
+  tay người đang thao tác chính là cách công của lệnh này bị ghi sang lệnh kia.
+- **Quyền**: `@login_required`, giữ nguyên. Thêm tham số lọc không được tạo ra
+  một biến thể nào của endpoint bỏ qua đăng nhập.
+- **Đồng thời**: không (chỉ đọc). Phía client bỏ phản hồi của những lần gọi đã
+  bị thay chỗ, để một phản hồi về muộn không ghi đè kết quả mới hơn.
+- **Nhật ký kiểm toán**: không (chỉ đọc).
+- **Liên quan**: REQ-KIOSK-001 (luồng quét mà bảng này nạp dữ liệu vào — không
+  đụng tới), REQ-KIOSK-002 (ESP v2 — hoàn toàn khác code path), REQ-SEARCH-*.
+- **Độ ưu tiên**: P1 (khiếm khuyết dùng-được do xưởng báo).
+- **Khía cạnh kiểm thử**: positive (lọc phạm vi, đổi PO, tìm theo mã/tên/Part),
+  negative (`po_id` rác, `include` lạ, ký tự đại diện LIKE phải là ký tự
+  thường, không khớp gì), cô lập (PO A không bao giờ thấy công đoạn PO B),
+  boundary (PO không có OP, PO không tồn tại, >40 PO/OP, vượt trần của server),
+  trạng thái (giữ lựa chọn qua làm mới/tải lại; không tự nhảy PO sau khi chọn
+  tay), responsive (390px, không tràn ngang).
+
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 
 Chi tiết đầy đủ ở §6.4 và schema `work_shifts`/`work_shift_intervals`
@@ -2863,6 +2937,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
 | REQ-KIOSK-010 (tương phản vùng điều khiển kiosk) | `tests/e2e/kiosk-control-contrast.spec.js`, `tests/test_daily_dashboard_kiosk_contract.py` | A |
 | REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js`, `docs/KIOSK_ESP_PARITY.md` | A |
+| REQ-KIOSK-012 (mô phỏng kiosk: lọc theo PO + tìm OP) | `tests/integration/test_kiosk_demo_po_filter.py`, `tests/e2e/kiosk-demo-po-filter.spec.js` | A |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |

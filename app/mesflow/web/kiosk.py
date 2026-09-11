@@ -21,6 +21,14 @@ bp = Blueprint('web_kiosk', __name__)
 # danh mục QR đã sửa từ trước bằng cùng tập này (xem master_data.qr_labels).
 STARTABLE_ONLY_O = type_in_sql(STARTABLE_TYPES, 'o')
 
+# Trần an toàn cho hai truy vấn của bảng mô phỏng. Chúng chỉ chặn một truy vấn
+# chạy loạn, KHÔNG phải cách để thu gọn danh sách: thu gọn là việc của `po_id`
+# và `q`, và mọi phản hồi đều kèm `*_total` đếm trước LIMIT nên giao diện luôn
+# nói được khi nó đang hiện thiếu.
+DEMO_PO_LIMIT = 500
+DEMO_OP_LIMIT = 500
+DEMO_SEARCH_COLUMNS = ('o.code', 'o.name', 'p.code', 'p.name')
+
 
 def _error(exc):
     message = str(exc) or 'Không thể xử lý yêu cầu'
@@ -95,6 +103,57 @@ def kiosk_web_heartbeat():
         return _error(exc)
 
 
+# --- Bộ lọc của bảng mô phỏng quét QR (REQ-KIOSK-012) -----------------------
+# Xưởng thật có hàng chục PO chạy song song, mỗi PO vài chục Operation. Danh
+# sách phẳng trước đây đưa hết vào MỘT <select> rồi cắt ở LIMIT 500: OP nằm
+# sau chỗ cắt là KHÔNG bao giờ chọn được, và ngay cả khi còn trong danh sách
+# thì cuộn qua vài trăm dòng để tìm đúng công đoạn là việc không làm nổi.
+#
+# Nên việc lọc phải nằm ở SQL, không phải ở trình duyệt: lọc client-side trên
+# một tập ĐÃ bị cắt chỉ làm đẹp phần ngọn mà vẫn giấu mất phần đuôi. Scope
+# theo `production_orders.id` (khoá chính, id canonical) chứ không theo
+# `po.code` -- code là chuỗi người nhập, có thể trùng/đổi.
+DEMO_SECTIONS = ('employees', 'production_orders', 'operations')
+
+
+def _demo_sections() -> set[str]:
+    """`?include=` chọn phần cần trả. Mặc định trả đủ (giữ nguyên hợp đồng cũ).
+
+    Lọc theo PO/tìm kiếm chỉ cần nạp lại `operations`; nạp lại cả danh sách
+    nhân viên mỗi lần gõ phím sẽ dựng lại <select> nhân viên và làm mất lựa
+    chọn người dùng đang giữ.
+    """
+    raw = (request.args.get('include') or '').strip()
+    if not raw:
+        return set(DEMO_SECTIONS)
+    wanted = {part.strip().lower() for part in raw.split(',') if part.strip()}
+    unknown = wanted - set(DEMO_SECTIONS)
+    if unknown:
+        raise ValueError(f"include không hợp lệ: {', '.join(sorted(unknown))}")
+    return wanted or set(DEMO_SECTIONS)
+
+
+def _demo_po_id() -> int | None:
+    """`?po_id=` -- None nghĩa là "Tất cả PO", không phải "không có PO nào"."""
+    raw = (request.args.get('po_id') or '').strip()
+    if not raw or raw.lower() == 'all':
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError('po_id phải là số nguyên id của Production Order')
+    if value <= 0:
+        raise ValueError('po_id phải là số nguyên dương')
+    return value
+
+
+def _demo_like(term: str) -> str:
+    """`%`/`_`/`\\` là ký tự đại diện của LIKE -- người dùng gõ chúng thì phải
+    được hiểu là ký tự thường, nếu không gõ `%` sẽ khớp mọi thứ."""
+    escaped = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    return f'%{escaped}%'
+
+
 @bp.get('/api/kiosk-web/demo-data')
 @login_required
 def kiosk_demo_data():
@@ -106,32 +165,84 @@ def kiosk_demo_data():
     without a physical scanner -- a real terminal never calls it, because a
     real scanner types into the input field. It was reachable unauthenticated
     from the public internet until 2026-09-09.
+
+    Query (tất cả tuỳ chọn, không truyền = hành vi cũ):
+      `po_id`   id canonical của Production Order, giới hạn `operations`.
+      `q`       tìm trong mã/tên Operation và mã/tên Part của phạm vi trên.
+      `include` `employees,production_orders,operations` -- phần cần trả.
     """
     try:
-        employees = fetch_all(
-            """SELECT id, employee_no, name, department, position, qr
-               FROM employees
-               WHERE active=TRUE
-               ORDER BY employee_no, name
-               LIMIT 300"""
-        )
-        operations = fetch_all(
-            f"""SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
-                      p.code part_code,p.name part_name,po.code po_code,po.product
-               FROM operations o
-               LEFT JOIN parts p ON p.id=o.part_id
-               LEFT JOIN production_orders po ON po.id=o.production_order_id
-               WHERE UPPER(TRIM(COALESCE(po.status,'')))='IN_PROGRESS'
-                 AND UPPER(TRIM(COALESCE(o.status,''))) NOT IN ('COMPLETED','CANCELLED')
-                 AND {STARTABLE_ONLY_O}
-               ORDER BY po.code NULLS LAST,p.sort_order NULLS LAST,p.id,o.sort_order NULLS LAST,o.id
-               LIMIT 500"""
-        )
-        return jsonify(
-            ok=True,
-            employees=[dict(row) for row in employees],
-            operations=[dict(row) for row in operations],
-        )
+        sections = _demo_sections()
+        po_id = _demo_po_id()
+        term = (request.args.get('q') or '').strip()
+        payload: dict = {'po_id': po_id, 'q': term}
+
+        if 'employees' in sections:
+            payload['employees'] = [dict(row) for row in fetch_all(
+                """SELECT id, employee_no, name, department, position, qr
+                   FROM employees
+                   WHERE active=TRUE
+                   ORDER BY employee_no, name
+                   LIMIT 300"""
+            )]
+
+        if 'production_orders' in sections:
+            # LEFT JOIN, không phải INNER: một PO đang chạy mà chưa có công
+            # đoạn nào quét được vẫn phải CHỌN ĐƯỢC -- chọn nó rồi thấy
+            # "PO này chưa có công đoạn" là câu trả lời; còn giấu nó đi thì
+            # người dùng chỉ thấy PO của mình biến mất mà không hiểu vì sao.
+            pos = fetch_all(
+                f"""SELECT po.id, po.code, po.product,
+                           COUNT(o.id) AS operation_count
+                    FROM production_orders po
+                    LEFT JOIN operations o
+                           ON o.production_order_id = po.id
+                          AND UPPER(TRIM(COALESCE(o.status,''))) NOT IN ('COMPLETED','CANCELLED')
+                          AND {STARTABLE_ONLY_O}
+                    WHERE UPPER(TRIM(COALESCE(po.status,'')))='IN_PROGRESS'
+                    GROUP BY po.id, po.code, po.product
+                    ORDER BY po.code
+                    LIMIT {DEMO_PO_LIMIT}"""
+            )
+            payload['production_orders'] = [dict(row) for row in pos]
+            payload['production_orders_total'] = int(fetch_one(
+                """SELECT COUNT(*) AS n FROM production_orders
+                   WHERE UPPER(TRIM(COALESCE(status,'')))='IN_PROGRESS'"""
+            )['n'] or 0)
+
+        if 'operations' in sections:
+            where = ["UPPER(TRIM(COALESCE(po.status,'')))='IN_PROGRESS'",
+                     "UPPER(TRIM(COALESCE(o.status,''))) NOT IN ('COMPLETED','CANCELLED')",
+                     STARTABLE_ONLY_O]
+            params: list = []
+            if po_id is not None:
+                where.append('o.production_order_id=%s')
+                params.append(po_id)
+            if term:
+                matches = [f"{column} ILIKE %s ESCAPE '\\'" for column in DEMO_SEARCH_COLUMNS]
+                where.append('(' + ' OR '.join(matches) + ')')
+                params.extend([_demo_like(term)] * len(matches))
+            clause = ' AND '.join(where)
+            source = """FROM operations o
+                        LEFT JOIN parts p ON p.id=o.part_id
+                        LEFT JOIN production_orders po ON po.id=o.production_order_id"""
+            operations = fetch_all(
+                f"""SELECT o.id,o.code,o.name,o.qr,o.status,COALESCE(po.planned_quantity,0) plan_qty,o.done_qty,o.defect_qty,
+                           p.code part_code,p.name part_name,po.id po_id,po.code po_code,po.product
+                    {source}
+                    WHERE {clause}
+                    ORDER BY po.code NULLS LAST,p.sort_order NULLS LAST,p.id,o.sort_order NULLS LAST,o.id
+                    LIMIT {DEMO_OP_LIMIT}""",
+                tuple(params),
+            )
+            payload['operations'] = [dict(row) for row in operations]
+            # Tổng ĐÚNG của phạm vi đang lọc, đếm trước LIMIT: giao diện phải
+            # nói được "đang hiện 500/812" thay vì im lặng cắt đuôi.
+            payload['operations_total'] = int(fetch_one(
+                f'SELECT COUNT(*) AS n {source} WHERE {clause}', tuple(params)
+            )['n'] or 0)
+
+        return jsonify(ok=True, **payload)
     except Exception as exc:
         return _error(exc)
 

@@ -1870,6 +1870,80 @@ are the test-entry-points into it.
 - **Priority**: P0 — this is the tutorial's explicitly required "Kiosk năng suất nhân viên" chapter subject (video 10_employee_productivity of the 15-video set — not its own chapter, but the closing portion of the "Employee Productivity Report" chapter; confirmed by a 2026-09-06 audit to actually open the real kiosk/slideshow UI, both via Preview and the real published Kiosk, and to wait for and assert one real auto-page-flip cycle via `#wbPageIndicator` changing value — not narration alone).
 - **Dimensions**: positive, boundary (preview-does-not-mutate), unauth access (confirm intended), the 3 special states above (not-configured/empty-data/connection-lost), multi-page auto-flip.
 
+### REQ-KIOSK-012 — Kiosk QR-simulation panel: Production Order scope + Operation search
+
+> **Demo/simulation path only.** This is the "Mô phỏng quét QR" side panel of
+> the web Kiosk (`/kiosk`) and its `GET /api/kiosk-web/demo-data` feed. A real
+> terminal never touches either — a scanner gun types into the scanner input,
+> and ESP v2 devices use the `kiosk_v2` protocol (REQ-KIOSK-002). Nothing in
+> this requirement may change the scan/start/finish path.
+
+- **Module**: Kiosk web — QR simulation panel.
+- **Purpose**: a shop floor runs dozens of Production Orders at once, each with
+  tens of Operations. The panel used to pour every Operation of every running
+  PO into one flat `<select>` capped at 500 rows: unfindable at the top, and
+  **unreachable** past the cap. Scoping by PO is what makes the panel usable
+  again, and the cap stops being a wall.
+- **Actors**: signed-in users only — the feed carries every employee's badge QR,
+  which is a credential (unchanged from the 2026-09-09 fix).
+- **Preconditions**: at least one `IN_PROGRESS` Production Order.
+- **Input**: `GET /api/kiosk-web/demo-data?po_id=<int>&q=<text>&include=<sections>`
+  — all optional; sending none reproduces the previous contract exactly.
+- **Trigger**: opening the panel, changing the PO selector, typing in the
+  Operation search box, "Tải lại danh sách", and the 10s background refresh.
+
+**Main flow**
+
+1. The panel shows a **Production Order selector** above the Operation list.
+   `po_id` in the page URL selects that PO on open; otherwise the scope is
+   **"Tất cả PO"** (or the PO this browser last picked).
+2. Picking a PO scopes the Operation list to **that PO's canonical id**
+   (`production_orders.id`, the primary key — never `po.code`, which is a
+   human-entered string that can repeat or be edited).
+3. An Operation **search box** filters within the current scope on Operation
+   code, Operation name, Part code and Part name.
+4. A result count is shown next to the list; when the server cap truncates the
+   list the count reads `shown/total` and is visually marked, so the UI never
+   silently hides the tail.
+
+- **Expected output**: `{ok, po_id, q, employees[], production_orders[],
+  production_orders_total, operations[], operations_total}`; `operations_total`
+  counts **before** `LIMIT`. Every PO row carries `id`, `code`, `product` and
+  `operation_count`; every Operation row carries its own `po_id`.
+- **Scoping is server-side, not client-side.** Re-filtering an already-capped
+  array in the browser leaves the tail permanently unreachable — that is the
+  defect being fixed, not an implementation preference.
+- **State transition**: none — read-only.
+- **Validation**: `po_id` must be a positive integer; `include` accepts only
+  `employees`, `production_orders`, `operations`.
+- **Errors**: malformed `po_id` or unknown `include` → `400`, `error_code
+  REQ-400`. Silently ignoring a malformed `po_id` is forbidden: it would show
+  every PO's Operations on a screen that believes it is scoped to one.
+- **Boundary**: a running PO with **zero** scannable Operations stays
+  selectable and answers with an explicit empty state (hiding it only makes the
+  user's PO vanish unexplained); a `po_id` that is no longer running keeps the
+  scope and says so, rather than falling back to "Tất cả PO"; more than 40 POs
+  and more than 40 Operations per PO stay fully reachable, with no ranking and
+  no dependence on the cap.
+- **Selection stability**: the chosen PO survives a refresh and a page reload.
+  Once the user picks a PO by hand, **nothing** may change the scope back —
+  not the URL, not a background refresh. Silently re-scoping under an operator
+  is how one PO's work gets recorded against another.
+- **Permission**: `@login_required`, unchanged. Adding filter parameters must
+  not create an unauthenticated variant of the endpoint.
+- **Concurrency**: N/A (read-only). The client discards late responses from
+  superseded requests so a slow reply cannot overwrite a newer result.
+- **Audit**: N/A (read-only).
+- **Related**: REQ-KIOSK-001 (the scan path this panel feeds, untouched),
+  REQ-KIOSK-002 (ESP v2 — a different code path entirely), REQ-SEARCH-*.
+- **Priority**: P1 (shop-floor-reported usability defect).
+- **Dimensions**: positive (scope, switch PO, search by code/name/Part),
+  negative (malformed `po_id`, unknown `include`, LIKE wildcards typed as
+  literal text, no match), isolation (PO A never shows PO B's Operations),
+  boundary (PO with no Operations, unknown PO, >40 PO/Operations, past the
+  server cap), stateful (selection kept across refresh/reload; no auto-jump
+  after a manual pick), responsive (390px, no horizontal overflow).
+
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 
 Full detail in §6.4 and §4.10's `work_shifts`/`work_shift_intervals`
@@ -2446,6 +2520,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-001 (v1) | indirect only, via `tests/e2e/mesflow.spec.js` | P |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — most heavily tested module in the system |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
+| REQ-KIOSK-012 (kiosk simulation panel: PO scope + Operation search) | `tests/integration/test_kiosk_demo_po_filter.py`, `tests/e2e/kiosk-demo-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
