@@ -49,14 +49,30 @@ class BaseRepository:
     selectable_columns:tuple[str,...]=()
     writable_columns:tuple[str,...]=()
 
-    def list(self, limit:int=200, offset:int=0, order_by:str|None=None):
+    #: Cot de THU HEP danh sach ve mot PO. Dat o repository nao that su co cot
+    #: do; None nghia la resource nay khong ho tro loc theo PO va endpoint se
+    #: TU CHOI tham so thay vi lam ngo.
+    #:
+    #: Vi sao can: danh sach tong quat cat theo `limit` roi moi tra ve, con man
+    #: hinh lai loc sau khi da cat. Voi mot bang du lon, thu tu id DESC day het
+    #: dong cua PO cu ra ngoai cua so -- man chi tiet PO do hien ra rong ma
+    #: khong co loi nao. Loc phai xay ra TRUOC khi cat.
+    scope_column:str|None=None
+
+    def list(self, limit:int=200, offset:int=0, order_by:str|None=None,
+             scope_id:int|None=None):
         order=order_by if order_by in self.selectable_columns else self.id_column
-        query=sql.SQL('SELECT {} FROM {} ORDER BY {} LIMIT %s OFFSET %s').format(
+        where=sql.SQL('')
+        params:list[Any]=[]
+        if scope_id is not None and self.scope_column:
+            where=sql.SQL(' WHERE {}=%s').format(sql.Identifier(self.scope_column))
+            params.append(scope_id)
+        query=sql.SQL('SELECT {} FROM {}{} ORDER BY {} LIMIT %s OFFSET %s').format(
             sql.SQL(',').join(map(sql.Identifier,self.selectable_columns)),
-            sql.Identifier(self.table), sql.Identifier(order))
+            sql.Identifier(self.table), where, sql.Identifier(order))
         with transaction() as conn:
             with conn.cursor() as cur:
-                cur.execute(query,(limit,offset))
+                cur.execute(query,(*params,limit,offset))
                 return list(cur.fetchall())
 
     def get(self, entity_id:Any):

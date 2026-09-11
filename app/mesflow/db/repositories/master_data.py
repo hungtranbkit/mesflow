@@ -164,6 +164,7 @@ class ProductionOrderRepository(BaseRepository):
 
 class PartRepository(BaseRepository):
     table='parts'; id_column='id'
+    scope_column='production_order_id'
     selectable_columns=('id','production_order_id','code','name','drawing_path','sort_order','active','created_at','updated_at')
     writable_columns=('production_order_id','code','name','drawing_path','sort_order','active')
 
@@ -229,13 +230,20 @@ def _assert_legacy_qr_unambiguous(code, qr, *, operation_id=None):
 
 class OperationRepository(BaseRepository):
     table='operations'; id_column='id'
+    scope_column='production_order_id'
     selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','scrap_qty','is_rework_op','operation_type','parent_operation_id','requires_setup','expected_setup_minutes','setup_completed_at','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
     writable_columns=('production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input')
 
-    def list(self,*,limit=200,offset=0):
+    def list(self,*,limit=200,offset=0,scope_id=None):
         # display_key: the Part-qualified name of the Operation. Codes are only
         # unique WITHIN a Part now, so every screen and printed label has to
         # show this instead of the bare code -- identity itself stays o.id.
+        #
+        # scope_id thu hep ve mot PO TRUOC khi cat theo limit. Khong co no,
+        # ORDER BY o.id DESC + tran 1000 dong lam Operation cua PO cu bien mat
+        # khoi man chi tiet cua chinh PO do -- xem BaseRepository.scope_column.
+        where='WHERE o.production_order_id=%s ' if scope_id is not None else ''
+        params=(scope_id,limit,offset) if scope_id is not None else (limit,offset)
         return fetch_all(f"""SELECT o.*,{display_key_sql('o','pt')} display_key,COALESCE(po.planned_quantity,0) AS plan_qty,
               COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.target_operation_id=o.id),0) input_consumed_qty,
               COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=o.id),0) input_allocated_qty,
@@ -243,7 +251,7 @@ class OperationRepository(BaseRepository):
               COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=o.id AND c.source_qty_kind='REWORK'),0) rework_allocated_qty
             FROM operations o JOIN production_orders po ON po.id=o.production_order_id
               LEFT JOIN parts pt ON pt.id=o.part_id
-            ORDER BY o.id DESC LIMIT %s OFFSET %s""",(limit,offset))
+            {where}ORDER BY o.id DESC LIMIT %s OFFSET %s""",params)
 
     def get(self,entity_id):
         row=fetch_all(f"""SELECT o.*,{display_key_sql('o','pt')} display_key,COALESCE(po.planned_quantity,0) AS plan_qty,

@@ -1507,6 +1507,43 @@ không bao giờ ở bên ngoài.
 - **Độ ưu tiên**: P0 (ranh giới role của force-delete là một quy tắc bảo mật thật, từng bị hỏng — rủi ro hồi quy cao).
 - **Khía cạnh kiểm thử**: positive, negative, boundary, RBAC (cụ thể: manager phải thất bại ở force-delete).
 
+### REQ-PO-005 — Liệt kê Part/Operation trong phạm vi một PO
+
+- **Mô-đun**: Production Order (danh sách resource tổng quát)
+- **Mục đích**: Cho màn chi tiết PO lấy **đúng** Part/Operation của PO đó, không
+  phụ thuộc bảng `operations` đã lớn cỡ nào.
+- **Đối tượng thực hiện**: mọi role đăng nhập được (đọc).
+- **Điều kiện tiên quyết**: PO tồn tại.
+- **Đầu vào**: query `production_order_id` (tùy chọn), cùng `limit`/`offset` sẵn có.
+- **Kích hoạt bởi**: `GET /<resource=operations>` và `GET /<resource=parts>`.
+- **Luồng chính**: 1) nếu có `production_order_id`, truy vấn lọc theo cột đó
+  **trước khi** cắt theo `limit`. 2) nếu không có, hành vi y hệt trước đây
+  (không lọc) — nơi gọi cũ không đổi gì.
+- **Kết quả mong đợi**: `200` kèm đúng các dòng thuộc PO đó, kể cả khi PO đó cũ
+  hơn 1000 Operation mới nhất trong hệ thống.
+- **Chuyển trạng thái**: N/A (chỉ đọc).
+- **Kiểm tra hợp lệ**: `production_order_id` phải là số nguyên; resource được
+  lọc phải thật sự có cột `production_order_id` (hiện là `operations`, `parts`).
+- **Lỗi**: giá trị không phải số nguyên → `400`, "production_order_id phải là số
+  nguyên"; truyền cho resource không lọc được (ví dụ `templates`) → `400`,
+  "Resource '{tên}' không lọc được theo production_order_id". **Cố ý không làm
+  ngơ tham số không hiểu**: làm ngơ khiến nơi gọi tưởng đã lọc trong khi thực tế
+  đang đọc cả bảng — đúng hình dạng của lỗi này lúc đầu.
+- **Ranh giới**: một PO có Operation cũ hơn `limit` dòng mới nhất **vẫn phải**
+  trả về đủ Operation của nó. Đây là lỗi thật đã sửa (2026-09-11): màn chi tiết
+  PO nạp `GET /api/operations?limit=1000` rồi lọc ở trình duyệt, nên khi vượt
+  1000 Operation thì cửa sổ "1000 dòng mới nhất" (`ORDER BY id DESC`) đẩy hết
+  Operation của PO cũ ra ngoài và màn hình hiện "Part này chưa có Operation" —
+  không lỗi, không cảnh báo, dữ liệu vẫn còn nguyên trong DB.
+- **Quyền**: như quyền đọc resource tương ứng; tham số không mở rộng quyền.
+- **Đồng thời**: N/A.
+- **Nhật ký kiểm toán**: N/A (chỉ đọc).
+- **Liên quan**: REQ-PO-001, REQ-PART-001.
+- **Độ ưu tiên**: P2 (hỏng dần theo lượng dữ liệu: PO đầu luôn đúng, PO thứ N mới sai).
+- **Khía cạnh kiểm thử**: positive, negative (giá trị rác, resource không lọc
+  được), boundary (PO nằm ngoài cửa sổ `limit`), hồi quy (không truyền tham số
+  thì hành vi cũ nguyên vẹn).
+
 ## 15.4 Part & Bản vẽ (`REQ-PART-*`)
 
 ### REQ-PART-001 — Part thuộc đúng một PO

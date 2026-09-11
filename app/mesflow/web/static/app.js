@@ -790,7 +790,10 @@ window.startProductionOrder=async function(id,code,returnTo='list'){
   try{
     let po=window.poDetail?.po?.id===id?window.poDetail.po:(window.poItems||[]).find(x=>Number(x.id)===Number(id));
     let partCount=window.poDetail?.po?.id===id?window.poDetail.parts.length:null,opCount=window.poDetail?.po?.id===id?window.poDetail.ops.length:null;
-    if(!po||partCount===null){const [pd,parts,ops]=await Promise.all([api(`/api/production-orders/${id}`),api('/api/parts?limit=1000'),api('/api/operations?limit=1000')]);po=pd.item;partCount=(parts.items||[]).filter(x=>Number(x.production_order_id)===Number(id)).length;opCount=(ops.items||[]).filter(x=>Number(x.production_order_id)===Number(id)).length}
+    // Hoi dung PO nay, khong nap ca danh muc roi loc: danh sach tong quat cat
+    // theo limit truoc khi tra ve, nen voi bang operations lon thi Part/OP cua
+    // PO cu bi day ra ngoai cua so va so dem o day ra 0.
+    if(!po||partCount===null){const [pd,parts,ops]=await Promise.all([api(`/api/production-orders/${id}`),api(`/api/parts?production_order_id=${id}&limit=1000`),api(`/api/operations?production_order_id=${id}&limit=1000`)]);po=pd.item;partCount=(parts.items||[]).length;opCount=(ops.items||[]).length}
     const box=document.createElement('div');box.className='modal-backdrop';box.innerHTML=`<div class="modal po-start-modal" role="dialog" aria-modal="true" aria-labelledby="poStartTitle"><div class="modal-workflow-head"><div><h2 id="poStartTitle">Bắt đầu sản xuất</h2><p>Kiểm tra nhanh trước khi đưa PO vào xưởng.</p></div><button class="btn" type="button" data-close-start>Đóng</button></div><div class="po-start-summary"><span><small>Production Order</small><b>${esc(po.code)} · ${esc(po.product||'')}</b></span><span><small>Số lượng kế hoạch</small><b>${format(po.planned_quantity||0)}</b></span><span><small>Cấu trúc</small><b>${partCount} Part · ${opCount} Operation</b></span><span><small>Thời gian dự kiến</small><b>${po.planned_start_at?fmt(po.planned_start_at):'Chưa đặt'} → ${po.planned_end_at?fmt(po.planned_end_at):(po.due_date||'Chưa đặt')}</b></span></div><div class="modal-inline-error hidden" id="poStartError" role="alert"></div><div class="modal-actions"><button class="btn" type="button" data-close-start>Hủy</button><button class="btn primary" type="button" id="poStartConfirm">Bắt đầu sản xuất</button></div></div>`;document.body.appendChild(box);
     const close=()=>box.remove();box.querySelectorAll('[data-close-start]').forEach(x=>x.onclick=close);box.onclick=e=>{if(e.target===box)close()};
     box.querySelector('#poStartConfirm').onclick=async e=>{const button=e.currentTarget,error=box.querySelector('#poStartError');button.disabled=true;button.textContent='Đang bắt đầu…';error.classList.add('hidden');try{const d=await api(`/api/production-orders/${id}/start`,{method:'POST',body:'{}'});close();toast(d.already_started?`${code} đang chạy`:`Đã bắt đầu ${code} · ${Number(d.operation_count||0)} Operation sẵn sàng`);if(returnTo==='dashboard')await renderDashboard();else if(returnTo==='detail')await openProductionOrder(id,{pushNav:false});else await renderProductionOrders()}catch(err){error.textContent=err.message||'Không thể bắt đầu PO. Thử lại.';error.classList.remove('hidden');button.disabled=false;button.textContent='Bắt đầu sản xuất'}};
@@ -911,10 +914,12 @@ window.openProductionOrder=async function(id,{pushNav=true,pushUrl=true}={}){
   content.innerHTML='<div class="panel">Đang tải chi tiết PO...</div>';
   try{
     const [poData,partData,opData,equipData,controlData]=await Promise.all([
-      api(`/api/production-orders/${id}`),api('/api/parts?limit=1000'),api('/api/operations?limit=1000'),api('/api/equipment?limit=1000'),api('/api/production-control?limit=2000').catch(()=>({operations:[]}))
+      api(`/api/production-orders/${id}`),api(`/api/parts?production_order_id=${id}&limit=1000`),api(`/api/operations?production_order_id=${id}&limit=1000`),api('/api/equipment?limit=1000'),api('/api/production-control?limit=2000').catch(()=>({operations:[]}))
     ]);
     const controlById=new Map((controlData.operations||[]).map(x=>[Number(x.operation_id),x]));
-    const po=poData.item,parts=(partData.items||[]).filter(x=>Number(x.production_order_id)===Number(id)).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)),ops=(opData.items||[]).filter(x=>Number(x.production_order_id)===Number(id)).map(x=>({...x,...(controlById.get(Number(x.id))||{})})),equipment=equipData.items||[];
+    // Server da loc theo PO roi; khong loc lai o day nua (loc lai chi che mat
+    // viec da hoi dung du lieu, va la buoc da tung lam Operation bien mat).
+    const po=poData.item,parts=(partData.items||[]).slice().sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)),ops=(opData.items||[]).map(x=>({...x,...(controlById.get(Number(x.id))||{})})),equipment=equipData.items||[];
     window.poDetail={po,parts,ops,equipment};
     title.textContent=`${po.code} · ${po.product||'Production Order'}`;
     subtitle.textContent='Quản lý thông tin, Part, Operation và dữ liệu vận hành của PO';

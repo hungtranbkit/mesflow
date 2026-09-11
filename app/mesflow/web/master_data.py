@@ -259,6 +259,28 @@ def health():
     counts={name:len(repo.list(limit=1_000_000)) for name,repo in RESOURCES.items()}
     return jsonify(ok=True,backend='postgresql',phase='master-data',counts=counts)
 
+def _scope_argument(repo,resource:str)->int|None:
+    """Doc ?production_order_id=... cho danh sach tong quat.
+
+    Ba truong hop, va ca ba deu phai KEU lên chu khong duoc im lang:
+
+      * khong truyen         -> None, hanh vi cu nguyen ven
+      * truyen cho resource
+        khong co cot do      -> 400, vi neu lam ngo thi nơi goi tuong minh da
+                                loc ma that ra dang doc ca bang
+      * truyen gia tri rac   -> 400, cung ly do
+    """
+    raw=request.args.get('production_order_id')
+    if raw is None or raw=='':
+        return None
+    if not getattr(repo,'scope_column',None):
+        raise ValueError(f"Resource '{resource}' khong loc duoc theo production_order_id")
+    try:
+        return int(raw)
+    except (TypeError,ValueError):
+        raise ValueError('production_order_id phai la so nguyen') from None
+
+
 @bp.get('/<resource>')
 @login_required
 def list_resource(resource):
@@ -266,7 +288,21 @@ def list_resource(resource):
     if not repo: return jsonify(ok=False,error='UNKNOWN_RESOURCE'),404
     try:
         limit=min(int(request.args.get('limit',200)),1000); offset=max(int(request.args.get('offset',0)),0)
-        items=repo.list_with_stats(limit=limit,offset=offset) if resource=='employees' else repo.list(limit=limit,offset=offset)
+        # Loc theo PO xay ra TRONG truy van, truoc khi cat theo limit. Truoc
+        # day man chi tiet PO nap ca danh sach roi loc o trinh duyet, nen khi
+        # bang operations vuot 1000 dong thi Operation cua PO cu bi cua so
+        # "1000 dong moi nhat" day ra ngoai va man hinh do hien ra rong ma
+        # khong bao loi (xem BaseRepository.scope_column).
+        scope_id=_scope_argument(repo,resource)
+        if resource=='employees':
+            items=repo.list_with_stats(limit=limit,offset=offset)
+        elif scope_id is None:
+            # Khong co pham vi -> goi Y NGUYEN nhu truoc. Mot so repository
+            # (TemplateRepository) ghi de list() voi chu ky rieng khong co
+            # scope_id; them tham so vo dieu kien la lam vo chinh chung.
+            items=repo.list(limit=limit,offset=offset)
+        else:
+            items=repo.list(limit=limit,offset=offset,scope_id=scope_id)
         return jsonify(ok=True,items=items)
     except Exception as exc: return response_error(exc)
 
