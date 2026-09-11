@@ -64,6 +64,9 @@
   <script src="/static/pages/employee-productivity.js?v={{ version }}"></script>
   <script src="/static/pages/rework-queue.js?v={{ version }}"></script>
   <script src="/static/pages/system-console.js?v={{ version }}"></script>
+  <!-- Kiosk điều hành (control-room display) opened from Dashboard theo ngày.
+       Loaded after app.js because it self-registers via window.registerPage(). -->
+  <script src="/static/pages/daily-dashboard-kiosk.js?v={{ version }}"></script>
   <script>
     // Bootstrap only after all page renderers are loaded.
     const bootParams=new URLSearchParams(location.search);
