@@ -1262,15 +1262,86 @@ async function renderProductionSchedule(){
   title.textContent='Tiến trình sản xuất';subtitle.textContent='Theo dõi kế hoạch, thực tế, tiến độ và dòng vật liệu giữa các Operation theo Production Order.';
   content.innerHTML=`<div class="page-shell">
     <section class="schedule-control-panel" id="schedulePanel">
-    <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar">${MFUI.filterBar({content:'<label for="schedulePoFilter"><span>Production Order</span><select id="schedulePoFilter"><option value="">Tất cả PO</option></select></label><label for="scheduleSearch"><span>Tìm nhanh</span><input type="search" id="scheduleSearch" placeholder="Mã PO, Part, Operation..." autocomplete="off"></label><label for="scheduleStatus"><span>Trạng thái OP</span><select id="scheduleStatus"><option value="">Tất cả</option><option value="running">Đang chạy</option><option value="done">Hoàn thành</option><option value="planned">Kế hoạch</option><option value="blocked">Đang chờ</option></select></label>',actions:'<button class="btn" id="scheduleExpandAll" type="button">Mở tất cả</button><button class="btn" id="scheduleCollapseAll" type="button">Thu gọn</button><button class="btn" id="scheduleReload">↻ Cập nhật</button>'})}
-    <div class="schedule-summary" id="scheduleSummary" aria-live="polite"></div>
-    <div class="schedule-legend"><span><i class="gantt-dot planned"></i>Kế hoạch</span><span><i class="gantt-dot running"></i>Đang chạy</span><span><i class="gantt-dot done"></i>Hoàn thành</span><span><i class="gantt-dot blocked"></i>Đang chờ</span></div></div>
+    <div class="schedule-sticky-toolbar" id="scheduleStickyToolbar">
+      <div class="schedule-compact-bar">
+        <button class="btn schedule-filter-trigger" id="scheduleFilterTrigger" type="button" data-filter-sheet-trigger aria-expanded="false" aria-controls="scheduleFilterSheet"><span>Bộ lọc</span><b id="scheduleFilterCount" hidden></b></button>
+        <p class="schedule-compact-status" id="scheduleCompactStatus" aria-live="polite">Đang tải…</p>
+        <button class="btn schedule-compact-reload" id="scheduleReloadCompact" type="button" aria-label="Cập nhật số liệu">↻</button>
+      </div>
+      <button class="schedule-sheet-backdrop" id="scheduleSheetBackdrop" type="button" tabindex="-1" aria-label="Đóng bộ lọc"></button>
+      <div class="schedule-toolbar-detail" id="scheduleFilterSheet">
+        <div class="schedule-sheet-head"><b>Bộ lọc &amp; tóm tắt</b><button class="btn" id="scheduleFilterClose" type="button">Đóng</button></div>
+        <div class="schedule-sheet-body">${MFUI.filterBar({content:'<label for="schedulePoFilter"><span>Production Order</span><select id="schedulePoFilter"><option value="">Tất cả PO</option></select></label><label for="scheduleSearch"><span>Tìm nhanh</span><input type="search" id="scheduleSearch" placeholder="Mã PO, Part, Operation..." autocomplete="off"></label><label for="scheduleStatus"><span>Trạng thái OP</span><select id="scheduleStatus"><option value="">Tất cả</option><option value="running">Đang chạy</option><option value="done">Hoàn thành</option><option value="planned">Kế hoạch</option><option value="blocked">Đang chờ</option></select></label>',actions:'<button class="btn" id="scheduleExpandAll" type="button">Mở tất cả</button><button class="btn" id="scheduleCollapseAll" type="button">Thu gọn</button><button class="btn" id="scheduleReload">↻ Cập nhật</button>'})}
+          <div class="schedule-summary" id="scheduleSummary" aria-live="polite"></div>
+          <div class="schedule-legend"><span><i class="gantt-dot planned"></i>Kế hoạch</span><span><i class="gantt-dot running"></i>Đang chạy</span><span><i class="gantt-dot done"></i>Hoàn thành</span><span><i class="gantt-dot blocked"></i>Đang chờ</span></div>
+        </div>
+      </div>
+    </div>
     <div id="scheduleBody">Đang tải...</div></section>
   </div>`;
   let cached=[];
   const panel=document.getElementById('schedulePanel'),stickyToolbar=document.getElementById('scheduleStickyToolbar');
   const syncStickyOffset=()=>panel?.style.setProperty('--schedule-toolbar-height',`${stickyToolbar?.offsetHeight||0}px`);
   window.scheduleStickyObserver?.disconnect();window.scheduleStickyObserver=new ResizeObserver(syncStickyOffset);window.scheduleStickyObserver.observe(stickyToolbar);syncStickyOffset();
+
+  // --- REQ-UI-023: trên điện thoại bộ lọc là CÔNG CỤ PHỤ, không phải nội dung ---
+  //
+  // Trước hotfix này `.schedule-sticky-toolbar` bọc CẢ ba khối -- thanh lọc,
+  // bốn thẻ KPI và chú giải màu -- và cả cụm đó `position:sticky`. Đo được
+  // trên DOM thật: 444.8px ở 390x844 và 375x667, 646.6px ở 320x568. Chính con
+  // số đó lại được bơm vào `--schedule-toolbar-height`, tức `top` sticky của
+  // header PO, nên ở 320x568 header PO bị ghim ở y=715 trong một màn cao 568
+  // -- nội dung Gantt còn ÂM 314px, không cách nào kéo tới. Ở 375x667 chỉ còn
+  // 5% màn hình cho nội dung. Vuốt dọc không bị chặn bởi listener hay
+  // touch-action (đã đo: không có handler nào, touch-action:auto ở mọi tầng)
+  // -- nó "không chạy tự nhiên" vì thứ dưới ngón tay là một khối sticky cao
+  // gần bằng màn hình, nên trang cuộn mà mắt không thấy gì đổi.
+  //
+  // Nên ở <=700px chỉ MỘT hàng ~48px được ở lại sticky: nút Bộ lọc + một dòng
+  // tóm tắt. Phần chi tiết mở ra thành tấm (sheet) `position:fixed`, tức nó
+  // KHÔNG cộng vào offsetHeight của thanh sticky -- đó là lý do
+  // `--schedule-toolbar-height` tự đúng mà không phải cộng trừ px bằng tay.
+  // Desktop giữ nguyên: `.schedule-compact-bar` ẩn, phần chi tiết nằm trong
+  // dòng chảy như cũ.
+  const filterSheet=document.getElementById('scheduleFilterSheet');
+  const sheetTrigger=document.getElementById('scheduleFilterTrigger');
+  const sheetBackdrop=document.getElementById('scheduleSheetBackdrop');
+  const SHEET_MQ=window.matchMedia('(max-width:700px)');
+  const sheetOpen=()=>panel.classList.contains('schedule-filter-open');
+  const setSheet=open=>{
+    panel.classList.toggle('schedule-filter-open',open);
+    sheetTrigger.setAttribute('aria-expanded',String(open));
+    // Chiều cao thanh sticky đổi khi tấm đóng/mở (phần chi tiết rời khỏi dòng
+    // chảy), và header PO bám vào nó -- đo lại ngay, đừng đợi ResizeObserver.
+    syncStickyOffset();
+    if(open)filterSheet.querySelector('select,input,button')?.focus({preventScroll:true});
+  };
+  const closeSheet=()=>{if(sheetOpen())setSheet(false)};
+  // Chỉ đóng sau khi CHỌN XONG. Gõ vào ô tìm nhanh thì giữ tấm mở, nếu không
+  // mỗi ký tự lại đóng mất ô đang gõ.
+  const closeSheetAfterPick=()=>{if(SHEET_MQ.matches)closeSheet()};
+  sheetTrigger.onclick=()=>setSheet(!sheetOpen());
+  document.getElementById('scheduleFilterClose').onclick=closeSheet;
+  sheetBackdrop.onclick=closeSheet;
+  // `sheetOpen()` là điều kiện BẮT BUỘC trước stopPropagation: ở desktop tấm
+  // không bao giờ mở, mà nuốt Escape ở đây thì một modal/drawer đang mở phía
+  // trên sẽ không đóng được bằng phím nữa.
+  filterSheet.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheetOpen()){e.stopPropagation();closeSheet();sheetTrigger.focus()}});
+  sheetTrigger.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheetOpen()){closeSheet()}});
+  // Xoay ngang / đổi sang desktop: tấm không còn nghĩa, trả về trạng thái đóng
+  // để phần chi tiết hiện lại trong dòng chảy.
+  // Gỡ listener của lần vẽ trước trước khi gắn cái mới -- mỗi lần mở lại màn
+  // này là một `panel` mới, và MediaQueryList sống suốt đời trang, nên không
+  // gỡ thì listener cứ chồng lên nhau (cùng lý do scheduleStickyObserver ở
+  // trên phải disconnect()).
+  if(window.scheduleSheetMqHandler)SHEET_MQ.removeEventListener('change',window.scheduleSheetMqHandler);
+  window.scheduleSheetMqHandler=closeSheet;
+  SHEET_MQ.addEventListener('change',closeSheet);
+  // <details> bộ lọc dùng chung tự gập ở <=700px (core/ui.js). Bên trong tấm
+  // này thì gập thêm một lần nữa là bắt người dùng bấm "Bộ lọc" hai lần cho
+  // cùng một việc -- đánh dấu userToggled để lần đồng bộ đó bỏ qua nó. Phải
+  // chạy NGAY sau innerHTML: MutationObserver của core/ui.js là microtask.
+  filterSheet.querySelectorAll('.ui-filter-disclosure').forEach(node=>{node.open=true;node.dataset.userToggled='1'});
   const ms=v=>{const d=v?new Date(v):null;return d&&!Number.isNaN(d.getTime())?d.getTime():null};
   const durationText=sec=>{sec=Math.max(0,Number(sec||0));if(sec<60)return `${Math.round(sec)} giây`;if(sec<3600)return `${Math.round(sec/60)} phút`;return `${(sec/3600).toFixed(sec%3600?1:0)} giờ`};
   const scheduleDate=v=>{const d=v?new Date(v):null;return d&&!Number.isNaN(d.getTime())?new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit',year:'numeric'}).format(d):'—'};
@@ -1327,6 +1398,7 @@ async function renderProductionSchedule(){
       else if(!filter&&autoOpened<SCHEDULE_AUTO_OPEN&&running>0){openByDefault=true;autoOpened++}
       return `<details class="schedule-po gantt-po" data-po="${Number(g.po.po_id)}" data-po-code="${esc(g.po.po_code)}" data-running="${running}"${openByDefault?' open':''}>
         <summary class="schedule-po-head"><div class="schedule-po-identity"><b>${esc(g.po.po_code)}</b><span title="${esc(`${g.po.product||''}${partSummary?` · ${partSummary}`:''}`)}">${esc(g.po.product||partSummary||'Production Order')}</span></div><div class="schedule-po-progress"><strong>${completion}%</strong><span>${complete}/${g.ops.length} OP hoàn thành${deadline?` · Hạn ${scheduleDate(deadline)}`:''}</span></div><div class="schedule-po-actions"><span class="badge">${esc(g.po.po_status)}</span>${running>0?`<span class="schedule-po-live">${running} OP đang chạy</span>`:''}<button class="btn mini" type="button" onclick="event.preventDefault();event.stopPropagation();openProductionOrder(${Number(g.po.po_id)})">Mở PO</button></div></summary>
+        <p class="gantt-scroll-hint" aria-hidden="true">Kéo ngang timeline để xem đầy đủ →</p>
         <div class="gantt-wrap"><div class="gantt-axis-label">Operation</div><div class="gantt-axis">${ticks.map((t,i)=>{
       // Nhãn trục là GIỜ:PHÚT, ngày chỉ hiện ở mốc đầu và khi sang ngày mới.
       // Trước đây mỗi mốc in đủ `HH:mm:ss dd/MM/yyyy`: năm mốc như vậy không thể
@@ -1374,6 +1446,19 @@ async function renderProductionSchedule(){
       ['NG / cần sửa',`${ng.toLocaleString('vi-VN')}`,`${needFix.toLocaleString('vi-VN')} chờ sửa`],
     ].map(([label,value,hint])=>`<article class="schedule-kpi"><small>${esc(label)}</small><strong>${esc(String(value))}</strong><span>${esc(hint)}</span></article>`).join('')
       +(filtered?`<p class="schedule-filter-note">Đang hiển thị <b>${visiblePos.size}</b> PO · <b>${visible.length}</b> Operation khớp bộ lọc.</p>`:'');
+    // Bản MỘT DÒNG của đúng các con số trên, cho thanh sticky 48px ở điện
+    // thoại: ở đó bốn thẻ KPI không nằm vừa, nhưng người dùng vẫn cần biết
+    // xưởng đang thế nào mà không phải mở tấm lọc ra.
+    const late=new Set([...latePos,...riskPos]).size;
+    const status=document.getElementById('scheduleCompactStatus');
+    if(status)status.textContent=filtered
+      ? `Đang lọc · ${visiblePos.size}/${poIds.size} PO · ${visible.length} OP`
+      : `${runningPos.size}/${poIds.size} PO chạy · ${all.length} OP${late?` · ${late} trễ/nguy cơ`:''}`;
+    // Đếm bộ lọc đang bật, hiện ngay trên nút -- khi tấm đóng lại đó là dấu
+    // hiệu duy nhất cho biết danh sách bên dưới đang bị cắt bớt.
+    const activeCount=[ctx.filter,ctx.query,ctx.statusPick].filter(Boolean).length;
+    const badge=document.getElementById('scheduleFilterCount');
+    if(badge){badge.textContent=String(activeCount);badge.hidden=!activeCount}
   };
 
   // Trạng thái bộ lọc đi theo URL, dùng đúng AppNav.setQuery như các màn khác.
@@ -1390,13 +1475,14 @@ async function renderProductionSchedule(){
   const setAllOpen=open=>document.querySelectorAll('#scheduleBody details.schedule-po').forEach(d=>{d.open=open});
 
   let scheduleLoaded=false;
-  const load=async(preserveScroll=true)=>{const scrollX=window.scrollX,scrollY=window.scrollY;try{const data=await api('/api/production-schedule?limit=1000');cached=data.items||[];const select=document.getElementById('schedulePoFilter'),current=select.value,pos=[...new Map(cached.map(x=>[x.po_id,x])).values()];select.innerHTML='<option value="">Tất cả PO</option>'+pos.map(x=>`<option value="${x.po_id}">${esc(x.po_code)} · ${esc(x.product||'')}</option>`).join('');if(pos.some(x=>String(x.po_id)===current))select.value=current;select.onchange=()=>{render();syncScheduleUrl();syncStickyOffset()};render();syncStickyOffset();if(preserveScroll)requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY));scheduleLoaded=true}catch(e){MFUI.refreshError({loaded:scheduleLoaded,host:document.getElementById('scheduleBody'),error:e,retry:()=>load(false),screen:'Tiến trình sản xuất'})}};
-  document.getElementById('scheduleReload').onclick=()=>load(true);
+  const load=async(preserveScroll=true)=>{const scrollX=window.scrollX,scrollY=window.scrollY;try{const data=await api('/api/production-schedule?limit=1000');cached=data.items||[];const select=document.getElementById('schedulePoFilter'),current=select.value,pos=[...new Map(cached.map(x=>[x.po_id,x])).values()];select.innerHTML='<option value="">Tất cả PO</option>'+pos.map(x=>`<option value="${x.po_id}">${esc(x.po_code)} · ${esc(x.product||'')}</option>`).join('');if(pos.some(x=>String(x.po_id)===current))select.value=current;select.onchange=()=>{render();syncScheduleUrl();syncStickyOffset();closeSheetAfterPick()};render();syncStickyOffset();if(preserveScroll)requestAnimationFrame(()=>window.scrollTo(scrollX,scrollY));scheduleLoaded=true}catch(e){MFUI.refreshError({loaded:scheduleLoaded,host:document.getElementById('scheduleBody'),error:e,retry:()=>load(false),screen:'Tiến trình sản xuất'})}};
+  document.getElementById('scheduleReload').onclick=()=>{closeSheetAfterPick();load(true)};
+  document.getElementById('scheduleReloadCompact').onclick=()=>load(true);
   const rerender=()=>{render();syncScheduleUrl();syncStickyOffset()};
   document.getElementById('scheduleSearch').oninput=MFUI.debounce(rerender,180);
-  document.getElementById('scheduleStatus').onchange=rerender;
-  document.getElementById('scheduleExpandAll').onclick=()=>setAllOpen(true);
-  document.getElementById('scheduleCollapseAll').onclick=()=>setAllOpen(false);
+  document.getElementById('scheduleStatus').onchange=()=>{rerender();closeSheetAfterPick()};
+  document.getElementById('scheduleExpandAll').onclick=()=>{setAllOpen(true);closeSheetAfterPick()};
+  document.getElementById('scheduleCollapseAll').onclick=()=>{setAllOpen(false);closeSheetAfterPick()};
   restoreScheduleFilters();
   await load(false);dashboardTimer=setInterval(()=>load(true),15000)
 }

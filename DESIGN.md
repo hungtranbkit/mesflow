@@ -293,6 +293,37 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Hợp đồng khoá bằng `tests/e2e/schedule-mobile-layout.spec.js` (đo vị trí thật
   sau khi kéo hết timeline, ở 390/1366/1920).
 
+### 5.5e Ngân sách chrome sticky trên điện thoại (REQ-UI-023)
+
+- Trên màn hẹp (<=700px) TỔNG chiều cao của mọi thứ `position:sticky` cấp trang
+  là một NGÂN SÁCH, không phải tuỳ nghi: workspace header + thanh công cụ của
+  màn phải chừa lại ít nhất **70% chiều cao viewport** cho nội dung. Đo lại sau
+  khi cuộn, không phải lúc trang vừa tải.
+- Vì sao có luật này: "Tiến trình sản xuất" từng để thanh lọc + 4 thẻ KPI +
+  chú giải NẰM CHUNG trong một khối sticky. Đo được 444.8px ở 390x844 và
+  646.6px ở 320x568 -- ở 320x568 phần còn lại cho nội dung là ÂM 314px, tức
+  Gantt bị đẩy hẳn ra ngoài màn hình. Không có "vá px lẻ" nào cứu được một
+  khối cao hơn cả màn hình; thứ phải đổi là cái gì được ở lại sticky.
+- Quy tắc: ở màn hẹp chỉ MỘT hàng công cụ (44-60px) được sticky -- nút mở bộ
+  lọc kèm số bộ lọc đang bật, một dòng tóm tắt, nhiều nhất một nút phụ. Bộ lọc
+  chi tiết mở thành TẤM nằm ngoài dòng chảy (`position:fixed`), không che kín
+  viewport, có nút đóng rõ, tự cuộn bên trong với `overscroll-behavior:contain`,
+  và tự đóng sau khi người dùng chọn xong một giá trị.
+- `position:fixed` không phải chi tiết kỹ thuật ngẫu nhiên: nó là thứ giữ cho
+  `offsetHeight` của thanh sticky KHÔNG đổi khi tấm mở ra, nên biến offset
+  (`--schedule-toolbar-height`) mà header nhóm bám vào tự đúng, không phải cộng
+  trừ px bằng tay ở hai chỗ.
+- Cử chỉ: vuốt dọc bắt đầu ở BẤT KỲ đâu -- thanh công cụ, bộ lọc, hay trong
+  chart -- đều phải cuộn trang. Vùng cuộn ngang của timeline dùng
+  `overscroll-behavior:contain auto` (chặn overscroll NGANG lan ra cử chỉ Back
+  của iOS, vẫn cho trục dọc nối tiếp lên trang) và KHÔNG được sinh thêm một
+  thanh cuộn DỌC lồng nhau.
+- Đo bằng cử chỉ chạm THẬT (`Input.dispatchTouchEvent`), không phải
+  `window.scrollTo`: chỉ cử chỉ thật mới chứng minh được `touch-action` /
+  `preventDefault` không chặn cuộn.
+- Hợp đồng khoá bằng `tests/e2e/schedule-mobile-scroll-contract.spec.js`
+  (390x844 / 375x667 / 320x568, cộng hai viewport desktop để chắc không hồi quy).
+
 ### 5.5d Progressive disclosure cho màn nhiều bản ghi lồng nhau
 
 - Ngưỡng nhận ra đã sai: mở mọi nhóm sẵn làm trang dài quá ~5 viewport. Đo được
