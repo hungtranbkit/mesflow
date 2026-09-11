@@ -196,3 +196,48 @@ def resolve_employee_id(raw: str | None) -> int:
             f'Thẻ {text} trỏ tới nhiều nhân viên ({who}), không xác định được là ai. '
             'Sửa lại mã QR của các nhân viên này trong Danh mục rồi in lại thẻ.')
     return int(rows[0]['id'])
+
+
+def printable_qr_payload_sql(op_alias: str = 'o') -> str:
+    """SQL: payload nào được phép IN RA cho một Operation.
+
+    Khác với việc resolver CHẤP NHẬN cái gì. Resolver phải rộng rãi -- tem cũ
+    đã dán ngoài xưởng phải tiếp tục quét được, nên nó nhận cả `qr` lẫn `code`.
+    Còn cái in ra hôm nay thì phải hẹp: một tem MỚI không được mang mã đã chết,
+    và tuyệt đối không được mang payload mà chính resolver sẽ từ chối.
+
+    Hai thứ đó từng bị lẫn làm một. Danh mục QR giữ nguyên `operations.qr` cho
+    mọi dòng, kèm một nhánh dự phòng định chuyển sang id "khi mã mơ hồ" -- nhưng
+    nhánh ấy kiểm `d.code = o.code AND d.id <> o.id`, tức đi tìm hai Operation
+    cùng mã, mà `operations_code_key` cấm đúng điều đó. Điều kiện không bao giờ
+    đúng; lưới an toàn chưa từng bật.
+
+    Sự mơ hồ THẬT nằm chéo cột: `qr` của dòng này đòi một mã, và mã đó là `code`
+    của dòng KHÁC (xảy ra sau khi đổi tên -- `qr` cố ý không được viết lại -- rồi
+    mã vừa giải phóng được cấp cho Operation khác).
+
+    Quy tắc:
+
+      * không có payload lưu sẵn -> địa chỉ theo id;
+      * tem cũ `WF|OP|<mã>` mà mã trong tem KHÁC mã hiện tại (đã đổi tên), hoặc
+        mã đó đang là `code` của dòng khác (mơ hồ) -> địa chỉ theo id;
+      * còn lại giữ nguyên payload đang có -- kể cả `WF|OPID|` lẫn payload tự
+        đặt -- để in lại một tem bình thường ra đúng chuỗi đang dán ngoài xưởng.
+
+    Dùng `left(...)` chứ không `LIKE '...%'`: psycopg đọc một dấu `%` trong câu
+    lệnh CÓ tham số như một placeholder rồi từ chối cả câu. Biểu thức này được
+    nhúng vào đúng loại câu đó, nên `%` sẽ làm hỏng toàn bộ danh mục QR (HTTP
+    500). Cùng lý do đã ghi ở `setup_ops.DISPLAY_KEY_SQL`.
+    """
+    op = op_alias
+    legacy_code = f'substring({op}.qr from {len(LEGACY_PREFIX) + 1})'
+    return (
+        "CASE "
+        f"WHEN COALESCE({op}.qr,'')='' THEN '{OPID_PREFIX}'||{op}.id "
+        f"WHEN left(upper({op}.qr),{len(LEGACY_PREFIX)})='{LEGACY_PREFIX}' AND ("
+        f"upper({legacy_code}) <> upper({op}.code) "
+        f"OR EXISTS (SELECT 1 FROM operations d WHERE d.id<>{op}.id "
+        f"AND upper(d.code)=upper({legacy_code}))"
+        f") THEN '{OPID_PREFIX}'||{op}.id "
+        f"ELSE {op}.qr END"
+    )
