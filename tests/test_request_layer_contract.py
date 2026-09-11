@@ -116,10 +116,17 @@ def test_refresh_error_stays_on_the_mfui_export_line():
     # Dòng export của MFUI là dòng `return {…}` ở tầng IIFE -- neo vào
     # `statusBadge` (phần tử đầu, có từ trước mọi lane hiện tại) để không bắt
     # nhầm hai `return {…}` của openDrawer/openModal bên trong file.
-    exports = [line for line in ui.splitlines()
-               if line.strip().startswith('return {') and 'statusBadge' in line]
-    assert len(exports) == 1, 'không tìm thấy đúng một dòng export MFUI trong core/ui.js'
-    assert 'refreshError' in exports[0], 'refreshError rơi khỏi danh sách export của MFUI'
+    lines = [line for line in ui.splitlines()
+             if line.strip().startswith('return {') and 'statusBadge' in line]
+    assert len(lines) == 1, 'không tìm thấy đúng một dòng export MFUI trong core/ui.js'
+    # Tách TÊN chứ không `in` cả dòng: `in` vẫn xanh nếu tên chỉ tình cờ là
+    # khúc con của một tên khác. Và khi đỏ thì in ra cả danh sách đang export
+    # -- người đang gỡ conflict cần thấy ngay phía nào bị lấy mất.
+    inside = lines[0].strip()[len('return {'):].rsplit('}', 1)[0]
+    exported = {name.split(':')[0].strip() for name in inside.split(',')}
+    assert 'refreshError' in exported, (
+        'refreshError rơi khỏi danh sách export của MFUI. Đang export: '
+        + ', '.join(sorted(exported)))
 
 
 def test_polling_screens_keep_stale_data_instead_of_rendering_the_error():
