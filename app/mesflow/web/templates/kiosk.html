@@ -69,10 +69,11 @@
       <div class="badge">SẢN PHẨM LỖI</div>
       <h1>CÓ LỖI SỬA ĐƯỢC KHÔNG?</h1>
       <div class="choice-grid two-choice">
-        <button id="rework-none" data-testid="kiosk-rework-choice-none" class="choice-button"><strong>1</strong><span>KHÔNG, XONG</span></button>
-        <button id="rework-yes" data-testid="kiosk-rework-choice-yes" class="choice-button secondary"><strong>2</strong><span>CÓ LỖI SỬA ĐƯỢC</span></button>
+        <button id="rework-yes" data-testid="kiosk-rework-choice-yes" class="choice-button"><strong>1</strong><span>CÓ, NHẬP SỐ</span></button>
+        <button id="rework-none" data-testid="kiosk-rework-choice-none" class="choice-button secondary"><strong>2</strong><span>TIẾP TỤC, KHÔNG CÓ</span></button>
       </div>
-      <button id="ask-rework-back" class="text-back">QUAY LẠI</button>
+      <p class="choice-hint">Bấm <strong>#</strong> hoặc <strong>Enter</strong> để tiếp tục mà không nhập lỗi sửa được.</p>
+      <button id="ask-rework-back" class="text-back">QUAY LẠI (*)</button>
     </section>
 
     <section id="screen-quantity-rework" class="screen quantity-screen">
@@ -80,7 +81,7 @@
       <h1>LỖI SỬA ĐƯỢC</h1>
       <p id="rework-max"></p>
       <div class="single-qty">
-        <label>LỖI SỬA ĐƯỢC<input id="rework-qty" data-testid="kiosk-rework-quantity" type="number" min="1" step="1" inputmode="numeric" value="1"></label>
+        <label>LỖI SỬA ĐƯỢC<input id="rework-qty" data-testid="kiosk-rework-quantity" type="number" min="0" step="1" inputmode="numeric" value="0"></label>
       </div>
       <p id="rework-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
       <div class="actions"><button id="rework-back" class="secondary">QUAY LẠI</button><button id="rework-next" data-testid="kiosk-quantity-next">TIẾP TỤC</button></div>
