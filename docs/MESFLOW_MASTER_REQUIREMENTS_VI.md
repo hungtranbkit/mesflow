@@ -2600,6 +2600,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-DASH-004 (chưa nhập ≠ 0; tên > mã) | `tests/e2e/qty-recorded-vs-zero.spec.js`, `tests/e2e/dashboard-op-name-hierarchy.spec.js`, `tests/e2e/row-text-hierarchy.spec.js` | A |
 | REQ-DASH-005 (thang giờ timeline) | `tests/e2e/timeline-scale-density.spec.js` | A |
 | REQ-PO-*, REQ-PART-*, REQ-TPL-* | `tests/e2e/catalog-crud.spec.js`, `catalog-visual.spec.js`, `template-ui.spec.js`; `test_p1_audit_2026_08_28.py`, `test_production_state_integrity.py`, `test_production_consistency_p1.py` | A (P cho quy tắc chuyển trạng thái PO ngoài enum, khoảng trống §5.3) |
+| REQ-PO-005 (liệt kê Part/Operation trong phạm vi một PO) | `tests/integration/test_po_detail_operation_scope.py`, `tests/test_po_detail_fetches_scoped_data.py` | A |
 | REQ-EMP-* | `tests/e2e/catalog-crud.spec.js` | P — chưa có file test riêng cho vòng đời nhân viên |
 | REQ-SESS-* | `test_session_lifecycle_state_machine_property.py`, `test_session_lifecycle_observability_phase13.py`, `test_session_overlap_and_exceptions.py`, `test_shift_session_lifecycle.py`, `test_write_path_po_lock_contention.py`, `tests/e2e/session-management-*.spec.js` (3 file) | A |
 | REQ-KIOSK-001 (v1) | chỉ gián tiếp, qua `tests/e2e/mesflow.spec.js` | P |
