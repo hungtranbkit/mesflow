@@ -354,6 +354,26 @@ xác là loại lỗi mà một test dựa-trên-tiền-tố ngây thơ sẽ sai
 | `POST /api/templates/demo/seed`, `DELETE /api/templates/demo` | `template.edit` (admin+manager) | **Chỉ admin** |
 | `GET /api/templates/<id>/export-workbook` | Giới hạn theo `template.view` | **admin + manager + viewer** (chỉ đọc, mở rộng) |
 
+### 3.4c Thẻ Operation trên Dashboard theo ngày (visual contract)
+
+Thẻ trong *Tiến độ theo Operation* xếp theo thứ tự đọc, không theo cột:
+
+| Vùng | Vị trí | Nội dung |
+|---|---|---|
+| Header | Trên cùng, một hàng | Trái: tên Operation (chính) · mã (phụ) · PO/Part. Phải: thời lượng, số session |
+| Tiến độ | Ngay dưới header, **trải hết bề ngang trong thẻ** | Tiến độ thời gian và Tiến độ sản phẩm |
+| Người làm / dữ kiện | Hàng phụ **bên dưới** tiến độ | Nhân viên, sản lượng ngày |
+
+**Ràng buộc đo được:** khối tiến độ phải chiếm **≥ 70%** inner width của thẻ (cho phép
+padding). Tiến độ **không** được là một cột ngang hàng với ô "Người làm" — đo trên TEST
+trước khi sửa: thẻ 1094px thì tiến độ chỉ 542px (~49%), thanh trạng thái cụt ở nửa trái.
+
+Không đổi ngữ nghĩa dữ liệu; đây thuần layout. Áp cho 1920 / 1366 / 390, không tràn ngang
+ở khổ nào.
+
+Traceability: `tests/e2e/op-card-progress-fullwidth.spec.js` (đo computed width ở cả ba
+khổ, có negative proof: bỏ khai báo span thì test đỏ và báo đúng ~50%).
+
 ### 3.5 Quy tắc thời gian session/xác thực
 
 | Quy tắc | Giá trị |

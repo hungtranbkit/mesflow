@@ -2978,7 +2978,14 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .op-card-fact>b{font-weight:700;overflow-wrap:anywhere}
 /* Rộng ra thì các dữ kiện xếp ngang cho đỡ cao, nhưng vẫn là THẺ: không có
    cột cố định, không kẻ ngang xuyên suốt. */
-@media(min-width:860px){.op-card-body{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));align-items:start}}
+@media(min-width:860px){.op-card-body{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));align-items:start}
+/* Tiến độ là nội dung CHÍNH của thẻ, không phải một cột ngang hàng với các ô
+   dữ kiện. Trong lưới auto-fit ở trên nó nhận đúng một track: đo trên Dashboard
+   theo ngày, thẻ rộng 1094 thì .op-dual-progress chỉ được 542 (~49%) và thanh
+   trạng thái bị cụt ở nửa trái, phần còn lại là ô "Người làm". Cho nó trải hết
+   hàng và đứng trên; các ô dữ kiện tự xuống hàng dưới theo chính lưới auto-fit
+   đó, nên không cần thêm breakpoint hay số đo riêng. */
+.op-card-body>.op-dual-progress{grid-column:1/-1;order:-1}}
 
 /* "Hàng chờ sửa" -- cùng một archetype với danh sách Operation (một bản ghi
    nhiều dữ kiện cần quyết định), nên dùng LẠI `.op-card`/`.op-card-list` chứ
