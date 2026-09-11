@@ -18,8 +18,20 @@ _session_service=SessionService()
 class KioskRepositoryLookup:
     @staticmethod
     def employee(qr,key):
+        """Thẻ quét được -> nhân viên, qua resolver chung.
+
+        Bản cũ kết thúc bằng LIMIT 1. `employee_no` và `qr` unique riêng lẻ
+        nhưng không unique chéo nhau, nên một chuỗi có thể khớp hai người --
+        và khi đó LIMIT 1 ghi công của cả ca sang tên người khác. Resolver
+        chung từ chối ca đó (xem domain/qr_identity.py).
+        """
         from mesflow.db.connection import fetch_one
-        return fetch_one("SELECT id,employee_no,name,qr FROM employees WHERE active=TRUE AND (upper(qr)=upper(%s) OR upper(employee_no)=upper(%s)) LIMIT 1",(qr,key))
+        from mesflow.domain.qr_identity import resolve_employee_id
+        try:
+            employee_id=resolve_employee_id(str(qr or '') or str(key or ''))
+        except NotFoundError:
+            return None
+        return fetch_one("SELECT id,employee_no,name,qr FROM employees WHERE id=%s",(employee_id,))
     OPERATION_FIELDS=("o.id,o.code,o.name,o.qr,o.is_rework_op,o.operation_type,o.parent_operation_id,"
         "o.requires_setup,o.setup_completed_at,p.code part_code,po.code po_code,po.status po_status,"
         "CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code "

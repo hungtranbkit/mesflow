@@ -17,7 +17,7 @@ phase, per the same request's rule: "After every chaos/load phase run:
 audit-sessions / audit-integrity."
 """
 from __future__ import annotations
-from mesflow.domain.policy import support_only_sql
+from mesflow.domain.policy import REWORK_TYPE, SETUP_TYPE, support_only_sql, type_is_sql
 
 from typing import Any
 
@@ -265,16 +265,133 @@ def _quantity_shape_violates_check() -> list[dict[str, Any]]:
         ORDER BY id""")
 
 
-def _ambiguous_operation_code() -> list[dict[str, Any]]:
-    """Mã Operation trùng nhau giữa các Part -- QR cũ dạng WF|OP|<code> hoá mơ hồ.
+def _ambiguous_operation_qr() -> list[dict[str, Any]]:
+    """Tem cũ `WF|OP|<mã>` hiện đang trỏ tới NHIỀU HƠN MỘT Operation.
 
-    Mã OP chỉ unique trong phạm vi Part. Tem in theo mã (định dạng cũ) vì vậy
-    có thể trỏ tới nhiều Operation. Bộ giải mã phải TỪ CHỐI chứ không được
-    đoán; danh sách này cho biết những tem nào đang ở tình trạng đó.
+    Bản trước của hàm này gom nhóm theo `upper(code) HAVING COUNT(*)>1`, tức
+    là đi tìm hai Operation cùng mã. `operations_code_key` cấm đúng điều đó,
+    nên câu ấy KHÔNG BAO GIỜ trả về dòng nào: một bộ dò luôn luôn im lặng, và
+    sự im lặng đó bị đọc thành "sạch".
+
+    Sự mơ hồ CÓ THẬT nằm ở chỗ khác, và nó chéo cột chứ không cùng cột:
+    resolver nhận một payload khi nó khớp `operations.qr` HOẶC
+    `operations.code`. Hai cột đó unique riêng lẻ nhưng không unique chéo
+    nhau, nên chuỗi 'WF|OP|CUT' có thể vừa là `qr` của hàng A (đã đổi mã, tem
+    cũ giữ nguyên -- cố ý) vừa là `code` của hàng B. Lúc đó cả A và B đều
+    không quét được bằng tem cũ.
+
+    Chỉ đọc. Việc cần làm cho mỗi dòng là in lại tem cho hàng được nêu.
     """
-    return fetch_all("""SELECT upper(code) code,COUNT(*) n,
+    return fetch_all("""SELECT a.id qr_owner_id,a.code qr_owner_code,a.qr payload,
+            b.id code_owner_id,b.code code_owner_code
+        FROM operations a JOIN operations b
+          ON b.id<>a.id AND upper(b.code)=upper(substring(a.qr from 7))
+        WHERE upper(a.qr) LIKE 'WF|OP|%' AND upper(a.qr) NOT LIKE 'WF|OPID|%'
+        ORDER BY a.id""")
+
+
+def _ambiguous_employee_badge() -> list[dict[str, Any]]:
+    """Một chuỗi thẻ trỏ tới nhiều nhân viên.
+
+    Cùng hình dạng lỗi như trên, và hậu quả nặng hơn: công của cả một ca ghi
+    sang tên người khác. `employee_no` và `qr` unique riêng lẻ, không unique
+    chéo nhau.
+    """
+    return fetch_all("""SELECT a.id qr_owner_id,a.employee_no qr_owner_no,a.qr payload,
+            b.id no_owner_id,b.employee_no no_owner_no
+        FROM employees a JOIN employees b
+          ON b.id<>a.id AND upper(b.employee_no)=upper(substring(a.qr from 8))
+        WHERE a.active AND b.active AND upper(a.qr) LIKE 'WF|EMP|%'
+        ORDER BY a.id""")
+
+
+def _duplicate_display_key_in_part() -> list[dict[str, Any]]:
+    """Hai Operation trong CÙNG một Part hiện ra giống hệt nhau trên màn hình.
+
+    Mã lưu trong bảng vẫn khác nhau (unique toàn cục lo việc đó), nhưng thứ
+    người dùng đọc là display key `<part>-<mã>`. Hai dòng cùng display key
+    trong một Part nghĩa là không ai ở xưởng phân biệt được chúng -- kể cả khi
+    hệ thống thì phân biệt được.
+    """
+    return fetch_all("""SELECT o.production_order_id,o.part_id,p.code part_code,
+            upper(CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
+                       ELSE p.code||'-'||o.code END) display_key,
+            COUNT(*) n,array_agg(o.id ORDER BY o.id) operation_ids
+        FROM operations o JOIN parts p ON p.id=o.part_id
+        GROUP BY o.production_order_id,o.part_id,p.code,4
+        HAVING COUNT(*)>1 ORDER BY 5 DESC""")
+
+
+def _material_source_unresolved() -> list[dict[str, Any]]:
+    """Bật dòng vật tư nhưng không có OP nguồn nào được nối.
+
+    Xảy ra khi Template khai `input_source_code` mà lúc tạo PO không giải ra
+    được. Operation này sẽ không bao giờ ghi được ledger đầu vào.
+    """
+    return fetch_all("""SELECT o.id operation_id,o.code,p.code part_code,po.code po_code
+        FROM operations o JOIN parts p ON p.id=o.part_id
+        JOIN production_orders po ON po.id=o.production_order_id
+        WHERE o.input_flow_enabled=TRUE AND o.input_source_operation_id IS NULL
+        ORDER BY o.id""")
+
+
+def _material_source_outside_its_po() -> list[dict[str, Any]]:
+    """OP nguồn nằm ở PO khác -- ledger sẽ trừ hàng của một PO không liên quan."""
+    return fetch_all("""SELECT o.id operation_id,o.code,po.code po_code,
+            src.id source_operation_id,src.code source_code,spo.code source_po_code
+        FROM operations o JOIN operations src ON src.id=o.input_source_operation_id
+        JOIN production_orders po ON po.id=o.production_order_id
+        JOIN production_orders spo ON spo.id=src.production_order_id
+        WHERE o.production_order_id<>src.production_order_id ORDER BY o.id""")
+
+
+def _setup_parent_wrong_scope() -> list[dict[str, Any]]:
+    """OP SETUP treo vào một OP cha ở Part/PO khác.
+
+    Liên kết đi bằng parent_operation_id nên nó không thể trỏ vào hư không,
+    nhưng nó VẪN có thể trỏ sang Part khác -- và khi đó thời gian setup được
+    tính cho sai chỗ.
+    """
+    return fetch_all(f"""SELECT s.id setup_id,s.code setup_code,s.part_id setup_part_id,
+            pa.id parent_id,pa.code parent_code,pa.part_id parent_part_id
+        FROM operations s JOIN operations pa ON pa.id=s.parent_operation_id
+        WHERE {type_is_sql(SETUP_TYPE, 's')}
+          AND (s.part_id<>pa.part_id OR s.production_order_id<>pa.production_order_id)
+        ORDER BY s.id""")
+
+
+def _rework_bench_duplicated() -> list[dict[str, Any]]:
+    """Nhiều hơn một bàn SỬA HÀNG cho cùng một (PO, Part).
+
+    Đường tạo lấy bàn cũ theo (PO, Part, loại) rồi `ORDER BY id LIMIT 1`, nên
+    khi có hai bàn thì một nửa số lượng sửa chạy vào bàn này, nửa kia vào bàn
+    kia, và không tổng nào đúng. Không có unique index nào cấm điều này.
+    """
+    return fetch_all(f"""SELECT production_order_id,part_id,COUNT(*) n,
             array_agg(id ORDER BY id) operation_ids
-        FROM operations GROUP BY upper(code) HAVING COUNT(*)>1 ORDER BY 2 DESC""")
+        FROM operations o WHERE {type_is_sql(REWORK_TYPE, 'o')}
+        GROUP BY production_order_id,part_id HAVING COUNT(*)>1 ORDER BY 3 DESC""")
+
+
+def _rework_ledger_operation_mismatch() -> list[dict[str, Any]]:
+    """Dòng ledger sửa hàng trỏ tới Operation không khớp session của chính nó."""
+    return fetch_all("""SELECT rl.id ledger_id,rl.source_session_id,rl.source_operation_id,
+            ws.operation_id session_operation_id
+        FROM rework_ledger rl JOIN work_sessions ws ON ws.id=rl.source_session_id
+        WHERE ws.operation_id<>rl.source_operation_id ORDER BY rl.id""")
+
+
+def _offline_events_ambiguous() -> list[dict[str, Any]]:
+    """Sự kiện offline đang bị giữ vì tem của nó mơ hồ.
+
+    Tách riêng khỏi OFFLINE_EVENTS_STUCK: những cái này không chờ một điều
+    kiện nghiệp vụ đúng lại theo thời gian, chúng chờ một người in lại tem.
+    """
+    return fetch_all("""SELECT client_event_id,kiosk_id,event_type,reason_code,reason,received_at
+        FROM kiosk_client_events
+        WHERE reason_code IN ('AMBIGUOUS_OPERATION_QR','AMBIGUOUS_EMPLOYEE_QR')
+          AND status <> 'accepted'
+        ORDER BY received_at""")
 
 
 def _offline_events_stuck() -> list[dict[str, Any]]:
@@ -316,6 +433,14 @@ def audit_integrity() -> dict[str, list[dict[str, Any]]]:
         'CONSUMPTION_HELD_BY_NON_REPORTING_SESSION': _consumption_held_by_non_reporting_session(),
         'REWORK_LEDGER_DOES_NOT_BALANCE': _rework_ledger_does_not_balance(),
         'QUANTITY_SHAPE_VIOLATES_CHECK': _quantity_shape_violates_check(),
-        'AMBIGUOUS_OPERATION_CODE': _ambiguous_operation_code(),
+        'AMBIGUOUS_OPERATION_QR': _ambiguous_operation_qr(),
+        'AMBIGUOUS_EMPLOYEE_BADGE': _ambiguous_employee_badge(),
+        'DUPLICATE_DISPLAY_KEY_IN_PART': _duplicate_display_key_in_part(),
+        'MATERIAL_SOURCE_UNRESOLVED': _material_source_unresolved(),
+        'MATERIAL_SOURCE_OUTSIDE_ITS_PO': _material_source_outside_its_po(),
+        'SETUP_PARENT_WRONG_SCOPE': _setup_parent_wrong_scope(),
+        'REWORK_BENCH_DUPLICATED': _rework_bench_duplicated(),
+        'REWORK_LEDGER_OPERATION_MISMATCH': _rework_ledger_operation_mismatch(),
         'OFFLINE_EVENTS_STUCK': _offline_events_stuck(),
+        'OFFLINE_EVENTS_AMBIGUOUS': _offline_events_ambiguous(),
     }

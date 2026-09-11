@@ -182,6 +182,51 @@ class PartRepository(BaseRepository):
             raise ConflictError('Không thể xóa Part vì đã có production history: '+', '.join(found)+'.')
         return super().delete(entity_id)
 
+def _assert_legacy_qr_unambiguous(code, qr, *, operation_id=None):
+    """Không cho một mã/tem mới làm cho một tem CŨ ngoài xưởng hoá mơ hồ.
+
+    Tem cũ mang payload ``WF|OP|<mã>``, và resolver (domain/qr_identity.py)
+    nhận nó khi payload khớp `operations.qr` HOẶC `operations.code`. Hai cột đó
+    unique riêng lẻ nhưng không unique CHÉO NHAU, nên một mã có thể vừa là
+    `code` của hàng này vừa nằm trong `qr` của hàng kia. Khi đó resolver thấy
+    hai hàng và -- đúng như thiết kế -- TỪ CHỐI. Cả hai Operation cùng lúc
+    không quét được, ngay giữa ca.
+
+    Đường vào có thật, không phải giả định:
+
+      * Đổi tên mã. `update()` ghi `code` nhưng không đụng `qr`, nên hàng A đổi
+        CUT -> CUT-OLD vẫn giữ `qr='WF|OP|CUT'`. Sau đó đặt mã CUT cho hàng B
+        là hợp lệ với operations_code_key -- và 'WF|OP|CUT' hoá mơ hồ.
+      * Nhập Excel, nơi cột `qr` đi thẳng từ file vào bảng.
+
+    Giữ `qr` cũ nguyên vẹn là CỐ Ý: tem đã in và đang dán ngoài xưởng phải tiếp
+    tục quét được. Cái phải chặn là bước sau -- cấp lại mã vừa được giải phóng
+    cho một Operation khác trong khi tem cũ vẫn đang đòi nó.
+    """
+    from mesflow.db.connection import fetch_all
+    code=str(code or '').strip()
+    qr=str(qr or '').strip()
+    if code:
+        rows=fetch_all(
+            'SELECT id,code FROM operations WHERE upper(qr)=upper(%s) AND id<>COALESCE(%s,-1) LIMIT 1',
+            (f'WF|OP|{code}',operation_id))
+        if rows:
+            raise ConflictError(
+                f'Mã {code} vẫn đang được tem QR cũ của Operation {rows[0]["code"]} sử dụng. '
+                'Nếu dùng lại mã này thì tem cũ sẽ trỏ tới hai Operation và không quét được nữa. '
+                f'Hãy in lại tem cho {rows[0]["code"]} trước, hoặc chọn mã khác.')
+    if qr.upper().startswith('WF|OP|') and not qr.upper().startswith('WF|OPID|'):
+        claimed=qr[len('WF|OP|'):].strip()
+        if claimed and claimed.upper()!=code.upper():
+            rows=fetch_all(
+                'SELECT id,code FROM operations WHERE upper(code)=upper(%s) AND id<>COALESCE(%s,-1) LIMIT 1',
+                (claimed,operation_id))
+            if rows:
+                raise ConflictError(
+                    f'Tem {qr} trùng với mã của Operation {rows[0]["code"]}, nên tem này sẽ trỏ tới '
+                    'hai Operation và không quét được. Hãy dùng tem theo id (WF|OPID|<id>) hoặc sửa mã.')
+
+
 class OperationRepository(BaseRepository):
     table='operations'; id_column='id'
     selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','scrap_qty','is_rework_op','operation_type','parent_operation_id','requires_setup','expected_setup_minutes','setup_completed_at','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
@@ -247,6 +292,7 @@ class OperationRepository(BaseRepository):
         validate_operation_dependencies(None,int(data.get('production_order_id') or 0),data.get('predecessor_operation_id'),data.get('input_source_operation_id') if data.get('input_flow_enabled') else None)
         code=str(data.get('code','')).strip().upper()
         if code: data.setdefault('qr',f'WF|OP|{code}')
+        _assert_legacy_qr_unambiguous(code,data.get('qr'))
         return super().create(data)
 
     def update(self,entity_id,data):
@@ -293,6 +339,8 @@ class OperationRepository(BaseRepository):
         clean['input_flow_enabled']=bool(merged.get('input_flow_enabled'))
         clean['input_source_operation_id']=merged.get('input_source_operation_id')
         clean['input_source_kind']=merged.get('input_source_kind') or 'GOOD'
+        if 'code' in clean or 'qr' in clean:
+            _assert_legacy_qr_unambiguous(merged.get('code'),merged.get('qr'),operation_id=int(entity_id))
         writable={k:v for k,v in clean.items() if k in self.writable_columns}
         if not writable:return self.get(entity_id)
         with transaction() as conn:
@@ -485,22 +533,116 @@ def _validate_template_operation_codes(pairs, *, template=None):
     return duplicates
 
 
+def _part_key_of(row):
+    """Which Part a Template Operation row belongs to.
+
+    The same rows arrive under two shapes: the Template editor's payload keys
+    Parts by `part_key` (a client-side handle, no row exists yet), while
+    instantiate() reads template_operations straight from the database and
+    keys them by `part_id`. Both are only ever compared against siblings from
+    the same call, so either handle works as long as one call uses one shape.
+    """
+    if 'part_key' in row:
+        return str(row.get('part_key'))
+    return row.get('part_id')
+
+
+def _source_index(rows):
+    """Two ways to look up a Template Operation: by (Part, mã) and by mã alone.
+
+    The second one is the compatibility path, and it is the one that has to be
+    able to say "more than one" -- see resolve_template_source().
+    """
+    by_part_code={}
+    by_code={}
+    for row in rows:
+        code=str(row.get('code') or '').strip().upper()
+        if not code:
+            continue
+        part=_part_key_of(row)
+        by_part_code.setdefault((part,code),row)
+        by_code.setdefault(code,[]).append((part,row))
+    return by_part_code,by_code
+
+
+def resolve_template_source(source_code,part_key,by_part_code,by_code,*,part_label=None):
+    """Mã OP nguồn của một Operation -> ĐÚNG MỘT hàng Operation, hoặc lỗi.
+
+    `input_source_code` trong Template là một mã trần, mà mã Operation chỉ
+    unique trong phạm vi Part. Vậy một mã nguồn có thể ứng với nhiều hàng, và
+    câu hỏi "hàng nào" phải có một câu trả lời duy nhất ở MỌI nơi đọc nó --
+    nếu chỗ kiểm tra và chỗ tạo PO trả lời khác nhau thì cái được kiểm không
+    phải cái được tạo.
+
+    Thứ tự:
+
+      1. Trong Part của chính nó. Đây là nghĩa thường gặp và không bao giờ mơ hồ.
+      2. Cả Template, khi đúng một Part có mã đó. Giữ nguyên cho các Template
+         cũ vốn trỏ chéo Part (Part sau lấy đầu vào từ Part trước).
+      3. Không có -> lỗi "không tìm thấy".
+      4. NHIỀU Part có mã đó, và không Part nào là của chính nó -> lỗi MƠ HỒ.
+
+    Ca 4 trước đây lặng lẽ lấy Part ĐẦU TIÊN theo thứ tự sort. Không có lỗi,
+    không có cảnh báo: PO được tạo ra trông bình thường, và mọi session kết
+    thúc trên OP đích ghi operation_input_consumptions vào OP nguồn của Part
+    khác. Đến khi ai đó phát hiện thì chính guard phân bổ lại
+    ("Không thể đổi OP nguồn vì Operation đã tiêu thụ N sản phẩm") chặn không
+    cho sửa. Thà không tạo được PO còn hơn tạo ra một PO đã sai từ đầu.
+    """
+    code=str(source_code or '').strip().upper()
+    if not code:
+        return None
+    own=by_part_code.get((part_key,code))
+    if own is not None:
+        return own
+    candidates=by_code.get(code) or []
+    if not candidates:
+        raise ConflictError(f'Không tìm thấy OP nguồn {code}')
+    if len(candidates)>1:
+        label=part_label or (lambda part:str(part))
+        where=', '.join(sorted({str(label(part)) for part,_ in candidates}))
+        raise ConflictError(
+            f'OP nguồn {code} có ở nhiều Part ({where}), không xác định được nên lấy đầu vào '
+            'từ Part nào. Hãy đặt OP nguồn cùng Part với OP đích, hoặc đổi mã cho khác nhau.')
+    return candidates[0][1]
+
+
 class TemplateTreeRepository:
     @staticmethod
-    def _validate_dependency_graph(operations):
-        by_code={str(op.get('code') or '').strip().upper():op for op in operations if str(op.get('code') or '').strip()}
-        graph={code:[str(op.get('input_source_code') or '').strip().upper()] if op.get('input_flow_enabled') and str(op.get('input_source_code') or '').strip() else [] for code,op in by_code.items()}
+    def _validate_dependency_graph(operations,*,part_label=None):
+        """Đồ thị dòng vật tư của Template không được có chu trình.
+
+        Nút là (Part, mã), KHÔNG phải mã trần. Bản cũ khoá theo mã trần, nên
+        hai Part cùng dùng OP01 thu về một nút: Part chèn sau ghi đè Part
+        trước, cạnh của cả hai bị gộp làm một, và một Template hoàn toàn hợp lệ
+        bị báo chu trình không có thật. Ví dụ nhỏ nhất, đã dựng lại được:
+
+            PartA: OP01 (không nguồn), OP02 (nguồn OP01)
+            PartB: OP01 (nguồn OP02)
+
+        Ba hàng riêng biệt, không có chu trình nào. Bản cũ trả về
+        "Dependency cycle: OP01 -> OP02 -> OP01" và chặn cả việc lưu Template
+        lẫn việc tạo PO -- tức là chặn đúng thứ mà việc scope mã theo Part
+        sinh ra để cho phép.
+        """
+        by_part_code,by_code=_source_index(operations)
         state={};stack=[]
-        def visit(code):
-            if state.get(code)==1:
-                cycle=stack[stack.index(code):]+[code];raise ConflictError('Dependency cycle: '+' -> '.join(cycle))
-            if state.get(code)==2:return
-            state[code]=1;stack.append(code)
-            for source in graph.get(code,[]):
-                if source not in by_code:raise ConflictError(f'Không tìm thấy OP nguồn {source}')
-                visit(source)
-            stack.pop();state[code]=2
-        for code in graph:visit(code)
+        def node_of(row):
+            return (_part_key_of(row),str(row.get('code') or '').strip().upper())
+        def visit(row):
+            node=node_of(row)
+            if state.get(node)==1:
+                cycle=stack[stack.index(node):]+[node]
+                raise ConflictError('Dependency cycle: '+' -> '.join(code for _,code in cycle))
+            if state.get(node)==2:return
+            state[node]=1;stack.append(node)
+            if row.get('input_flow_enabled'):
+                source=resolve_template_source(row.get('input_source_code'),_part_key_of(row),
+                                               by_part_code,by_code,part_label=part_label)
+                if source is not None:visit(source)
+            stack.pop();state[node]=2
+        for row in operations:
+            if str(row.get('code') or '').strip():visit(row)
 
     def get(self,template_id:int):
         with transaction() as conn:
@@ -541,7 +683,8 @@ class TemplateTreeRepository:
             code=str(item.get('code') or '').strip().upper()
             if source and source==code: raise ValueError('Operation không thể lấy đầu vào từ chính nó')
             if source and source not in op_codes: raise ValueError(f'Không tìm thấy OP nguồn {source}')
-        self._validate_dependency_graph(operations)
+        self._validate_dependency_graph(
+            operations,part_label=lambda key:part_code_by_key.get(key) or key)
         equipment_ids=[int(item.get('equipment_id') or 0) for item in equipment]
         if any(x <= 0 for x in equipment_ids):
             raise ValueError('equipment_id required')
@@ -595,7 +738,11 @@ class TemplateTreeRepository:
             errors.append({'code':'NO_PARTS','field':'parts','values':[]})
         if not operations:
             errors.append({'code':'NO_OPERATIONS','field':'operations','values':[]})
-        try:self._validate_dependency_graph(operations)
+        # AMBIGUOUS_SOURCE và DEPENDENCY_CYCLE về cùng một chỗ vì màn hình
+        # Template hiển thị chúng như nhau: một câu nói rõ phải sửa gì. Phân
+        # biệt bằng message, không bằng hai nhánh xử lý.
+        try:self._validate_dependency_graph(
+            operations,part_label=lambda part_id:part_code_by_id.get(part_id) or part_id)
         except ConflictError as exc:errors.append({'code':'DEPENDENCY_CYCLE','field':'operations.input_source_code','values':[],'message':str(exc)})
         return {'valid':not errors,'template_id':template_id,'template_code':template.get('code'),'part_count':len(parts),'operation_count':len(operations),'errors':errors}
 
@@ -619,7 +766,13 @@ class TemplateTreeRepository:
                 raise ConflictError('Template chưa có Part. Hãy hoàn thiện Template trước khi tạo PO.')
             if not template_ops:
                 raise ConflictError('Template chưa có Operation. Hãy hoàn thiện Template trước khi tạo PO.')
-            self._validate_dependency_graph(template_ops)
+            # Một chỉ mục, dùng cho cả việc kiểm đồ thị lẫn việc nối OP nguồn
+            # bên dưới -- part_label chỉ để câu lỗi gọi tên Part chứ không phải
+            # mã Part, vì người đọc lỗi đang nhìn Template, không nhìn part_id.
+            template_part_name={p['id']:(p.get('code') or p.get('name') or p['id']) for p in template_parts}
+            part_label=lambda part_id:template_part_name.get(part_id,part_id)
+            by_part_code,by_code=_source_index(template_ops)
+            self._validate_dependency_graph(template_ops,part_label=part_label)
             _validate_template_part_codes(list(template_parts), template=template)
             # Checked BEFORE the first INSERT: the transaction would roll the
             # partial clone back anyway, but the user must get a message that
@@ -708,14 +861,18 @@ class TemplateTreeRepository:
                 # sửa.
                 op_key=str(op.get('code') or '').strip().upper()
                 template_to_actual[(op['part_id'],op_key)]=created['id']
-                template_to_actual.setdefault(op_key,created['id'])
                 pending_sources.append((created['id'], op['part_id'], bool(op.get('input_flow_enabled')), str(op.get('input_source_code') or '').strip().upper(), str(op.get('input_source_kind') or 'GOOD').upper(), bool(op.get('defects_consume_input',True))))
             for actual_id,src_part_id,enabled,source_code,source_kind,consume_defects in pending_sources:
-                # Trong Part của chính nó trước; chỉ khi Part đó không có mã ấy
-                # mới nhìn ra toàn Template (giữ nguyên hành vi cho các Template
-                # cũ vốn trỏ chéo Part).
-                source_id=(template_to_actual.get((src_part_id,source_code))
-                           or template_to_actual.get(source_code)) if source_code else None
+                # Cùng một resolver mà _validate_dependency_graph() vừa dùng,
+                # nên thứ được kiểm ở trên đúng bằng thứ được tạo ở đây. Bản cũ
+                # có hai luật khác nhau: chỗ kiểm nhìn mã trần toàn Template,
+                # chỗ tạo lấy Part khớp trước rồi setdefault() lấy Part ĐẦU
+                # TIÊN khi mã có ở nhiều Part -- một phép đoán im lặng, đúng
+                # thứ resolver này từ chối.
+                source_row=resolve_template_source(source_code,src_part_id,by_part_code,by_code,
+                                                   part_label=part_label) if source_code else None
+                source_id=template_to_actual.get(
+                    (source_row['part_id'],str(source_row.get('code') or '').strip().upper())) if source_row else None
                 source_kind=source_kind if source_kind in ('GOOD','REWORK') else 'GOOD'
                 conn.execute('UPDATE operations SET input_flow_enabled=%s,input_source_operation_id=%s,input_source_kind=%s,defects_consume_input=%s WHERE id=%s',(enabled and bool(source_id),source_id,source_kind,consume_defects,actual_id))
             with conn.cursor() as cur:record_event(cur,event_type='PO_CREATED',category='PO',title='Production Order được tạo',po_id=po['id'],source='NATIVE',metadata={'template_id':template['id'],'template_code':template['code'],'planned_quantity':planned_quantity})

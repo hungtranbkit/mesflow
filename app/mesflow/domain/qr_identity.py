@@ -37,6 +37,40 @@ from __future__ import annotations
 
 from mesflow.db.repositories.base import ConflictError, NotFoundError
 
+
+class AmbiguousOperationQR(ConflictError):
+    """Một tem cũ giải ra NHIỀU HƠN MỘT Operation.
+
+    Là một loại riêng chứ không phải ConflictError trần, vì mỗi đường quét
+    phải xử lý nó KHÁC với mọi đụng độ nghiệp vụ khác. Một ConflictError bình
+    thường ("OP nguồn chưa có hàng để cấp", "session khác đang mở") có thể tự
+    đúng lại khi công đoạn trước nhập số hay người khác kết thúc việc của họ --
+    nên thử lại là hợp lý. Tem trùng thì KHÔNG: nó chỉ hết khi có người in lại
+    tem. Bảo thiết bị thử lại là bắt nó quay vòng tới lúc hết lượt, và không ai
+    biết phải sửa gì.
+
+    Kế thừa ConflictError để mọi nơi đã bắt ConflictError (HTTP 409, phân loại
+    giữ-lại-để-thử-lại của offline sync) tiếp tục chạy y như trước; nơi nào cần
+    phân biệt thì kiểm loại này TRƯỚC. Không nơi nào phải dò chuỗi tiếng Việt
+    trong message để đoán ra ý nghĩa.
+    """
+
+
+class AmbiguousEmployeeQR(ConflictError):
+    """Một thẻ nhân viên quét ra NHIỀU HƠN MỘT người.
+
+    Cùng họ với AmbiguousOperationQR, và cùng lý do phải là loại riêng. Nhưng
+    hậu quả nặng hơn: công của cả một ca ghi sang tên người khác -- sai lương,
+    sai năng suất, sai phiếu phạt -- và không có gì báo, vì với hệ thống thì
+    mọi thứ đều hợp lệ.
+
+    `employees.employee_no` và `employees.qr` đều unique RIÊNG LẺ, nhưng không
+    unique CHÉO NHAU: chuỗi 'WF|EMP|E2' có thể vừa là `qr` của người E1 vừa
+    trỏ tới `employee_no` của người E2. Dựng lại được bằng đúng API quản trị --
+    `qr` là cột ghi được. Lúc đó LIMIT 1 chọn theo thứ tự vật lý của bảng.
+    """
+
+
 OPID_PREFIX = 'WF|OPID|'
 LEGACY_PREFIX = 'WF|OP|'
 
@@ -122,7 +156,43 @@ def resolve_operation_id(raw: str | None, *, part_id: int | None = None,
     if len(rows) > 1:
         where_seen = ', '.join(
             f"{r.get('part_code') or '?'}/{r.get('code')}" for r in rows[:4])
-        raise ConflictError(
+        raise AmbiguousOperationQR(
             f'Mã Operation {code} trùng ở nhiều Part ({where_seen}), không xác định được '
             'nên quét mã nào. In lại tem QR cho Operation này.')
+    return int(rows[0]['id'])
+
+
+EMPLOYEE_PREFIX = 'WF|EMP|'
+
+
+def resolve_employee_id(raw: str | None) -> int:
+    """Thẻ nhân viên quét được -> id nhân viên, hoặc lỗi nói rõ vì sao không.
+
+    Chấp nhận cả `WF|EMP|<mã>` lẫn mã trần, và khớp theo `qr` HOẶC
+    `employee_no` -- đúng như ba bản chép cũ ở kiosk v1, execution.py và
+    offline_sync.py. Khác một điều duy nhất, và là điều quan trọng: khi chuỗi
+    quét được khớp nhiều hơn một người thì TỪ CHỐI, thay vì LIMIT 1 lấy đại.
+
+    Chỉ trả về id. Mỗi nơi gọi vẫn tự SELECT các cột nó cần, cùng lý do đã ghi
+    ở đầu module này cho resolve_operation_id().
+    """
+    from mesflow.db.connection import fetch_all
+
+    text = str(raw or '').strip()
+    if not text:
+        raise NotFoundError('Chưa có mã thẻ để tra cứu')
+    key = text[len(EMPLOYEE_PREFIX):].strip() if text.upper().startswith(EMPLOYEE_PREFIX) else text
+
+    # LIMIT 5, không LIMIT 1 -- phải phân biệt được "một" với "nhiều".
+    rows = fetch_all(
+        'SELECT id,employee_no,name FROM employees '
+        'WHERE active=TRUE AND (upper(qr)=upper(%s) OR upper(employee_no)=upper(%s)) LIMIT 5',
+        (text, key))
+    if not rows:
+        raise NotFoundError('Không tìm thấy nhân viên đang hoạt động')
+    if len(rows) > 1:
+        who = ', '.join(f"{r.get('employee_no')} ({r.get('name')})" for r in rows[:4])
+        raise AmbiguousEmployeeQR(
+            f'Thẻ {text} trỏ tới nhiều nhân viên ({who}), không xác định được là ai. '
+            'Sửa lại mã QR của các nhân viên này trong Danh mục rồi in lại thẻ.')
     return int(rows[0]['id'])
