@@ -177,7 +177,10 @@ test('tab Tổng quan Operation: chưa chốt ra "—", chốt-bằng-0 ra "0"',
   await openDashboard(page, 'overview');
   // Dòng "Trong ca" nằm ở ô cuối của hàng; các số được bọc trong span .qty-*
   // riêng nên bắt theo chữ của cả hàng thay vì đi vào một span cụ thể.
-  const rowOf = name => page.locator('.op-time-row:not(.head)', { hasText: name });
+  // Cả hai pane A và C đều nằm trong DOM (C chỉ bị `hidden`), nên .op-card
+  // khớp thẻ ở cả hai tab. Bài này nói về tab A nên phải neo vào container
+  // của tab A, không dựa vào việc class từng là duy nhất của một tab.
+  const rowOf = name => page.locator('#opTimeProgress .op-card', { hasText: name });
   await expect(rowOf('CHẤN BƯỚC 1')).toContainText('Trong ca: Đạt — · NG —');
   await expect(rowOf('HÀN GÓC')).toContainText('Trong ca: Đạt 0 · NG 0');
   await expect(rowOf('SƠN TĨNH ĐIỆN')).toContainText('Trong ca: Đạt 32 · NG 2');

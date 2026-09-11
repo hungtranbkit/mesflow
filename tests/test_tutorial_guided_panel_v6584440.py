@@ -41,6 +41,6 @@ def test_dashboard_explains_each_requested_kpi_separately():
     assert "#dailyKpis .daily-kpi:nth-child(1)" in SPEC
     assert "#dailyKpis .daily-kpi:nth-child(2)" in SPEC
     assert "#dailyKpis .daily-kpi:nth-child(3)" in SPEC
-    assert "#opTimeProgress .op-time-row:not(.head) .op-dual-progress" in SPEC
+    assert "#opTimeProgress .op-card .op-dual-progress" in SPEC
     for title in ("Nhân viên có hoạt động", "Đang làm việc", "Sản lượng đạt", "Tiến độ theo công đoạn"):
         assert title in SPEC
