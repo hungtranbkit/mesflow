@@ -358,9 +358,45 @@ xác là loại lỗi mà một test dựa-trên-tiền-tố ngây thơ sẽ sai
 
 | Quy tắc | Giá trị |
 |---|---|
-| Timeout session do không hoạt động (idle) | 60 phút không hoạt động (cấu hình được, mặc định 60) |
-| Trần tuyệt đối của session | 12 giờ kể từ lúc đăng nhập, bất kể có hoạt động hay không (cấu hình được, mặc định 12) |
-| Timeout idle chế độ Kiosk | 15 phút (ngắn hơn đăng nhập văn phòng thường, vì rủi ro thiết bị dùng chung) |
+| Timeout session do không hoạt động (idle) | **14 ngày** không hoạt động (`MESFLOW_SESSION_IDLE_MINUTES`, mặc định 20160). Cửa sổ **trượt**: mỗi request hợp lệ ghi lại `last_activity_at` và Flask gửi lại cookie với `Max-Age` mới, nên người đang làm việc không bao giờ bị ngắt. |
+| Trần tuyệt đối của session | **30 ngày** kể từ lúc đăng nhập, bất kể hoạt động (`MESFLOW_SESSION_ABSOLUTE_HOURS`, mặc định 720). **Không** được refresh bởi hoạt động. |
+| Timeout idle chế độ Kiosk | 15 phút — **cố ý không nới**. Thiết bị dùng chung bị bỏ lại trong trạng thái đăng nhập là rủi ro bàn giao thật; sự tiện lợi của trình duyệt văn phòng không được mua bằng nó. |
+
+#### 3.5.1 Đăng nhập bền (persistent login)
+
+Cookie session là **cookie ký (signed cookie)**, không có session store phía
+server — nhờ đó đăng nhập **sống qua restart container và qua deploy đổi image**
+mà không cần persist gì, miễn là `MESFLOW_SECRET_KEY` **ổn định** (lấy từ env;
+production từ chối giá trị placeholder). Không được sinh secret ngẫu nhiên mỗi
+lần khởi động.
+
+| Thuộc tính cookie | Giá trị | Lý do |
+|---|---|---|
+| `Max-Age` / `Expires` | Có, bằng trần tuyệt đối | Thiếu nó cookie là **cookie phiên trình duyệt** và bị xoá khi đóng trình duyệt — không TTL phía server nào cứu được. Đây từng là nguyên nhân chính khiến user bị logout. |
+| `HttpOnly` | Bật | JS không đọc được; không lưu token vào `localStorage`. |
+| `Secure` | Theo `WORKSHOP_COOKIE_SECURE` (production = 1) | Bắt buộc trên HTTPS. |
+| `SameSite` | `Lax` | |
+| `Path` | `/` | |
+| Kiosk | **Không** `Max-Age` | Terminal dùng chung không để lại cookie bền sau khi người thao tác rời đi. |
+
+**Thu hồi (revocation).** Một cookie ký không tự thu hồi được; `users.session_epoch`
+(migration `0050`) là **phiên bản session**. Nó được trộn vào dấu `auth_epoch`
+ghi trong cookie lúc đăng nhập và đối chiếu lại ở mỗi request:
+
+| Sự kiện | Hiệu lực |
+|---|---|
+| Đăng xuất thủ công | Tăng `session_epoch` → mọi cookie đã cấp cho user đó **hết hiệu lực ngay**, kể cả bản sao lấy trước lúc logout. Phạm vi là **theo user**, nên "đăng xuất" nghĩa là đăng xuất ở mọi thiết bị. |
+| Đổi mật khẩu | `password_hash` đổi **và** `session_epoch` tăng → session cũ 401/redirect login. |
+| Admin vô hiệu hoá tài khoản | `active=false` → session cũ hết hiệu lực. |
+| Lỗi hạ tầng khi kiểm tra | **Fail open** (giữ session) và ghi cảnh báo — một sự cố DB thoáng qua không được đăng xuất toàn xưởng. Chỉ khi đối chiếu thật sự lệch mới **fail closed**. |
+| Session cấp trước migration `0050` | Không mang `auth_epoch` → không bị ép đăng xuất khi deploy; nhận trường này ở lần đăng nhập kế tiếp. |
+
+`auth_epoch` là HMAC khoá bằng `MESFLOW_SECRET_KEY`, cắt ngắn 16 ký tự hex —
+cookie không mang vật liệu suy ra được từ password hash, và giá trị này **không
+bao giờ được ghi log**.
+
+Traceability: `tests/test_persistent_login_session.py` (19 test, có negative
+proof), `tests/e2e/persistent-login.spec.js` (5 test trình duyệt thật).
 
 ---
 
