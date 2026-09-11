@@ -110,7 +110,11 @@ def test_refresh_error_stays_on_the_mfui_export_line():
     cả hai danh sách. Nếu ai gỡ bằng cách "lấy dòng của một bên", `refreshError`
     có thể biến mất khỏi export trong khi hàm vẫn còn nguyên bên trên -- một
     thay đổi mà bài test_polling_screens_* ở dưới KHÔNG bắt được, vì nó chỉ
-    kiểm hàm có tồn tại và call site có gọi.
+    kiểm hàm có tồn tại và call site có gọi (bài đó trỏ ngược lại đây).
+
+    Khác với chốt cùng loại bên hp3, bài này là tuyến THỨ HAI chứ không phải
+    tuyến duy nhất: mất `refreshError` thì Playwright cũng gãy, ở đây chỉ bắt
+    sớm hơn và rẻ hơn.
     """
     ui = read('core/ui.js')
     # Dòng export của MFUI là dòng `return {…}` ở tầng IIFE -- neo vào
@@ -134,6 +138,13 @@ def test_polling_screens_keep_stale_data_instead_of_rendering_the_error():
 
     Dashboard theo ngày làm mới mỗi 10s; Tổng quan / Điều hành PO / Tiến trình
     mỗi 15s. Trước đây mỗi nhịp hỏng ghi đè cả vùng nội dung bằng khối lỗi.
+
+    KHÔNG trùng với test_refresh_error_stays_on_the_mfui_export_line ở trên.
+    Bài này bắt "primitive bị xoá hẳn / call site ngừng gọi". Bài kia bắt
+    "primitive còn nguyên nhưng rơi khỏi dòng export MFUI" -- và với ca đó,
+    mọi phép kiểm ở đây vẫn XANH: `const refreshError=` còn nguyên trong
+    core/ui.js, `MFUI.refreshError` còn nguyên ở mọi call site. Đừng gộp hai
+    bài này.
     """
     assert 'const refreshError=' in read('core/ui.js')
     for rel in ('app.js', 'pages/overview.js', 'pages/po-control.js'):
