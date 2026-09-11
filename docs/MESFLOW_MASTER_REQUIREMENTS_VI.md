@@ -2580,7 +2580,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-AUDIT-* | `test_v66_session_service.py`, `test_v72_audit_operations_separation.py`, `test_v74_audit_presentation.py`, `tests/e2e/audit-operations-v72.spec.js`, `business-audit-v74.spec.js` | A |
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, các test offline-sync ở trên | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
-| Phần D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
+| Phần D (UI/UX) — `REQ-UI-*` | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Phần A §14 (NFR) | concurrency/idempotency: A; security/CSRF, hỗ trợ trình duyệt, SLA hiệu năng: — | P |
 
 ---
