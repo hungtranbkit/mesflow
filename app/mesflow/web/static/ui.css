@@ -1864,11 +1864,11 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
    shared :where(...) zebra/hover rules above, so only the grid, the pending
    emphasis and the resolve modal need their own declarations here. */
 .rq-stats{margin:14px 0}
-.rq-table{overflow:auto}
-.rq-row{display:grid;grid-template-columns:minmax(240px,1.5fr) minmax(170px,1fr) minmax(140px,.8fr) minmax(160px,.9fr) minmax(92px,.42fr) minmax(104px,.5fr);gap:12px;align-items:center;padding:11px;border-bottom:1px solid #e8edf2;min-width:1000px}
-.rq-row.head{background:#f5f7fa;color:#657585;font-size:11px;font-weight:800}
-.rq-row b,.rq-row small{display:block}
-.rq-row small{color:var(--muted);margin-top:3px}
+
+
+
+
+
 .rq-cell{min-width:0}
 .rq-what b,.rq-who b,.rq-what small,.rq-who small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rq-pending{text-align:right}
@@ -1877,7 +1877,7 @@ input[type="checkbox"]:disabled,input[type="radio"]:disabled{cursor:not-allowed;
 .rq-act{text-align:right}
 .rq-noperm{color:var(--muted);font-size:11px}
 .rq-resolve{display:grid;gap:14px}
-.rq-resolve-source{display:grid;gap:3px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#f7f9fb}
+.rq-resolve-source{display:grid;gap:3px;padding:12px;border:1px solid var(--line);border-radius:var(--radius-surface-row);background:#f7f9fb}
 .rq-resolve-source span{color:var(--muted);font-size:12px}
 .rq-resolve-source strong{margin-top:5px;color:#a35a12}
 .rq-resolve-grid{grid-template-columns:1fr 1fr}
@@ -2979,3 +2979,14 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 /* Rộng ra thì các dữ kiện xếp ngang cho đỡ cao, nhưng vẫn là THẺ: không có
    cột cố định, không kẻ ngang xuyên suốt. */
 @media(min-width:860px){.op-card-body{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));align-items:start}}
+
+/* "Hàng chờ sửa" -- cùng một archetype với danh sách Operation (một bản ghi
+   nhiều dữ kiện cần quyết định), nên dùng LẠI `.op-card`/`.op-card-list` chứ
+   không dựng thẻ riêng. Ở đây chỉ còn phần riêng của màn: con số "chờ sửa" là
+   dữ kiện chính bên phải, và nút xử lý bám phải trong thân thẻ.
+   Trước bản vá: `.rq-row` là lưới 6 cột `min-width:1000px` + `border-bottom`,
+   tức ở 390px phải cuộn ngang gần ba lần màn hình mới đọc hết một bản ghi. */
+.rq-card .op-card-aside>strong{font-size:var(--ui-fs-kpi);font-weight:800;line-height:1.1;color:#a35a12}
+.rq-card .rq-act{justify-items:start;align-content:start}
+@media(min-width:860px){.rq-card .rq-act{justify-items:end}}
+.rq-card .rq-who b{white-space:normal;overflow:visible;text-overflow:clip}
