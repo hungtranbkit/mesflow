@@ -405,9 +405,10 @@ def import_operations():
                     # lệ và có thể cùng nằm trong một PO. fetchone() lúc đó là
                     # ĐOÁN, và nhánh UPDATE bên dưới ghi đè dòng đoán trúng.
                     # Cùng luật với resolver QR: mơ hồ thì TỪ CHỐI.
-                    candidates = conn.execute(f'''SELECT id,{TYPE_VALUE_O} operation_type,code
-                        FROM operations WHERE UPPER(code)=UPPER(%s) AND production_order_id=%s
-                        ORDER BY id LIMIT 5''', (row['code'], po['id'])).fetchall()
+                    candidates = conn.execute(f'''SELECT o.id,{TYPE_VALUE_O} operation_type,o.code
+                        FROM operations o
+                        WHERE UPPER(o.code)=UPPER(%s) AND o.production_order_id=%s
+                        ORDER BY o.id LIMIT 5''', (row['code'], po['id'])).fetchall()
                     if len(candidates) > 1:
                         seen = ', '.join(str(c['code']) for c in candidates[:4])
                         raise ConflictError(

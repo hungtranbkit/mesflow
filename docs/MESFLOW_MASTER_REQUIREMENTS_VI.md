@@ -1341,7 +1341,7 @@ không bao giờ ở bên ngoài.
 - **Chuyển trạng thái**: N/A (chỉ đọc).
 - **Kiểm tra hợp lệ**: N/A.
 - **Lỗi**: một endpoint của một panel bị lỗi không được phép làm cả trang lỗi 500 — mỗi panel được fetch và render độc lập.
-- **Ranh giới**: hệ thống không có PO nào → mọi thẻ KPI hiện 0, không phải trạng thái lỗi.
+- **Ranh giới**: hệ thống không có PO nào → các thẻ KPI **đếm** (số PO, số nhân viên, số session) hiện `0`, không phải trạng thái lỗi. Các thẻ **sản lượng** thì theo REQ-DASH-004: chưa session nào chốt số thì hiện `—`, không phải `0`.
 - **Quyền**: chỉ `login_required` ở mức route; quyền thực chất được thực thi qua việc mục nav có hiển thị hay không (§2) — truy cập API trực tiếp mà không có quyền dường như **không** bị chặn riêng ngoài việc session hợp lệ (xác minh tường minh điều này như một testcase, vì đây là một khác biệt thật, kiểm thử được giữa "ẩn ở nav" và "bị chặn ở API").
 - **Đồng thời**: N/A.
 - **Nhật ký kiểm toán**: N/A (view chỉ đọc).
@@ -1369,6 +1369,57 @@ không bao giờ ở bên ngoài.
 - **Liên quan**: BR-016 (§16).
 - **Độ ưu tiên**: P1.
 - **Khía cạnh kiểm thử**: positive, boundary, concurrency (race).
+
+
+### REQ-DASH-003 — Kiosk điều hành (màn hình lớn của Dashboard theo ngày)
+
+- **Mô-đun**: Dashboard
+- **Mục đích**: Một màn hình treo tường/TV ở xưởng hiển thị tình hình sản xuất trong ngày, đọc được từ xa, không thao tác.
+- **Đối tượng thực hiện**: role có `dashboard.view`.
+- **Điều kiện tiên quyết**: session đã xác thực (đây là trang trong app, khác với Kiosk wallboard công khai ở REQ-KIOSK-004).
+- **Đầu vào**: `?page=daily-dashboard-kiosk&date=YYYY-MM-DD`.
+- **Kích hoạt bởi**: nút mở màn hình lớn trên Dashboard theo ngày, hoặc mở thẳng URL.
+- **Luồng chính**: 1) mở từ Dashboard theo ngày thì **giữ nguyên ngày đang chọn** sang trang Kiosk. 2) trang tự làm mới theo chu kỳ. 3) khung app (sidebar/header) bị ẩn, nền tối toàn màn hình.
+- **Kết quả mong đợi**: bảng Operation trong ngày đọc được ở 1920x1080; ở 1366x768 không cắt cụt nửa dòng Operation và không sinh cuộn ngang.
+- **Chuyển trạng thái**: N/A (chỉ đọc).
+- **Lỗi**: API lỗi → hiện trạng thái lỗi trong khung Kiosk, **không** để màn hình trắng.
+- **Ranh giới**: ngày không có session nào → trạng thái rỗng có chữ, không phải màn trắng.
+- **Quyền**: như Dashboard theo ngày.
+- **Liên quan**: REQ-DASH-001, REQ-DASH-004.
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: positive, empty-state, responsive 1920/1366, deep-link giữ ngày, API-failure.
+
+### REQ-DASH-004 — "Chưa nhập sản lượng" khác "đã chốt bằng 0", và TÊN Operation là chữ chính
+
+- **Mô-đun**: Dashboard / Quản lý Session / Trung tâm ngoại lệ (quy ước hiển thị dùng chung)
+- **Mục đích**: Người trực xưởng phải phân biệt được ba trạng thái của một con số sản lượng, và tìm được công đoạn theo TÊN chứ không theo mã.
+- **Đối tượng thực hiện**: mọi role xem được các màn hình đó.
+- **Điều kiện tiên quyết**: N/A.
+- **Đầu vào**: `output_recorded` (theo từng session, `/api/dashboard/day`) và `recorded_session_count` / `day_contributors[].recorded_sessions` (theo Operation/ngày, cùng endpoint).
+- **Luồng chính — ba trạng thái sản lượng**:
+  1. **Chưa nhập / chưa chốt** → hiển thị `Đạt — · NG —`. Gồm: session đang chạy chưa ai nhập số, và session bị hệ thống tự đóng cuối ca mà chưa ai xác nhận (`quantity_confirmed=false`).
+  2. **Đã chốt và bằng 0** → hiển thị `Đạt 0 · NG 0`. Đây là dữ liệu thật, **không được** giấu thành `—`.
+  3. **Đã chốt và lớn hơn 0** → hiển thị số thật.
+- **Quy tắc xác định "đã chốt"**: `(status='CLOSED' AND quantity_confirmed)` HOẶC đã có bất kỳ số lượng dương nào. Tầng hiển thị **không được** suy ra trạng thái từ chính con số (ví dụ "cả ba đều 0 nghĩa là chưa nhập" là SAI — nó giấu mất ca chốt thật 0/0).
+- **Luồng chính — thứ bậc chữ của Operation**: `operation.name` là dòng chính (to hơn/đậm hơn); `operation.code` là dòng phụ bên dưới, nhỏ hơn và mờ hơn. Thiếu `name` thì `code` **lên làm dòng chính** và không lặp lại ở dòng phụ. Không màn nào được lấy mã làm tiêu đề lớn khi đã có tên.
+- **Kết quả mong đợi**: `Đạt` và `NG` luôn hiện **cả hai** khi đã chốt (một mình `Đạt 32` không nói được NG vắng vì bằng 0 hay vì chưa biết). `Sửa`/`Phế` chỉ hiện khi lớn hơn 0.
+- **Kiểm tra hợp lệ**: không đổi schema — `good_qty`/`defect_qty` vẫn là `NOT NULL DEFAULT 0`; trạng thái "đã chốt" suy ra từ `status` + `quantity_confirmed` đã có sẵn từ migration 0042.
+- **Lỗi**: payload cũ không có `output_recorded` → lùi về đúng quy tắc trên, **không** mặc định coi là đã chốt.
+- **Ranh giới**: cả ngày chưa session nào chốt số → hai thẻ KPI sản lượng hiện `—` kèm chú thích "Chưa session nào chốt số"; các thẻ đếm vẫn hiện số thật.
+- **Quyền**: N/A (quy ước hiển thị).
+- **Liên quan**: REQ-DASH-001, REQ-SESS-*, REQ-EXC-*, REQ-SHIFT-* (auto-close).
+- **Độ ưu tiên**: P0 — đọc nhầm `NG 0` thành "đã kiểm, không có hàng lỗi" là sai lệch nghiệp vụ trực tiếp.
+- **Khía cạnh kiểm thử**: positive, boundary (0 đã chốt), negative (chưa chốt), fallback payload cũ, tương phản thị giác, responsive.
+
+### REQ-DASH-005 — Thang giờ timeline "Ngày công theo nhân viên" không được đè nhãn
+
+- **Mô-đun**: Dashboard theo ngày (tab Nhân viên / Session)
+- **Mục đích**: Thang giờ phải đọc được và phải nói đúng sự thật về vị trí thời gian.
+- **Luồng chính**: 1) mốc dựng theo giờ tròn trong khoảng nhìn, cộng biên các khoảng ca. 2) giờ **không quay vòng** sau nửa đêm — ca kéo sang hôm sau đọc là `24:00`/`25:00`, không phải một `00:00` thứ hai trên cùng thang. 3) số nhãn hiển thị quyết định theo bề rộng đo được tại thời điểm dựng, giảm mật độ khi hẹp.
+- **Kết quả mong đợi**: hộp bao của hai nhãn kề nhau **không giao nhau** ở mọi bề rộng; vạch lưới và nhãn luôn cùng một tập mốc; thanh session khớp thang.
+- **Ranh giới**: dưới 1150px phần đầu thang bị ẩn theo thiết kế (mỗi hàng tự cuộn ngang) — khi đó không có nhãn nào để đè, nhưng trang vẫn không được cuộn ngang.
+- **Độ ưu tiên**: P2 — lỗi trình bày, không sai số liệu.
+- **Khía cạnh kiểm thử**: visual/geometry regression ở 320/390/430/768/1024/1366/1920, dữ liệu thưa/dày/sát biên ngày.
 
 ## 15.3 Production Order (`REQ-PO-*`)
 
@@ -2466,7 +2517,10 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-AUTH-001..003 (đăng nhập/session thật) | `tests/e2e/tutorial-video.spec.js` (mật khẩu thật), `test_local_8080_login_contract.py`, `test_internal_qa_login_contract.py` | A |
 | REQ-AUTH-004/005 (autologin) | `tests/test_autologin_guard_unit.py`, `tests/integration/test_autologin_persona.py`, `tests/test_v6584431_production_hardening.py` | A |
 | Ma trận RBAC §3 | `tests/integration/test_permission_matrix.py`, `test_super_admin_system_console.py`/`_unit.py`, `test_rbac_self_heal.py` | A (ở mức ma trận); bảng theo-từng-route đầy đủ của tài liệu này rộng hơn bất kỳ file test đơn lẻ nào hiện có |
-| REQ-DASH-* | `tests/e2e/overview-and-calendar.spec.js`, `overview-production-summary.spec.js`, `dashboard-employee-timeline.spec.js` | A |
+| REQ-DASH-001/002 | `tests/e2e/overview-and-calendar.spec.js`, `overview-production-summary.spec.js`, `dashboard-employee-timeline.spec.js` | A |
+| REQ-DASH-003 (Kiosk điều hành) | `tests/e2e/daily-dashboard-kiosk.spec.js`, `tests/test_daily_dashboard_kiosk_contract.py` | A |
+| REQ-DASH-004 (chưa nhập ≠ 0; tên > mã) | `tests/e2e/qty-recorded-vs-zero.spec.js`, `tests/e2e/dashboard-op-name-hierarchy.spec.js`, `tests/e2e/row-text-hierarchy.spec.js` | A |
+| REQ-DASH-005 (thang giờ timeline) | `tests/e2e/timeline-scale-density.spec.js` | A |
 | REQ-PO-*, REQ-PART-*, REQ-TPL-* | `tests/e2e/catalog-crud.spec.js`, `catalog-visual.spec.js`, `template-ui.spec.js`; `test_p1_audit_2026_08_28.py`, `test_production_state_integrity.py`, `test_production_consistency_p1.py` | A (P cho quy tắc chuyển trạng thái PO ngoài enum, khoảng trống §5.3) |
 | REQ-EMP-* | `tests/e2e/catalog-crud.spec.js` | P — chưa có file test riêng cho vòng đời nhân viên |
 | REQ-SESS-* | `test_session_lifecycle_state_machine_property.py`, `test_session_lifecycle_observability_phase13.py`, `test_session_overlap_and_exceptions.py`, `test_shift_session_lifecycle.py`, `test_write_path_po_lock_contention.py`, `tests/e2e/session-management-*.spec.js` (3 file) | A |
