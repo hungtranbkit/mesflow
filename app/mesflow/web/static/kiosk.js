@@ -299,11 +299,20 @@
     else { show('quantity-defect'); focusQuantity('defect-qty'); }
   }
 
+  // Đang gửi thì KHÔNG nhận thêm lệnh gửi nữa. ESP v2 làm y vậy: ở
+  // UiState::FINISHING, handleKeypadKey rơi xuống nhánh "không phải màn nhập
+  // số" và bỏ qua phím (mesflow_app.cpp). Trên bàn phím khoá cứng, người ta
+  // bấm lại khi màn hình đứng vài giây; không ghi trùng nhờ request_id dùng
+  // lại, nhưng để lọt phím vẫn là sai -- mỗi lần bấm lại một lượt gọi mạng.
+  let submitting = false;
+
   async function finish() {
+    if (submitting) return;
     if (!openSession) return setError('Không tìm thấy phiên đang làm','SES-404','Quét lại thẻ nhân viên để tải phiên đang mở.');
     const good = pendingFinish.good;
     const rework = pendingFinish.rework;
     const defect = pendingFinish.defect;
+    submitting = true;
     try {
       await api(`/api/kiosk-web/finish/${openSession.id}`, {method:'POST', body:JSON.stringify({good_qty:good, defect_qty:defect, rework_qty:rework, note:pendingFinish.note, request_id:pendingFinish.requestId})});
       const scrap = defect - rework;
@@ -316,6 +325,8 @@
       document.getElementById('finish-confirm-ok').hidden = true;
       document.getElementById('finish-submit-retry').hidden = false;
       show('finish-confirm');
+    } finally {
+      submitting = false;
     }
   }
 
