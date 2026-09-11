@@ -174,17 +174,17 @@ dạng mờ/disable, mà biến mất hoàn toàn.
 | Kế hoạch | Template | `templates` | `template.view` | |
 | Điều hành | Quản lý Session | `session-management` | `session.view` | "50 OP gần nhất, xem session, lọc và chỉnh sửa" |
 | Điều hành | Trung tâm ngoại lệ | `session-exceptions` | `exceptions.view` | Exception Center |
-| Điều hành | Production Trace | `production-trace` | `session.view` | Dòng thời gian: PO, Session, số lượng, thay đổi |
-| Điều hành | Nhật ký nghiệp vụ | `business-audit` | `business_audit.view` | Ai thay đổi gì/khi nào/vì sao |
 | Điều hành | Gantt & Material Flow | `production-schedule` | `material_flow.view` | |
 | Điều hành | Trạm kiosk | `kiosk-management` | `kiosk.view` | Đăng ký/health/log thiết bị |
 | Điều hành | Báo cáo năng suất nhân viên | `employee-productivity` | `session.view` | KPI: % hoàn thành trung bình theo từng nhân viên |
-| Điều hành | Nhật ký ứng dụng | `system-logs` | `logs.view` | Action log, trace lỗi API |
 | Danh mục | Nhân viên | `employees` | `employees.view` | Hồ sơ nhân viên + QR |
 | Danh mục | Danh sách QR Code | `qr-print` | `qr.view` | Lọc/chọn/in hàng loạt nhãn QR |
 | Danh mục | Thiết bị | `equipment` | `equipment.view` | |
 | Quản trị | Người dùng | `users` | `users.view` | Tài khoản, role, mật khẩu |
 | Quản trị | Lịch làm việc | `working-calendar` | `calendar.view` | Ca làm và thời gian nghỉ |
+| Quản trị › Theo dõi & Nhật ký | Truy vết sản xuất | `production-trace` | `session.view` | Production Trace — dòng thời gian: PO, Session, số lượng, thay đổi |
+| Quản trị › Theo dõi & Nhật ký | Nhật ký nghiệp vụ | `business-audit` | `business_audit.view` | Ai thay đổi gì/khi nào/vì sao |
+| Quản trị › Theo dõi & Nhật ký | Nhật ký ứng dụng | `system-logs` | `logs.view` | Action log, trace lỗi API |
 | Hệ thống *(chỉ super_admin)* | Tổng quan hệ thống | `system-overview` | — (chỉ kiểm tra role) | Health App/DB/QA Center/Deploy Agent |
 | Hệ thống *(chỉ super_admin)* | Lỗi hệ thống | `system-errors` | — | Lỗi HTTP 500, lỗi DB, dịch vụ không khỏe — khác với ngoại lệ session |
 | Hệ thống *(chỉ super_admin)* | Nhật ký | `system-logs-it` | — | Log MESFlow/DB/QA Center/Deploy Agent |
@@ -2646,6 +2646,7 @@ Chỉ giới hạn ở **hành vi mà một agent QC có thể kiểm tra máy m
 | REQ-UI-013 | **Ngôn ngữ thị giác của khối nội dung là "soft rounded industrial SaaS"**: card / list item / panel / section / vỏ bảng bo góc rõ và mềm, viền rất nhẹ, đổ bóng vừa đủ để phân lớp (không bóng nặng), nền sáng. Cùng một LOẠI khối phải cho cùng `border-radius` / `border` / `background` / `box-shadow` đã tính, bất kể nó nằm ở màn nào. |
 | REQ-UI-014 | **Thang bo góc là canonical, ba bậc, không có bậc thứ tư tuỳ hứng**: `--radius-surface` (12px — khối nội dung ngoài cùng: card, list item, panel, section, vỏ bảng), `--radius-surface-row` (8px — khối LỒNG bên trong một surface: row của card-list, subrow, ô inset), `--radius-control` (8px — input, select, button, chip). Lớp phủ (modal/sheet) dùng bậc riêng `--radius-overlay` (16px) vì nó nổi trên mặt phẳng khác. Một surface KHÔNG được tự phát minh giá trị bo góc bằng số cứng. |
 | REQ-UI-015 | **Cái gì PHẢI giống và cái gì ĐƯỢC khác, quyết định bởi ngữ nghĩa chứ không bởi màn hình**: (a) mọi card/list item = cùng một mặt, bo `--radius-surface`; (b) row của BẢNG dữ liệu dày có thể phẳng bên trong, nhưng vỏ ngoài của bảng phải cùng ngôn ngữ bo tròn; (c) khối lồng / subrow / nguồn-đầu-vào dùng `--radius-surface-row` và inset (thụt lề hoặc `border-left`), không tự bo như khối ngoài; (d) khối Part cố ý dùng viền đậm hơn (`--border-block`) để thấy ranh giới giữa các Part; (e) thứ bậc chữ thống nhất: tiêu đề là chữ chính, metadata nhỏ và mờ, hành động nằm bên phải. |
+| REQ-UI-016 | Nhóm sidebar có thể chứa tiêu đề nhóm con (ví dụ `Quản trị › Theo dõi & Nhật ký`). Tiêu đề nhóm con chỉ hiện khi role hiện tại mở được ít nhất một mục bên dưới nó — role không có quyền nào trong nhóm con sẽ không thấy cả mục lẫn tiêu đề. Chuyển một trang sang nhóm nav khác KHÔNG bao giờ đổi ai được mở nó: hiển thị vẫn do đúng `PAGE_PERMISSION` sẵn có của trang đó quyết định. |
 
 **Không bao phủ / không khẳng định**: audit khả năng tiếp cận
 (accessibility) về điều hướng bàn phím/thứ tự focus, gắn nhãn cho
@@ -2761,6 +2762,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-AUDIT-* | `test_v66_session_service.py`, `test_v72_audit_operations_separation.py`, `test_v74_audit_presentation.py`, `tests/e2e/audit-operations-v72.spec.js`, `business-audit-v74.spec.js` | A |
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, các test offline-sync ở trên | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
+| REQ-UI-016 (nhóm con sidebar + quyền) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
 | Phần D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Phần A §14 (NFR) | concurrency/idempotency: A; security/CSRF, hỗ trợ trình duyệt, SLA hiệu năng: — | P |
 

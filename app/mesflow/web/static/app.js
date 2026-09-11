@@ -29,12 +29,9 @@ const menu=[
     {page:'session-management',label:'Quản lý Session',hint:'50 OP gần nhất, xem session, lọc và chỉnh sửa'},
     {page:'session-exceptions',label:'Trung tâm ngoại lệ',hint:'Việc cần xử lý, xác nhận và lịch sử bất thường'},
     {page:'rework-queue',label:'Hàng chờ sửa',hint:'Sản phẩm NG chờ sửa hoặc loại, gom theo Part'},
-    {page:'production-trace',label:'Production Trace',hint:'Dòng thời gian PO, Session, sản lượng và thay đổi'},
-    {page:'business-audit',label:'Nhật ký nghiệp vụ',hint:'Ai đã thay đổi gì, khi nào, lý do — PO/Session/số lượng/ngoại lệ'},
     {page:'production-schedule',label:'Gantt & Material Flow',hint:'Kế hoạch chi tiết và dòng vật liệu'},
     {page:'kiosk-management',label:'Trạm kiosk',hint:'Đăng ký, sức khỏe, action log và lỗi theo trạm'},
-    {page:'employee-productivity',label:'Báo cáo năng suất nhân viên',hint:'Trung bình % hoàn thành Session theo từng nhân viên'},
-    {page:'system-logs',label:'Nhật ký ứng dụng',hint:'Action người dùng, API lỗi, trace và xử lý sự cố'}
+    {page:'employee-productivity',label:'Báo cáo năng suất nhân viên',hint:'Trung bình % hoàn thành Session theo từng nhân viên'}
   ]},
   {label:'Danh mục',items:[
     {page:'employees',label:'Nhân viên',hint:'Hồ sơ và mã QR nhân viên'},
@@ -43,7 +40,14 @@ const menu=[
   ]},
   {label:'Quản trị',items:[
     {page:'users',label:'Người dùng',hint:'Tài khoản, vai trò và mật khẩu'},
-    {page:'working-calendar',label:'Lịch làm việc',hint:'Ca làm và thời gian nghỉ'}
+    {page:'working-calendar',label:'Lịch làm việc',hint:'Ca làm và thời gian nghỉ'},
+    // Theo dõi & Nhật ký -- các màn tra cứu/đối soát, tách khỏi menu vận hành
+    // hằng ngày. QUYỀN KHÔNG ĐỔI: mỗi mục vẫn do đúng permission cũ trong
+    // PAGE_PERMISSION quyết định; chuyển nhóm không cấp thêm quyền cho ai.
+    {subheading:'Theo dõi & Nhật ký'},
+    {page:'production-trace',label:'Truy vết sản xuất',hint:'Production Trace — dòng thời gian PO, Session, sản lượng và thay đổi'},
+    {page:'business-audit',label:'Nhật ký nghiệp vụ',hint:'Ai đã thay đổi gì, khi nào, lý do — PO/Session/số lượng/ngoại lệ'},
+    {page:'system-logs',label:'Nhật ký ứng dụng',hint:'Action người dùng, API lỗi, trace và xử lý sự cố'}
   ]},
   // SUPER_ADMIN / IT only (task spec section 5) -- canOpenPage() above hides
   // every item (so this whole group never renders, per the sidebar-group
@@ -60,7 +64,7 @@ const menu=[
 ];
 const nav=document.getElementById('nav'),content=document.getElementById('content'),title=document.getElementById('pageTitle'),subtitle=document.getElementById('pageSubtitle');
 const appLayout=document.getElementById('appLayout'),sidebar=document.getElementById('appSidebar'),sidebarToggle=document.getElementById('sidebarToggle'),mobileMenuToggle=document.getElementById('mobileMenuToggle'),sidebarOverlay=document.getElementById('sidebarOverlay');
-const navIcon=(name)=>{const paths={overview:'M4 18V9m5 9V5m5 13v-7m5 7V7',dashboard:'M4 5h7v6H4zm9 0h7v10h-7zM4 13h7v6H4zm9 4h7v2h-7z','Kế hoạch':'M6 3v3m12-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z','Điều hành':'M4 7h10m-4-3 4 3-4 3m10 7H10m4-3-4 3 4 3','Danh mục':'M4 5h7v6H4zm9 0h7v6h-7zM4 13h7v6H4zm9 0h7v6h-7z','Hệ thống':'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4','production-orders':'M5 4h11l3 3v13H5zM16 4v4h4M8 12h8m-8 4h8',templates:'M4 6h16v13H4zM8 3v6m8-6v6','production-schedule':'M4 6h16M7 3v6m10-6v6M5 10h14v10H5zM8 14h3m2 3h3','session-management':'M7 4h10v16H7zM4 8h3m10 0h3M4 14h3m10 0h3','session-exceptions':'M12 4 3 20h18L12 4Zm0 6v4m0 3h.01','rework-queue':'M4 7h9M4 12h6m-6 5h9m5-11v10m0 0-3-3m3 3 3-3','kiosk-management':'M5 4h14v11H5zM9 20h6m-3-5v5','system-logs':'M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5','business-audit':'M6 2h9l3 3v17H6zM9 8h6m-6 4h6m-6 4h4','employee-productivity':'M4 20V10m6 10V4m6 16v-7m6 7V8',employees:'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 9c0-4-3-7-7-7s-7 3-7 7m14-8a3 3 0 1 0 0-6m5 14c0-3-2-5-5-5','qr-print':'M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm11 0h2v2h-2zm3 0h2v6h-2zm-3 4h2v2h-2','equipment':'M4 18h16M6 18v-7l6-5 6 5v7M9 18v-4h6v4',users:'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 9c0-4-3-7-7-7s-7 3-7 7m8-11h5m-2.5-2.5v5','working-calendar':'M4 6h16v14H4zM8 3v6m8-6v6M4 10h16m-12 4h3m2 0h3',tutorials:'M4 5h6a4 4 0 0 1 4 4V20H8a4 4 0 0 0-4 0Zm16 0h-6a4 4 0 0 0-4 4V20h6a4 4 0 0 1 4 0Z','Quản trị':'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 9c0-4-3-7-7-7s-7 3-7 7m14-8a3 3 0 1 0 0-6m5 14c0-3-2-5-5-5','system-overview':'M4 18V9m5 9V5m5 13v-7m5 7V7','system-errors':'M12 4 3 20h18L12 4Zm0 6v4m0 3h.01','system-logs-it':'M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5','system-services':'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4','system-diagnostics':'M9 3v4H5l4 4-4 4h4v4h6v-4h4l-4-4 4-4h-4V3H9Z','system-audit':'M6 2h9l3 3v17H6zM9 8h6m-6 4h6m-6 4h4'};return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name]||paths.overview}"/></svg>`};
+const navIcon=(name)=>{const paths={overview:'M4 18V9m5 9V5m5 13v-7m5 7V7',dashboard:'M4 5h7v6H4zm9 0h7v10h-7zM4 13h7v6H4zm9 4h7v2h-7z','Kế hoạch':'M6 3v3m12-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z','Điều hành':'M4 7h10m-4-3 4 3-4 3m10 7H10m4-3-4 3 4 3','Danh mục':'M4 5h7v6H4zm9 0h7v6h-7zM4 13h7v6H4zm9 0h7v6h-7z','Hệ thống':'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4','production-orders':'M5 4h11l3 3v13H5zM16 4v4h4M8 12h8m-8 4h8',templates:'M4 6h16v13H4zM8 3v6m8-6v6','production-schedule':'M4 6h16M7 3v6m10-6v6M5 10h14v10H5zM8 14h3m2 3h3','session-management':'M7 4h10v16H7zM4 8h3m10 0h3M4 14h3m10 0h3','session-exceptions':'M12 4 3 20h18L12 4Zm0 6v4m0 3h.01','rework-queue':'M4 7h9M4 12h6m-6 5h9m5-11v10m0 0-3-3m3 3 3-3','kiosk-management':'M5 4h14v11H5zM9 20h6m-3-5v5','system-logs':'M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5','business-audit':'M6 2h9l3 3v17H6zM9 8h6m-6 4h6m-6 4h4','production-trace':'M4 17h3l3-9 4 14 3-9h3','employee-productivity':'M4 20V10m6 10V4m6 16v-7m6 7V8',employees:'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 9c0-4-3-7-7-7s-7 3-7 7m14-8a3 3 0 1 0 0-6m5 14c0-3-2-5-5-5','qr-print':'M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm11 0h2v2h-2zm3 0h2v6h-2zm-3 4h2v2h-2','equipment':'M4 18h16M6 18v-7l6-5 6 5v7M9 18v-4h6v4',users:'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 9c0-4-3-7-7-7s-7 3-7 7m8-11h5m-2.5-2.5v5','working-calendar':'M4 6h16v14H4zM8 3v6m8-6v6M4 10h16m-12 4h3m2 0h3',tutorials:'M4 5h6a4 4 0 0 1 4 4V20H8a4 4 0 0 0-4 0Zm16 0h-6a4 4 0 0 0-4 4V20h6a4 4 0 0 1 4 0Z','Quản trị':'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 9c0-4-3-7-7-7s-7 3-7 7m14-8a3 3 0 1 0 0-6m5 14c0-3-2-5-5-5','system-overview':'M4 18V9m5 9V5m5 13v-7m5 7V7','system-errors':'M12 4 3 20h18L12 4Zm0 6v4m0 3h.01','system-logs-it':'M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5','system-services':'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4','system-diagnostics':'M9 3v4H5l4 4-4 4h4v4h6v-4h4l-4-4 4-4h-4V3H9Z','system-audit':'M6 2h9l3 3v17H6zM9 8h6m-6 4h6m-6 4h4'};return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name]||paths.overview}"/></svg>`};
 function applySidebarState(collapsed){appLayout.classList.toggle('sidebar-collapsed',collapsed);sidebarToggle.setAttribute('aria-label',collapsed?'Mở rộng menu':'Thu gọn menu');sidebarToggle.title=collapsed?'Mở rộng menu':'Thu gọn menu';try{localStorage.setItem('mesflow_sidebar_collapsed',collapsed?'1':'0')}catch(_){}}
 function closeMobileSidebar(){document.body.classList.remove('sidebar-mobile-open')}
 applySidebarState((()=>{try{return localStorage.getItem('mesflow_sidebar_collapsed')==='1'}catch(_){return false}})());
@@ -76,13 +80,19 @@ for(const group of menu){
   const wrap=document.createElement('section');wrap.className='sidebar-group';
   const trigger=document.createElement('button');trigger.className='sidebar-group-trigger';trigger.type='button';trigger.innerHTML=`<span class="sidebar-item-icon">${navIcon(group.label)}</span><span class="sidebar-item-label">${group.label}</span><i aria-hidden="true">⌄</i>`;trigger.title=group.label;
   const panel=document.createElement('div');panel.className='sidebar-group-panel';
+  // pendingHeading: một sub-heading chỉ được vẽ khi phía sau nó có ít nhất một
+  // mục người dùng thực sự mở được. Role không có quyền nào trong nhóm con thì
+  // heading biến mất cùng các mục -- không để lại tiêu đề trống.
+  let pendingHeading=null;
   for(const item of group.items){
+    if(item.subheading){pendingHeading=item.subheading;continue}
     if(item.page&&!canOpenPage(item.page))continue;
+    if(pendingHeading){const h=document.createElement('p');h.className='sidebar-sub-heading';h.textContent=pendingHeading;panel.appendChild(h);pendingHeading=null}
     const b=document.createElement('button');b.className='sidebar-sub-item';b.type='button';if(item.page)b.dataset.page=item.page;
     b.innerHTML=`<span class="sidebar-item-icon">${navIcon(item.page)}</span><span class="sidebar-sub-copy"><b>${item.label}</b><small>${item.hint||''}</small></span>`;b.title=item.label;
     b.onclick=()=>{if(item.href){location.href=item.href}else{AppNav.reset();AppNav.clearReturnContext();openPage(item.page,b)}closeMobileSidebar()};panel.appendChild(b);
   }
-  if(!panel.children.length)continue;
+  if(!panel.querySelector('.sidebar-sub-item'))continue;   // headings alone never make a group visible
   trigger.onclick=()=>{if(appLayout.classList.contains('sidebar-collapsed')){applySidebarState(false);wrap.classList.add('open');return}wrap.classList.toggle('open')};
   wrap.append(trigger,panel);nav.appendChild(wrap);
 }

@@ -161,17 +161,17 @@ entry — it is not shown disabled, it is absent entirely.
 | Kế hoạch | Template | `templates` | `template.view` | |
 | Điều hành | Quản lý Session | `session-management` | `session.view` | "50 OP gần nhất, xem session, lọc và chỉnh sửa" |
 | Điều hành | Trung tâm ngoại lệ | `session-exceptions` | `exceptions.view` | Exception Center |
-| Điều hành | Production Trace | `production-trace` | `session.view` | Timeline: PO, Session, quantity, changes |
-| Điều hành | Nhật ký nghiệp vụ | `business-audit` | `business_audit.view` | Who changed what/when/why |
 | Điều hành | Gantt & Material Flow | `production-schedule` | `material_flow.view` | |
 | Điều hành | Trạm kiosk | `kiosk-management` | `kiosk.view` | Device registration/health/logs |
 | Điều hành | Báo cáo năng suất nhân viên | `employee-productivity` | `session.view` | KPI: average % completion per employee |
-| Điều hành | Nhật ký ứng dụng | `system-logs` | `logs.view` | Action log, API error trace |
 | Danh mục | Nhân viên | `employees` | `employees.view` | Employee profiles + QR |
 | Danh mục | Danh sách QR Code | `qr-print` | `qr.view` | Filter/select/print QR labels in bulk |
 | Danh mục | Thiết bị | `equipment` | `equipment.view` | |
 | Quản trị | Người dùng | `users` | `users.view` | Accounts, roles, passwords |
 | Quản trị | Lịch làm việc | `working-calendar` | `calendar.view` | Shifts and rest periods |
+| Quản trị › Theo dõi & Nhật ký | Truy vết sản xuất | `production-trace` | `session.view` | Production Trace — timeline: PO, Session, quantity, changes |
+| Quản trị › Theo dõi & Nhật ký | Nhật ký nghiệp vụ | `business-audit` | `business_audit.view` | Who changed what/when/why |
+| Quản trị › Theo dõi & Nhật ký | Nhật ký ứng dụng | `system-logs` | `logs.view` | Action log, API error trace |
 | Hệ thống *(super_admin only)* | Tổng quan hệ thống | `system-overview` | — (role check only) | App/DB/QA Center/Deploy Agent health |
 | Hệ thống *(super_admin only)* | Lỗi hệ thống | `system-errors` | — | HTTP 500s, DB errors, unhealthy services — distinct from session exceptions |
 | Hệ thống *(super_admin only)* | Nhật ký | `system-logs-it` | — | MESFlow/DB/QA Center/Deploy Agent logs |
@@ -2324,6 +2324,7 @@ pixel-perfect subjective judgment.
 | REQ-UI-010 | Empty states show an explicit Vietnamese message (e.g. "Không có Session hoàn thành trong khoảng ngày đã chọn") rather than a blank container. |
 | REQ-UI-011 | Any async auto-action (e.g. autologin's POST) gives the user explicit status text during the wait, not a silent unlabeled delay. |
 | REQ-UI-012 | Interface language is Vietnamese throughout the admin app — an English string in a user-facing label/error/toast is a defect. |
+| REQ-UI-016 | Sidebar groups may contain a labelled sub-group heading (e.g. `Quản trị › Theo dõi & Nhật ký`). A sub-group heading renders only when at least one item beneath it is openable by the current role — a role with none of those permissions sees neither the items nor the heading. Moving a page between nav groups never changes who can open it: visibility stays governed solely by that page's existing `PAGE_PERMISSION` entry. |
 
 **Not covered / not asserted**: keyboard-navigation/focus-order
 accessibility audit, screen-reader labeling, color-contrast ratios — no
@@ -2431,6 +2432,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-AUDIT-* | `test_v66_session_service.py`, `test_v72_audit_operations_separation.py`, `test_v74_audit_presentation.py`, `tests/e2e/audit-operations-v72.spec.js`, `business-audit-v74.spec.js` | A |
 | REQ-API-001/002 | `test_write_path_po_lock_contention.py`, offline-sync tests above | A |
 | REQ-API-003 | `test_postgres_schema.py`, `test_migration_matrix_blocker7.py`, `test_deploy_rollback_migration_aware.py`, `test_api_contract.py` | A |
+| REQ-UI-016 (sidebar sub-group + visibility) | `tests/e2e/nav-admin-monitoring.spec.js` | A |
 | Part D (UI/UX) | `tests/e2e/*-visual.spec.js` (catalog, system, ops), `mobile-navigation.spec.js`, `back-navigation.spec.js` | P |
 | Part A §14 (NFR) | concurrency/idempotency: A; security/CSRF, browser support, performance SLA: — | P |
 
