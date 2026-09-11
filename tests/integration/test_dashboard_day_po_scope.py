@@ -47,8 +47,10 @@ def two_day_orders(db):
             cur.execute("""INSERT INTO work_sessions
                   (employee_id,operation_id,status,started_at,ended_at,good_qty,defect_qty,
                    rework_qty,scrap_qty,quantity_confirmed,start_request_id,finish_request_id)
-                VALUES(%s,%s,'CLOSED',CURRENT_TIMESTAMP - INTERVAL '2 hours',
-                       CURRENT_TIMESTAMP - INTERVAL '1 hour',%s,0,0,0,TRUE,%s,%s) RETURNING id""",
+                VALUES(%s,%s,'CLOSED',
+                       ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + TIME '10:00') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+                       ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + TIME '11:00') AT TIME ZONE 'Asia/Ho_Chi_Minh',
+                       %s,0,0,0,TRUE,%s,%s) RETURNING id""",
                 (employee_id, op_id, good, f'DS-START-{label}-{suffix}', f'DS-FIN-{label}-{suffix}'))
             session_id = cur.fetchone()['id']
             made[label] = {'po_id': po_id, 'op_id': op_id, 'session_id': session_id,
