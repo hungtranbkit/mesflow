@@ -221,4 +221,167 @@ test.describe('mặt sidebar điều hướng', () => {
     testInfo.attach('sidebar-mobile.png',
       { body: await page.locator('.app-sidebar').screenshot(), contentType: 'image/png' });
   });
+
+  // --- Thang trạng thái ------------------------------------------------
+  //
+  // Hồi quy "khối trắng" là một nửa vấn đề; nửa còn lại là bốn nhóm KẾ HOẠCH /
+  // ĐIỀU HÀNH / DANH MỤC / QUẢN TRỊ nói quá ít về trạng thái của chúng: nhóm
+  // đang MỞ trông y hệt nhóm đang đóng, và mọi màu nav từng nằm ở hai chỗ
+  // trong ui.css với hai giá trị khác nhau. Bài dưới đây đo bốn trạng thái
+  // trên CÙNG một nút và bắt chúng phải khác nhau, nổi dần theo đúng thứ tự
+  // idle < open < hover < active -- "đang ở đâu" luôn là hàng nổi nhất.
+  const cssVar = (page, name) => page.evaluate(
+    n => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
+  // Token viết bằng hex, computed style trả về rgb() -- quy về một dạng để so.
+  const asRgb = value => value.startsWith('#')
+    ? { r: parseInt(value.slice(1, 3), 16), g: parseInt(value.slice(3, 5), 16), b: parseInt(value.slice(5, 7), 16), a: 1 }
+    : parseRgb(value);
+  const bgOf = locator => locator.evaluate(el => {
+    const cs = getComputedStyle(el);
+    return { bg: cs.backgroundColor, color: cs.color, shadow: cs.boxShadow, outline: cs.outlineColor };
+  });
+  // Chuột đứng xa rail trái: một cú .click() của Playwright để lại con trỏ
+  // NGAY TRÊN nút vừa bấm, nên đo "đang mở, không hover" sau đó sẽ đo nhầm
+  // hover. Trạng thái mở vì vậy được bật bằng el.click() trong trang.
+  const parkMouse = page => page.mouse.move(1200, 600);
+
+  test('bốn nhóm: idle / mở / hover / đang xem là bốn mặt khác nhau, đúng hướng', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    await parkMouse(page);
+
+    const groups = page.locator('.sidebar-group');
+    expect(await groups.count(), 'phải đủ bốn nhóm nav').toBeGreaterThanOrEqual(4);
+
+    // Một nhóm KHÔNG chứa trang hiện tại -- trang mở là overview, mục cấp một.
+    const group = groups.first();
+    const trigger = group.locator('.sidebar-group-trigger');
+    await expect(group).not.toHaveClass(/has-active/);
+
+    const idle = await bgOf(trigger);
+    expect(parseRgb(idle.bg).a, 'nhóm chưa mở phải trong suốt trên nền rail').toBeLessThan(0.02);
+
+    await trigger.evaluate(el => el.click());          // mở nhóm, chuột vẫn ở xa
+    await expect(group).toHaveClass(/open/);
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const opened = await bgOf(trigger);
+
+    await trigger.hover();
+    await page.waitForTimeout(120);
+    const hovered = await bgOf(trigger);
+    await parkMouse(page);
+
+    // Trang hiện tại nằm TRONG một nhóm: bấm một mục con rồi đo chính nút nhóm.
+    const target = groups.nth(2).locator('.sidebar-group-trigger');
+    await target.evaluate(el => el.click());
+    await groups.nth(2).locator('.sidebar-sub-item').first().evaluate(el => el.click());
+    await expect(groups.nth(2)).toHaveClass(/has-active/);
+    await page.waitForTimeout(150);
+    const active = await bgOf(groups.nth(2).locator('.sidebar-group-trigger'));
+    await parkMouse(page);
+
+    const L = s => luminance(parseRgb(s.bg));
+    const rail = luminance(parseRgb(await page.evaluate(
+      () => getComputedStyle(document.querySelector('.app-sidebar')).backgroundColor)));
+
+    // Hợp đồng là HƯỚNG, không phải một thang đậm dần: mọi thứ không phải
+    // trang hiện tại thì LÕM xuống dưới mặt rail, trang hiện tại NỔI lên.
+    for (const [name, state] of [['mở', opened], ['hover', hovered], ['đang xem', active]]) {
+      expect(parseRgb(state.bg).a, `trạng thái ${name} phải có nền thật, không trong suốt`).toBeGreaterThan(0.02);
+      expect(L(state), `trạng thái ${name} đã thành mặt SÁNG (${state.bg})`).toBeLessThan(0.15);
+    }
+    expect(L(opened),
+      `nhóm đang mở (${opened.bg}, L ${L(opened).toFixed(4)}) phải lõm xuống dưới mặt rail (L ${rail.toFixed(4)})`
+    ).toBeLessThan(rail);
+    expect(L(hovered),
+      `hover (${hovered.bg}) phải lõm sâu hơn nhóm đang mở (${opened.bg})`
+    ).toBeLessThan(L(opened));
+    expect(L(active),
+      `trang hiện tại (${active.bg}) phải NỔI lên khỏi mặt rail (L ${rail.toFixed(4)}) -- ` +
+      'nó là hàng duy nhất đi ngược hướng với phần còn lại'
+    ).toBeGreaterThan(rail);
+
+    // Bốn mặt phải là bốn màu khác nhau, không chỉ khác độ sáng.
+    const faces = new Set([`rail:${rail.toFixed(5)}`, opened.bg, hovered.bg, active.bg]);
+    expect(faces.size, `idle/mở/hover/đang xem đang trùng mặt nhau: ${[...faces].join(' | ')}`).toBe(4);
+    expect(active.shadow, 'nhóm chứa trang hiện tại phải có thanh accent inset').toContain('inset');
+    // ... và chỉ MỘT mình nó mang thanh accent.
+    for (const [name, state] of [['mở', opened], ['hover', hovered]]) {
+      expect(state.shadow, `trạng thái ${name} không được mang thanh accent của trang hiện tại`).not.toContain('inset');
+    }
+
+    // Thanh accent lấy đúng token, không phải một hex viết lại lần nữa.
+    const accent = asRgb(await cssVar(page, '--nav-accent'));
+    expect(accent, '--nav-accent phải tồn tại trong khối token').not.toBeNull();
+    expect(active.shadow.replace(/\s/g, ''),
+      `thanh accent phải là var(--nav-accent), đang là ${active.shadow}`
+    ).toContain(`rgb(${accent.r},${accent.g},${accent.b})`.replace(/\s/g, ''));
+
+    // Và chữ trên mọi trạng thái vẫn đọc được.
+    for (const [name, state] of [['mở', opened], ['hover', hovered], ['đang xem', active]]) {
+      const bg = parseRgb(state.bg);
+      expect(contrast(parseRgb(state.color), bg),
+        `chữ nhóm ở trạng thái ${name} chỉ đạt ${contrast(parseRgb(state.color), bg).toFixed(2)}:1 trên ${state.bg}`
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  test('màu nav đến từ token --nav-*, không từ hex rải rác', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    // Rail và hàng nav phải khớp token: nếu ai đó viết cứng một hex mới ở đâu
+    // đó trong ui.css thì hai giá trị này lệch nhau ngay.
+    const railToken = await cssVar(page, '--nav-surface');
+    const rail = await page.evaluate(() => getComputedStyle(document.querySelector('.app-sidebar')).backgroundColor);
+    const t = asRgb(railToken);
+    const r = parseRgb(rail);
+    expect([r.r, r.g, r.b], `nền rail ${rail} không khớp --nav-surface ${railToken}`).toEqual([t.r, t.g, t.b]);
+
+    for (const name of ['--nav-surface-open', '--nav-surface-hover', '--nav-surface-active',
+                        '--nav-accent', '--nav-text', '--nav-heading']) {
+      expect((await cssVar(page, name)).trim(), `thiếu token ${name}`).not.toBe('');
+    }
+  });
+
+  test('bàn phím: nhóm nav có dấu focus riêng và nói được trạng thái mở', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    const trigger = page.locator('.sidebar-group-trigger').first();
+
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // Tab trước rồi mới focus: :focus-visible chỉ ăn khi phương thức nhập gần
+    // nhất là bàn phím, nên một .focus() trần có thể không vẽ vòng nào.
+    await page.keyboard.press('Tab');
+    await trigger.focus();
+    const focusRing = await trigger.evaluate(el => {
+      const cs = getComputedStyle(el);
+      return { width: cs.outlineWidth, style: cs.outlineStyle, color: cs.outlineColor };
+    });
+    await page.keyboard.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    expect(parseFloat(focusRing.width), 'nút nhóm phải có vòng focus thấy được').toBeGreaterThanOrEqual(2);
+    expect(focusRing.style, 'vòng focus không được là none').not.toBe('none');
+    await auditAllStates(page);
+  });
+
+  test('thu gọn: mục đang mở vẫn mang thanh accent, không phải vạch trắng cũ', async ({ page }) => {
+    // Rail thu gọn từng có ngoại lệ riêng: một rule `.sidebar-collapsed
+    // .sidebar-item.active{box-shadow:inset 1px 0 #fff!important}` của lớp cũ
+    // thắng thanh accent nhờ specificity, nên cùng một "mục đang mở" có hai
+    // hình dạng khác nhau tuỳ sidebar đang mở hay thu gọn.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    const accent = asRgb(await cssVar(page, '--nav-accent'));
+    await page.locator('#sidebarToggle').click();
+    await expect(page.locator('#appLayout')).toHaveClass(/sidebar-collapsed/);
+    await page.waitForTimeout(250);
+
+    const active = page.locator('.sidebar-item.active, .sidebar-group.has-active>.sidebar-group-trigger').first();
+    await expect(active).toBeVisible();
+    const shadow = (await active.evaluate(el => getComputedStyle(el).boxShadow)).replace(/\s/g, '');
+    expect(shadow, `thu gọn: thanh accent phải là var(--nav-accent), đang là ${shadow}`)
+      .toContain(`rgb(${accent.r},${accent.g},${accent.b})`.replace(/\s/g, ''));
+    expect(shadow, 'thu gọn: không được quay lại vạch trắng 1px của lớp cũ').not.toContain('rgb(255,255,255)');
+  });
 });
