@@ -59,6 +59,41 @@
   // Confirm hiện 0/0, và vì defect=0 nên bước "CÓ LỖI SỬA ĐƯỢC?" không xuất
   // hiện -> không khai được rework.
   const QUANTITY_INPUT = {'quantity-good':'good-qty','quantity-defect':'defect-qty','quantity-rework':'rework-qty'};
+
+  // SỐ LƯỢNG SỐNG Ở ĐÂY, không ở ô <input>.
+  //
+  // Vòng trước đã bỏ được phụ thuộc focus cho đường `keydown` (ghi theo
+  // state). Nhưng bàn phím MỀM / IME / dán / đọc chính tả / nút tăng-giảm của
+  // <input type=number> KHÔNG đi qua keydown mang chữ số: Gboard bắn
+  // keydown key='Unidentified' (keyCode 229) rồi chèn chữ bằng
+  // beforeinput/input. Đường đó vẫn rơi đúng vào phần tử ĐANG FOCUS -- nên
+  // ngay sau khi chuyển màn (ô cũ bị display:none làm mất focus, ô mới chưa
+  // chắc nhận được) chữ số lại rơi mất y như cũ. Người gõ bàn phím CỨNG không
+  // dính, nên test gõ keyboard.press() xanh trong khi xưởng vẫn báo 0/0.
+  //
+  // Sửa tận gốc: sản lượng là một con số trong state. Mọi đường nhập (keydown
+  // theo state, và input/beforeinput của chính ô) đều chỉ ghi vào ĐÂY; ô
+  // <input> chỉ là chỗ hiển thị lại. Mọi chỗ đọc đều đọc state, không đọc DOM
+  // -- nên không còn "giá trị hiển thị" và "giá trị gửi đi" lệch nhau.
+  const QTY_IDS = ['good-qty','defect-qty','rework-qty'];
+  const QTY_MAX_DIGITS = 7;
+  const qty = {'good-qty':'0','defect-qty':'0','rework-qty':'0'};
+  function renderQty(id) {
+    const el = document.getElementById(id);
+    if (el && el.value !== qty[id]) el.value = qty[id];
+  }
+  // Chỉ nhận chữ số. Nguồn nào cũng đi qua đây: gõ phím, bàn phím mềm, dán,
+  // đọc chính tả. '' nghĩa là ô trống -- KHÁC với số 0 người thật sự nhập.
+  function setQty(id, raw) {
+    let digits = String(raw == null ? '' : raw).replace(/[^0-9]/g, '').slice(0, QTY_MAX_DIGITS);
+    // Bỏ số 0 dẫn đầu: bàn phím mềm chèn chữ số vào ô đang mang '0' mặc định
+    // thì ra '08'. Nó vẫn ra đúng 8 khi Number(), nhưng màn hình phải hiện
+    // đúng con số sẽ được ghi -- không để hiển thị và dữ liệu nói khác nhau.
+    if (digits.length > 1) digits = digits.replace(/^0+/, '') || '0';
+    qty[id] = digits;
+    renderQty(id);
+  }
+  function resetQty() { QTY_IDS.forEach(id => setQty(id, '0')); }
   function show(name) {
     // Mỗi lần chuyển màn là một bước mới của luồng. Lần trả-về đang chờ thuộc
     // về màn sắp rời, không được phép nổ vào màn sắp tới -- một lần quét mới
@@ -71,6 +106,7 @@
     if (qtyInputId) {
       const el = document.getElementById(qtyInputId);
       if (el) {
+        renderQty(qtyInputId);
         // Ép layout flush TRƯỚC khi focus. Màn vừa chuyển display:none->flex
         // ở forEach ngay trên; gọi focus() trong cùng tick khi kiểu dáng chưa
         // recalc thì trình duyệt coi ô còn ẩn và focus() KHÔNG dính (đúng gốc
@@ -144,7 +180,7 @@
     cancelReset();
     employee = null; openSession = null; scanBuffer = ''; input.value = '';
     pendingFinish = { good:0, defect:0, rework:0, hasRework:false, note:'', requestId:'' };
-    document.getElementById('good-qty').value = '0'; document.getElementById('defect-qty').value = '0'; document.getElementById('rework-qty').value = '0'; document.getElementById('finish-note').value = '';
+    resetQty(); document.getElementById('finish-note').value = '';
     document.getElementById('rework-validation').textContent = '';
     document.getElementById('good-validation').textContent = '';
     document.getElementById('defect-validation').textContent = '';
@@ -276,8 +312,15 @@
     finally { document.body.classList.remove('kiosk-busy'); }
   }
 
+  // Đọc số đã nhập, KHÔNG đọc DOM. Ô trống trả null chứ không phải 0:
+  // `Number('')` là 0, nên trước đây một ô chưa nhận được chữ số nào đi thẳng
+  // vào sản lượng như một số 0 hợp lệ -- không báo lỗi, và vì defect=0 nên
+  // nextDefect() bỏ luôn bước "CÓ LỖI SỬA ĐƯỢC?". Chính chỗ này biến một lần
+  // rơi phím thành "Confirm 0/0" im lặng.
   function readQuantity(id, minimum=0) {
-    const value = Number(document.getElementById(id).value);
+    const raw = qty[id];
+    if (raw === '') return null;
+    const value = Number(raw);
     return Number.isSafeInteger(value) && value >= minimum ? value : null;
   }
   // Giữ hàm để mọi caller cũ vẫn gọi được, nhưng nay ĐỒNG BỘ: show() đã focus
@@ -310,7 +353,8 @@
     const field = document.getElementById('rework-qty');
     field.max = String(pendingFinish.defect);
     field.min = '0';
-    if (readQuantity('rework-qty', 0) === null || Number(field.value) > pendingFinish.defect) field.value = '0';
+    const current = readQuantity('rework-qty', 0);
+    if (current === null || current > pendingFinish.defect) setQty('rework-qty', '0');
     document.getElementById('rework-max').textContent = `Nhập 0 đến ${pendingFinish.defect}`;
     document.getElementById('rework-validation').textContent = '';
     show('quantity-rework'); focusQuantity('rework-qty');
@@ -431,15 +475,16 @@
       if (QUANTITY_INPUT[state]) {
         const field = document.getElementById(QUANTITY_INPUT[state]);
         if (field) {
+          const id = field.id;
           if (/^[0-9]$/.test(event.key)) {
             event.preventDefault();
-            const cur = (field.value === '0' || field.value === '') ? '' : field.value;
-            field.value = (cur + event.key).slice(0, 7);   // trần 7 chữ số
+            const cur = (qty[id] === '0' || qty[id] === '') ? '' : qty[id];
+            setQty(id, cur + event.key);
             return;
           }
           if (event.key === 'Backspace') {
             event.preventDefault();
-            field.value = field.value.slice(0, -1) || '0';
+            setQty(id, qty[id].slice(0, -1) || '0');
             return;
           }
         }
@@ -478,18 +523,47 @@
     if (event.key === 'Enter') { if (scanBuffer) { const code=scanBuffer; scanBuffer=''; scan(code); } return; }
     if (event.key.length === 1) { scanBuffer += event.key; clearTimeout(scanTimer); scanTimer=setTimeout(()=>{scanBuffer='';},180); }
   });
-  // Numeric kiosk inputs: clear the default zero on focus/touch for faster entry.
-  // If the operator leaves the field empty, restore zero so existing quantity logic stays unchanged.
-  ['good-qty','defect-qty','rework-qty'].forEach(id => {
+  QTY_IDS.forEach(id => {
     const qtyInput = document.getElementById(id);
     if (!qtyInput) return;
-    const clearDefaultZero = () => {
-      if (String(qtyInput.value).trim() === '0') qtyInput.value = '';
-    };
-    qtyInput.addEventListener('focus', clearDefaultZero);
-    qtyInput.addEventListener('pointerdown', clearDefaultZero);
-    qtyInput.addEventListener('blur', () => {
-      if (String(qtyInput.value).trim() === '') qtyInput.value = '0';
+
+    // CHỌN HẾT số 0 mặc định thay vì XOÁ TRẮNG ô. Gõ chữ số đầu tiên vẫn thay
+    // chỗ số 0 y như cũ (đúng cái "nhập cho nhanh" mà bản cũ nhắm tới), nhưng
+    // ô không bao giờ rỗng -- nên màn hình luôn hiện đúng con số sắp được ghi.
+    // Ô rỗng là thứ đã làm người đứng máy tin mình đã nhập trong khi hệ thống
+    // đọc ra 0.
+    const selectAll = () => { try { qtyInput.select(); } catch (_) {} };
+    qtyInput.addEventListener('focus', selectAll);
+    qtyInput.addEventListener('pointerup', selectAll);
+
+    // Đường nhập KHÔNG qua keydown: bàn phím mềm/IME (keyCode 229), dán, đọc
+    // chính tả, nút tăng-giảm của <input type=number>. Trình duyệt đã ghi
+    // thẳng vào ô; kéo nó về state để state vẫn là nguồn sự thật duy nhất.
+    qtyInput.addEventListener('input', () => setQty(id, qtyInput.value));
+
+    // Trên màn nhập số, ô này là ĐÍCH DUY NHẤT của bàn phím mềm. Nếu focus
+    // rời đi mà vẫn đang ở màn đó (chuyển màn xong focus không dính, người
+    // chạm ra vùng trống, bàn phím mềm tự đóng...), trả focus về -- nếu
+    // không, chữ số gõ bằng bàn phím mềm rơi vào hư không và ô đứng yên ở 0.
+    // Bỏ qua khi focus đi sang chính các nút của màn đó, để không cướp cú bấm.
+    qtyInput.addEventListener('focusout', event => {
+      if (QUANTITY_INPUT[state] !== id) return;
+      // Bảng "Mô phỏng quét QR" có ô chọn riêng: đòi lại focus lúc nó đang mở
+      // sẽ làm không bấm được gì trong đó.
+      if (demoIsOpen()) return;
+      const to = event.relatedTarget;
+      if (to && to.closest && (to.closest(`#screen-${state}`) || to.closest('#demo-panel, #demo-toggle'))) return;
+      // Đòi lại NGAY trong cùng nhịp: nếu đợi tới rAF thì vẫn còn một cửa sổ
+      // vài mili-giây không ô nào nhận được chữ -- đúng khe mà bàn phím mềm
+      // làm rơi chữ số. rAF giữ lại làm lớp đỡ cho trình duyệt nào không cho
+      // focus lại ngay trong focusout.
+      const reclaim = () => {
+        if (QUANTITY_INPUT[state] === id && document.activeElement !== qtyInput) {
+          qtyInput.focus({preventScroll:true});
+        }
+      };
+      reclaim();
+      requestAnimationFrame(reclaim);
     });
   });
 
