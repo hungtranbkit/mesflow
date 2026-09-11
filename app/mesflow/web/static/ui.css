@@ -3028,3 +3028,82 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .gantt-axis span.edge-end{transform:translateX(-100%);justify-items:end}
 /* Bar không được vẽ đè lên cột nhãn đang neo. */
 .gantt-track{z-index:1}
+
+/* ==========================================================================
+   Back to top -- primitive dùng chung (REQ-UI-018).
+   Bo góc viên thuốc là HÌNH DẠNG CHỦ Ý (999px), không phải một bậc thang mới.
+   `env(safe-area-inset-*)` để trên iPhone nút không nằm dưới thanh gạt home.
+   z-index thấp hơn drawer/modal, và JS còn ẩn hẳn khi overlay mở -- hai lớp,
+   vì chỉ dựa vào z-index thì nút vẫn bắt được click ở vùng không bị che.
+   ========================================================================== */
+.ui-back-to-top{
+  position:fixed;
+  right:calc(var(--ui-space-4) + env(safe-area-inset-right,0px));
+  bottom:calc(var(--ui-space-4) + env(safe-area-inset-bottom,0px));
+  z-index:calc(var(--ui-z-drawer) - 1);
+  display:inline-flex;align-items:center;gap:var(--ui-space-2);
+  min-height:44px;padding:0 var(--ui-space-4);
+  border:1px solid var(--border-default);border-radius:999px;
+  background:var(--surface-default);color:var(--text-primary);
+  font-size:var(--ui-fs-meta);font-weight:700;cursor:pointer;
+  box-shadow:var(--shadow-overlay);
+}
+/* `display:inline-flex` ở trên có cùng độ đặc hiệu với `[hidden]{display:none}`
+   của UA stylesheet nhưng đứng SAU, nên nó thắng và nút hiện ngay cả khi
+   `hidden` đã bật. Bắt được đúng lúc soi ảnh chụp ở scroll 0 -- phép đo
+   `querySelector(...)` không thấy, vì nút vẫn tồn tại, chỉ là đáng lẽ phải ẩn. */
+.ui-back-to-top[hidden]{display:none}
+.ui-back-to-top>span{font-size:15px;line-height:1}
+.ui-back-to-top:hover{background:var(--surface-subtle)}
+.ui-back-to-top:focus-visible{outline:2px solid var(--action-primary);outline-offset:2px}
+/* Ở màn rất hẹp chỉ giữ mũi tên: 44px hit area vẫn đủ, và nút không chiếm
+   ngang qua nội dung. */
+@media(max-width:430px){
+  .ui-back-to-top{min-width:44px;padding:0;justify-content:center}
+  .ui-back-to-top>b{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+}
+@media(prefers-reduced-motion:reduce){.ui-back-to-top{transition:none}}
+
+/* ==========================================================================
+   "Tiến trình sản xuất" -- progressive disclosure (REQ-UI-019).
+   Đo trước bản vá với 8 PO x 2 Part x 5 OP (=80 Operation): trang dài 11.7
+   viewport ở 1366 và 11.4 ở 390, mọi PO mở sẵn, không có tóm tắt, không có tìm
+   nhanh. Không mất thông tin nào -- chỉ thu gọn mặc định và cho mở lại.
+   ========================================================================== */
+.schedule-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--ui-space-2);margin:0 0 var(--ui-space-3)}
+.schedule-kpi{display:grid;gap:2px;padding:var(--ui-space-3);border:1px solid var(--border-default);border-radius:var(--radius-surface);background:var(--surface-default);box-shadow:var(--shadow-card)}
+.schedule-kpi>small{font-size:var(--ui-fs-meta);color:var(--text-secondary)}
+.schedule-kpi>strong{font-size:var(--ui-fs-kpi);line-height:1.1;color:var(--text-primary);font-variant-numeric:tabular-nums}
+.schedule-kpi>span{font-size:var(--ui-fs-meta);color:var(--muted)}
+.schedule-filter-note{grid-column:1/-1;margin:0;font-size:var(--ui-fs-meta);color:var(--text-secondary)}
+/* Thẻ PO là <details>: <summary> chính là header, phải bấm được cả dải và có
+   dấu mở/đóng rõ. Bỏ marker mặc định của trình duyệt để tự vẽ cho nhất quán. */
+details.schedule-po>summary{cursor:pointer;list-style:none}
+details.schedule-po>summary::-webkit-details-marker{display:none}
+details.schedule-po>summary::after{
+  content:"▾";margin-left:var(--ui-space-2);color:var(--text-secondary);
+  font-size:12px;transition:transform .15s ease;flex:0 0 auto}
+details.schedule-po[open]>summary::after{transform:rotate(180deg)}
+details.schedule-po>summary:focus-visible{outline:2px solid var(--action-primary);outline-offset:-2px}
+.schedule-po-live{
+  display:inline-flex;align-items:center;padding:2px var(--ui-space-2);
+  border-radius:999px;background:#e2eef8;color:#245b82;
+  font-size:var(--ui-fs-meta);font-weight:700;white-space:nowrap}
+/* Danh sách PO: thẻ TÁCH nhau bằng gap thật, không dính thành khối dài. */
+#scheduleBody{display:grid;gap:var(--ui-space-3)}
+/* `min-width:0` là BẮT BUỘC: mặc định grid item có `min-width:auto` nên thẻ PO
+   phình ra theo bề rộng nội dung (trục Gantt 650px) thay vì co lại -- đo được
+   822px trong viewport 390px, tức cả trang tràn ngang. Đây là hệ quả của việc
+   đổi #scheduleBody sang grid để có gap thật, không phải lỗi có sẵn. */
+#scheduleBody>details.schedule-po{margin:0;min-width:0}
+@media(prefers-reduced-motion:reduce){details.schedule-po>summary::after{transition:none}}
+/* Tổng quan sản xuất: thẻ PO cũng là <details> (REQ-UI-019). <summary> đang là
+   header sticky nên phải giữ được cả hai vai trò. */
+details.overview-po>summary{cursor:pointer;list-style:none}
+details.overview-po>summary::-webkit-details-marker{display:none}
+details.overview-po>summary::after{content:"▾";margin-left:var(--ui-space-2);color:var(--text-secondary);font-size:12px;transition:transform .15s ease}
+details.overview-po[open]>summary::after{transform:rotate(180deg)}
+details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary);outline-offset:-2px}
+.overview-po-list{display:grid;gap:var(--ui-space-3)}
+.overview-po-list>details.overview-po{min-width:0}
+@media(prefers-reduced-motion:reduce){details.overview-po>summary::after{transition:none}}

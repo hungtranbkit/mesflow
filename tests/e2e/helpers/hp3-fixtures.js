@@ -144,6 +144,101 @@ const REWORK = (date) => ({ ok:true, items:[
     source_finished_at:at(date,11,0), defect_qty:6, rework_qty:0, scrap_qty:0, pending_qty:6 },
 ]});
 
+
+// ---------------------------------------------------------------------------
+// Bộ dữ liệu QUY MÔ THẬT cho audit "nhiều PO, mỗi PO nhiều Operation".
+// Mặc định 8 PO x 2 Part x 5 OP = 80 Operation -- đúng hình dạng người dùng
+// than phiền ("scroll rất dài, không biết đang xem PO nào/OP nào"), và là thứ
+// mọi bài test về thu gọn/mở rộng phải chạy trên đó chứ không phải 2 dòng.
+// ---------------------------------------------------------------------------
+const PO_NAMES = ['Thùng rác inox','Khung đỡ máy','Vỏ tủ điện','Giá kệ kho',
+                  'Mặt bàn thao tác','Chân trụ băng tải','Nắp hộp kỹ thuật','Khay linh kiện'];
+const OP_NAMES = ['Cắt laser','Chấn định hình','Hàn góc','Mài hoàn thiện','Sơn tĩnh điện','Lắp ráp'];
+const STATES = ['RUNNING','NEEDS_REVIEW','UPDATED','IDLE'];
+
+function scaleRows(date, { pos = 8, parts = 2, ops = 5 } = {}) {
+  const rows = [];
+  for (let p = 1; p <= pos; p++) {
+    for (let q = 1; q <= parts; q++) {
+      for (let o = 1; o <= ops; o++) {
+        const idx = (p * 100) + (q * 10) + o;
+        const pct = Math.min(100, (p * 7 + o * 13) % 101);
+        rows.push({
+          po_id: p, po_code: `PO-${String(1000 + p)}`, product: PO_NAMES[(p - 1) % PO_NAMES.length],
+          po_status: p % 5 === 0 ? 'LATE' : 'IN_PROGRESS', due_date: `2026-1${(p % 2) ? 0 : 1}-0${(p % 9) + 1}`,
+          po_end: at(date, 17, 0),
+          part_id: p * 10 + q, part_code: `PART-${p}-${q}`, part_name: `Cụm chi tiết ${q}`,
+          operation_id: idx, operation_code: `OP-${idx}-${String(o).padStart(2, '0')}`,
+          operation_name: OP_NAMES[(o - 1) % OP_NAMES.length],
+          operation_status: o <= 2 ? 'COMPLETED' : (o === 3 ? 'IN_PROGRESS' : 'PLANNED'),
+          planned_start_at: at(date, 7 + o, 0), planned_end_at: at(date, 8 + o, 30),
+          actual_start_at: o <= 3 ? at(date, 7 + o, 10) : null,
+          actual_end_at: o <= 2 ? at(date, 8 + o, 0) : null,
+          calculated_start_at: at(date, 7 + o, 0), calculated_end_at: at(date, 8 + o, 30),
+          planned_quantity: 500, done_qty: Math.round(500 * pct / 100), defect_qty: (o * p) % 11,
+          rework_qty: (o + p) % 4, scrap_qty: (o * p) % 3,
+          day_good_qty: (o * 17 + p) % 140, day_defect_qty: (o * p) % 7,
+          day_rework_qty: (o + p) % 3, day_scrap_qty: 0,
+          day_work_seconds: 1800 * ((o % 4) + 1), planned_work_seconds: 7200,
+          total_good_qty: Math.round(500 * pct / 100), total_defect_qty: (o * p) % 11,
+          total_rework_qty: (o + p) % 4,
+          session_count: (o % 3) + 1, open_session_count: o === 3 ? 1 : 0,
+          progress_percent: pct, blocked: false, active_sessions: o === 3 ? 1 : 0,
+          predecessor_code: o > 1 ? `OP-${idx - 1}-${String(o - 1).padStart(2, '0')}` : null,
+          input_flow_enabled: false, defects_consume_input: false,
+          active_workers: o === 3 ? [{ employee_id: p, name: `Nhân viên ${p}` }] : [],
+          all_participants: [], day_contributors: [],
+          last_report_at: at(date, 9 + (o % 8), 0),
+          unconfirmed_count: (o * p) % 3, day_state: STATES[(p + o) % STATES.length],
+          standard_seconds_per_unit: 45,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+function scaleOverview(date, opts) {
+  const rows = scaleRows(date, opts);
+  const byPo = new Map();
+  for (const r of rows) {
+    if (!byPo.has(r.po_id)) byPo.set(r.po_id, { ...r, good_quantity: 0, defect_quantity: 0 });
+    const g = byPo.get(r.po_id);
+    g.good_quantity += r.done_qty; g.defect_quantity += r.defect_qty;
+  }
+  return { ok: true, summary: { unconfirmed_quantity_sessions: 7 },
+    production_orders: [...byPo.values()].map(g => ({
+      po_id: g.po_id, po_code: g.po_code, product: g.product, planned_quantity: 4000,
+      good_quantity: g.good_quantity, defect_quantity: g.defect_quantity, scrap_quantity: 3,
+      remaining_quantity: Math.max(0, 4000 - g.good_quantity),
+      progress_percent: Math.min(100, Math.round(g.good_quantity / 40)),
+      due_date: g.due_date, repair_pending_quantity: g.po_id % 3, repair_unconfigured_operation_count: 0,
+      estimated_repair_work_seconds: 3600, control_state: g.po_id % 5 === 0 ? 'CRITICAL' : (g.po_id % 3 === 0 ? 'WARNING' : 'ON_TRACK'),
+    })), operations: rows };
+}
+
+async function mockScale(page, opts) {
+  const date = hcmDate();
+  const json = (data) => (r) => r.fulfill({ json: data });
+  const rows = scaleRows(date, opts);
+  await page.route('**/api/settings/work-shifts**', json({ ok: true, items: SHIFTS }));
+  await page.route('**/api/production-schedule**', json({ ok: true, items: rows }));
+  await page.route('**/api/dashboard/overview**', json(scaleOverview(date, opts)));
+  await page.route('**/api/production-control**', json({ ok: true,
+    production_orders: [...new Set(rows.map(r => r.po_id))].map(id => ({
+      po_id: id, control_state: id % 5 === 0 ? 'CRITICAL' : (id % 3 === 0 ? 'WARNING' : 'ON_TRACK'),
+      control_label: id % 5 === 0 ? 'LÀM NGAY' : (id % 3 === 0 ? 'CẦN CHÚ Ý' : 'ĐÚNG TIẾN ĐỘ') })),
+    operations: rows.filter(r => r.operation_status === 'IN_PROGRESS').map(r => ({
+      po_id: r.po_id, operation_id: r.operation_id, operation_code: r.operation_code,
+      operation_name: r.operation_name, control_state: 'CRITICAL', control_label: 'LÀM NGAY',
+      recommended_action: 'Ưu tiên cấp người/máy' })) }));
+  await page.route('**/api/dashboard/day**', json({ ok: true,
+    context: { date, timezone: 'Asia/Ho_Chi_Minh', day_start: at(date, 0), day_end: at(date, 23, 59) },
+    items: rows, sessions: [], activity: [] }));
+  await page.route('**/api/rework/queue**', json(REWORK(date)));
+  await page.route('**/api/employees**', json({ ok: true, items: [] }));
+}
+
 async function mockAll(page) {
   const date = hcmDate();
   const json = (data) => (r) => r.fulfill({ json: data });
@@ -164,5 +259,5 @@ async function mockAll(page) {
   await page.route('**/api/business-audit**', json(BUSINESS_AUDIT(date)));
 }
 
-module.exports = { mockAll, SCHEDULE, REWORK, hcmDate, at, dayPayload, SHIFTS, OVERVIEW, CONTROL,
+module.exports = { mockAll, mockScale, scaleRows, scaleOverview, SCHEDULE, REWORK, hcmDate, at, dayPayload, SHIFTS, OVERVIEW, CONTROL,
   SESSION_MGMT, SESSION_MGMT_OPS, EXCEPTIONS, BUSINESS_AUDIT };

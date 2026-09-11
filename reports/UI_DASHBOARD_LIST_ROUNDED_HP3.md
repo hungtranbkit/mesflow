@@ -1,14 +1,38 @@
-# hp3 — Lane UI: bo góc canonical + danh sách thẻ + Gantt mobile
+# hp3 — Lane UI: bo góc canonical, danh sách thẻ, Gantt mobile, progressive disclosure
 
-Lane phụ trên node HP. **Không merge, không deploy.** Bàn giao cho session
-`mesflow` trên Dell.
+Lane phụ trên node HP. **Không merge, không deploy.** Bàn giao cho session `mesflow`.
 
 - Nhánh: `hp3/ui-dashboard-report-list-rounded`
-- Gốc: `origin/integration/daily-dashboard-test` @ `ecf9434` (71.0.0.281)
-- 4 commit, tách theo việc:
+- Gốc: `origin/integration/daily-dashboard-test` @ `c93b53c` (71.0.0.282)
+- 5 commit, tách theo việc:
 
 | SHA | Việc |
 |---|---|
+| `1e46669` | Dashboard/Report/Exception/Session theo thang bo góc canonical (71.0.0.280) |
+| `4fcdfe4` | Danh sách Operation của Dashboard theo ngày: bảng -> THẺ |
+| `f84c013` | "Hàng chờ sửa": bảng row vuông nối liền -> THẺ |
+| `09440d0` | Gantt "Tiến trình sản xuất" màn hẹp: neo cột định danh, mốc giờ gọn |
+| `19ac5dd` | Progressive disclosure cho Tổng quan / Tiến trình sản xuất + back-to-top dùng chung |
+
+**Gate:** 159 E2E xanh (`--retries=0`, 390/1366/1920) · static 557 passed.
+
+**Chiều dài trang, đo với 8 PO x 2 Part x 5 OP (= 80 Operation):**
+
+| Màn | 390 | 1366 | 1920 |
+|---|---|---|---|
+| Tổng quan sản xuất | 10.5 -> **3.7** | 10.1 -> **3.2** | 7.1 -> **2.2** |
+| Tiến trình sản xuất | 11.4 -> **3.4** | 11.7 -> **2.9** | 8.3 -> **2.1** |
+
+Không mất thông tin: số thẻ PO (8) và số dòng Operation (80) trong DOM không đổi.
+
+**Requirement:** REQ-UI-017 (danh sách thẻ), REQ-UI-018 (back-to-top dùng chung),
+REQ-UI-019 (progressive disclosure) — có ở **cả EN và VI** kèm dòng ma trận truy
+vết. DESIGN.md §5.5, §5.5b, §5.5c, §5.5d.
+
+**Đánh số:** REQ-UI-016 của lane này đã đổi thành **REQ-UI-017** theo quyết định
+lane merge (nhánh đã vào integration giữ số; `de3474a` là ancestor của HEAD).
+
+---|---|
 | `1932372` | Dashboard/Report/Exception/Session theo thang bo góc canonical (71.0.0.280) |
 | `979687f` | Danh sách Operation của Dashboard theo ngày: bảng -> THẺ |
 | `ffc9a65` | "Hàng chờ sửa": bảng row vuông nối liền -> THẺ |
