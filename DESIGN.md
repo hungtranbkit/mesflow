@@ -143,6 +143,18 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Khoảng panel: 16px; padding panel: 16px desktop, 12px compact/mobile.
 - Control radius 4px; panel 6px; overlay 8px; pill chỉ dành cho status/filter chip.
 - Border mặc định 1px; divider dùng border thay cho card con. Border card phải rõ hơn nền trang.
+- **Tách rời item trong list dạng thẻ (bắt buộc).** Bo góc thôi chưa đủ: hai thẻ đã bo
+  góc nhưng dính sát nhau vẫn đọc ra **một khối**, không phải một danh sách. List thẻ phải
+  có khoảng cách dọc thật giữa các item, và container bao ngoài phải có padding để thẻ
+  không chạm mép panel. Khoảng cách lấy từ `--ui-space-*`; không viết số mới khi primitive
+  đã có. Bo góc vẫn lấy từ thang canonical (`--radius-surface` cho khối ngoài,
+  `--radius-surface-row` cho khối lồng).
+  *Ranh giới:* chỉ áp cho list **thẻ**. List dạng **bảng dày** (`<table>` trong
+  `.table-wrap`) vẫn đúng khi row phẳng và sát nhau — vỏ ngoài đã mang radius. Đo trên
+  TEST: PO / Nhân viên / Hàng chờ sửa là bảng dày nên **không** thuộc diện này; Template
+  là list thẻ nên thuộc.
+  Canh bởi `tests/e2e/template-list-item-separation.spec.js` — đo computed style
+  (radius, border, shadow, khoảng cách dọc) ở 390 / 1366 / 1920.
 - Radius chuẩn: control `5px`, row `5px`, card `7px`, panel `8px`, overlay `9px`.
 - Row: `0 1px 2px rgba(16, 43, 63, .055)`; card: `0 2px 5px rgba(16, 43, 63, .085)`.
 - Section: `0 4px 12px rgba(16, 43, 63, .11)`; PO/section quan trọng được phép dùng `0 7px 18px rgba(16, 43, 63, .14)`.

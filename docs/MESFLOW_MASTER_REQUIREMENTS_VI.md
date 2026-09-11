@@ -354,6 +354,26 @@ xác là loại lỗi mà một test dựa-trên-tiền-tố ngây thơ sẽ sai
 | `POST /api/templates/demo/seed`, `DELETE /api/templates/demo` | `template.edit` (admin+manager) | **Chỉ admin** |
 | `GET /api/templates/<id>/export-workbook` | Giới hạn theo `template.view` | **admin + manager + viewer** (chỉ đọc, mở rộng) |
 
+### 3.4b Trình bày danh sách thẻ (visual contract)
+
+Áp cho nhóm Admin/Master Data. Một list dạng **thẻ** (ví dụ Danh sách Template ở
+*Quy trình sản xuất mẫu*) phải trình bày mỗi item là **một thẻ riêng**:
+
+| Thuộc tính | Yêu cầu |
+|---|---|
+| Bo góc | Từ thang canonical (`--radius-surface` / `--radius-surface-row`) |
+| Viền | Mỗi thẻ mang viền của chính nó, không dùng một đường kẻ chia dùng chung |
+| Đổ bóng | Nhẹ, theo shadow chuẩn của thẻ |
+| **Khoảng cách dọc** | **> 0**, lấy từ `--ui-space-*`. Bo góc mà dính sát nhau vẫn đọc ra một khối. |
+| Padding container | Panel bao ngoài có padding để thẻ không chạm mép |
+
+**Ranh giới:** không áp cho list dạng **bảng dày** (`<table>` trong `.table-wrap`) —
+row phẳng, sát nhau là đúng vì vỏ ngoài đã mang radius. Đo trên TEST: PO, Nhân viên,
+Hàng chờ sửa thuộc nhóm bảng dày.
+
+Traceability: `tests/e2e/template-list-item-separation.spec.js` (đo computed style ở
+390 / 1366 / 1920, có negative proof: đặt lại `gap:0` thì test đỏ).
+
 ### 3.5 Quy tắc thời gian session/xác thực
 
 | Quy tắc | Giá trị |
