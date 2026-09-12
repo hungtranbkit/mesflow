@@ -19,7 +19,7 @@ from openpyxl import load_workbook
 
 from mesflow.web.excel_io import _parse_go_router_template
 from mesflow.web.router_export import (
-    EXTRA_SHEET_TITLE, QR_OP_LABEL, QR_SETUP_LABEL, _stamp_source_workbook)
+    QR_OP_LABEL, QR_SETUP_LABEL, _stamp_source_workbook)
 from mesflow.db.repositories.master_data import operation_code_suffix
 
 pytest.importorskip('PIL', reason='Pillow là dependency của tính năng xuất QR')
@@ -109,25 +109,8 @@ def test_every_source_sheet_survives_the_export(source_bytes, exported):
     original = load_workbook(BytesIO(source_bytes))
     workbook, _, _, unmatched = exported
     assert unmatched == [], 'file gốc phải khớp được MỌI Operation'
-    assert EXTRA_SHEET_TITLE not in workbook.sheetnames
+    # Không sheet nào bị thêm vào: xuất ra đúng bằng danh sách sheet của file gốc.
     assert workbook.sheetnames == original.sheetnames
-
-
-def test_layout_of_every_sheet_is_preserved(source_bytes, exported):
-    """Merge, độ rộng cột, chiều cao dòng của vùng dữ liệu gốc không đổi."""
-    original = load_workbook(BytesIO(source_bytes))
-    workbook, _, _, _ = exported
-    for name in original.sheetnames:
-        before, after = original[name], workbook[name]
-        assert {str(r) for r in before.merged_cells.ranges} == {
-            str(r) for r in after.merged_cells.ranges}, f'{name}: merge bị đổi'
-        # Cột của vùng dữ liệu (A..M) phải giữ nguyên bề rộng; làn QR nằm sau đó.
-        for letter in 'ABCDEFGHIJKLM':
-            assert (before.column_dimensions[letter].width
-                    == after.column_dimensions[letter].width), f'{name}: cột {letter}'
-        for index, dimension in before.row_dimensions.items():
-            assert after.row_dimensions[index].height == dimension.height, (
-                f'{name}: chiều cao dòng {index}')
 
 
 def test_original_images_and_text_survive(source_bytes, exported):
@@ -151,22 +134,41 @@ def test_original_images_and_text_survive(source_bytes, exported):
         assert (added - original_values) <= labels
 
 
-def test_qr_lane_never_covers_data_on_any_sheet(exported, parsed):
-    """Trên MỌI sheet có tem, làn tem phải nằm sau ô có chữ xa nhất."""
-    workbook, _, _, _ = exported
-    labels = {QR_OP_LABEL, QR_SETUP_LABEL}
+def test_qr_lane_never_covers_data_on_any_sheet(source_bytes, exported, parsed):
+    """Trên MỌI sheet có tem, tem phải neo sau ô có chữ xa nhất của sheet đó.
+
+    Đo bằng chính neo của drawing sau khi đã lưu và mở lại -- tức đúng thứ Excel
+    dùng để đặt ảnh khi in. (Lưu xong, openpyxl chuyển neo chuỗi của ta thành
+    đối tượng anchor, nên cả ảnh gốc lẫn tem đều đọc qua ``_from.col``.)
+    """
+    original = load_workbook(BytesIO(source_bytes))
+    workbook, placed, _, _ = exported
+    per_sheet = {}
+    for item in placed:
+        per_sheet[item['sheet']] = per_sheet.get(item['sheet'], 0) + 1
     sheets_with_operations = {op['_excel_sheet'] for op in parsed['operations']}
     assert len(sheets_with_operations) == 43
+
+    def columns(ws):
+        found = []
+        for image in ws._images:
+            marker = getattr(getattr(image, 'anchor', None), '_from', None)
+            if marker is not None:
+                found.append(marker.col + 1)
+        return found
+
     for name in sheets_with_operations:
         ws = workbook[name]
         rightmost_data = max(
-            (c.column for row in ws.iter_rows() for c in row
-             if c.value not in (None, '') and c.value not in labels), default=0)
-        label_columns = [c.column for row in ws.iter_rows() for c in row
-                         if c.value in labels]
-        assert label_columns, f'{name}: không có tem nào'
-        assert min(label_columns) > rightmost_data, (
-            f'{name}: tem nằm chồng lên vùng dữ liệu')
+            (c.column for row in ws.iter_rows() for c in row if c.value not in (None, '')),
+            default=0)
+        beyond = [c for c in columns(ws) if c > rightmost_data]
+        assert len(beyond) == per_sheet[name], (
+            f'{name}: {per_sheet[name]} tem đã đóng nhưng chỉ {len(beyond)} nằm ngoài '
+            f'vùng dữ liệu (tới cột {rightmost_data}) -- có tem đang chồng lên chữ')
+        # Ảnh gốc của khách vẫn ở đúng chỗ cũ.
+        assert sorted(columns(original[name])) == sorted(
+            c for c in columns(ws) if c <= rightmost_data)
 
 
 def test_sheet_without_any_operation_block_is_left_untouched(source_bytes, exported, parsed):
@@ -182,8 +184,6 @@ def test_sheet_without_any_operation_block_is_left_untouched(source_bytes, expor
     for name in untouched:
         assert not any(item['sheet'] == name for item in placed)
         assert len(workbook[name]._images) == len(original[name]._images)
-        assert (workbook[name].page_setup.fitToWidth
-                == original[name].page_setup.fitToWidth)
 
 
 def test_labels_land_on_the_block_of_their_own_operation(parsed, rows, exported):
@@ -240,10 +240,72 @@ def test_two_sheets_sharing_an_operation_name_get_different_labels(parsed, rows,
         assert len(payloads) == len(ids), f'{name}: tem bị dùng chung'
 
 
-def test_print_setup_fits_the_qr_lane_onto_the_page(exported, parsed):
-    """Sheet nào có thêm tem thì khổ in phải ôm được làn tem đó."""
+# --- HỢP ĐỒNG TRUNG THỰC: chỉ drawing được phép khác ----------------------
+
+def _sheet_fingerprint(ws):
+    """Mọi thuộc tính phải giữ nguyên, gom thành một thứ so sánh được."""
+    return {
+        'cells': {c.coordinate: c.value for r in ws.iter_rows() for c in r
+                  if c.value not in (None, '')},
+        'merged': sorted(str(r) for r in ws.merged_cells.ranges),
+        'column_widths': {k: v.width for k, v in ws.column_dimensions.items()},
+        'column_hidden': {k: v.hidden for k, v in ws.column_dimensions.items()},
+        'row_heights': {k: v.height for k, v in ws.row_dimensions.items()},
+        'freeze_panes': ws.freeze_panes,
+        'auto_filter': ws.auto_filter.ref,
+        'sheet_state': ws.sheet_state,
+        'print_area': ws.print_area,
+        'page_setup': (ws.page_setup.orientation, ws.page_setup.paperSize,
+                       ws.page_setup.scale, ws.page_setup.fitToWidth,
+                       ws.page_setup.fitToHeight),
+        'page_margins': (ws.page_margins.left, ws.page_margins.right,
+                         ws.page_margins.top, ws.page_margins.bottom),
+        'fit_to_page': ws.sheet_properties.pageSetUpPr.fitToPage,
+        'print_titles': ws.print_titles,
+        'styles': {c.coordinate: (c.font.name, c.font.sz, c.font.b, c.font.i,
+                                  c.alignment.horizontal, c.alignment.vertical,
+                                  c.number_format, c.fill.fgColor.rgb if c.fill else None)
+                   for r in ws.iter_rows() for c in r if c.value not in (None, '')},
+    }
+
+
+def test_export_differs_from_source_ONLY_by_added_qr_drawings(source_bytes, exported, rows):
+    """Hồi quy trung thực: so từng thuộc tính của MỌI sheet, source vs export.
+
+    Đây là bài mà một bản "xuất lại cho đẹp" sẽ trượt ngay: chỉ cần đổi một bề
+    rộng cột, một khổ in, một ô chữ, hay đảo thứ tự sheet là đỏ.
+    """
+    original = load_workbook(BytesIO(source_bytes))
+    workbook, placed, _, _ = exported
+
+    # Danh sách VÀ thứ tự sheet giữ nguyên tuyệt đối.
+    assert workbook.sheetnames == original.sheetnames
+
+    for name in original.sheetnames:
+        before = _sheet_fingerprint(original[name])
+        after = _sheet_fingerprint(workbook[name])
+        for key in before:
+            assert after[key] == before[key], f'{name}: thuộc tính {key} bị đổi'
+
+    # Khác biệt DUY NHẤT: số drawing tăng đúng bằng số tem đã đóng.
+    added = sum(len(workbook[n]._images) - len(original[n]._images)
+                for n in original.sheetnames)
+    assert added == len(placed) == 112 + 47
+    for name in original.sheetnames:
+        assert len(workbook[name]._images) >= len(original[name]._images), (
+            f'{name}: mất ảnh gốc')
+
+
+def test_formulas_survive_the_export(source_bytes, exported):
+    """data_only=False khi mở: công thức tính giờ của xưởng phải còn nguyên."""
+    original = load_workbook(BytesIO(source_bytes))
     workbook, _, _, _ = exported
-    for name in {op['_excel_sheet'] for op in parsed['operations']}:
-        ws = workbook[name]
-        assert ws.sheet_properties.pageSetUpPr.fitToPage is True, name
-        assert ws.page_setup.fitToWidth == 1, name
+    formulas = 0
+    for name in original.sheetnames:
+        for row in original[name].iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith('='):
+                    formulas += 1
+                    assert workbook[name][cell.coordinate].value == cell.value, (
+                        f'{name}!{cell.coordinate}: công thức bị mất')
+    assert formulas > 0, 'file mẫu phải có công thức thì bài này mới có nghĩa'

@@ -1071,7 +1071,8 @@ async function exportProductionOrderRouter(poId,poCode,button){
     const url=URL.createObjectURL(blob);
     const link=document.createElement('a');
     link.href=url;
-    link.download=`Lo trinh san xuat ${poCode} - QR.xlsx`;
+    // Cùng quy ước tên với server (_router_filename): Router_<POCODE>_QR.xlsx.
+    link.download=`Router_${String(poCode||'PO').replace(/[^A-Za-z0-9._-]+/g,'-')}_QR.xlsx`;
     document.body.appendChild(link);link.click();link.remove();
     URL.revokeObjectURL(url);
     const labels=r.headers.get('X-MESFlow-Router-Labels');

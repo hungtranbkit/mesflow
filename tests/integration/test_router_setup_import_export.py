@@ -254,8 +254,7 @@ def test_xuat_file_router_co_tem_cho_moi_operation(api, po, db):
     disposition = response.headers['Content-Disposition']
     assert 'attachment' in disposition
     # Tên file tiếng Việt phải đi theo RFC 5987, không phải mojibake.
-    assert "filename*=UTF-8''" in disposition
-    assert po['production_order_code'] in disposition
+    assert f"Router_{po['production_order_code']}_QR.xlsx" in disposition
 
     workbook = load_workbook(BytesIO(response.content))
     assert workbook.sheetnames, 'file mở được bằng openpyxl'
@@ -266,7 +265,7 @@ def test_xuat_file_router_co_tem_cho_moi_operation(api, po, db):
     # Và tem phải nằm ĐÚNG sheet Part của nó, không dồn xuống sheet phụ: đếm đủ
     # số tem vẫn đúng kể cả khi tất cả rơi sai chỗ.
     assert 'QR bổ sung' not in workbook.sheetnames, (
-        'mọi Operation đều có block trong file gốc, không được sinh sheet phụ')
+        'không được sinh sheet phụ trong bất kỳ trường hợp nào')
     assert response.headers['X-MESFlow-Router-Source'] == 'workbook'
     # Danh tính bản gốc vừa in từ đó -- để không ai in nhầm bản cũ.
     assert re.fullmatch(r'[0-9a-f]{64}', response.headers['X-MESFlow-Router-Source-Sha256'])
@@ -274,8 +273,9 @@ def test_xuat_file_router_co_tem_cho_moi_operation(api, po, db):
     assert int(response.headers['X-MESFlow-Router-Unmatched']) == 0
     for title in ('Chân ghế A', 'HÀN ROBOT'):
         assert len(workbook[title]._images) > 0, f'sheet {title} không có tem nào'
+        # Nhãn nằm TRONG ảnh, không trong ô: không ô nào được thêm chữ.
         labels = {c.value for row in workbook[title].iter_rows() for c in row}
-        assert 'QR OP' in labels
+        assert 'QR OP' not in labels and 'QR Setup' not in labels
 
 
 def test_danh_sach_tem_dung_danh_tinh_canonical(api, po, db):
@@ -433,7 +433,6 @@ def test_export_of_real_po_is_the_source_workbook_with_labels(api, real_po, real
     exported = load_workbook(BytesIO(response.content))
     # Cấu trúc gốc còn nguyên -- đây là điểm mà một file dựng lại sẽ trượt.
     assert exported.sheetnames == original.sheetnames
-    assert 'QR bổ sung' not in exported.sheetnames
     for name in original.sheetnames:
         assert {str(r) for r in exported[name].merged_cells.ranges} == {
             str(r) for r in original[name].merged_cells.ranges}, f'{name}: merge đổi'

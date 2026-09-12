@@ -7,9 +7,21 @@ riêng khi phải set máy.
 
 BA QUYẾT ĐỊNH ĐÁNG GHI:
 
-1. Xuất theo PRODUCTION ORDER, không theo Template. QR phải địa chỉ tới
-   ``operations.id`` — danh tính duy nhất không đổi tên được — mà id đó chỉ tồn
-   tại sau khi PO được tạo. ``template_operations`` không có thứ để quét.
+1. Xuất theo PRODUCTION ORDER, không theo Template và không theo từng Part.
+   Người dùng chọn MỘT PO và nhận MỘT workbook đại diện toàn bộ Router của PO
+   đó: mọi Part của PO nằm trong cùng một file, mỗi Part giữ đúng sheet của nó
+   trong file nguồn. QR phải địa chỉ tới ``operations.id`` — danh tính duy nhất
+   không đổi tên được — mà id đó chỉ tồn tại sau khi PO được tạo;
+   ``template_operations`` không có thứ để quét.
+
+   MỘT PO CHỈ CÓ MỘT FILE NGUỒN, theo đúng kiến trúc hiện tại chứ không phải do
+   quy ước thêm vào: ``production_orders.source_template_id`` trỏ tới đúng một
+   Template, và mỗi lần nhập lại Template thì ``import_template_workbook()``
+   XOÁ toàn bộ ``template_parts``/``template_operations`` rồi dựng lại từ file
+   vừa nhập. Nên không tồn tại trạng thái "PO ghép từ nhiều workbook", và không
+   có gì phải trộn sheet từ nhiều nguồn. Part/Operation thêm tay sau khi nhập
+   thì không khớp được block nào -- và đó là LỖI CỨNG (xem mục 3), không phải
+   một nguồn thứ hai.
 
 2. Payload lấy từ ``printable_qr_payload_sql()`` chứ không tự ghép chuỗi. Hàm
    đó là nơi duy nhất trả lời "tem MỚI được phép mang payload nào": tem cũ còn
@@ -23,12 +35,14 @@ BA QUYẾT ĐỊNH ĐÁNG GHI:
    nên sheet, tên sheet, merge, độ rộng cột, chiều cao dòng, logo/ảnh, khung in
    và công thức của xưởng còn nguyên.
 
-   KHÔNG có nhánh dựng workbook mới. Tờ router là biểu mẫu của khách; một file
-   "tương đương" trông giống nhưng không phải cái xưởng đang dùng, và người cầm
-   tờ giấy không có cách nào biết mình đang cầm bản nào. Thiếu file gốc, file
-   gốc không đọc được thành block, hoặc không khớp được Operation nào -> báo
-   lỗi kèm việc phải làm (``RouterSourceUnavailable``, HTTP 409), chứ không
-   lặng lẽ xuất ra một tờ giấy khác.
+   KHÔNG có nhánh dựng workbook mới, và cũng KHÔNG có sheet "bổ sung" gom
+   những gì không khớp. Tờ router là biểu mẫu của khách; một file "tương đương"
+   trông giống nhưng không phải cái xưởng đang dùng, còn một file thiếu tem thì
+   người cầm nó chỉ phát hiện khi đã đứng trước máy và không có gì để quét.
+   Thiếu file gốc, file gốc không đọc được thành block, không khớp được
+   Operation nào, hoặc CÒN BẤT KỲ Operation nào chưa khớp -> báo lỗi kèm đúng
+   Part/Operation cần sửa (``RouterSourceUnavailable``, HTTP 409), chứ không
+   lặng lẽ xuất ra một tờ giấy khác hay một tờ giấy thiếu.
 
 QR đặt ở LÀN RIÊNG bên phải vùng dữ liệu (cột đầu tiên sau cột cuối cùng có
 chữ), không đè lên Part Number, thời gian setup, thời gian gia công, số lượng
@@ -36,13 +50,13 @@ hay tên người thực hiện — xem ``_qr_lane_column()``.
 """
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from urllib.parse import quote
 
 from flask import Blueprint, jsonify, request, send_file
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as XlsxImage
-from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from mesflow.db.connection import fetch_all, fetch_one
@@ -63,50 +77,67 @@ QR_SETUP_LABEL = 'QR Setup'
 #: Cỡ thật được làm tròn XUỐNG bội số nguyên của số module để không phải nội
 #: suy; xem _qr_png(). Máy quét cầm tay đọc thoải mái từ ~1,8 cm trở lên.
 QR_PIXELS = 96
-#: Bề rộng cột của làn QR, tính theo đơn vị "số ký tự" của Excel (~7 px/ký tự).
-QR_COLUMN_WIDTH = 15
+#: Chiều cao dải chữ nướng dưới mỗi tem, tính bằng pixel.
+QR_LABEL_STRIP = 14
 #: Số cột cách giữa tem OP và tem SETUP, để hai ảnh không chạm nhau.
 QR_COLUMN_GAP = 2
 
 
-def _qr_png(payload: str) -> BytesIO:
-    """Ảnh PNG của một payload, cỡ cố định để in ra luôn quét được.
+def _qr_png(payload: str, label: str = '') -> BytesIO:
+    """Ảnh PNG của một payload, có sẵn nhãn in bên dưới.
 
-    ``box_size`` tính ngược từ QR_PIXELS thay vì đặt cứng: một payload dài hơn
-    cần nhiều module hơn, và nếu giữ nguyên box_size thì ảnh phình to ra khỏi
-    làn QR. Cố định CẠNH ẢNH, để thư viện tự chọn số module.
+    Nhãn ("QR OP" / "QR Setup") được VẼ VÀO ẢNH chứ không ghi vào ô Excel. Ô
+    trong tờ router là biểu mẫu của khách; ghi chữ vào đó -- kể cả một ô đang
+    trống -- là sửa nội dung file. Nướng nhãn vào ảnh giữ đúng cả hai điều: thợ
+    vẫn đọc được tem nào là tem nào, còn workbook thì chỉ nhận thêm đúng một
+    drawing và không một cell nào đổi.
+
+    ``box_size`` tính ngược từ QR_PIXELS thay vì đặt cứng: payload dài hơn cần
+    nhiều module hơn, giữ nguyên box_size thì ảnh phình ra khỏi vùng trống.
     """
     import qrcode
+    from PIL import Image, ImageDraw
 
     qr = qrcode.QRCode(border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
     qr.add_data(payload)
     qr.make(fit=True)
     modules = qr.modules_count + 2 * qr.border
     # Sàn 3 px/module: payload dài làm số module tăng, và nếu để box_size rơi
-    # xuống 2 thì tem in ra bé hơn ~1,5 cm — cỡ mà máy quét bắt đầu phụ thuộc
-    # chất lượng máy in. Thà tem to hơn ô một chút còn hơn tem không quét được.
+    # xuống 2 thì tem in ra bé hơn ~1,5 cm -- cỡ mà máy quét bắt đầu phụ thuộc
+    # chất lượng máy in. Thà tem to hơn một chút còn hơn tem không quét được.
     qr.box_size = max(3, QR_PIXELS // modules)
-    image = qr.make_image(fill_color='black', back_color='white')
-    out = BytesIO()
-    image.save(out, format='PNG')
-    out.seek(0)
+    code = qr.make_image(fill_color='black', back_color='white').convert('1')
+    if not label:
+        out = BytesIO(); code.save(out, format='PNG'); out.seek(0)
+        return out
+    canvas = Image.new('1', (code.width, code.height + QR_LABEL_STRIP), 1)
+    canvas.paste(code, (0, 0))
+    draw = ImageDraw.Draw(canvas)
+    # Font mặc định của Pillow: có sẵn ở mọi môi trường, không kéo theo phụ
+    # thuộc phông chữ hệ thống. Nhãn chỉ là chữ ASCII ngắn nên đủ đọc.
+    try:
+        width = int(draw.textlength(label))
+    except AttributeError:  # Pillow rất cũ
+        width = len(label) * 6
+    draw.text((max((code.width - width) // 2, 0), code.height + 1), label, fill=0)
+    out = BytesIO(); canvas.save(out, format='PNG'); out.seek(0)
     return out
 
 
 def _place_qr(ws, payload: str, label: str, *, row: int, column: int):
-    """Đóng một tem vào ô (row, column) kèm nhãn ngay phía trên."""
+    """Neo một tem vào ô (row, column). KHÔNG chạm vào bất cứ thứ gì khác.
+
+    Không ghi cell, không đổi bề rộng cột, không đổi chiều cao dòng, không sửa
+    khổ in. Sau lời gọi này, khác biệt duy nhất của sheet so với file gốc là
+    một drawing mới -- đó chính là hợp đồng "giữ nguyên cấu trúc file nguồn".
+    """
     letter = get_column_letter(column)
-    heading = ws.cell(row=row, column=column)
-    heading.value = label
-    heading.font = Font(bold=True, size=9)
-    heading.alignment = Alignment(horizontal='center')
+    anchor = f'{letter}{row}'
     # GIỮ NGUYÊN cỡ pixel gốc của ảnh. Ép width/height về một con số khác là
     # bắt Excel nội suy lại một ảnh 1-bit theo tỉ lệ không nguyên: cạnh module
-    # nhoè ra và tem in xong quét chập chờn. Ảnh đã được sinh đúng cỡ cần in.
-    image = XlsxImage(_qr_png(payload))
-    ws.add_image(image, f'{letter}{row + 1}')
-    ws.column_dimensions[letter].width = QR_COLUMN_WIDTH
-    return f'{letter}{row + 1}'
+    # nhoè ra và tem in xong quét chập chờn.
+    ws.add_image(XlsxImage(_qr_png(payload, label)), anchor)
+    return anchor
 
 
 def _qr_lane_column(ws) -> int:
@@ -136,6 +167,11 @@ def _load_po_operations(po_id: int):
     ``parent_operation_id``: quan hệ cha–con của SETUP là cột đó, không phải
     quy ước đặt tên mã.
 
+    Phạm vi là MỘT Production Order và chỉ một: ``o.production_order_id`` lọc
+    Operation, và cả hai JOIN đều ràng ``production_order_id`` khớp nhau, nên
+    một Part bị gán sai PO hay một dòng SETUP trỏ sang PO khác cũng không kéo
+    được Operation lạ vào tờ giấy. Tờ router in ra đại diện đúng một PO.
+
     "Mọi Operation của PO" ở đây nghĩa là mọi Operation QUÉT ĐƯỢC, tức
     ``policy.LABELLED_TYPES`` = PRODUCTION + SETUP. REWORK cố ý không có tem:
     ``lock_startable_operation()`` từ chối mở session trên bàn sửa hàng, nên in
@@ -154,8 +190,9 @@ def _load_po_operations(po_id: int):
                s.expected_setup_minutes setup_minutes,
                ({printable_qr_payload_sql('s')}) setup_qr
         FROM operations o
-        JOIN parts p ON p.id = o.part_id
+        JOIN parts p ON p.id = o.part_id AND p.production_order_id = o.production_order_id
         LEFT JOIN operations s ON s.parent_operation_id = o.id AND {is_setup}
+                              AND s.production_order_id = o.production_order_id
         WHERE o.production_order_id = %s AND {is_production}
         ORDER BY p.sort_order, p.id, o.sort_order, o.id
     """, (int(po_id),))
@@ -223,49 +260,6 @@ def _index_source_blocks(source_bytes, po_code):
     return blocks
 
 
-#: Tên sheet gom tem của những Operation không có block trong workbook gốc.
-EXTRA_SHEET_TITLE = 'QR bổ sung'
-
-
-def _append_leftover_sheet(wb, leftovers):
-    """Sheet phụ cho Operation không tìm thấy block trong workbook gốc.
-
-    Lời hứa của tính năng là "mọi Operation quét được của PO đều có tem trong
-    file xuất ra". Workbook gốc chỉ chứa những gì có lúc nhập, nên một OP thêm
-    tay sau đó -- hoặc một Part sửa tên sheet -- sẽ không khớp block nào. Bỏ
-    qua lặng lẽ thì người cầm tờ giấy thiếu đúng tem họ cần mà không biết.
-    """
-    ws = wb.create_sheet(EXTRA_SHEET_TITLE)
-    ws['A1'] = 'Tem QR của Operation không có trong file gốc'
-    ws['A1'].font = Font(bold=True, size=13)
-    ws['A2'] = ('Những Operation này được thêm sau khi nhập file, nên không có block '
-                'tương ứng trong workbook gốc.')
-    ws.column_dimensions['A'].width = 26
-    ws.column_dimensions['B'].width = 40
-    ws.column_dimensions['C'].width = 30
-    placed = []
-    excel_row = 4
-    for row in leftovers:
-        ws.cell(row=excel_row, column=1, value=str(row['part_code'] or '')).font = Font(bold=True)
-        ws.cell(row=excel_row, column=2, value=row['name'])
-        ws.cell(row=excel_row, column=3, value=row['code'])
-        column = 5
-        anchor = _place_qr(ws, row['op_qr'], QR_OP_LABEL, row=excel_row, column=column)
-        placed.append({'operation_id': row['id'], 'sheet': ws.title, 'anchor': anchor,
-                       'payload': row['op_qr'], 'kind': 'OP'})
-        if row['setup_id']:
-            setup_anchor = _place_qr(ws, row['setup_qr'], QR_SETUP_LABEL,
-                                     row=excel_row, column=column + QR_COLUMN_GAP)
-            placed.append({'operation_id': row['setup_id'], 'sheet': ws.title,
-                           'anchor': setup_anchor, 'payload': row['setup_qr'],
-                           'kind': 'SETUP'})
-        excel_row += 8
-    ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 0
-    return placed
-
-
 def _operation_match_keys(row, po_prefix):
     """Mọi cách một Operation thật có thể khớp với một block trong file gốc.
 
@@ -295,6 +289,59 @@ def _match_block(blocks, row, po_prefix):
     return None
 
 
+class RouterPlacementError(Exception):
+    """Không có chỗ đặt tem mà không che nội dung của tờ giấy.
+
+    Cố ý KHÔNG tự chèn thêm cột/dòng để lấy chỗ: làm thế là sửa cấu trúc biểu
+    mẫu của khách -- đúng thứ mà cả tính năng này tồn tại để không đụng vào.
+    """
+
+    def __init__(self, message, *, sheet, operation, reason):
+        super().__init__(message)
+        self.sheet = sheet
+        self.operation = operation
+        self.reason = reason
+
+
+def _existing_drawing_columns(ws):
+    """Cột mà ảnh CÓ SẴN của khách (logo, hình sản phẩm) đang chiếm.
+
+    openpyxl giữ neo ảnh gốc dưới dạng đối tượng anchor có toạ độ 0-based;
+    ảnh do chính ta vừa thêm thì neo là chuỗi ô. Chỉ quan tâm loại thứ nhất.
+    """
+    occupied = set()
+    for image in ws._images:
+        anchor = getattr(image, 'anchor', None)
+        marker = getattr(anchor, '_from', None)
+        if marker is None:
+            continue
+        start = marker.col + 1
+        end = getattr(getattr(anchor, 'to', None), 'col', marker.col) + 1
+        occupied.update(range(start, max(end, start) + 1))
+    return occupied
+
+
+def _assert_lane_is_free(ws, column, span, *, sheet, operation):
+    """Làn tem phải trống cả chữ lẫn ảnh, nếu không thì DỪNG và nói rõ vì sao."""
+    blocked_by_text = max(
+        (cell.column for row in ws.iter_rows() for cell in row
+         if cell.value not in (None, '')), default=0)
+    if column <= blocked_by_text:
+        raise RouterPlacementError(
+            f"Sheet '{sheet}': không còn vùng trống bên phải để đặt tem cho Operation "
+            f'{operation} mà không che chữ. Hãy chừa trống vài cột bên phải khối dữ '
+            'liệu trong file Lộ trình sản xuất rồi nhập lại.',
+            sheet=sheet, operation=operation, reason='NO_FREE_COLUMN')
+    drawings = _existing_drawing_columns(ws)
+    clash = drawings.intersection(range(column, column + span))
+    if clash:
+        raise RouterPlacementError(
+            f"Sheet '{sheet}': vùng định đặt tem cho Operation {operation} đang có "
+            f'hình/logo của file gốc (cột {sorted(clash)[0]}). Hãy chừa trống vài cột '
+            'bên phải khối dữ liệu trong file Lộ trình sản xuất rồi nhập lại.',
+            sheet=sheet, operation=operation, reason='DRAWING_IN_THE_WAY')
+
+
 def _stamp_source_workbook(source_bytes, po, rows):
     """Mở lại workbook gốc và đóng QR vào đúng block của từng Operation."""
     blocks = _index_source_blocks(source_bytes, po['code'])
@@ -303,10 +350,6 @@ def _stamp_source_workbook(source_bytes, po, rows):
     # keep_vba=False, nhưng KHÔNG data_only: data_only=True sẽ ghi đè công thức
     # bằng giá trị đã cache và tờ router xuất ra mất hết công thức tính giờ.
     wb = load_workbook(BytesIO(source_bytes))
-    if EXTRA_SHEET_TITLE in wb.sheetnames:
-        # Xuất lại từ một file đã từng xuất: dựng lại sheet phụ từ đầu thay vì
-        # chồng tem lên tem cũ.
-        wb.remove(wb[EXTRA_SHEET_TITLE])
     lanes = {}
     placed = []
     leftovers = []
@@ -322,6 +365,9 @@ def _stamp_source_workbook(source_bytes, po, rows):
         if sheet_name not in lanes:
             lanes[sheet_name] = _qr_lane_column(ws)
         column = lanes[sheet_name]
+        # Kiểm TRƯỚC khi đặt: một tem đã dán lên rồi thì không gỡ ra được nữa.
+        _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
+                             sheet=sheet_name, operation=row['code'])
         anchor = _place_qr(ws, row['op_qr'], QR_OP_LABEL, row=excel_row, column=column)
         placed.append({'operation_id': row['id'], 'sheet': sheet_name, 'anchor': anchor,
                        'payload': row['op_qr'], 'kind': 'OP'})
@@ -331,20 +377,10 @@ def _stamp_source_workbook(source_bytes, po, rows):
                                      row=excel_row, column=setup_column)
             placed.append({'operation_id': row['setup_id'], 'sheet': sheet_name,
                            'anchor': setup_anchor, 'payload': row['setup_qr'], 'kind': 'SETUP'})
-    for sheet_name, column in lanes.items():
-        ws = wb[sheet_name]
-        # Khổ in phải ôm được làn QR vừa thêm, nếu không tem rơi sang trang 2.
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
-        ws.print_area = (f'A1:{get_column_letter(column + QR_COLUMN_GAP + 1)}'
-                         f'{max(ws.max_row, 1)}')
-    if leftovers:
-        placed.extend(_append_leftover_sheet(wb, leftovers))
-    # matched = số OP tìm thấy đúng block của nó trong file gốc. 0 nghĩa là file
-    # đang lưu không phải file đã sinh ra PO này -- người gọi biến nó thành lỗi.
+    # Operation nào không tìm được block thì trả NGUYÊN dòng về cho người gọi:
+    # nó phải biết Part nào, OP nào, để câu lỗi chỉ đúng chỗ cần sửa.
     matched = len(rows) - len(leftovers)
-    return wb, placed, matched, [str(row['code']) for row in leftovers]
+    return wb, placed, matched, leftovers
 
 
 class RouterSourceUnavailable(Exception):
@@ -398,7 +434,32 @@ def build_router_workbook(po_id: int):
             'ra PO này. Hãy nhập lại đúng file Lộ trình sản xuất của Template nguồn '
             'rồi xuất lại.',
             reason='NO_BLOCK_MATCHED')
-    return po, wb, placed, {**source, 'matched': matched, 'unmatched': unmatched}
+    if unmatched:
+        # Xuất THIẾU mà vẫn ra file là thứ người cầm tờ giấy không phát hiện
+        # được: họ ra xưởng, tới công đoạn đó, và không có tem để quét. Thà
+        # chặn lại và nói đúng Part/Operation nào chưa có trong file gốc.
+        listed = '; '.join(
+            f"Part {row['part_code']} · {row['name']} ({row['code']})"
+            for row in unmatched[:10])
+        more = f' và {len(unmatched) - 10} Operation khác' if len(unmatched) > 10 else ''
+        raise RouterSourceUnavailable(
+            f'{len(unmatched)} Operation của PO này không có trong file Excel gốc đang '
+            f'lưu ({source["filename"]}), nên không thể in tem cho chúng: {listed}{more}. '
+            'Những Operation này được thêm sau khi nhập file. Hãy cập nhật file Lộ trình '
+            'sản xuất của Template nguồn rồi nhập lại, sau đó xuất lại.',
+            reason='UNMATCHED_OPERATIONS')
+    return po, wb, placed, {**source, 'matched': matched, 'unmatched': []}
+
+
+def _router_filename(po_code: str) -> str:
+    """``Router_<POCODE>_QR.xlsx`` — mã PO đã lọc sạch ký tự không an toàn.
+
+    Tên file đi vào header HTTP và vào thư mục Download của người dùng, nên chỉ
+    giữ chữ/số/gạch: dấu ngoặc kép hay xuống dòng lọt vào Content-Disposition
+    là một lỗ tiêm header, còn dấu / thì thành đường dẫn.
+    """
+    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', str(po_code or '')).strip('-.')
+    return f'Router_{safe or "PO"}_QR.xlsx'
 
 
 def _content_disposition(filename: str) -> str:
@@ -417,7 +478,7 @@ def export_production_order_router(po_id: int):
         out = BytesIO()
         wb.save(out)
         out.seek(0)
-        filename = f'Lộ trình sản xuất {po["code"]} - QR.xlsx'
+        filename = _router_filename(po['code'])
         response = send_file(
             out, as_attachment=True, download_name=filename, max_age=0,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

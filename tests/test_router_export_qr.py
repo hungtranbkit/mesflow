@@ -27,8 +27,8 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from mesflow.web.router_export import (
-    EXTRA_SHEET_TITLE, QR_OP_LABEL, QR_SETUP_LABEL, RouterSourceUnavailable,
-    _place_qr, _qr_lane_column, _qr_png, _stamp_source_workbook)
+    QR_OP_LABEL, QR_SETUP_LABEL, RouterSourceUnavailable, _place_qr,
+    _qr_lane_column, _qr_png, _router_filename, _stamp_source_workbook)
 
 PIL = pytest.importorskip('PIL', reason='Pillow là dependency của tính năng xuất QR')
 from PIL import Image  # noqa: E402
@@ -137,27 +137,44 @@ def test_lan_qr_luon_nam_ngoai_vung_co_chu(max_column):
     assert _qr_lane_column(ws) > max_column
 
 
-def test_tem_khong_de_len_o_nao_co_chu():
-    """Đóng tem xong, mọi ô có chữ phải vẫn nguyên giá trị cũ."""
+def test_dong_tem_khong_cham_vao_bat_ky_o_nao():
+    """Sau khi đóng tem, TOÀN BỘ ô của sheet phải y hệt trước đó.
+
+    Không chỉ "không đè chữ": không một cell nào được ghi, kể cả ô trống, và
+    bề rộng cột / chiều cao dòng cũng không đổi.
+    """
     ws = _sheet_with_text(13)
     ws.cell(row=10, column=12, value='Thời gian Setup ( phút )')
     ws.cell(row=11, column=12, value=20)
-    before = {(c.row, c.column): c.value for r in ws.iter_rows() for c in r
-              if c.value not in (None, '')}
+    snapshot = {(c.row, c.column): c.value for r in ws.iter_rows() for c in r}
+    widths = {k: v.width for k, v in ws.column_dimensions.items()}
+    heights = {k: v.height for k, v in ws.row_dimensions.items()}
+
     column = _qr_lane_column(ws)
     _place_qr(ws, 'WF|OPID|1', QR_OP_LABEL, row=8, column=column)
     _place_qr(ws, 'WF|OPID|2', QR_SETUP_LABEL, row=8, column=column + 2)
-    after = {(c.row, c.column): c.value for r in ws.iter_rows() for c in r
-             if c.value not in (None, '')}
-    for position, value in before.items():
-        assert after[position] == value, f'ô {position} bị tem ghi đè'
-    # Ảnh phải neo trong làn QR, không lùi vào vùng dữ liệu. openpyxl giữ neo
-    # dưới dạng chuỗi ô ('N9') cho tới lúc lưu, nên đọc chữ cái cột từ chuỗi.
+
+    assert {(c.row, c.column): c.value for r in ws.iter_rows() for c in r} == snapshot
+    assert {k: v.width for k, v in ws.column_dimensions.items()} == widths
+    assert {k: v.height for k, v in ws.row_dimensions.items()} == heights
+    assert len(ws._images) == 2
     import re as _re
     from openpyxl.utils import column_index_from_string
     for image in ws._images:
         letter = _re.match(r'([A-Z]+)', str(image.anchor)).group(1)
         assert column_index_from_string(letter) >= column
+
+
+def test_khong_co_cho_dat_tem_thi_bao_loi_chu_khong_sua_cau_truc():
+    """Hết chỗ trống -> LỖI kèm sheet + Operation, không tự chèn cột lấy chỗ."""
+    from mesflow.web.router_export import RouterPlacementError, _assert_lane_is_free
+    ws = _sheet_with_text(13)
+    with pytest.raises(RouterPlacementError) as excinfo:
+        _assert_lane_is_free(ws, 10, 4, sheet='Chân ghế A', operation='KM-001-OP01')
+    error = excinfo.value
+    assert error.reason == 'NO_FREE_COLUMN'
+    assert error.sheet == 'Chân ghế A' and error.operation == 'KM-001-OP01'
+    assert 'Chân ghế A' in str(error) and 'KM-001-OP01' in str(error)
 
 
 # --- workbook sinh ra ------------------------------------------------------
@@ -179,7 +196,7 @@ def test_moi_operation_deu_co_tem_va_setup_chi_khi_co_lien_ket():
     # OP không có setup thì TUYỆT ĐỐI không được sinh tem setup.
     assert not any(p['kind'] == 'SETUP' and p['operation_id'] == 102 for p in placed)
     assert sum(1 for p in placed if p['kind'] == 'SETUP') == 1
-    assert _saved(wb)  # mở lại được bằng openpyxl
+    assert _saved(wb).sheetnames == ['Chân ghế A', 'Chân ghế B']
 
 
 def test_payload_khong_trung_va_khong_mo_ho():
@@ -198,12 +215,26 @@ def test_payload_khong_trung_va_khong_mo_ho():
         'WF|OPID|101', 'WF|OPID|102'}
 
 
-def test_nhan_tem_la_tieng_viet_ro_rang():
+def test_nhan_tem_duoc_nuong_vao_anh_chu_khong_ghi_vao_o():
+    """Nhãn "QR OP"/"QR Setup" phải nằm TRONG ảnh, không phải trong cell.
+
+    Ghi chữ vào ô -- kể cả ô đang trống -- là sửa nội dung biểu mẫu của khách.
+    Ảnh có nhãn thì cao hơn ảnh trần đúng bằng dải chữ, và sheet không nhận
+    thêm một ký tự nào.
+    """
+    from mesflow.web.router_export import QR_LABEL_STRIP
+    plain = Image.open(BytesIO(_qr_png('WF|OPID|1').getvalue()))
+    labelled = Image.open(BytesIO(_qr_png('WF|OPID|1', QR_OP_LABEL).getvalue()))
+    assert labelled.height == plain.height + QR_LABEL_STRIP
+    assert labelled.width == plain.width
+    # Dải nhãn phải có mực thật, không phải một dải trắng.
+    strip = labelled.crop((0, plain.height, labelled.width, labelled.height))
+    assert any(pixel == 0 for pixel in strip.convert('L').getdata()), 'nhãn trống trơn'
+
     rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', setup_id=201, setup_minutes=20)]
     wb, _, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     values = {c.value for r in _saved(wb)['Chân ghế A'].iter_rows() for c in r}
-    assert QR_OP_LABEL in values and QR_SETUP_LABEL in values
-    assert 'QR OP' == QR_OP_LABEL and 'QR Setup' == QR_SETUP_LABEL
+    assert QR_OP_LABEL not in values and QR_SETUP_LABEL not in values
 
 
 def test_moi_sheet_part_giu_tem_cua_rieng_no():
@@ -237,17 +268,24 @@ def test_khong_con_duong_dung_workbook_moi():
 # --- đóng tem lên workbook gốc --------------------------------------------
 
 def _source_bytes():
-    """Workbook gốc tối giản đúng bố cục xưởng, cho hai Part."""
+    """Workbook gốc tối giản đúng bố cục xưởng: Part A có hai OP, Part B một OP."""
     wb = Workbook(); wb.remove(wb.active)
-    for title, code, name in (('Chân ghế A', 'KM-001', 'CẮT LASER'),
-                              ('Chân ghế B', 'KM-002', 'CẮT LASER')):
+    layout = (('Chân ghế A', 'KM-001', [('CẮT LASER', 20), ('LÀM NGUỘI', 0)]),
+              ('Chân ghế B', 'KM-002', [('CẮT LASER', 20)]))
+    for title, code, blocks in layout:
         ws = wb.create_sheet(title)
         ws['A2'] = 'PO NUMBER:'; ws['C2'] = 6126
         ws['A5'] = 'MÃ BẢN VẼ:'; ws['C5'] = code
-        ws['A8'] = f'OPERATION # 01- {name}'
-        ws['A9'] = 'Part Number ( Mã bản vẽ )'; ws['B9'] = code
-        ws['A10'] = 'Ngày/Tháng/Năm'; ws['L10'] = 'Thời gian Setup ( phút )'
-        ws['A11'] = 'SETUP'; ws['L11'] = 20
+        row = 8
+        for index, (name, minutes) in enumerate(blocks, start=1):
+            ws.cell(row=row, column=1, value=f'OPERATION # {index:02d}- {name}')
+            ws.cell(row=row + 1, column=1, value='Part Number ( Mã bản vẽ )')
+            ws.cell(row=row + 1, column=2, value=code)
+            ws.cell(row=row + 2, column=1, value='Ngày/Tháng/Năm')
+            ws.cell(row=row + 2, column=12, value='Thời gian Setup ( phút )')
+            ws.cell(row=row + 3, column=1, value='SETUP')
+            ws.cell(row=row + 3, column=12, value=minutes)
+            row += 12
     buffer = BytesIO(); wb.save(buffer)
     return buffer.getvalue()
 
@@ -275,8 +313,8 @@ def test_tem_nam_dung_tren_sheet_cua_block_chu_khong_roi_xuong_sheet_phu():
              part_name='Chân ghế B', part_id=2, part_sort=1),
     ]
     wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
-    assert EXTRA_SHEET_TITLE not in _saved(wb).sheetnames, (
-        'mọi Operation đều có block trong file gốc, không được sinh sheet phụ')
+    assert _saved(wb).sheetnames == ['Chân ghế A', 'Chân ghế B'], (
+        'không sheet nào được thêm vào file gốc')
     sheets = {p['operation_id']: p['sheet'] for p in placed}
     assert sheets[101] == 'Chân ghế A' and sheets[201] == 'Chân ghế A'
     assert sheets[102] == 'Chân ghế B'
@@ -286,14 +324,16 @@ def test_ma_op_khong_mang_tien_to_po_van_khop_duoc():
     """Template đặt mã tự do (không có tiền tố PO) vẫn phải khớp block."""
     rows = [_row(101, 'KM-001-OP01', 'CẮT LASER')]
     wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
-    assert EXTRA_SHEET_TITLE not in _saved(wb).sheetnames
+    assert _saved(wb).sheetnames == ['Chân ghế A', 'Chân ghế B']
     assert placed[0]['sheet'] == 'Chân ghế A'
 
 
-def test_operation_khong_co_trong_file_goc_van_duoc_tem():
-    """OP thêm tay sau khi nhập vẫn phải có tem -- gom vào sheet phụ.
+def test_operation_khong_co_trong_file_goc_bi_tra_ve_de_bao_loi():
+    """OP thêm tay sau khi nhập KHÔNG được âm thầm bỏ qua, cũng không gom sheet phụ.
 
-    Bỏ qua lặng lẽ thì người cầm tờ giấy thiếu đúng tem họ cần mà không biết.
+    Xuất thiếu mà vẫn ra file là thứ người cầm tờ giấy không phát hiện được: họ
+    ra xưởng, tới công đoạn đó, và không có tem để quét. Hàm này trả nguyên dòng
+    chưa khớp về cho người gọi để nó dựng câu lỗi chỉ đúng Part/Operation.
     """
     rows = [
         _row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER'),
@@ -301,21 +341,39 @@ def test_operation_khong_co_trong_file_goc_van_duoc_tem():
              part_name='Part thêm tay', part_id=9, part_sort=5, setup_id=203,
              setup_minutes=15),
     ]
-    wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
-    assert {p['operation_id'] for p in placed} == {101, 103, 203}
-    saved = _saved(wb)
-    assert EXTRA_SHEET_TITLE in saved.sheetnames
-    leftover = {p['sheet'] for p in placed if p['operation_id'] in (103, 203)}
-    assert leftover == {EXTRA_SHEET_TITLE}
+    wb, placed, matched, unmatched = _stamp_source_workbook(_source_bytes(), PO, rows)
+    assert matched == 1
+    assert [row['code'] for row in unmatched] == ['PO-6126-KM-009-OP01']
+    # Không có sheet nào được thêm vào để che chỗ thiếu.
+    assert _saved(wb).sheetnames == ['Chân ghế A', 'Chân ghế B']
+    assert {p['operation_id'] for p in placed} == {101}
 
 
-def test_xuat_lai_lan_hai_khong_chong_tem_cu():
-    """Xuất lại từ file đã xuất không được nhân đôi sheet phụ."""
-    rows = [_row(103, 'PO-6126-KM-009-OP01', 'THÊM TAY', part_code='KM-009',
-                 part_name='Part thêm tay', part_id=9)]
-    wb, _, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
-    buffer = BytesIO(); wb.save(buffer)
-    wb2, placed2, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
-    titles = _saved(wb2).sheetnames
-    assert titles.count(EXTRA_SHEET_TITLE) == 1
-    assert len(placed2) == 1
+def test_khong_con_sheet_bo_sung_trong_ma_nguon():
+    """Hợp đồng: không có đường nào tạo sheet gom tem cho phần không khớp."""
+    import mesflow.web.router_export as module
+    assert not hasattr(module, 'EXTRA_SHEET_TITLE')
+    assert not hasattr(module, '_append_leftover_sheet')
+    source = Path(module.__file__).read_text(encoding='utf-8')
+    assert 'QR bổ sung' not in source
+    assert 'create_sheet' not in source, 'không được thêm sheet nào vào file gốc'
+
+
+# --- tên file theo PO -----------------------------------------------------
+
+@pytest.mark.parametrize('po_code,expected', [
+    ('PO-6126', 'Router_PO-6126_QR.xlsx'),
+    ('PO 6126', 'Router_PO-6126_QR.xlsx'),
+    ('PO/6126', 'Router_PO-6126_QR.xlsx'),
+    ('NEWARK_2026.1', 'Router_NEWARK_2026.1_QR.xlsx'),
+])
+def test_ten_file_mang_ma_po_va_da_lam_sach(po_code, expected):
+    assert _router_filename(po_code) == expected
+
+
+@pytest.mark.parametrize('nasty', ['PO"; rm -rf /', 'PO\r\nX-Injected: 1', '../../etc/passwd'])
+def test_ten_file_khong_cho_ky_tu_nguy_hiem_lot_vao_header(nasty):
+    """Tên file đi thẳng vào Content-Disposition -- không được có dấu nháy/xuống dòng."""
+    name = _router_filename(nasty)
+    assert not set(name) & set('"\r\n/\\')
+    assert name.startswith('Router_') and name.endswith('_QR.xlsx')

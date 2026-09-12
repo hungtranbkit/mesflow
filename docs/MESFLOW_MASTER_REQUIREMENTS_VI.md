@@ -1890,7 +1890,7 @@ không bao giờ ở bên ngoài.
   1. Đọc thời gian setup theo **neo nhãn trong phạm vi từng block** (nhãn `Thời gian Setup ( phút )`, giá trị nằm ngay dưới, cùng cột) — KHÔNG theo ô tuyệt đối, vì vị trí block thay đổi theo số công đoạn của sheet.
   2. `> 0` → Operation được đánh dấu `requires_setup=true` và giữ `expected_setup_minutes`; khi tạo PO, cơ chế SETUP **sẵn có** (§REQ-KIOSK-012, `repositories/setup_ops.py`) sinh Operation `operation_type=SETUP`, `parent_operation_id=<OP sản xuất>`, QR riêng. **Không có cơ chế setup thứ hai.**
   3. Màn xem trước liệt kê Part → Operation với checkbox; OP sản xuất tick sẵn như cũ, hàng **OP Setup tick sẵn khi phút > 0**.
-  4. Xuất file: mở lại **workbook gốc đã lưu trong kho** (`template_import_blobs`, đánh địa chỉ theo sha256 trên volume uploads đã backup — không phải file tạm) rồi đóng thêm tem lên chính nó. **Không có nhánh dựng workbook mới.**
+  4. **Xuất Router theo PO** (`Export Router by PO`): người dùng chọn MỘT Production Order và nhận MỘT workbook đại diện toàn bộ Router của PO đó — mọi Part của PO nằm trong cùng file, mỗi Part giữ đúng sheet của nó. Cách làm: mở lại **workbook gốc đã lưu trong kho** (`template_import_blobs`, đánh địa chỉ theo sha256 trên volume uploads đã backup — không phải file tạm) và **chỉ dán ảnh QR** vào đúng block OP tương ứng. **Không dựng workbook mới, không đổi cấu trúc file.**
 - **Kết quả mong đợi**: xem trước trả cấu trúc + `counts.setups` và **không ghi gì vào CSDL**; nhập trả số Part/Operation/OP Setup đã tạo; xuất trả `.xlsx` tải về được — **chính file gốc đã nhập**, giữ nguyên sheet/tên sheet/merge/độ rộng cột/chiều cao dòng/ảnh-logo/khung in/công thức — cộng thêm tem cho mỗi Operation quét được, kèm tem `QR Setup` cho OP có setup liên kết. Response mang theo `X-MESFlow-Router-Source-Sha256` và `X-MESFlow-Router-Source-Import` để biết vừa in từ bản nhập nào.
 - **Chuyển trạng thái**: nhập lại cùng file cập nhật Template tại chỗ (khớp theo `(mã Part, mã OP)`), không nhân bản.
 - **Kiểm tra hợp lệ**:
@@ -1901,8 +1901,10 @@ không bao giờ ở bên ngoài.
 - **Ranh giới**:
   - bỏ tick OP sản xuất nhưng vẫn gửi `include_setup=true` → **server** bỏ luôn phần setup; không tạo được OP SETUP mồ côi kể cả khi gọi thẳng API;
   - **không còn file gốc / file gốc không đọc được thành block / không khớp được Operation nào → HTTP `409` kèm `reason` và câu hướng dẫn nhập lại Template nguồn. TUYỆT ĐỐI không lặng lẽ xuất ra một workbook tự dựng theo layout generic**;
-  - Operation không có block trong workbook gốc (thêm tay sau khi nhập) vẫn phải có tem — gom vào sheet `QR bổ sung`, và số lượng được báo ở `X-MESFlow-Router-Unmatched`;
-  - sheet không chứa block `OPERATION #` nào (ví dụ `SƠN TĨNH ĐIỆN` trong file NEWARK) được giữ **y nguyên**, không đụng tới kể cả khổ in;
+  - **Operation không có block trong workbook gốc (thêm tay sau khi nhập) → HỎNG CỨNG toàn bộ lần xuất**, HTTP `409` `UNMATCHED_OPERATIONS`, nêu đích danh Part · Operation nào. KHÔNG sinh sheet `QR bổ sung`, KHÔNG xuất ra một file thiếu tem một cách âm thầm — người cầm tờ giấy thiếu chỉ phát hiện khi đã đứng trước máy;
+  - sheet không chứa block `OPERATION #` nào (ví dụ `SƠN TĨNH ĐIỆN` trong file NEWARK) được giữ **y nguyên**, không đụng tới;
+  - Operation của PO khác không bao giờ lọt vào: truy vấn ràng `production_order_id` trên cả Operation, Part và dòng SETUP;
+  - tên file là `Router_<POCODE>_QR.xlsx`, mã PO đã lọc sạch ký tự không an toàn;
   - hai sheet cùng tên công đoạn → hai tem khác nhau, tuyệt đối không dùng chung id.
 - **Quyền**: admin/manager cho cả ba endpoint. Đây là màn quản trị — không mở cho kiosk công khai.
 - **Đồng thời**: xem trước là đọc thuần, không khoá gì; nhập chạy trong đúng một transaction như REQ-TPL-005.
@@ -1912,6 +1914,8 @@ không bao giờ ở bên ngoài.
 - **Khía cạnh kiểm thử**: positive, negative (âm/chữ/0/trống), boundary (trùng mã, OP ngoài file gốc), RBAC, round-trip (nhập → xuất → nhập lại).
 
 **Danh tính QR khi in lại.** Payload lấy từ `printable_qr_payload_sql()` — nơi duy nhất trả lời "tem MỚI được mang chuỗi nào". OP SETUP luôn địa chỉ theo id (`WF|OPID|<id>`) vì dòng và tem sinh ra cùng lúc; OP sản xuất **giữ nguyên** chuỗi đang lưu, để in lại một tem bình thường ra đúng cái đang dán ngoài xưởng, và chỉ chuyển sang địa chỉ theo id khi chuỗi cũ đã mơ hồ. REWORK cố ý **không** có tem (xem `domain/policy.py: LABELLED_TYPES`).
+
+**Không được đụng vào cấu trúc file nguồn.** Sau khi xuất, khác biệt DUY NHẤT so với file gốc là các drawing QR được thêm vào. Không đổi tên sheet, thứ tự sheet, số sheet; không thêm sheet; không chèn/xoá dòng hay cột; không đổi merge, bề rộng cột, chiều cao dòng, freeze panes, print area, page setup, công thức, style hay bất kỳ ô nào — kể cả ô đang trống. Nhãn `QR OP` / `QR Setup` được **vẽ vào chính ảnh QR**, không ghi vào cell, đúng vì lý do đó. Nếu không còn vùng trống để đặt tem mà không che nội dung, hệ thống **báo lỗi kèm sheet + Operation + lý do** (`RouterPlacementError`) chứ **không** tự chèn cột/dòng để lấy chỗ. Hồi quy khoá điều này bằng cách so từng thuộc tính của MỌI sheet giữa file nguồn và file xuất ra (`test_export_differs_from_source_ONLY_by_added_qr_drawings`).
 
 **Xuất file là round-trip, không phải dựng lại.** Nguồn duy nhất của tờ xuất ra là chính workbook đã nhập cho Template sinh ra PO đó. Tờ router là biểu mẫu của khách — khung in, logo, ô ký, công thức tính giờ — nên một file "tương đương" trông giống nhưng không phải cái xưởng đang dùng, và người cầm tờ giấy không có cách nào biết mình đang cầm bản nào. Vì vậy nhánh dựng workbook mới đã bị **gỡ hẳn khỏi mã nguồn**, và `tests/test_router_export_qr.py::test_khong_con_duong_dung_workbook_moi` khoá lại điều đó. Kiểm chứng bằng **chính file thật** `tests/fixtures/router-newark-arm-chair.xlsx` (44 sheet): xuất ra giữ nguyên danh sách sheet, merge, độ rộng cột A..M, chiều cao dòng và ảnh gốc.
 
