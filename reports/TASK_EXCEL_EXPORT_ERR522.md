@@ -1,6 +1,6 @@
 # TASK EXCEL-EXPORT-ERR522 — exported router .xlsx shows Err:522 in many cells
 
-**Status:** FIXED (byte-preserving OOXML graft), pending build+deploy TEST.
+**Status:** DONE — live TEST 71.0.0.300 (commit e2162be5d9b3). LibreOffice: 0 error cells on real PO6126 export (was 1199).
 Branch `integration/qr-missing-marker-warn` (live-297 base + 298 QR-warn + this fix).
 
 ## ROOT CAUSE (confirmed with LibreOffice + raw XML on the real PO 6126 file)

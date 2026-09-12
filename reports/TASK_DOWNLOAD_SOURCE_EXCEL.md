@@ -1,6 +1,6 @@
 # TASK DOWNLOAD-SOURCE-EXCEL — nút "Tải file Excel gốc" ở Template detail
 
-**Status:** IN PROGRESS (UI trên nền hotfix live-297 lineage, branch `integration/qr-missing-marker-warn`).
+**Status:** DONE — live TEST 71.0.0.300. Nút "⬇ Tải file Excel gốc" ở Template editor action bar; checksum tải==upload verified live.
 **Reported:** user, 2026-09-13. "chưa thấy tính năng download file excel gốc."
 
 ## Hiện trạng
