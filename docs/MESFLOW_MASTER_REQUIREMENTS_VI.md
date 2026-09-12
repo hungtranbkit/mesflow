@@ -1921,6 +1921,33 @@ không bao giờ ở bên ngoài.
 
 **Vị trí tem trên giấy.** Tem nằm ở làn riêng bắt đầu từ cột đầu tiên **sau ô có chữ xa nhất về bên phải** của sheet, nên không đè Part Number, thời gian setup, thời gian gia công, số lượng hay tên người thực hiện. Nhãn `QR OP` và `QR Setup` in ngay trên mỗi tem. Khổ in được đặt `fitToWidth=1` để làn QR không rơi sang trang khác.
 
+
+### REQ-TPL-007 — Nhập Router: đọc hết ý nghĩa file, tạo cả PO
+
+- **Mô-đun**: Template / Import-Export · Production Order
+- **Mục đích**: Tờ GO ROUTER là **nguồn dữ liệu nghiệp vụ**, không phải chỗ lấy tên Part/OP. Trước yêu cầu này, import đọc đúng bốn thứ (mã Part, tên Part, tên OP, thời gian setup/cycle) và mọi field còn lại rơi mất **im lặng** — kể cả số lượng riêng của từng Part và tổng thời gian dự kiến.
+- **Đối tượng thực hiện**: admin, manager (quyền Template để tạo/sửa Template; quyền PO để tạo PO — kiểm ở **server**, trước mọi lệnh ghi).
+- **Điều kiện tiên quyết**: workbook định dạng GO ROUTER.
+- **Kích hoạt bởi**: `POST /api/templates/preview-workbook`, `POST /api/templates/import-workbook`. **Hai entry point, một service**: nút *Nhập từ Excel* ở màn Template và nút *Nhập Excel Router* ở màn Production Order đi qua cùng một parser/preview — hai đường riêng là hai bộ ngữ nghĩa sẽ trôi khỏi nhau.
+- **Luồng chính**:
+  1. Parse toàn bộ, **chưa ghi gì**.
+  2. Quyết định: Template *dùng lại* (khớp sha256 của bytes) / *cập nhật* (trùng mã, nội dung khác) / *tạo mới*; PO *tạo* / *đã tồn tại* / *không có mã PO*.
+  3. Chặn trước khi ghi: quyền, và xác nhận cho việc ghi đè Template.
+  4. Ghi Template (+ dòng nối blob↔Template trong **cùng** transaction), rồi tạo PO.
+- **Đơn vị thời gian**: đọc **từ chính nhãn** — `giây/s/sec/second`, `phút/min/minute`, `giờ/h/hr/hour`, chấp nhận hoa thường, khoảng trắng và dấu tiếng Việt. Nhãn không nói rõ đơn vị → **dừng kèm sheet + dòng**, không đoán. Từ khoá ngắn (`Setup (min)`) chỉ tính khi ô **có đơn vị trong ngoặc**: cột A có ô ghi trần `SETUP` là nhãn dòng, ngay dưới nó là *Nhân viên Setup*.
+- **Số lượng**: `QTY` là số lượng **PO**; `SỐ LƯỢNG` của từng sheet là số lượng **Part** (bội số BOM). Hai thứ khác nhau, không được gộp. File thật: PO 110, còn Part có 110 / 220 / 440.
+- **Tổng thời gian dự kiến**: là **số liệu nguồn**, lưu riêng (`expected_total_seconds`), **không** suy lại từ số lượng. File thật có 5 công đoạn cố ý không khớp `qty × cycle` vì chúng mã hoá số **lần thao tác** riêng (ĐÓNG ECU VÀO NAN GỖ: 40 s/sp nhưng tổng 12,2222 h ⇒ 1100 lần, gấp 10 lần QTY). Suy lại là ghi đè định mức thật bằng một phép tính sai.
+- **Setup**: `> 0` → tạo OP SETUP liên kết (checkbox xem trước tick sẵn). `0`, `-`, và trống đều **không** tạo, nhưng trạng thái thô được giữ (`setup_source_raw`): `-` là "không áp dụng", `0` là "có khai báo và bằng không".
+- **Danh tính Operation**: `operation.id` là canonical. Số OP và tiêu đề **giữ nguyên văn như trên giấy** (`source_op_no`, `source_title`); mã nội bộ được sinh duy nhất. File thật có **10 chỗ** hai công đoạn khác nhau cùng mang một số (OPERATION # 02 vừa là CHAMFER LỖ vừa là LÀM NGUỘI) — **nhập đủ cả 112**, mỗi chỗ là một cảnh báo, không từ chối file và không sửa số của khách.
+- **Idempotent**: nhập lại **đúng file** (khớp sha256) là no-op sạch, **không báo lỗi**, kể cả khi PO đã tồn tại. PO đã tồn tại → **dừng**, không ghi đè dữ liệu vận hành. Trùng mã Template mà nội dung khác → **đòi xác nhận**, kèm số PO đã dựng từ Template đó.
+- **Trường vận hành** (`Ngày/Tháng/Năm`, `Nhân viên Setup/SX/QC`, `Hàng đạt`, `Hàng lỗi`, `Tổng số lượng sản xuất`, xác nhận): **không** tạo dữ liệu thực tế giả khi nhập. MESFlow thu thập qua Session/QC/duyệt.
+- **Màn xem trước — ba mục bắt buộc**: (1) *Sẽ import vào MESFlow*; (2) *Thông tin Excel có nhưng MESFlow chưa dùng trực tiếp* — kèm sheet/ô/giá trị thô/lý do; (3) *Cảnh báo cần xử lý*. Không mục nào được rỗng một cách im lặng.
+- **Lỗi**: `TEMPLATE_PERMISSION_REQUIRED`, `PO_PERMISSION_REQUIRED`, `TEMPLATE_UPDATE_NEEDS_CONFIRM`, `PO_ALREADY_EXISTS` → HTTP `409` kèm `reason` và `detail`.
+- **Nguyên tử**: Template (+ dòng nối blob) trong một transaction; `instantiate()` dựng PO + Part + Operation + SETUP trong một transaction của nó. Hỏng ở bước PO để lại một Template **không có PO** — trạng thái hợp lệ, và vì danh tính là sha256 nên thử lại sẽ dùng lại Template rồi tạo tiếp PO.
+- **Liên quan**: REQ-TPL-005, REQ-TPL-006 (xuất Router kèm QR), REQ-KIOSK-012, `reports/ROUTER_IMPORT_FIELD_AUDIT_6126_20260912.md`.
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: positive, negative (đơn vị lạ, số âm, chữ), boundary (trùng số OP, sheet không có block, sheet không có mã bản vẽ), RBAC, idempotency, migration-over-old-data.
+
 ## 15.6 Nhân viên (`REQ-EMP-*`)
 
 ### REQ-EMP-001 — Tạo/sửa một Nhân viên
@@ -3324,6 +3351,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |
 | REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 case, chạy qua đúng đường finish của kiosk), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |
+| REQ-TPL-007 (nhập Router: đọc hết field, tạo cả PO) | `tests/test_router_import_field_semantics.py` (36 case: đơn vị s/phút/giờ + biến thể, ví dụ 60 phút/180 s/6,5 h, 0 vs `-` vs trống, tổng thời gian giữ nguyên khi lệch, số lượng Part độc lập QTY), `tests/test_router_po_import_flow.py`, `tests/integration/test_migration_0052_router_source_semantics.py`, `reports/ROUTER_IMPORT_FIELD_AUDIT_6126_20260912.md` | A |
 | REQ-TPL-006 (router: tự tạo OP Setup + xuất Excel kèm QR) | `tests/test_excel_router_setup_parser.py` (25 case), `tests/test_router_export_qr.py` (20 case, giải mã ngược ảnh QR), `tests/integration/test_router_setup_import_export.py` (19 case, API + PostgreSQL thật, gồm round-trip file thật), `tests/test_router_export_real_workbook.py` (12 case, chạy trên chính file 44 sheet của xưởng), `tests/e2e/template-import-setup-preview.spec.js` (8 case), `tests/test_excel_import_export_source.py` | A |
 | REQ-QR-001 (payload nhãn QR Operation) | `tests/integration/test_qr_label_payload_is_scannable.py` (4 case: đổi mã, mơ hồ chéo cột, và hai ca giữ an toàn cho nhãn thường/SETUP) | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (cho đúng 2 màn hình đó) |

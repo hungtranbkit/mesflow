@@ -3590,3 +3590,16 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .tpl-preview-setup{margin-left:24px;padding-top:6px;border-top:1px dashed var(--line)}
 .tpl-preview-setup input:disabled{cursor:not-allowed}
 .tpl-tag-setup{display:inline-block;margin-right:6px;padding:1px 7px;border-radius:999px;background:#eaf2f7;color:#1d4e77;font-size:10px;font-weight:800;letter-spacing:.04em}
+
+/* Xem trước nhập Router: kế hoạch, cảnh báo, và phần Excel có mà chưa dùng. */
+.tpl-preview-plan{display:grid;gap:6px;margin:12px 0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-panel);background:#f7f9fc}
+.tpl-preview-plan>div{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:baseline}
+.tpl-preview-plan b{font-size:12px;color:#4a5866}
+.tpl-preview-plan span{font-size:13px;color:var(--text)}
+.tpl-preview-unused{margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-panel);background:#fff}
+.tpl-preview-unused summary{cursor:pointer;font-size:13px;color:#4a5866}
+.tpl-preview-unused table{width:100%;margin-top:10px;border-collapse:collapse;font-size:12px}
+.tpl-preview-unused th{padding:6px 8px;border-bottom:1px solid var(--line);color:#4a5866;text-align:left;font-weight:700}
+.tpl-preview-unused td{padding:6px 8px;border-bottom:1px solid var(--line);color:var(--text);vertical-align:top}
+.tpl-preview-warn summary{cursor:pointer}
+.tpl-preview-warn ul{margin:8px 0 0;padding-left:18px;max-height:200px;overflow:auto}

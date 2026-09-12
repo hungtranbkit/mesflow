@@ -207,20 +207,35 @@ def _go_router_workbook(sheets):
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 
-def test_go_router_workbook_names_the_sheet_and_row_of_a_duplicate(db, api):
-    """A one-sheet-per-Part file must say WHICH sheet, not just the code.
+def test_go_router_workbook_imports_duplicate_source_op_numbers_and_keeps_them_raw(db, api):
+    """Trùng SỐ OP trong một sheet là dữ liệu thật, không phải lỗi đánh máy.
 
-    Reported live 2026-09-09: the rejection listed ten duplicated codes with
-    no location, and this layout spreads Operations across many sheets, so
-    "Part X · Operation Y" alone still left the file to be searched by hand.
+    Quyết định 2026-09-09 là TỪ CHỐI cả file và nêu sheet + dòng. Điều đó đã bị
+    thay sau khi audit chính file của xưởng: 10 chỗ trùng số ấy là những công
+    đoạn KHÁC NHAU dùng chung một số (OPERATION # 02 vừa là CHAMFER LỖ vừa là
+    LÀM NGUỘI; OPERATION # 01 vừa là TIỆN BƯỚC 1 vừa là TIỆN BƯỚC 2). Từ chối
+    file là vứt dữ liệu lộ trình thật; đổi số của khách là bịa ra một mã không
+    có trên giấy.
+
+    Hợp đồng hiện tại: nhập ĐỦ, giữ NGUYÊN số và tiêu đề gốc, mã nội bộ sinh
+    duy nhất, danh tính canonical là operation.id, và mỗi chỗ trùng là một
+    cảnh báo hiện trên màn xem trước -- không im lặng.
     """
     payload = _go_router_workbook({'KM-3172005-08': [(1, 'CẮT LASER'), (2, 'CHAMFER LỖ'),
                                                      (2, 'LÀM NGUỘI')]})
     response = _upload(api, 'go_router.xlsx', payload)
-    assert response.status_code >= 400, response.text
-    message = response.json().get('message') or ''
-    assert 'KM-3172005-08-OP02' in message
-    assert "sheet 'KM-3172005-08'" in message, f'the sheet must be named: {message}'
-    # 3 header rows, then each block is a title row plus a detail row, so the
-    # two OPERATION # 02 titles land on rows 6 and 8.
-    assert 'dòng 6, 8' in message, message
+    assert response.status_code == 200, response.text[:400]
+    template_id = response.json()['template_id']
+
+    rows = db.execute("""SELECT o.code,o.source_op_no,o.source_title
+        FROM template_operations o JOIN template_parts p ON p.id=o.part_id
+        WHERE o.template_id=%s ORDER BY o.sort_order""", (template_id,)).fetchall()
+    assert len(rows) == 3, 'không được mất Operation nào'
+    # Số gốc giữ verbatim -- hai công đoạn cùng mang số 2.
+    assert [r['source_op_no'] for r in rows] == [1, 2, 2]
+    assert rows[1]['source_title'].endswith('CHAMFER LỖ')
+    assert rows[2]['source_title'].endswith('LÀM NGUỘI')
+    # Mã nội bộ thì phải duy nhất, nếu không hai dòng đụng nhau trong CSDL.
+    codes = [r['code'] for r in rows]
+    assert len(codes) == len(set(codes)), codes
+

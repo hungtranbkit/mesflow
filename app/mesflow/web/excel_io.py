@@ -507,14 +507,49 @@ def _assert_excel_qr_unambiguous(conn, code, qr, *, operation_id=None):
                     'hai Operation và không quét được.')
 
 
-def _find_labeled_value(rows, labels, max_rows=12):
-    labels={_norm(x) for x in labels}
+def _find_labeled_value(rows, labels, max_rows=12, max_span=4):
+    """Giá trị BÊN PHẢI ô nhãn, trong phạm vi vài cột.
+
+    ``max_span`` không phải chi tiết vụn: đầu tờ router có nhiều khối nhãn nằm
+    cạnh nhau trên cùng một dòng. Dòng 4 là
+    ``A='TÊN BẢN VẼ:' ... C=<tên> ... G='SẢN XUẤT HÀNG LOẠT' ... I=110``.
+    Quét hết dòng thì bốn sheet mức quy trình (TÊN/MÃ BẢN VẼ để trống) nhận
+    nhầm 'SẢN XUẤT HÀNG LOẠT' làm tên bản vẽ -- và tệ hơn, hệ thống tưởng chúng
+    CÓ danh tính bản vẽ nên không cảnh báo gì. Giá trị luôn nằm sát nhãn.
+    """
+    labels={_norm(x).rstrip(':') for x in labels}
     for row in rows[:max_rows]:
         for idx,value in enumerate(row):
-            if _norm(value).rstrip(':') in {x.rstrip(':') for x in labels}:
-                for candidate in row[idx+1:]:
+            if _norm(value).rstrip(':') in labels:
+                for candidate in row[idx+1:idx+1+max_span]:
                     if candidate not in (None, ''):
                         return candidate
+    return None
+
+
+def _find_labeled_value_below(rows, labels, max_rows=12, max_below=6):
+    """Giá trị nằm DƯỚI ô nhãn, cùng cột.
+
+    Đầu tờ router dùng HAI kiểu đặt nhãn cùng lúc, và nhầm chúng là cách chắc
+    chắn nhất để đọc sai:
+
+      * bên trái, nhãn -> giá trị BÊN PHẢI cùng dòng
+        (``A2='PO NUMBER:'`` -> ``C2=6126``);
+      * bên phải, nhãn là TIÊU ĐỀ CỘT -> giá trị ở dòng DƯỚI
+        (``I2='SỐ LƯỢNG'`` -> ``I4=110``, ``G2='LOẠI ĐƠN HÀNG'`` -> ``G4=...``).
+
+    Đọc 'SỐ LƯỢNG' bằng kiểu thứ nhất sẽ nhặt phải ``J2='HÌNH ẢNH'`` -- đúng lỗi
+    mà file thật vừa lộ ra.
+    """
+    wanted = {_deaccent(x).rstrip(':') for x in labels}
+    for index, row in enumerate(rows[:max_rows]):
+        for col, value in enumerate(row):
+            if _deaccent(value).rstrip(':') not in wanted:
+                continue
+            for below in rows[index + 1:index + 1 + max_below]:
+                candidate = below[col] if col < len(below) else None
+                if candidate not in (None, ''):
+                    return candidate
     return None
 
 
@@ -531,16 +566,57 @@ def _safe_code(value, fallback):
 # con số (cột A của dòng dưới ghi 'SETUP'). Vị trí tuyệt đối KHÔNG ổn định --
 # nó phụ thuộc block đứng thứ mấy trong sheet -- nên ở đây neo theo NHÃN rồi
 # đọc xuống một dòng trong ĐÚNG cột đó, thay vì gõ cứng L10/L11.
-SETUP_MINUTES_LABELS = ('thoi gian setup', 'thời gian setup')
-CYCLE_SECONDS_LABELS = ('thoi gian gia cong / san pham', 'thời gian gia công / sản phẩm')
+SETUP_TIME_LABELS = ('thoi gian setup', 'thoi gian cai dat', 'setup time')
+CYCLE_TIME_LABELS = ('thoi gian gia cong / san pham', 'cycle time', 'thoi gian chu ky')
+TOTAL_TIME_LABELS = ('tong thoi gian gia cong du kien', 'tong thoi gian', 'total time')
 
-#: Cách xưởng viết "không có" trong ô số. File thật (NEWARK ARM CHAIR, sheet
-#: 'Gân tăng cường cung ghế lớn') điền dấu '-' vào ô Thời gian Setup của
-#: những Operation không phải set máy. Đây là Ý ĐỊNH "không có setup", không
-#: phải dữ liệu hỏng -- bắt cả file 44 sheet trượt vì một dấu gạch là biến
-#: tính năng thành không dùng được. Số ÂM và chữ thật sự vô nghĩa vẫn bị chặn.
+#: Từ khoá NGẮN chỉ được coi là nhãn thời gian khi ô đó CÓ đơn vị trong ngoặc.
+#:
+#: Cột A của tờ router có ô ghi trần 'SETUP' -- đó là nhãn DÒNG, và ngay dưới nó
+#: là 'Nhân viên Setup'. Nếu 'setup' trần cũng khớp thì parser sẽ đọc tên nhân
+#: viên làm thời gian set máy. Đơn vị trong ngoặc là thứ phân biệt một ô tiêu đề
+#: số liệu ('Setup (min)') với một nhãn dòng ('SETUP').
+SHORT_TIME_KEYWORDS = {'setup': 'setup', 'cycle': 'cycle', 'total': 'total',
+                       'thoi gian': 'any'}
+
+#: Cách xưởng viết "không có" trong ô số. File thật (NEWARK ARM CHAIR) điền dấu
+#: '-' vào ô Thời gian Setup của 6 Operation không phải set máy. Đây là Ý ĐỊNH
+#: "không áp dụng", không phải dữ liệu hỏng -- bắt cả file 44 sheet trượt vì một
+#: dấu gạch là biến tính năng thành không dùng được. KHÁC với số 0: 0 là "có
+#: khai báo và bằng không". Cả hai đều không sinh OP SETUP, nhưng trạng thái thô
+#: được giữ lại để màn xem trước nói đúng file đang ghi gì.
 BLANK_NUMBER_PLACEHOLDERS = frozenset({'-', '--', '–', '—', 'x', 'n/a', 'na',
                                        'không', 'khong', 'ko', '.', '/'})
+
+#: Đơn vị thời gian đọc TỪ NHÃN, không đóng cứng.
+#:
+#: File hiện tại ghi '( phút )', '(s)', '( giờ )', nhưng một biểu mẫu khác hoàn
+#: toàn có thể ghi 'Thời gian gia công / sản phẩm ( phút )'. Đóng cứng giây vì
+#: file hôm nay dùng giây là cách chắc chắn nhất để một ngày nào đó nhập sai
+#: gấp 60 lần mà không ai thấy. Nhãn không nói rõ đơn vị thì KHÔNG đoán.
+TIME_UNIT_SECONDS = {'second': 1, 'minute': 60, 'hour': 3600}
+TIME_UNIT_PATTERNS = (
+    ('hour', (r'\bgio\b', r'\bgiowf\b', r'\bh\b', r'\bhr\b', r'\bhrs\b', r'\bhour', r'\btieng\b')),
+    ('minute', (r'\bphut\b', r'\bmin\b', r'\bmins\b', r'\bminute')),
+    ('second', (r'\bgiay\b', r'\bs\b', r'\bsec\b', r'\bsecs\b', r'\bsecond')),
+)
+
+
+def _time_unit_from_label(label):
+    """'Thời gian gia công / sản phẩm (s)' -> 'second'. Không rõ -> None.
+
+    Chỉ soi phần trong ngoặc nếu có -- tên trường hay chứa chữ cái trùng với ký
+    hiệu đơn vị ('sản phẩm' có 's'), nên quét cả câu sẽ đoán bừa.
+    """
+    text = _deaccent(label)
+    inside = re.findall(r'\(([^)]*)\)', text)
+    haystacks = [f' {x.strip()} ' for x in inside] or [f' {text} ']
+    for unit, patterns in TIME_UNIT_PATTERNS:
+        for haystack in haystacks:
+            for pattern in patterns:
+                if re.search(pattern, haystack):
+                    return unit
+    return None
 
 
 def _deaccent(value):
@@ -550,25 +626,53 @@ def _deaccent(value):
                    if unicodedata.category(c) != 'Mn')
 
 
-def _block_labeled_number(block_rows, labels, *, where, label_vi):
-    """Số nằm ngay DƯỚI ô nhãn, trong cùng cột, trong phạm vi một block.
+def _block_labeled_time(block_rows, labels, *, where, label_vi):
+    """Một trường thời gian trong block: giá trị, đơn vị theo nhãn, trạng thái thô.
 
-    Trả về (value, found). ``found`` phân biệt "nhãn không có trong block này"
-    với "có nhãn nhưng ô trống" -- ô trống là 0 hợp lệ, còn thiếu nhãn nghĩa là
-    block không khai báo trường đó.
+    Trả dict:
+      ``declared``  block có nhãn này không;
+      ``raw``       đúng thứ trong ô ('-' vẫn là '-', 0 vẫn là 0);
+      ``seconds``   giá trị đã quy về giây theo ĐƠN VỊ TRONG NHÃN;
+      ``unit``      'second' | 'minute' | 'hour';
+      ``label``     nguyên văn nhãn, để hiện lại ở màn xem trước.
+
+    Số âm, chữ vô nghĩa và nhãn không nói rõ đơn vị đều bị CHẶN kèm vị trí --
+    không lặng lẽ quy về 0.
     """
+    empty = {'declared': False, 'raw': None, 'seconds': None, 'unit': None, 'label': ''}
     wanted = {_deaccent(x) for x in labels}
+    short = {'setup': SETUP_TIME_LABELS, 'cycle': CYCLE_TIME_LABELS,
+             'total': TOTAL_TIME_LABELS}
+    short_key = next((k for k, v in short.items() if v is labels), None)
     for idx, row in enumerate(block_rows):
         for col, cell in enumerate(row):
             text = _deaccent(cell)
-            if not text or not any(w in text for w in wanted):
+            if not text:
                 continue
+            matched = any(w in text for w in wanted)
+            if not matched and short_key and text.startswith(short_key):
+                # Từ khoá ngắn chỉ tính khi ô CÓ đơn vị -- xem SHORT_TIME_KEYWORDS.
+                matched = _time_unit_from_label(_text(cell)) is not None
+            if not matched:
+                continue
+            label = _text(cell)
+            unit = _time_unit_from_label(label)
+            if unit is None:
+                raise ValueError(
+                    f'{where}: nhãn "{label}" không nói rõ đơn vị thời gian '
+                    '(giây/phút/giờ), nên không biết quy đổi. Ghi rõ đơn vị trong '
+                    'ngoặc, ví dụ "( phút )" hoặc "(s)".')
+            found = {'declared': True, 'raw': None, 'seconds': 0.0,
+                     'unit': unit, 'label': label}
             for below in block_rows[idx + 1:idx + 3]:
                 value = below[col] if col < len(below) else None
                 if value in (None, ''):
                     continue
+                found['raw'] = value
                 if _norm(value) in BLANK_NUMBER_PLACEHOLDERS:
-                    return 0.0, True
+                    # '-' = không áp dụng. Giữ raw để phân biệt với 0.
+                    found['seconds'] = 0.0
+                    return found
                 try:
                     number = float(value)
                 except (TypeError, ValueError):
@@ -577,9 +681,35 @@ def _block_labeled_number(block_rows, labels, *, where, label_vi):
                 if number < 0:
                     raise ValueError(
                         f'{where}: {label_vi} không được âm (đang là {value!r}).')
-                return number, True
-            return 0.0, True
-    return 0.0, False
+                found['seconds'] = number * TIME_UNIT_SECONDS[unit]
+                return found
+            return found
+    return dict(empty)
+
+
+#: Cột giữ NGUYÊN VĂN dữ liệu nguồn. Không bao giờ suy lại từ thứ khác.
+SOURCE_COLUMNS=('source_op_no','source_title','expected_total_seconds','setup_source_raw')
+
+
+def _preserved_key(part_code_by_key, opitem):
+    """Khoá nối cấu hình cũ với dòng mới khi cập nhật Template.
+
+    KHÔNG dùng mã nội bộ: mã đó được sinh ra, và khi file đánh trùng số OP thì
+    hậu tố phụ thuộc THỨ TỰ đọc -- chèn thêm một block ở giữa là mọi hậu tố phía
+    sau dịch một nấc, và cấu hình (requires_setup, ghi chú setup...) nhảy sang
+    nhầm công đoạn. Cặp (số OP gốc, tiêu đề gốc) là thứ ổn định vì nó là cái ghi
+    trên giấy.
+    """
+    part_code = str(part_code_by_key.get(opitem['part_key']) or '').upper()
+    source_no = opitem.get('source_op_no')
+    source_title = str(opitem.get('source_title') or '').strip().upper()
+    if source_no is None and not source_title:
+        # Workbook chuẩn (3 sheet Template/Parts/Operations) không có số OP gốc
+        # -- ở đó mã OP CHÍNH LÀ thứ người dùng gõ, nên nó vừa ổn định vừa là
+        # danh tính. Không có nhánh này thì mọi Operation của định dạng đó rơi
+        # vào cùng một khoá (0,'') và cấu hình của chúng trộn vào nhau.
+        return (part_code, str(opitem.get('code') or '').upper())
+    return (part_code, int(source_no or 0), source_title)
 
 
 def _parse_go_router_template(workbook, filename):
@@ -596,6 +726,8 @@ def _parse_go_router_template(workbook, filename):
     first_rows=list(visible[0].iter_rows(values_only=True))
     po_value=_find_labeled_value(first_rows, {'PO NUMBER','PO NUMBER:'})
     qty_value=_find_labeled_value(first_rows, {'QTY','QTY:'})
+    order_type=_find_labeled_value_below(first_rows, {'LOẠI ĐƠN HÀNG','LOAI DON HANG','ORDER TYPE'})
+    po_note=_find_labeled_value(first_rows, {'CHÚ Ý','CHU Y','NOTE','GHI CHÚ'})
     stem=re.sub(r'\.xlsx$','',filename,flags=re.I).strip()
     base_code=_safe_code(po_value, f'ROUTER-{site_now().strftime("%Y%m%d%H%M%S")}')
     template_code=f'TPL-{base_code}'
@@ -603,6 +735,10 @@ def _parse_go_router_template(workbook, filename):
     product=stem
     seen_part_codes=set()
     warnings=[]
+    # Mọi thứ hệ thống ĐỌC ĐƯỢC nhưng chưa map vào model, cộng với mọi cảnh báo,
+    # đi chung một kênh có phân loại. Không có đường nào để một field trong file
+    # biến mất im lặng: nó hoặc vào 'operations'/'parts', hoặc nằm ở đây.
+    notes=[]
     op_pattern=re.compile(r'^\s*OPERATION\s*#?\s*(\d+)\s*[-–:]?\s*(.*)$',re.I)
     for part_order,sheet in enumerate(visible):
         if _norm(sheet.title) in {'huong dan','hướng dẫn','instructions'}:
@@ -619,14 +755,36 @@ def _parse_go_router_template(workbook, filename):
             part_code=f'{raw_part_code}-{suffix}'; suffix+=1
         seen_part_codes.add(part_code)
         part_name=sheet.title.strip() or _text(drawing_name) or part_code
-        parts.append({'key':part_code,'code':part_code,'name':part_name,'sort_order':part_order})
-        # Mã OP chỉ cần duy nhất TRONG một Part -- OP01 của Part khác là hợp lệ
-        # và rất phổ biến, nên tập này phải reset ở mỗi sheet.
+        # SỐ LƯỢNG của sheet là số lượng Part phải làm, ĐỘC LẬP với QTY của PO.
+        # File thật: PO QTY 110, nhưng 11 sheet ghi 220 và 1 sheet ghi 440 -- bội
+        # số BOM. Gộp về QTY của PO là xoá mất định mức.
+        sheet_qty=_find_labeled_value_below(rows, {'SỐ LƯỢNG','SO LUONG','QUANTITY'})
+        sheet_meta=_text(rows[0][9] if len(rows[0])>9 else '')
+        has_drawing_identity=bool(_text(drawing_code) or _text(drawing_name))
+        if not has_drawing_identity:
+            notes.append({
+                'kind':'SHEET_WITHOUT_DRAWING_IDENTITY','sheet':sheet.title,'row':0,
+                'raw':'','message':(
+                    f"Sheet '{sheet.title}' không có TÊN/MÃ BẢN VẼ nên đây là tờ mức quy "
+                    f"trình; Part được đặt mã tạm {part_code}.")})
+        parts.append({'key':part_code,'code':part_code,'name':part_name,
+                      'sort_order':part_order,
+                      'planned_quantity':_integer(sheet_qty,f"SỐ LƯỢNG của sheet '{sheet.title}'",
+                                                  default=0),
+                      'source_quantity_raw':sheet_qty,
+                      'source_drawing_code':_text(drawing_code),
+                      'source_drawing_name':_text(drawing_name),
+                      'source_sheet':sheet.title,
+                      'source_document_meta':sheet_meta,
+                      'has_drawing_identity':has_drawing_identity,
+                      'image_count':len(getattr(sheet,'_images',()) or ())})
+        # Mã NỘI BỘ chỉ cần duy nhất TRONG một Part -- OP01 của Part khác là
+        # hợp lệ và rất phổ biến, nên tập này reset ở mỗi sheet.
         seen_op_codes=set()
         # Vị trí mọi block trong sheet, lấy TRƯỚC: một block chạy từ dòng tiêu
         # đề của nó tới ngay trước dòng tiêu đề kế tiếp. Biết biên rồi mới đọc
-        # được số của ĐÚNG block đó -- nhãn 'Thời gian Setup' xuất hiện lại ở
-        # mọi block, nên tìm toàn sheet sẽ luôn trả về block đầu tiên.
+        # được số của ĐÚNG block đó -- nhãn 'Thời gian Setup' lặp ở mọi block,
+        # nên tìm toàn sheet sẽ luôn trả về block đầu tiên.
         starts=[]
         for excel_row,row in enumerate(rows,start=1):
             first_nonempty=next((_text(v) for v in row if _text(v)), '')
@@ -635,61 +793,103 @@ def _parse_go_router_template(workbook, filename):
                 starts.append((excel_row,match))
         op_order=0
         for position,(excel_row,match) in enumerate(starts):
-            seq=int(match.group(1)); op_name=_text(match.group(2)).strip(' -–:')
+            seq=int(match.group(1)); op_name=_text(match.group(2)).strip(' -\u2013:')
+            source_title=next((_text(v) for v in rows[excel_row-1] if _text(v)), '')
             if not op_name:
                 op_name=f'Operation {seq:02d}'
-            # Người điền form thỉnh thoảng đánh trùng số: sheet 'Thanh la khung
-            # ngồi phía trước' của file NEWARK có HAI block cùng 'OPERATION # 02'
-            # (CHAMFER LỖ và LÀM NGUỘI). Trước đây cả file 44 sheet bị từ chối vì
-            # đúng mười chỗ như vậy (sự cố TPL-6126, 2026-09-09). Tách bằng hậu tố
-            # xác định -- ĐÚNG cách mã Part ngay trên tự tách khi trùng -- nên block
-            # thứ hai thành OP02-2: nhập lại cùng file luôn ra cùng mã, và không có
-            # hai Operation nào dùng chung một danh tính. Va chạm được BÁO lên
-            # preview chứ không im lặng (xem 'warnings').
+            # SỐ OP GỐC LÀ DỮ LIỆU CỦA KHÁCH, KHÔNG ĐƯỢC SỬA.
+            #
+            # Xưởng đánh trùng số một cách có chủ đích: sheet 'Thanh la khung
+            # ngồi phía trước' có HAI block cùng 'OPERATION # 02' -- CHAMFER LỖ
+            # và LÀM NGUỘI -- và đó là hai công đoạn thật, khác nhau. Mười chỗ
+            # như vậy trong file NEWARK.
+            #
+            # Nên: giữ NGUYÊN source_op_no và source_title đúng như trên giấy,
+            # còn mã NỘI BỘ thì sinh duy nhất để hai dòng không đụng nhau trong
+            # CSDL. Danh tính canonical vẫn là operation.id. Đây là khác biệt
+            # then chốt so với bản trước: bản trước ghi đè số của khách thành
+            # 'OP02-2' và làm mất thông tin gốc.
             base_op_code=f'{part_code}-OP{seq:02d}'
             op_code=base_op_code
             collision=2
             while op_code in seen_op_codes:
                 op_code=f'{base_op_code}-{collision}'; collision+=1
             if op_code!=base_op_code:
-                warnings.append(
-                    f"Sheet '{sheet.title}' dòng {excel_row}: Part này đã có Operation số "
-                    f"{seq:02d}, nên block '{op_name}' được nhập với mã {op_code} để hai "
-                    f"Operation không dùng chung một danh tính.")
+                notes.append({
+                    'kind':'DUPLICATE_SOURCE_OP_NO','sheet':sheet.title,'row':excel_row,
+                    'raw':source_title,
+                    'message':(f"Sheet '{sheet.title}' dòng {excel_row}: Part này đã có "
+                               f"Operation số {seq:02d}. Giữ nguyên số gốc trên giấy; "
+                               f"mã nội bộ dùng {op_code} để hai công đoạn không đụng "
+                               'danh tính.')})
             seen_op_codes.add(op_code)
             end=starts[position+1][0]-1 if position+1<len(starts) else len(rows)
             block=rows[excel_row-1:end]
-            where=f"Sheet '{sheet.title}' dòng {excel_row} (Operation {op_code})"
-            setup_minutes,has_setup_field=_block_labeled_number(
-                block,SETUP_MINUTES_LABELS,where=where,label_vi='Thời gian Setup ( phút )')
-            cycle_seconds,_=_block_labeled_number(
-                block,CYCLE_SECONDS_LABELS,where=where,
-                label_vi='Thời gian gia công / sản phẩm (s)')
-            # >0 mới là "thật sự có setup". 0/trống/thiếu nhãn đều KHÔNG sinh
-            # OP SETUP; số âm và số không đọc được đã bị chặn ở hàm trên với
-            # thông báo chỉ đúng sheet+dòng, chứ không âm thầm bỏ qua.
-            minutes=int(round(setup_minutes))
-            requires_setup=has_setup_field and minutes>0
+            where=(f"Sheet '{sheet.title}' dòng {excel_row} "
+                   f"(Operation {source_title or op_name})")
+            setup=_block_labeled_time(block,SETUP_TIME_LABELS,where=where,
+                                      label_vi='Thời gian Setup')
+            cycle=_block_labeled_time(block,CYCLE_TIME_LABELS,where=where,
+                                      label_vi='Thời gian gia công / sản phẩm')
+            total=_block_labeled_time(block,TOTAL_TIME_LABELS,where=where,
+                                      label_vi='Tổng thời gian gia công dự kiến')
+            # Part Number riêng của block. 27/112 block trong file thật để
+            # trống, chủ yếu công đoạn xử lý -- trống thì KẾ THỪA Part của
+            # sheet, không phải lỗi.
+            block_part_number=''
+            for brow in block:
+                for bcol,bcell in enumerate(brow):
+                    if 'part number' in _deaccent(bcell):
+                        block_part_number=_text(brow[bcol+1] if bcol+1<len(brow) else '')
+                        break
+                if block_part_number:
+                    break
+            # >0 mới là "thật sự có setup". 0, '-' và thiếu nhãn đều KHÔNG sinh
+            # OP SETUP; số âm và chữ vô nghĩa đã bị chặn kèm sheet+dòng.
+            setup_seconds=setup['seconds'] or 0.0
+            requires_setup=bool(setup['declared'] and setup_seconds>0)
+            # expected_setup_minutes là cột PHÚT của schema (migration 0047),
+            # nên quy về phút ở đây thay vì đổi đơn vị cột.
+            setup_minutes=int(round(setup_seconds/60.0)) if requires_setup else None
             operations.append({
                 'part_key':part_code,'code':op_code,'name':op_name,
                 'equipment_code':'','sort_order':op_order,
-                'standard_seconds_per_unit':cycle_seconds,
+                'standard_seconds_per_unit':cycle['seconds'] or 0.0,
                 'requires_setup':requires_setup,
-                'expected_setup_minutes':minutes if requires_setup else None,
-                '_setup_declared':has_setup_field,
+                'expected_setup_minutes':setup_minutes,
+                '_setup_declared':setup['declared'],
+                # --- nguyên văn từ file, không suy diễn ---
+                'source_op_no':seq,
+                'source_title':source_title,
+                'source_part_number':block_part_number,
+                'setup_raw':setup['raw'],'setup_unit':setup['unit'],
+                'setup_label':setup['label'],'setup_seconds':setup_seconds,
+                'cycle_raw':cycle['raw'],'cycle_unit':cycle['unit'],
+                'cycle_label':cycle['label'],
+                'total_expected_seconds':total['seconds'],
+                'total_expected_raw':total['raw'],
+                'total_expected_unit':total['unit'],
+                'total_expected_label':total['label'],
                 # Where this block actually sits, so a rejection can point at
                 # it: this layout puts each Part on its own sheet, so the sheet
                 # name matters as much as the row number.
                 '_excel_sheet':sheet.title,'_excel_row':excel_row
             })
             op_order+=1
+        if not starts:
+            notes.append({
+                'kind':'SHEET_WITHOUT_OPERATION_BLOCK','sheet':sheet.title,'row':0,'raw':'',
+                'message':(f"Sheet '{sheet.title}' không có block OPERATION nào. Không tạo "
+                           'công đoạn nào cho tờ này -- hệ thống không tự suy ra công đoạn.')})
     if not parts or not operations:
         return None
     return {
         'code':template_code,'name':template_name,'product':product,
         'version':'1.0','active':True,'parts':parts,'operations':operations,
         'po':_text(po_value),'qty':_integer(qty_value,'QTY',default=0),
-        'warnings':warnings,
+        'order_type':_text(order_type),'po_note':_text(po_note),
+        'source_document_meta':_text(first_rows[0][9] if len(first_rows[0])>9 else ''),
+        'warnings':warnings,'notes':notes,
     }
 
 @template_excel_bp.get('/<int:template_id>/export-workbook')
@@ -880,12 +1080,19 @@ def preview_template_workbook():
     if not upload.filename.lower().endswith('.xlsx'):
         return jsonify(ok=False, message='Chỉ hỗ trợ file .xlsx.'), 400
     try:
-        _, parsed = _parse_uploaded_router(upload)
+        raw, parsed = _parse_uploaded_router(upload)
         if not parsed:
             return jsonify(ok=False, message=(
                 'File này không phải Lộ trình sản xuất (GO ROUTER). Xem trước chỉ hỗ trợ '
                 'workbook có các block "OPERATION # ..." theo từng sheet Part.')), 400
-        return jsonify(ok=True, filename=upload.filename, **_preview_payload(parsed))
+        from mesflow.web.router_import import (
+            plan_import, unused_field_sections, workbook_digest)
+        digest = workbook_digest(raw)
+        # Ba mục hợp đồng yêu cầu: sẽ import / Excel có mà chưa dùng / cảnh báo.
+        sections = unused_field_sections(parsed)
+        return jsonify(ok=True, filename=upload.filename, digest=digest,
+                       plan=plan_import(parsed, digest), sections=sections,
+                       **_preview_payload(parsed))
     except Exception as exc:
         return api_error_response(exc, logger_name=__name__)
 
@@ -913,6 +1120,8 @@ def import_template_workbook():
             return jsonify(ok=False,message='Danh sách Operation được chọn không hợp lệ.'),400
     dropped_setups=[]
     import_warnings=[]
+    po_plan=None
+    confirm=str(request.form.get('confirm') or '').strip().lower() in {'1','true','yes'}
     raw_bytes=b''
     actor_id=session.get('user_id'); actor_name=str(session.get('username') or '')
     imported_code=''
@@ -966,6 +1175,33 @@ def import_template_workbook():
             if not parsed:
                 return jsonify(ok=False,message='Không nhận diện được dữ liệu Template. File cần có 3 sheet chuẩn hoặc các dòng OPERATION # trong từng sheet.'),400
             source_format='go_router'
+            # QUYẾT ĐỊNH TRƯỚC, GHI SAU. Cả ba hàng rào -- nhập lại đúng file,
+            # quyền, và xác nhận ghi đè Template -- phải chặn TRƯỚC lệnh ghi đầu
+            # tiên, nếu không một lần từ chối vẫn để lại Template dở dang.
+            from mesflow.web.router_import import (
+                PO_CREATE, RouterImportError, assert_can_apply, plan_import,
+                workbook_digest)
+            digest=workbook_digest(raw_bytes)
+            plan=plan_import(parsed,digest)
+            po_plan=plan['po']
+            if plan['template']['action']=='REUSE' and po_plan['action']!=PO_CREATE:
+                # Đúng file này đã nhập, và không có PO nào cần tạo thêm.
+                # Không ghi gì, và KHÔNG báo lỗi -- nhập lại phải là no-op sạch.
+                return jsonify(ok=True,idempotent=True,
+                    message=(f"Không có gì thay đổi: đúng file này đã nhập trước đó "
+                             f"({plan['template']['code']}). "
+                             +(po_plan.get('message') or '')),
+                    template_id=plan['template']['id'],
+                    production_order={'action':po_plan['action'],
+                                      'code':po_plan.get('code') or '',
+                                      'id':po_plan.get('id')},
+                    plan=plan,source_format=source_format,replaced=False)
+            try:
+                assert_can_apply(plan,confirm=confirm,
+                                 can_manage_templates=True,can_manage_pos=True)
+            except RouterImportError as exc:
+                return jsonify(ok=False,message=str(exc),reason=exc.reason,
+                               detail=exc.detail,plan=plan),409
             # Lựa chọn từ màn preview. Không gửi = nhập tất cả, đúng như trước.
             parsed,dropped_setups=_apply_selection(parsed,selection)
             if not parsed['operations']:
@@ -974,6 +1210,14 @@ def import_template_workbook():
             imported_code=code
             parts=parsed['parts']; operations=parsed['operations']
             import_warnings=list(parsed.get('warnings') or [])
+        if source_format=='go_router':
+            # Lưu bytes TRƯỚC khi mở transaction: kho file là bằng chứng, phải
+            # sống sót kể cả khi lần nhập này bị từ chối (đúng quy tắc sẵn có),
+            # và ta cần blob_id để nối trong transaction bên dưới.
+            archive.record(data=raw_bytes,filename=upload.filename,
+                outcome=OUTCOME_CREATED,template_code=code,
+                part_count=len(parts),operation_count=len(operations),
+                actor_user_id=actor_id,actor_username=actor_name)
         with transaction() as conn:
             # Gate 19 (2026-08-26): real confirmed bug -- this used to silently
             # fork a NEW template with an auto-suffixed code ('-2','-3',...) on
@@ -1027,11 +1271,16 @@ def import_template_workbook():
             keep_drawings={}
             if existing:
                 t={'id':existing['id']}
-                for row in conn.execute(f'''SELECT p.code part_code,o.code,{','.join('o.'+c for c in PRESERVED)}
+                for row in conn.execute(f'''SELECT p.code part_code,o.code,o.source_op_no,
+                        o.source_title,{','.join('o.'+c for c in PRESERVED)}
                     FROM template_operations o JOIN template_parts p ON p.id=o.part_id
                     WHERE o.template_id=%s''',(t['id'],)).fetchall():
-                    keep[(str(row['part_code'] or '').upper(),str(row['code'] or '').upper())]={
-                        c:row[c] for c in PRESERVED}
+                    part_code=str(row['part_code'] or '').upper()
+                    source_title=str(row['source_title'] or '').strip().upper()
+                    key=((part_code,str(row['code'] or '').upper())
+                         if row['source_op_no'] is None and not source_title
+                         else (part_code,int(row['source_op_no'] or 0),source_title))
+                    keep[key]={c:row[c] for c in PRESERVED}
                 for row in conn.execute('SELECT code,drawing_path FROM template_parts WHERE template_id=%s',
                                         (t['id'],)).fetchall():
                     if row.get('drawing_path'):
@@ -1044,26 +1293,50 @@ def import_template_workbook():
                 t=conn.execute('INSERT INTO templates(code,name,product,version,active,source_workbook) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',(code,name,product,version,active,upload.filename)).fetchone()
             ids={}
             for pitem in parts:
-                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order,drawing_path) VALUES(%s,%s,%s,%s,%s) RETURNING id',
+                # planned_quantity là SỐ LƯỢNG của chính sheet đó, độc lập với
+                # QTY cấp PO. None (không phải 0) khi file không khai báo: 0 là
+                # một lời khai báo, thiếu là thiếu.
+                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order,drawing_path,planned_quantity) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',
                     (t['id'],pitem['code'],pitem['name'],pitem['sort_order'],
-                     keep_drawings.get(str(pitem['code'] or '').upper(),''))).fetchone()
+                     keep_drawings.get(str(pitem['code'] or '').upper(),''),
+                     pitem.get('planned_quantity') or None)).fetchone()
                 ids[pitem['key']]=r['id']
+            if source_format=='go_router':
+                # Dòng nối phải nằm TRONG transaction này. Ghi ngoài rồi rollback
+                # là để lại con trỏ tới một Template chưa từng tồn tại.
+                blob=conn.execute('SELECT id FROM template_import_blobs WHERE sha256=%s',
+                                  (digest,)).fetchone()
+                if blob:
+                    conn.execute("""INSERT INTO template_source_workbooks
+                            (template_id,blob_id,sha256,original_filename)
+                        VALUES(%s,%s,%s,%s)
+                        ON CONFLICT (template_id,sha256) DO UPDATE
+                        SET original_filename=EXCLUDED.original_filename,
+                            linked_at=CURRENT_TIMESTAMP""",
+                        (t['id'],blob['id'],digest,str(upload.filename or '')[:200]))
+                conn.execute('UPDATE templates SET order_type=%s,source_document_meta=%s WHERE id=%s',
+                             (parsed.get('order_type') or None,
+                              parsed.get('source_document_meta') or None,t['id']))
             for opitem in operations:
                 # Khớp lại theo (mã Part, mã OP) -- cùng cặp mà editor Template
                 # dùng làm danh tính. Đổi mã OP trong file = OP khác, mất cấu
                 # hình cũ là đúng; giữ nguyên mã thì phải giữ nguyên cấu hình.
                 cfg=dict(PRESERVED_DEFAULTS)
-                cfg.update(keep.get((
-                    str(part_code_by_key.get(opitem['part_key']) or '').upper(),
-                    str(opitem['code'] or '').upper()),{}))
+                cfg.update(keep.get(_preserved_key(part_code_by_key,opitem),{}))
                 if opitem.get('_setup_declared'):
                     cfg['requires_setup']=bool(opitem.get('requires_setup'))
                     cfg['expected_setup_minutes']=(
                         opitem.get('expected_setup_minutes') if opitem.get('requires_setup') else None)
+                # SOURCE_COLUMNS giữ nguyên văn thứ trên giấy; chúng không bao
+                # giờ được suy lại từ thứ khác.
                 conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit,'
-                    +','.join(PRESERVED)+') VALUES('+','.join(['%s']*(7+len(PRESERVED)))+')',
+                    +','.join(SOURCE_COLUMNS)+','+','.join(PRESERVED)
+                    +') VALUES('+','.join(['%s']*(7+len(SOURCE_COLUMNS)+len(PRESERVED)))+')',
                     (t['id'],ids[opitem['part_key']],opitem['code'],opitem['name'],opitem['sort_order'],
                      opitem['equipment_code'],float(opitem.get('standard_seconds_per_unit') or 0))
+                    +(opitem.get('source_op_no'),opitem.get('source_title') or '',
+                      opitem.get('total_expected_seconds'),
+                      _text(opitem.get('setup_raw')) if opitem.get('setup_raw') is not None else None)
                     +tuple(cfg[c] for c in PRESERVED))
         verb='cập nhật' if replaced else 'tạo'
         archive.record(data=raw_bytes,filename=upload.filename,
@@ -1075,9 +1348,39 @@ def import_template_workbook():
         setup_count=sum(1 for o in operations if o.get('requires_setup'))
         message=f'Đã {verb} Template {code}: {len(parts)} Part, {len(operations)} Operation'
         message+=f', {setup_count} OP Setup.' if setup_count else '.'
+        # --- PO ----------------------------------------------------------
+        #
+        # Template đã commit ở trên. Tạo PO là transaction THỨ HAI, và đó là
+        # lựa chọn có chủ đích chứ không phải chỗ chưa làm xong:
+        # `instantiate()` tự mở transaction riêng (connection.transaction() mở
+        # connection mới mỗi lần, không lồng được), và bản thân nó đã dựng PO +
+        # Part + Operation + SETUP trong MỘT transaction -- tức là không có
+        # trạng thái "PO thiếu công đoạn".
+        #
+        # Nếu bước PO hỏng, thứ còn lại là một Template KHÔNG có PO. Đó là trạng
+        # thái hợp lệ và bình thường (màn Template vẫn tạo ra đúng như vậy),
+        # không phải rác. Và vì danh tính một lần nhập là sha256 của bytes, nhập
+        # lại đúng file đó sẽ DÙNG LẠI Template rồi tạo tiếp PO -- thử lại an
+        # toàn, không nhân bản. Đó là lý do không cần cơ chế bù trừ.
+        po_result=None
+        if po_plan and po_plan['action']==PO_CREATE:
+            from mesflow.db.repositories.master_data import TemplateTreeRepository
+            created=TemplateTreeRepository().instantiate(
+                t['id'],code=po_plan['code'],
+                planned_quantity=int(po_plan.get('planned_quantity') or 0))
+            po_result={'action':'CREATED','id':created.get('production_order_id'),
+                       'code':created.get('production_order_code'),
+                       'parts_created':created.get('parts_created'),
+                       'operations_created':created.get('operations_created')}
+            message+=(f" Đã tạo Production Order {po_result['code']}"
+                      f" ({po_plan.get('planned_quantity')} sản phẩm).")
+        elif po_plan:
+            po_result={'action':po_plan['action'],'code':po_plan.get('code') or '',
+                       'id':po_plan.get('id'),'message':po_plan.get('message') or ''}
         return jsonify(ok=True,message=message,template_id=t['id'],part_count=len(parts),
             operation_count=len(operations),setup_count=setup_count,
             warnings=import_warnings,dropped_setups=dropped_setups,
+            production_order=po_result,
             source_format=source_format,replaced=replaced)
     except Exception as exc:
         # A rejected workbook is exactly the one someone needs to open, so the

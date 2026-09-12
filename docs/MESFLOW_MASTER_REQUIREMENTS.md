@@ -1724,6 +1724,29 @@ file — never external.
 
 **Label placement on paper.** Labels occupy a dedicated lane starting at the first column **past the right-most cell containing text**, so they cannot cover the Part Number, setup time, cycle time, quantity or operator-name fields. `QR OP` and `QR Setup` are printed directly above their labels. Page setup is `fitToWidth=1` so the QR lane does not spill onto another sheet of paper.
 
+
+### REQ-TPL-007 — Router import: read the file's full meaning, and create the PO
+
+- **Module**: Template / Import-Export · Production Order
+- **Purpose**: The GO ROUTER sheet is a **business data source**, not a place to fetch Part/OP names. Before this requirement the importer read exactly four things (Part code, Part name, OP name, setup/cycle time) and every other field was dropped **silently** — including each Part's own quantity and the expected total time.
+- **Actors**: admin, manager (Template rights to create/update a Template; PO rights to create a PO — enforced **server-side, before any write**).
+- **Preconditions**: a GO ROUTER workbook.
+- **Trigger**: `POST /api/templates/preview-workbook`, `POST /api/templates/import-workbook`. **Two entry points, one service**: *Nhập từ Excel* on the Template screen and *Nhập Excel Router* on the Production Order screen go through the same parser and preview — two separate paths would be two sets of semantics that drift apart.
+- **Main flow**: parse everything with **no writes**; decide Template (*reuse* on sha256 match / *update* on code match with different content / *create*) and PO (*create* / *exists* / *no PO code*); block on permissions and on update-confirmation; write the Template (with the blob↔Template link in the **same** transaction), then create the PO.
+- **Time units**: read **from the label itself** — `giây/s/sec/second`, `phút/min/minute`, `giờ/h/hr/hour`, tolerant of case, spacing and Vietnamese diacritics. A label that does not state a unit **stops the import naming the sheet and row**; it is never guessed. A short keyword (`Setup (min)`) counts only when the cell **carries a unit in parentheses** — column A holds a bare `SETUP` row label with *Nhân viên Setup* directly beneath it.
+- **Quantities**: `QTY` is the **PO** quantity; each sheet's `SỐ LƯỢNG` is that **Part's** quantity (a BOM multiple). They are different numbers and must not be merged. In the real file the PO is 110 while Parts are 110 / 220 / 440.
+- **Expected total time**: a **source figure**, stored separately (`expected_total_seconds`), never re-derived from quantity. Five operations in the real file deliberately disagree with `qty × cycle` because they encode their own **operation count** (ĐÓNG ECU VÀO NAN GỖ: 40 s/unit but 12.2222 h total ⇒ 1100 runs, 10× the PO quantity). Re-deriving would overwrite a real standard with a wrong sum.
+- **Setup**: `> 0` creates a linked SETUP Operation (preview checkbox pre-ticked). `0`, `-` and blank create none, but the raw state is kept (`setup_source_raw`): `-` means "not applicable", `0` means "declared and zero".
+- **Operation identity**: `operation.id` is canonical. The OP number and title are kept **verbatim as printed** (`source_op_no`, `source_title`); the internal code is generated unique. The real file has **10 places** where two different operations share one number (OPERATION # 02 is both CHAMFER LỖ and LÀM NGUỘI) — **all 112 import**, each collision raises a warning, and neither the file is rejected nor the customer's number rewritten.
+- **Idempotency**: re-importing the **exact same file** (sha256 match) is a clean no-op that **does not error**, even when the PO exists. An existing PO **stops** the import rather than overwriting runtime data. A code-matching Template with different content **requires explicit confirmation**, showing how many POs were built from it.
+- **Runtime fields** (`Ngày/Tháng/Năm`, `Nhân viên Setup/SX/QC`, `Hàng đạt`, `Hàng lỗi`, `Tổng số lượng sản xuất`, sign-off): import **never fabricates actuals**. MESFlow collects these through Session/QC/approval.
+- **Preview — three mandatory sections**: (1) *what will be imported*; (2) *present in Excel but not used directly by MESFlow* — with sheet/cell/raw value/reason; (3) *warnings to handle*. No section is allowed to be silently empty.
+- **Errors**: `TEMPLATE_PERMISSION_REQUIRED`, `PO_PERMISSION_REQUIRED`, `TEMPLATE_UPDATE_NEEDS_CONFIRM`, `PO_ALREADY_EXISTS` → HTTP `409` with `reason` and `detail`.
+- **Atomicity**: Template (plus its blob link) in one transaction; `instantiate()` builds PO + Parts + Operations + SETUP in one of its own. A failure at the PO step leaves a Template **with no PO** — a legitimate state — and because identity is the sha256, retrying reuses the Template and then creates the PO.
+- **Related**: REQ-TPL-005, REQ-TPL-006 (Router export with QR), REQ-KIOSK-012, `reports/ROUTER_IMPORT_FIELD_AUDIT_6126_20260912.md`.
+- **Priority**: P1.
+- **Test aspects**: positive, negative (unknown unit, negatives, text), boundary (duplicate OP numbers, sheet with no block, sheet with no drawing identity), RBAC, idempotency, migration-over-old-data.
+
 ## 15.6 Employee (`REQ-EMP-*`)
 
 ### REQ-EMP-001 — Create/edit an Employee
@@ -2914,6 +2937,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
 | REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 cases, drives the real kiosk finish path), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | not found as a dedicated pytest file | — |
+| REQ-TPL-007 (Router import: full field semantics + PO creation) | `tests/test_router_import_field_semantics.py` (36 cases: s/min/hour units and variants, the 60 min / 180 s / 6.5 h example, 0 vs `-` vs blank, total preserved when it disagrees, Part qty independent of PO QTY), `tests/test_router_po_import_flow.py`, `tests/integration/test_migration_0052_router_source_semantics.py`, `reports/ROUTER_IMPORT_FIELD_AUDIT_6126_20260912.md` | A |
 | REQ-TPL-006 (router: derived SETUP Operations + Excel export with QR) | `tests/test_excel_router_setup_parser.py` (25 cases), `tests/test_router_export_qr.py` (20 cases, decodes the rendered QR back), `tests/integration/test_router_setup_import_export.py` (19 cases, real API + PostgreSQL, incl. real-file round-trip), `tests/test_router_export_real_workbook.py` (12 cases, driven by the real 44-sheet workshop file), `tests/e2e/template-import-setup-preview.spec.js` (8 cases), `tests/test_excel_import_export_source.py` | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (for those two screens specifically) |
 | REQ-TUT-* | `tests/e2e/tutorial-*.spec.js` (3 files), 5 `test_v6584*.py` files | A |

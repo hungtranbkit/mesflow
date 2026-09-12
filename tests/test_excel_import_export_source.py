@@ -63,20 +63,25 @@ def test_template_import_flow_stays_on_template_and_selects_result():
       * thất bại thì giữ nguyên trang và luôn xoá input file.
     """
     js=_js()
-    pick=_slice(js,'async function importTemplateExcel(){','\n// Người dùng đã tự tay')
-    confirm=_slice(js,'function showTemplateImportPreview(file,data){','\nasync function loadTemplateImportHistory(')
+    pick=_slice(js,'async function importTemplateExcel(){','\n// Một đường nhập cho CẢ HAI màn')
+    confirm=_slice(js,'function showTemplateImportPreview(file,data,{onDone}={}){','\nasync function loadTemplateImportHistory(')
 
-    # Bước 1 chỉ xem trước -- không được nhập thẳng.
-    assert "fetch('/api/templates/preview-workbook'" in pick
+    # Bước 1 nay uỷ quyền cho hàm dùng chung; chi tiết kiểm ở
+    # test_both_screens_share_one_import_function.
+    assert 'importRouterWorkbook(' in pick
     assert 'import-workbook' not in pick, 'chọn file không được nhập luôn'
-    assert 'showTemplateImportPreview(file,d)' in pick
-    assert "b.textContent='Đang đọc file...'" in pick
-    assert "b.textContent='Nhập từ Excel'" in pick
-    assert "input.value=''" in pick
+    shared=_slice(js,'async function importRouterWorkbook(input,button,{onDone}={}){',
+                  '\nfunction showTemplateImportPreview(')
+    assert "button.textContent='Đang đọc file...'" in shared
+    assert "input.value=''" in shared
 
     # Bước 2 mới thực sự nhập, và ở lại đúng trang Template.
     assert "fetch('/api/templates/import-workbook'" in confirm
-    assert 'await renderTemplates(d.template_id)' in confirm
+    # Điều hướng sau khi nhập do MÀN GỌI quyết định (màn Template chọn lại
+    # Template vừa nhập; màn PO vẽ lại danh sách PO), nên phần xem trước chỉ
+    # gọi onDone. Bất biến 'ở lại đúng trang' vẫn được khoá, chỉ là ở hai chỗ.
+    assert 'if(onDone)await onDone(d.template_id,d)' in confirm
+    assert 'onDone:id=>renderTemplates(id)' in js, 'màn Template phải chọn lại kết quả'
     # Lựa chọn checkbox phải được gửi kèm, nếu không bước xem trước vô nghĩa.
     assert "fd.append('selection'" in confirm
 
@@ -89,7 +94,7 @@ def test_template_import_flow_stays_on_template_and_selects_result():
 
 def test_setup_checkbox_defaults_to_checked_when_file_declares_setup():
     """OP SETUP phải được tick SẴN, và không thể tồn tại khi thiếu OP cha."""
-    confirm=_slice(_js(),'function showTemplateImportPreview(file,data){',
+    confirm=_slice(_js(),'function showTemplateImportPreview(file,data,{onDone}={}){',
                    '\nasync function loadTemplateImportHistory(')
     # Mặc định của hàng setup bám theo dữ liệu file (requires_setup), không
     # phải một hằng số -- và nó bắt đầu ở trạng thái đã tick.
@@ -115,12 +120,32 @@ def test_po_detail_has_a_visible_router_export_button():
     assert '/api/production-orders/${poId}/router.xlsx' in handler
     assert 'exportProductionOrderRouter(po.id,po.code,exportButton)' in js
 
-def test_production_order_page_has_no_excel_import_entry_point():
+def test_production_order_page_imports_through_the_shared_router_service():
+    """Màn PO CÓ nút nhập Router, nhưng không được là đường nhập thứ hai.
+
+    Quyết định cũ ("chỉ màn Template mới nhập được") đã bị thay: người dùng làm
+    việc theo PO, nên họ phải nhập được ngay ở đó. Bất biến THẬT SỰ đằng sau nó
+    thì không đổi -- không có hai bộ ngữ nghĩa nhập file. Cả hai màn gọi cùng
+    một hàm, và hàm đó gọi cùng một endpoint.
+    """
     js=_js()
     po=_slice(js,'async function renderProductionOrders(){','\nwindow.openProductionOrder=async function')
+    assert 'poImportRouter' in po, 'màn PO phải có nút nhập Router'
+    assert 'importRouterWorkbook(' in po, 'và phải đi qua service dùng chung'
+    # Không được dựng lại một luồng nhập riêng ở đây.
     assert 'operationExcelImportModal' not in po
-    assert 'importExcel' not in po
-    assert 'Nhập Excel' not in po
+    assert 'preview-workbook' not in po, 'màn PO không tự gọi API, phải qua hàm chung'
     # The two supported PO actions stay.
     assert 'Tạo PO từ Template' in po
     assert 'Xuất Excel' in po
+
+
+def test_both_screens_share_one_import_function():
+    """Một parser, một preview, một endpoint -- hai màn chỉ là hai người gọi."""
+    js=_js()
+    shared=_slice(js,'async function importRouterWorkbook(input,button,{onDone}={}){',
+                  '\nfunction showTemplateImportPreview(')
+    assert "fetch('/api/templates/preview-workbook'" in shared
+    assert 'showTemplateImportPreview(file,d,{onDone})' in shared
+    # Đúng MỘT chỗ gọi endpoint xem trước trong toàn bộ app.js.
+    assert js.count("fetch('/api/templates/preview-workbook'") == 1

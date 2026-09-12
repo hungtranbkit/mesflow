@@ -981,7 +981,7 @@ async function renderProductionOrders(){
   subtitle.textContent='Tạo lệnh từ Template, lên lịch và theo dõi trạng thái sản xuất';
   content.innerHTML=`<div class="page-shell">
     <div class="page-header"><div class="stats-row" id="poSummary" aria-live="polite"></div><div class="page-header-actions"><button class="btn primary" id="addPO">+ Tạo PO từ Template</button><button class="btn" id="exportExcel">Xuất Excel</button></div></div>
-    ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="poSearch" placeholder="Mã PO hoặc tên sản phẩm"></label><label><span>Trạng thái</span><select id="poStatus"><option value="">Tất cả trạng thái</option><option value="DRAFT">Bản nháp</option><option value="PLANNED">Đang lập kế hoạch</option><option value="RELEASED">Sẵn sàng sản xuất</option><option value="IN_PROGRESS">Đang sản xuất</option><option value="PAUSED">Tạm dừng</option><option value="COMPLETED">Đã hoàn thành</option><option value="CANCELLED">Đã hủy</option></select></label>',clearId:'poReset',clearLabel:'Đặt lại',actions:'<button class="btn po-reload" id="reloadPO"><i aria-hidden="true"></i>Làm mới</button>'})}
+    ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="poSearch" placeholder="Mã PO hoặc tên sản phẩm"></label><label><span>Trạng thái</span><select id="poStatus"><option value="">Tất cả trạng thái</option><option value="DRAFT">Bản nháp</option><option value="PLANNED">Đang lập kế hoạch</option><option value="RELEASED">Sẵn sàng sản xuất</option><option value="IN_PROGRESS">Đang sản xuất</option><option value="PAUSED">Tạm dừng</option><option value="COMPLETED">Đã hoàn thành</option><option value="CANCELLED">Đã hủy</option></select></label>',clearId:'poReset',clearLabel:'Đặt lại',actions:'<button class="btn" id="poImportRouter">Nhập Excel Router</button><input id="poImportRouterFile" type="file" accept=".xlsx" hidden><button class="btn po-reload" id="reloadPO"><i aria-hidden="true"></i>Làm mới</button>'})}
     <section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách Production Order</h3></div></div><div class="content-panel-body" id="poList">Đang tải...</div></section>
   </div>`;
   const statusText=value=>({DRAFT:'Bản nháp',PLANNED:'Đang lập kế hoạch',RELEASED:'Sẵn sàng sản xuất',IN_PROGRESS:'Đang sản xuất',PAUSED:'Tạm dừng',COMPLETED:'Đã hoàn thành',CANCELLED:'Đã hủy'}[String(value||'').toUpperCase()]||value||'Chưa xác định');
@@ -1043,6 +1043,15 @@ async function renderProductionOrders(){
   };
   const load=async()=>{try{const d=await api('/api/production-orders?limit=500');window.poItems=d.items||[];draw(window.poItems)}catch(e){const host=document.getElementById('poList');if(host)MFUI.refreshError({host,error:e,retry:load,screen:'Production Order'});else console.error('Lỗi tải danh sách PO (không có chỗ hiển thị -- đang mở chi tiết PO):',e)}};
   document.getElementById('addPO').onclick=()=>productionOrderModal(null).catch(e=>alert(`Không mở được form thêm PO: ${e.message}`));
+  // Nhập Router ngay từ màn PO. Dùng CHUNG parser/preview với màn Template --
+  // hai đường nhập riêng là hai bộ ngữ nghĩa sẽ trôi khỏi nhau.
+  const poImport=document.getElementById('poImportRouter');
+  const poImportFile=document.getElementById('poImportRouterFile');
+  if(poImport&&poImportFile){
+    poImport.onclick=()=>poImportFile.click();
+    poImportFile.onchange=()=>importRouterWorkbook(poImportFile,poImport,
+      {onDone:()=>renderProductionOrders()});
+  }
   document.getElementById('reloadPO').onclick=load;
   document.getElementById('poReset').onclick=()=>{document.getElementById('poSearch').value='';document.getElementById('poStatus').value='';draw(window.poItems||[])};
   document.getElementById('exportExcel').onclick=()=>{window.location.href='/api/operations/export.xlsx'};
@@ -1559,23 +1568,33 @@ async function renderTemplates(selectId=null){
 // Bước xem trước không ghi gì vào CSDL; nó chỉ nói "file này sẽ tạo ra đây" và
 // cho bỏ bớt trước khi xác nhận.
 async function importTemplateExcel(){
-  const input=document.getElementById('tplImportFile'),file=input.files[0];
+  return importRouterWorkbook(document.getElementById('tplImportFile'),
+    document.getElementById('tplImport'),
+    {onDone:id=>renderTemplates(id)});
+}
+
+// Một đường nhập cho CẢ HAI màn (Template và Production Order). Màn PO là người
+// gọi, không phải luồng thứ hai: hai đường riêng là hai bộ ngữ nghĩa sẽ trôi
+// khỏi nhau, và sai lệch chỉ lộ ra khi hai người nhập cùng một file rồi nhận
+// hai kết quả khác nhau.
+async function importRouterWorkbook(input,button,{onDone}={}){
+  const file=input&&input.files[0];
   if(!file)return;
-  const b=document.getElementById('tplImport');
-  b.disabled=true;b.textContent='Đang đọc file...';
+  const label=button?button.textContent:'';
+  if(button){button.disabled=true;button.textContent='Đang đọc file...'}
   try{
     const fd=new FormData();fd.append('file',file);
     const r=await fetch('/api/templates/preview-workbook',{method:'POST',body:fd});
     const d=await r.json().catch(()=>({}));
     if(!r.ok||d.ok===false)throw new Error(d.detail||d.message||`HTTP ${r.status}`);
-    showTemplateImportPreview(file,d);
+    showTemplateImportPreview(file,d,{onDone});
   }catch(e){alert(e.message)}
-  finally{b.disabled=false;b.textContent='Nhập từ Excel';input.value=''}
+  finally{if(button){button.disabled=false;button.textContent=label}if(input)input.value=''}
 }
 
 // Người dùng đã tự tay bật/tắt ô SETUP nào thì nhớ lại, để việc tick lại OP cha
 // không ghi đè ý muốn của họ (xem setupDefaultFor bên dưới).
-function showTemplateImportPreview(file,data){
+function showTemplateImportPreview(file,data,{onDone}={}){
   const state=new Map();      // "PART|OP" -> {op:bool, setup:bool, hasSetup:bool}
   const setupTouched=new Set();
   for(const part of data.parts){
@@ -1586,13 +1605,23 @@ function showTemplateImportPreview(file,data){
   }
   const box=document.createElement('div');box.className='modal-backdrop';
   const counts=data.counts||{};
+  const sections=data.sections||{warnings:(data.warnings||[]).map(w=>({message:w})),unused:[]};
   box.innerHTML=`<div class="modal modal-wide tpl-preview">
     <h2>Xem trước khi nhập</h2>
     <p class="modal-note">${esc(file.name)} — Template <b>${esc(data.template.code)}</b>
       · ${counts.parts||0} Part · ${counts.operations||0} Operation
       · <b>${counts.setups||0}</b> OP Setup sẽ được tạo</p>
-    ${(data.warnings||[]).length?`<div class="tpl-preview-warn"><b>Cần biết trước khi nhập</b><ul>${
-      data.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></div>`:''}
+    ${data.plan?`<div class="tpl-preview-plan">
+      <div><b>Template</b><span>${esc(data.plan.template.message||'')}</span></div>
+      <div><b>Production Order</b><span>${esc(data.plan.po.message||'')}</span></div>
+    </div>`:''}
+    ${(sections.warnings||[]).length?`<details class="tpl-preview-warn" open><summary><b>Cảnh báo cần xử lý (${
+      sections.warnings.length})</b></summary><ul>${
+      sections.warnings.map(w=>`<li>${esc(w.message||w)}</li>`).join('')}</ul></details>`:''}
+    ${(sections.unused||[]).length?`<details class="tpl-preview-unused"><summary><b>Thông tin Excel có nhưng MESFlow chưa dùng trực tiếp (${
+      sections.unused.length})</b></summary><table><thead><tr><th>Trường</th><th>Vị trí</th><th>Giá trị</th><th>Lý do</th></tr></thead><tbody>${
+      sections.unused.map(u=>`<tr><td>${esc(u.field)}</td><td>${esc(u.sheet)} · ${esc(u.cell)}</td><td>${
+        esc(String(u.raw||'').slice(0,60))}</td><td>${esc(u.reason)}</td></tr>`).join('')}</tbody></table></details>`:''}
     <div class="tpl-preview-toolbar">
       <label class="tpl-preview-all"><input type="checkbox" id="tplPvAll" checked> Chọn tất cả</label>
       <span class="tpl-preview-count" id="tplPvCount"></span>
@@ -1689,10 +1718,14 @@ function showTemplateImportPreview(file,data){
       const fd=new FormData();
       fd.append('file',file);
       fd.append('selection',JSON.stringify(selection));
+      // Ghi đè một Template dùng chung phải được xác nhận rõ ràng: từ màn PO, ý
+      // định của người dùng là "tạo PO", không phải "viết lại Template".
+      if(data.plan&&data.plan.template.needs_confirm)fd.append('confirm','1');
       const r=await fetch('/api/templates/import-workbook',{method:'POST',body:fd});
       const d=await r.json().catch(()=>({}));
       if(!r.ok||d.ok===false)throw new Error(d.detail||d.message||`HTTP ${r.status}`);
-      box.remove();toast(d.message);await renderTemplates(d.template_id);
+      box.remove();toast(d.message);
+      if(onDone)await onDone(d.template_id,d);
     }catch(err){
       alert(err.message);
       button.disabled=false;button.textContent='Nhập vào MESFlow';

@@ -34,7 +34,10 @@ SETUP_MINUTES = 20
 ROBOT_SETUP_MINUTES = 120
 
 
-def _router_bytes(po_number='6126', sheets=None):
+def _router_bytes(po_number=None, sheets=None):
+    # Mỗi lần gọi là một mã PO riêng, TRỪ khi bài chỉ định: nhập file có PO NUMBER
+    # nay tạo PO thật, nên dùng chung một mã giữa các bài sẽ đụng PO_ALREADY_EXISTS.
+    po_number = po_number or f'T{uuid.uuid4().hex[:8].upper()}'
     """Workbook GO ROUTER tối giản, đúng bố cục tờ giấy xưởng."""
     sheets = sheets or [
         ('Chân ghế A', 'KM-001', [(1, 'CẮT LASER', SETUP_MINUTES, 100),
@@ -65,11 +68,19 @@ def _router_bytes(po_number='6126', sheets=None):
     return buffer.getvalue()
 
 
-def _upload(api, path, data, selection=None):
+def _upload(api, path, data, selection=None, confirm=True):
     files = {'file': ('Lộ trình sản xuất TEST.xlsx', data,
                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
-    form = {'selection': json.dumps(selection)} if selection is not None else None
-    return api.post(f'{BASE_URL}{path}', files=files, data=form, timeout=60)
+    # confirm mặc định BẬT ở bộ này: các bài dùng lại cùng mã PO/Template nên từ
+    # bài thứ hai trở đi, mỗi lần nhập là một lần ghi đè Template dùng chung --
+    # và ghi đè thì phải xác nhận (xem REQ-TPL-007). Hành vi "không confirm thì
+    # 409" được khoá riêng ở tests/integration/test_router_po_import_flow.py.
+    form = {}
+    if selection is not None:
+        form['selection'] = json.dumps(selection)
+    if confirm:
+        form['confirm'] = '1'
+    return api.post(f'{BASE_URL}{path}', files=files, data=form or None, timeout=60)
 
 
 @pytest.fixture
@@ -148,7 +159,7 @@ def test_bo_tick_op_cha_thi_server_khong_tao_setup(api, db):
     Giao diện đã tự khoá ô đó, nhưng quy tắc phải nằm ở server: một client khác
     gọi thẳng API cũng không được phép tạo setup không cha.
     """
-    data = _router_bytes(po_number='6127')
+    data = _router_bytes()
     response = _upload(api, '/api/templates/import-workbook', data, selection=[
         # CHỈ chọn OP02 (không có setup); OP01 bị bỏ tick hoàn toàn.
         {'part_code': 'KM-001', 'operation_code': 'KM-001-OP02', 'include_setup': True},
@@ -162,7 +173,7 @@ def test_bo_tick_op_cha_thi_server_khong_tao_setup(api, db):
 
 
 def test_bo_tick_rieng_setup_thi_giu_op_bo_setup(api, db):
-    data = _router_bytes(po_number='6128')
+    data = _router_bytes()
     response = _upload(api, '/api/templates/import-workbook', data, selection=[
         {'part_code': 'KM-001', 'operation_code': 'KM-001-OP01', 'include_setup': False},
     ])
@@ -393,21 +404,27 @@ def real_workbook_bytes():
     return REAL_FIXTURE.read_bytes()
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def real_po(api, real_workbook_bytes):
-    """Nhập file thật rồi tạo PO từ nó."""
+    """Nhập file thật MỘT lần cho cả module, rồi bốn bài dùng chung.
+
+    Module-scoped chứ không function-scoped: file thật mang PO NUMBER cố định
+    (6126), nên lần nhập thứ hai sẽ dừng ở PO_ALREADY_EXISTS -- đúng hợp đồng,
+    nhưng sẽ làm hỏng ba bài còn lại nếu mỗi bài tự nhập.
+    """
     files = {'file': (REAL_FIXTURE.name, real_workbook_bytes,
                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
-    imported = api.post(f'{BASE_URL}/api/templates/import-workbook', files=files, timeout=600)
+    imported = api.post(f'{BASE_URL}/api/templates/import-workbook', files=files,
+                        data={'confirm': '1'}, timeout=900)
     assert imported.status_code == 200, imported.text[:400]
     body = imported.json()
     assert body['setup_count'] == 47
-    code = f'PO-REAL-{uuid.uuid4().hex[:8].upper()}'
-    created = api.post(f"{BASE_URL}/api/templates/{body['template_id']}/instantiate",
-                       json={'code': code, 'planned_quantity': 110}, timeout=600)
-    assert created.status_code in (200, 201), created.text[:400]
-    return body['template_id'], created.json()
-
+    po = body['production_order']
+    assert po['action'] == 'CREATED'
+    return body['template_id'], {'production_order_id': po['id'],
+                                 'production_order_code': po['code'],
+                                 'parts_created': po['parts_created'],
+                                 'operations_created': po['operations_created']}
 
 def test_file_that_shop_uses_imports_end_to_end(real_po, db):
     template_id, po = real_po

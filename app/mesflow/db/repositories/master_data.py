@@ -798,8 +798,9 @@ class TemplateTreeRepository:
                     "thì phải khác nhau. Hãy sửa Template rồi tạo lại PO.") from exc
             try:
                 po=conn.execute(
-                    "INSERT INTO production_orders(code,sales_order_id,source_template_id,source_template_code,source_template_version,product,planned_quantity,status,priority,due_date,planned_start_at,planned_end_at,notes) VALUES(%s,%s,%s,%s,%s,%s,%s,'PLANNED',%s,%s,%s,%s,%s) RETURNING id",
-                    (code,sales_order_id,template['id'],template['code'],template['version'],template['product'] or template['name'],planned_quantity,priority,due_date,planned_start_at,planned_end_at,notes),
+                    "INSERT INTO production_orders(code,sales_order_id,source_template_id,source_template_code,source_template_version,product,planned_quantity,status,priority,due_date,planned_start_at,planned_end_at,notes,order_type) VALUES(%s,%s,%s,%s,%s,%s,%s,'PLANNED',%s,%s,%s,%s,%s,%s) RETURNING id",
+                    # Loại đơn hàng đi theo từ Template (đọc từ ô LOẠI ĐƠN HÀNG của tờ router).
+                    (code,sales_order_id,template['id'],template['code'],template['version'],template['product'] or template['name'],planned_quantity,priority,due_date,planned_start_at,planned_end_at,notes,template.get('order_type')),
                 ).fetchone()
             except Exception as exc:
                 if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
@@ -808,8 +809,12 @@ class TemplateTreeRepository:
             part_map={}
             for part in template_parts:
                 created=conn.execute(
-                    'INSERT INTO parts(production_order_id,code,name,drawing_path,sort_order,active) VALUES(%s,%s,%s,%s,%s,true) RETURNING id',
-                    (po['id'],part['code'],part['name'],part.get('drawing_path') or '',part['sort_order']),
+                    'INSERT INTO parts(production_order_id,code,name,drawing_path,sort_order,active,planned_quantity) VALUES(%s,%s,%s,%s,%s,true,%s) RETURNING id',
+                    # Số lượng riêng của Part đi theo Part, KHÔNG lấy theo số
+                    # lượng của PO: một Part có thể phải làm gấp 2x/4x số thành
+                    # phẩm (bội số BOM). Gộp về QTY của PO là xoá mất định mức.
+                    (po['id'],part['code'],part['name'],part.get('drawing_path') or '',
+                     part['sort_order'],part.get('planned_quantity')),
                 ).fetchone()
                 part_map[part['id']]=created['id']
             operation_ids=[]
@@ -826,8 +831,13 @@ class TemplateTreeRepository:
                     eq=conn.execute('SELECT id FROM equipment WHERE UPPER(code)=UPPER(%s)',(op['equipment_code'],)).fetchone()
                     equipment_id=eq['id'] if eq else None
                 created=conn.execute(
-                    "INSERT INTO operations(production_order_id,part_id,equipment_id,code,name,done_qty,defect_qty,status,sort_order,qr,standard_seconds_per_unit,repair_cycle_time_seconds_per_unit,predecessor_operation_id,dependency_type,lag_minutes) VALUES(%s,%s,%s,%s,%s,0,0,'PLANNED',%s,%s,%s,%s,%s,'FS',0) RETURNING id",
-                    (po['id'],part_id,equipment_id,op_code,op['name'],op['sort_order'],f'WF|OP|{op_code}',float(op.get('standard_seconds_per_unit') or 0),float(op.get('repair_cycle_time_seconds_per_unit') or 0),None),
+                    "INSERT INTO operations(production_order_id,part_id,equipment_id,code,name,done_qty,defect_qty,status,sort_order,qr,standard_seconds_per_unit,repair_cycle_time_seconds_per_unit,predecessor_operation_id,dependency_type,lag_minutes,source_op_no,source_title,expected_total_seconds,setup_source_raw) VALUES(%s,%s,%s,%s,%s,0,0,'PLANNED',%s,%s,%s,%s,%s,'FS',0,%s,%s,%s,%s) RETURNING id",
+                    # Danh tính nguồn đi theo sang PO: số OP và tiêu đề ĐÚNG NHƯ
+                    # TRÊN GIẤY là thứ thợ đứng máy đọc, còn `code` chỉ là mã nội
+                    # bộ. Tổng thời gian dự kiến là số liệu NGUỒN, không suy lại.
+                    (po['id'],part_id,equipment_id,op_code,op['name'],op['sort_order'],f'WF|OP|{op_code}',float(op.get('standard_seconds_per_unit') or 0),float(op.get('repair_cycle_time_seconds_per_unit') or 0),None,
+                     op.get('source_op_no'),op.get('source_title'),
+                     op.get('expected_total_seconds'),op.get('setup_source_raw')),
                 ).fetchone()
                 operation_ids.append(created['id'])
                 # A Template that asks for setup arrives ready to run: the
