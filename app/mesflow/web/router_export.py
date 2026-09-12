@@ -447,12 +447,13 @@ class RouterMarkerError(Exception):
     ô + lý do.
     """
 
-    def __init__(self, message, *, sheet, cell='', context='', reason=''):
+    def __init__(self, message, *, sheet, cell='', context='', reason='', operation=''):
         super().__init__(message)
         self.sheet = sheet
         self.cell = cell
         self.context = context
         self.reason = reason
+        self.operation = operation
 
 
 def _merged_anchor(ws, row, column):
@@ -468,7 +469,26 @@ def _merged_anchor(ws, row, column):
     return row, column
 
 
-def _setup_region(ws, start_row, end_row):
+def _label_text(ws, values_ws, row, column):
+    """Chữ NGƯỜI ĐỌC thấy ở một ô, kể cả khi ô đó là công thức.
+
+    Biểu mẫu router thật chỉ ghi nhãn bằng chữ ở block ĐẦU TIÊN của tờ đầu
+    tiên; mọi block sau đó nhắc lại nhãn bằng công thức (``=$L$10``), và các tờ
+    khác nhắc lại bằng công thức liên sheet. Đọc thẳng từ workbook mở kiểu giữ
+    công thức thì những ô ấy chỉ ra ``=$L$10`` -- không có chữ 'Thời gian
+    Setup', nên không phân biệt nổi marker SETUP với marker OP. Giá trị Excel
+    đã cache mới là chữ thật.
+    """
+    from mesflow.web.excel_io import _deaccent
+
+    if values_ws is not None:
+        cached = _deaccent(values_ws.cell(row=row, column=column).value)
+        if cached:
+            return cached
+    return _deaccent(ws.cell(row=row, column=column).value)
+
+
+def _setup_region(ws, start_row, end_row, values_ws=None):
     """Khoảng dòng thuộc phần SETUP bên trong một block Operation.
 
     Bố cục tờ router đặt nhãn 'Thời gian Setup ( phút )' rồi tới số phút, sau đó
@@ -476,12 +496,10 @@ def _setup_region(ws, start_row, end_row):
     nói về việc set máy -- marker rơi vào đấy thuộc về OP SETUP, không phải OP
     sản xuất. Trả (0, -1) khi block không khai báo setup, tức là không có vùng nào.
     """
-    from mesflow.web.excel_io import _deaccent
-
     setup_label = cycle_label = None
     for row in range(start_row, end_row + 1):
         for cell in ws[row]:
-            text = _deaccent(cell.value)
+            text = _label_text(ws, values_ws, cell.row, cell.column)
             if not text:
                 continue
             if setup_label is None and 'thoi gian setup' in text:
@@ -493,7 +511,7 @@ def _setup_region(ws, start_row, end_row):
     return setup_label, (cycle_label - 1) if cycle_label and cycle_label > setup_label else end_row
 
 
-def _scan_markers(ws, starts):
+def _scan_markers(ws, starts, values_ws=None):
     """Marker QRCODE trên một sheet, gán về block và phân loại OP / SETUP.
 
     Trả ``{dòng tiêu đề block: {'OP': (row, col), 'SETUP': (row, col)}}``.
@@ -522,7 +540,7 @@ def _scan_markers(ws, starts):
                     'đoạn nào vào đây. Đặt marker bên trong đúng block của Operation.',
                     sheet=ws.title, cell=cell.coordinate, reason='MARKER_OUTSIDE_BLOCK')
             start, end = owner
-            setup_from, setup_to = _setup_region(ws, start, end)
+            setup_from, setup_to = _setup_region(ws, start, end, values_ws)
             kind = 'SETUP' if setup_from <= cell.row <= setup_to else 'OP'
             slot = found.setdefault(start, {})
             if kind in slot:
@@ -632,20 +650,23 @@ def _clone_block(ws, template_start, template_end, destination_start):
                            end_row=merged.max_row + offset, end_column=merged.max_col)
 
 
-def _rewrite_block_fields(ws, start, end, *, sequence, row):
+def _rewrite_block_fields(ws, start, end, *, sequence, row, values_ws=None,
+                          values_offset=0):
     """Thay đúng những ô NÓI VỀ Operation trong một block vừa sao chép.
 
     Tìm theo NHÃN như lúc đọc file, không theo offset cứng: block mẫu của mỗi
     template có thể xếp khác nhau, và thứ duy nhất ổn định là cái nhãn nằm cạnh
     con số.
-    """
-    from mesflow.web.excel_io import _deaccent
 
+    Block vừa sao chép chưa có giá trị cache, nên nhãn được tra ở ĐÚNG ô tương
+    ứng của block mẫu (``values_offset`` dòng phía trên). Cần thế vì trên biểu
+    mẫu thật, nhãn của mọi block trừ block đầu đều là công thức nhắc lại.
+    """
     title = ws.cell(row=start, column=1)
     title.value = f'OPERATION # {sequence:02d}- {row["name"]}'
     for excel_row in range(start, end + 1):
         for cell in ws[excel_row]:
-            text = _deaccent(cell.value)
+            text = _label_text(ws, values_ws, cell.row - values_offset, cell.column)
             if not text:
                 continue
             if 'thoi gian setup' in text:
@@ -671,10 +692,11 @@ def _stamp_source_workbook(source_bytes, po, rows):
         mẫu đã nói chỗ, phần mềm không đoán nữa.
       * không có marker -> giữ nguyên cách cũ: làn trống bên phải vùng dữ liệu.
 
-    Trộn được ở mức từng TEM: một block có marker cho OP nhưng không có marker
-    cho SETUP thì tem OP theo marker, tem SETUP theo làn cũ. Nhờ vậy template
-    đang dùng chạy y như trước, còn template mới chỉ cần thêm chữ vào ô là xong
-    -- không phải sửa code.
+    Chế độ quyết định theo CẢ WORKBOOK, không theo từng ô. Một tờ router là một
+    biểu mẫu: hoặc người vẽ đã chừa ô QRCODE, hoặc chưa. Workbook đã có marker
+    mà một block thiếu ô thì đó là biểu mẫu vẽ sót -> dừng và chỉ đúng chỗ,
+    KHÔNG lặng lẽ thả tem đó vào làn tự đoán. Hỏi theo từng ô thì file vẫn xuất
+    ra, vẫn đủ số tem, và cái sai chỉ lộ khi cầm tờ giấy in.
     """
     blocks, starts, sheet_of_part = _index_source_blocks(source_bytes, po['code'])
     if not blocks:
@@ -682,6 +704,14 @@ def _stamp_source_workbook(source_bytes, po, rows):
     # keep_vba=False, nhưng KHÔNG data_only: data_only=True sẽ ghi đè công thức
     # bằng giá trị đã cache và tờ router xuất ra mất hết công thức tính giờ.
     wb = load_workbook(BytesIO(source_bytes))
+    # Bản đọc GIÁ TRỊ của cùng file, chỉ để nhận ra CHỮ trên nhãn. Không bao giờ
+    # ghi vào bản này: data_only=True thay công thức bằng giá trị đã cache, lưu
+    # lại là tờ router mất hết công thức tính giờ.
+    values = load_workbook(BytesIO(source_bytes), data_only=True)
+
+    def values_sheet(name):
+        return values[name] if name in values.sheetnames else None
+
     lanes = {}
     placed = []
     leftovers = []
@@ -735,7 +765,9 @@ def _stamp_source_workbook(source_bytes, po, rows):
         destination = template_start + pitch
         _clone_block(ws, template_start, template_end, destination)
         _rewrite_block_fields(ws, destination, destination + height - 1,
-                              sequence=len(sheet_starts) + 1, row=row)
+                              sequence=len(sheet_starts) + 1, row=row,
+                              values_ws=values_sheet(sheet_name),
+                              values_offset=destination - template_start)
         sheet_starts.append(destination)
         appended[sheet_name] = destination + height - 1
         # Block mới phải in được: nới print area nếu template có đặt.
@@ -761,10 +793,18 @@ def _stamp_source_workbook(source_bytes, po, rows):
     # Quét marker trên MỌI sheet trước khi dán bất cứ thứ gì: marker hỏng
     # (mồ côi / trùng) phải chặn cả lần xuất, chứ không phải chặn khi đã dán
     # được nửa chừng.
-    markers = {name: _scan_markers(wb[name], starts.get(name, []))
+    markers = {name: _scan_markers(wb[name], starts.get(name, []), values_sheet(name))
                for name in wb.sheetnames}
+    # Có marker hay không là câu hỏi của CẢ workbook, không phải của từng ô.
+    # Một tờ router là MỘT biểu mẫu: người vẽ nó hoặc đã chừa ô QRCODE, hoặc
+    # chưa. Nếu hỏi theo từng chỗ dán thì một biểu mẫu chừa thiếu vài ô sẽ lặng
+    # lẽ có vài tem rơi vào làn tự đoán -- đúng cái "đặt tùy ý cột/dòng khác"
+    # mà hợp đồng cấm, và không ai nhìn ra cho tới khi cầm tờ giấy in.
+    marker_mode = 'MARKER' if any(markers.values()) else 'NONE'
 
     # LƯỢT 2 -- dán tem.
+    used = set()
+    cleared = []
     for row, block in assignments:
         sheet_name, excel_row = block
         ws = wb[sheet_name]
@@ -796,6 +836,18 @@ def _stamp_source_workbook(source_bytes, po, rows):
                                'size_px': max(side, 1),
                                'too_small': side < QR_MIN_READABLE_PX})
                 return
+            if marker_mode == 'MARKER':
+                # Biểu mẫu đã chừa ô QRCODE ở chỗ khác, nghĩa là người vẽ nó
+                # quyết định chỗ dán. Thiếu một ô là biểu mẫu vẽ sót, không
+                # phải lời mời phần mềm tự chọn cột.
+                raise RouterMarkerError(
+                    f"Sheet '{sheet_name}': block dòng {excel_row} "
+                    f"(Operation {row['code']}) chưa có ô {QR_MARKER_TEXT} cho tem "
+                    f'{kind}, trong khi các block khác của file này đã có. Thêm ô '
+                    f'{QR_MARKER_TEXT} vào đúng block này rồi nhập lại Template '
+                    'nguồn; MESFlow không tự chọn cột/dòng thay biểu mẫu.',
+                    sheet=sheet_name, context=f'block dòng {excel_row}',
+                    reason='MISSING_MARKER', operation=row['code'])
             column = fallback_column()
             _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
                                  sheet=sheet_name, operation=row['code'])
@@ -806,9 +858,28 @@ def _stamp_source_workbook(source_bytes, po, rows):
 
         stamp('OP', row['op_qr'], QR_OP_LABEL, row['id'],
               lambda: lane_for(ws, sheet_name))
+        used.add((sheet_name, excel_row, 'OP'))
         if row['setup_id']:
             stamp('SETUP', row['setup_qr'], QR_SETUP_LABEL, row['setup_id'],
                   lambda: lane_for(ws, sheet_name) + QR_COLUMN_GAP)
+            used.add((sheet_name, excel_row, 'SETUP'))
+
+    # Marker CÒN THỪA -- chỗ chừa cho tem SETUP ở block mà Operation không khai
+    # báo setup -- phải được xoá chữ. 'QRCODE' là chữ đặt chỗ, không phải nội
+    # dung của biểu mẫu: để nguyên thì tờ giấy in ra có chữ QRCODE lù lù giữa
+    # block. Không dán gì vào đó, chỉ xoá chữ.
+    for sheet_name, slots_by_block in markers.items():
+        ws = wb[sheet_name]
+        for block_row, slots in slots_by_block.items():
+            for kind, (marker_row, marker_col, _coordinate) in slots.items():
+                if (sheet_name, block_row, kind) in used:
+                    continue
+                region = _marker_region(ws, marker_row, marker_col)
+                ws.cell(row=region[0], column=region[1]).value = None
+                if (marker_row, marker_col) != (region[0], region[1]):
+                    ws.cell(row=marker_row, column=marker_col).value = None
+                cleared.append({'sheet': sheet_name, 'block_row': block_row,
+                                'kind': kind, 'marker_cell': _coordinate})
     # Operation nào không tìm được block thì trả NGUYÊN dòng về cho người gọi:
     # nó phải biết Part nào, OP nào, để câu lỗi chỉ đúng chỗ cần sửa.
     matched = len(rows) - len(leftovers)
@@ -898,6 +969,20 @@ def _router_filename(po_code: str) -> str:
     return f'Router_{safe or "PO"}_QR.xlsx'
 
 
+#: Biểu mẫu chưa chừa ô QRCODE thì vẫn xuất được -- file thật hiện tại của
+#: xưởng là loại đó -- nhưng phải NÓI RA, chứ không im lặng đặt tem vào làn
+#: trống rồi để người dùng tưởng đó là chỗ đã thiết kế.
+MARKER_MODE_NONE_WARNING = (
+    'File Excel nguồn chưa có ô ' + QR_MARKER_TEXT + ' nào, nên tem QR được đặt vào '
+    'làn trống bên phải mỗi block. Muốn cố định chỗ dán, hãy thêm ô ' + QR_MARKER_TEXT
+    + ' vào biểu mẫu Lộ trình sản xuất rồi nhập lại Template nguồn.')
+
+
+def _marker_mode(placed):
+    """'MARKER' nếu file nguồn có chừa ô QRCODE, 'NONE' nếu đi làn tự đoán."""
+    return 'MARKER' if any(p.get('placement') == 'marker' for p in placed) else 'NONE'
+
+
 def _content_disposition(filename: str) -> str:
     """RFC 5987 cho tên file tiếng Việt có dấu."""
     ascii_fallback = filename.encode('ascii', 'replace').decode('ascii')
@@ -927,6 +1012,7 @@ def export_production_order_router(po_id: int):
         response.headers['X-MESFlow-Router-Labels'] = str(len(placed))
         response.headers['X-MESFlow-Router-Matched'] = str(source['matched'])
         response.headers['X-MESFlow-Router-Unmatched'] = str(len(source['unmatched']))
+        response.headers['X-MESFlow-Router-Marker-Mode'] = _marker_mode(placed)
         return response
     except (RouterMarkerError, RouterPlacementError, RouterBlockTemplateError) as exc:
         # Cùng họ 409: file hợp lệ về mặt HTTP nhưng nội dung chưa cho phép dán
@@ -951,11 +1037,14 @@ def preview_router_labels(po_id: int):
         po, wb, placed, source = build_router_workbook(po_id)
         if wb is None:
             return jsonify(ok=False, message='Không tìm thấy Production Order.'), 404
+        mode = _marker_mode(placed)
         return jsonify(ok=True, source='workbook', labels=placed, count=len(placed),
                        source_file={'filename': source['filename'],
                                     'sha256': source['sha256'],
                                     'import_id': source['import_id'],
                                     'imported_at': source['imported_at']},
+                       marker_mode=mode,
+                       warnings=([MARKER_MODE_NONE_WARNING] if mode == 'NONE' else []),
                        matched=source['matched'], unmatched=source['unmatched'])
     except (RouterMarkerError, RouterPlacementError, RouterBlockTemplateError) as exc:
         return jsonify(ok=False, message=str(exc), reason=exc.reason,

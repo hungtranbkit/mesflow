@@ -294,15 +294,40 @@ def test_template_khong_co_marker_van_dung_cach_dat_cu():
         assert item['anchor'][0] >= 'M'
 
 
-def test_mot_block_co_marker_op_nhung_khong_co_marker_setup():
-    """Trộn được ở mức từng tem: OP theo marker, SETUP rơi về làn cũ."""
+def test_thieu_mot_marker_trong_file_da_co_marker_thi_bi_tu_choi():
+    """Biểu mẫu đã chừa ô QRCODE thì THIẾU một ô là lỗi, không phải lời mời đoán.
+
+    Đây là chỗ dễ sai nhất của hợp đồng. Nếu hỏi "có marker không" theo TỪNG
+    tem, một biểu mẫu chừa sót vài ô sẽ lặng lẽ có vài tem rơi vào làn tự đoán:
+    file vẫn xuất ra, vẫn đủ số tem, và không ai biết cho tới khi cầm tờ giấy
+    in thấy tem nằm chỗ khác. Câu hỏi phải đặt ở mức CẢ workbook.
+    """
     sheets = [('Chân ghế A', 'KM-001', [('CẮT LASER', 20, 14, None)])]
     rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
                  part_name='Chân ghế A', setup_id=201)]
-    _, placed, _, _ = _stamp_source_workbook(_workbook(sheets), PO, rows)
-    items = _by_operation(placed)
-    assert items[101]['placement'] == 'marker'
-    assert items[201]['placement'] == 'lane'
+    with pytest.raises(RouterMarkerError) as error:
+        _stamp_source_workbook(_workbook(sheets), PO, rows)
+    assert error.value.reason == 'MISSING_MARKER'
+    assert error.value.sheet == 'Chân ghế A'
+    assert 'SETUP' in str(error.value)
+    assert QR_MARKER_TEXT in str(error.value)
+
+
+def test_file_chua_co_marker_nao_thi_khong_bi_coi_la_thieu():
+    """Mặt kia của cùng một luật: KHÔNG marker nào -> vẫn đi làn cũ, không lỗi.
+
+    File thật hiện tại của xưởng thuộc loại này. Bắt lỗi ở đây là chặn luôn
+    việc xuất tem cho biểu mẫu đang dùng.
+    """
+    sheets = [('Chân ghế A', 'KM-001', [('CẮT LASER', 20, None, None)]),
+              ('Chân ghế B', 'KM-002', [('HÀN', 0, None, None)])]
+    rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
+                 part_name='Chân ghế A', setup_id=201),
+            _row(102, 'PO-6126-KM-002-OP01', 'HÀN', part_code='KM-002',
+                 part_name='Chân ghế B', part_id=2, part_sort=1)]
+    _, placed, matched, unmatched = _stamp_source_workbook(_workbook(sheets), PO, rows)
+    assert matched == 2 and unmatched == []
+    assert {item['placement'] for item in placed} == {'lane'}
 
 
 # --- P0: tem phải NẰM TRONG ô marker, không chỉ neo vào nó ----------------

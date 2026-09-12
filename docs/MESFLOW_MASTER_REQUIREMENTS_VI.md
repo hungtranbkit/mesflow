@@ -1948,6 +1948,26 @@ không bao giờ ở bên ngoài.
 - **Độ ưu tiên**: P1.
 - **Khía cạnh kiểm thử**: positive, negative (đơn vị lạ, số âm, chữ), boundary (trùng số OP, sheet không có block, sheet không có mã bản vẽ), RBAC, idempotency, migration-over-old-data.
 
+### REQ-TPL-008 — Xuất Router: ô `QRCODE` quyết định chỗ dán tem
+
+- **Module**: Template / Import-Export · Production Order
+- **Mục đích**: Từ trước tới nay hệ thống **đoán** chỗ dán tem — một làn trống bên phải vùng dữ liệu. Đoán như thế an toàn nhưng vẫn là đoán: phần mềm chưa bao giờ nhìn thấy tờ giấy in ra, còn người vẽ biểu mẫu thì có. Template Router thế hệ sau chừa sẵn trong mỗi block Operation một ô ghi đúng chữ `QRCODE`, và hệ thống dán tem của ĐÚNG Operation ấy vào đúng ô đó. Một mẫu giấy mới khi đó **không cần sửa code**.
+- **Tác nhân**: admin, manager.
+- **Điều kiện trước**: PO được tạo từ một workbook Router đã nhập và file gốc vẫn còn trong kho (REQ-TPL-006).
+- **Kích hoạt bởi**: `GET /api/production-orders/<id>/router.xlsx`, `GET /api/production-orders/<id>/router-labels`.
+- **Có marker hay không là thuộc tính của CẢ WORKBOOK, không phải của từng ô**:
+  - workbook **không có ô `QRCODE` nào** → biểu mẫu cũ → giữ nguyên cách đặt làn trống của REQ-TPL-006, nhưng phải **nói ra**: `marker_mode: "NONE"` kèm cảnh báo ở `/router-labels`, và header `X-MESFlow-Router-Marker-Mode` khi tải file. Biểu mẫu xưởng đang dùng thuộc loại này và phải tiếp tục xuất được.
+  - workbook **có ít nhất một ô `QRCODE`** → biểu mẫu có marker → **mọi** tem OP và SETUP đều phải có ô của mình. Thiếu một ô là `409 MISSING_MARKER` kèm sheet, dòng tiêu đề block, Operation và loại tem. **Không rơi về làn tự đoán.** Hỏi câu đó theo TỪNG tem thì một biểu mẫu chừa sót vài ô sẽ lặng lẽ thả những tem ấy vào một cột do phần mềm chọn — file vẫn xuất ra, số tem vẫn đủ, và cái sai chỉ lộ khi có người cầm tờ giấy.
+- **Marker thuộc về Operation nào**: theo block chứa nó. Marker nằm trong **vùng SETUP** của block — từ nhãn `Thời gian Setup` tới ngay trước nhãn thời gian gia công — là tem **SETUP**, không phải tem của OP cha. Marker **mồ côi** (không nằm trong block nào) hoặc **hai marker cùng loại** trong một block **chặn cả lần xuất**, kèm sheet + ô + lý do: đoán ở đây nghĩa là dán tem của công đoạn này lên ô của công đoạn khác, và cái sai đó chỉ lộ ra khi thợ quét nhầm việc. Toàn bộ marker được quét **trước** khi dán bất cứ thứ gì, nên biểu mẫu hỏng thì hỏng cả lần xuất chứ không dán được nửa chừng.
+- **Nhãn trên biểu mẫu thật là công thức**: chỉ block đầu của tờ đầu ghi `Thời gian Setup` / `Thời gian gia công / sản phẩm` bằng chữ; mọi block sau nhắc lại bằng `=$L$10`, các tờ khác nhắc lại bằng công thức liên sheet. Vì vậy việc phân loại marker đọc nhãn từ **giá trị Excel đã cache** (mở thêm một bản `data_only` của chính file đó), chỉ khi không có cache mới quay về bản giữ công thức. Không có bước này thì mọi marker trên biểu mẫu thật đều bị xếp là OP, hai marker trong một block đụng nhau, và biểu mẫu thật có marker **không xuất được**.
+- **Tem được thu vừa và căn giữa trong vùng marker**: vùng là chính ô marker, hoặc cả merged range chứa nó. Bề rộng cột (số ký tự) và chiều cao dòng (point) được đổi ra pixel, tem làm vuông cạnh `min(rộng, cao) − 2×3 px` rồi căn giữa bằng `OneCellAnchor`. Chỉ neo thôi là chưa đủ — đó chính là lỗi P0: ảnh giữ nguyên cỡ gốc ~75×89 px trong ô ~64×20 px, tràn qua bốn dòng, nên mở file xuất ra thì tem **không** nằm trong ô `QRCODE`.
+- **Vùng quá nhỏ được báo lại, không im lặng chấp nhận**: dưới 48 px tem vẫn được dán nhưng mang `too_small: true` kèm `size_px`. Dòng của biểu mẫu này cao 30 pt (~40 px), nên ô `QRCODE` cao một dòng chỉ cho ra tem ~34 px — template thế hệ sau nên gộp một ô QR cao nhiều dòng.
+- **Ô marker là chỗ DUY NHẤT được đổi nội dung**: chữ `QRCODE` là chữ đặt chỗ nên bị xoá, để nguyên thì nó in ra nằm dưới tem. Marker **thừa** cũng bị xoá chữ (ô chừa cho tem SETUP ở block mà Operation không khai báo setup — biểu mẫu thật có 65 ô như vậy) nhưng **không** dán gì vào đó, vì công đoạn không set máy thì không được bịa ra tem SETUP. Mọi thứ còn lại — merge, bề rộng cột, chiều cao dòng, print area, page setup, công thức, style, mọi ô khác, ảnh của khách — y nguyên.
+- **Lỗi**: `MARKER_OUTSIDE_BLOCK`, `DUPLICATE_MARKER`, `MISSING_MARKER` → HTTP `409` kèm `sheet`, `cell`, `operation`, `reason`.
+- **Liên quan**: REQ-TPL-006, REQ-TPL-007.
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: positive, negative (marker mồ côi / trùng / thiếu), boundary (merged range, vùng quá nhỏ, marker thừa), so khớp fidelity nguồn-với-xuất trên chính biểu mẫu 44 sheet của xưởng.
+
 ## 15.6 Nhân viên (`REQ-EMP-*`)
 
 ### REQ-EMP-001 — Tạo/sửa một Nhân viên
@@ -3352,6 +3372,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 case, chạy qua đúng đường finish của kiosk), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |
 | REQ-TPL-007 (nhập Router: đọc hết field, tạo cả PO) | `tests/test_router_import_field_semantics.py` (36 case: đơn vị s/phút/giờ + biến thể, ví dụ 60 phút/180 s/6,5 h, 0 vs `-` vs trống, tổng thời gian giữ nguyên khi lệch, số lượng Part độc lập QTY), `tests/test_router_po_import_flow.py`, `tests/integration/test_migration_0052_router_source_semantics.py`, `reports/ROUTER_IMPORT_FIELD_AUDIT_6126_20260912.md` | A |
+| REQ-TPL-008 (xuất Router: ô `QRCODE` quyết định chỗ dán) | `tests/test_router_qr_marker.py` (22 case: marker→Operation, vùng SETUP, marker mồ côi/trùng/thiếu, thu vừa và căn giữa, không đổi cỡ ô), `tests/test_router_qrcode_form_export.py` (14 case trên chính biểu mẫu của xưởng, marker ghi thẳng vào gói .xlsx gốc, kiểm trên FILE ĐÃ GHI RA RỒI MỞ LẠI), `tests/test_router_export_real_workbook.py` | A |
 | REQ-TPL-006 (router: tự tạo OP Setup + xuất Excel kèm QR) | `tests/test_excel_router_setup_parser.py` (25 case), `tests/test_router_export_qr.py` (20 case, giải mã ngược ảnh QR), `tests/integration/test_router_setup_import_export.py` (19 case, API + PostgreSQL thật, gồm round-trip file thật), `tests/test_router_export_real_workbook.py` (12 case, chạy trên chính file 44 sheet của xưởng), `tests/e2e/template-import-setup-preview.spec.js` (8 case), `tests/test_excel_import_export_source.py` | A |
 | REQ-QR-001 (payload nhãn QR Operation) | `tests/integration/test_qr_label_payload_is_scannable.py` (4 case: đổi mã, mơ hồ chéo cột, và hai ca giữ an toàn cho nhãn thường/SETUP) | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (cho đúng 2 màn hình đó) |
