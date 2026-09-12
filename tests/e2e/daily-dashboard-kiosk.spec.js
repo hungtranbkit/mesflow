@@ -132,6 +132,82 @@ test.describe('Kiosk điều hành', () => {
     await expect(page.locator('.kiosk-task').first()).toBeVisible();
   });
 
+  // Bug P0 (2026-09-12): quét ở kiosk xong, máy báo "Đã bắt đầu", session OPEN có
+  // thật trong DB -- mà bảng task không đổi. Phần server đã khoá ở
+  // tests/integration/test_kiosk_scan_to_board_contract.py. Bài này giữ phần màn
+  // hình: task mới phải lên MÀN trong đúng nhịp làm mới của nó, không đòi ai bấm
+  // F5. Một màn hình treo tường không có ai đứng cạnh để bấm.
+  test('task vừa được start lên màn trong nhịp làm mới, không cần reload', async ({ page }) => {
+    const date = hcmDate();
+    const state = await mockKiosk(page, { date, taskCount: 3 });
+    await login(page);
+    await openKiosk(page, date);
+    await expect(page.locator('.kiosk-task')).toHaveCount(3);
+
+    // Dấu trên DOM: còn đây nghĩa là trang KHÔNG hề tải lại.
+    await page.evaluate(() => { document.getElementById('kioskRoot').dataset.mark = 'live'; });
+
+    // Ca chuẩn bị máy vừa được quét ở xưởng -- OP phụ, đúng loại từng bị giấu.
+    state.tasks.push({
+      po_id: PO.id, po_code: PO.code,
+      operation_id: 901, operation_code: 'OP-SETUP-01',
+      operation_name: 'Chuẩn bị máy CNC', operation_type: 'SETUP',
+      operation_status: 'IN_PROGRESS', day_state: 'RUNNING', open_session_count: 1,
+      planned_quantity: 400, total_good_qty: 0, day_good_qty: 0,
+      day_defect_qty: 0, day_rework_qty: 0, unconfirmed_count: 0,
+      active_workers: [{ employee_id: 91, name: 'Thợ Chuẩn Bị' }],
+    });
+
+    // Hai nhịp của CHÍNH màn hình này, đúng thứ tự timer gọi chúng: nạp dữ liệu
+    // (BOARD_MS) rồi tới ranh giới trang (PAGE_MS). Dữ liệu mới CỐ Ý chỉ có hiệu
+    // lực ở ranh giới trang -- REQ-KIOSK-010 "Trang ổn định": không sắp xếp lại
+    // danh sách dưới mắt người đang đọc. Bài này kiểm task mới tới nơi mà KHÔNG
+    // ai phải bấm gì, chứ không đòi nó chen ngang giữa một trang đang đọc.
+    await page.evaluate(() => window.__kioskReload());
+    await page.evaluate(() => window.__kioskAdvance());
+    await expect(page.locator('.kiosk-task')).toHaveCount(4);
+
+    const row = page.locator('.kiosk-task[data-op="901"]');
+    await expect(row).toBeVisible();
+    await expect(row.locator('.kiosk-task-main b')).toHaveText('Chuẩn bị máy CNC');
+    await expect(row.locator('.kiosk-state')).toHaveText('Đang chạy');
+    await expect(row.locator('.kiosk-task-people')).toContainText('Thợ Chuẩn Bị');
+
+    // Không reload, và người xem không bị kéo ra khỏi màn đang đọc.
+    await expect(page.locator('#kioskRoot')).toHaveAttribute('data-mark', 'live');
+  });
+
+  // OP phụ ghi nhận CÔNG chứ không ghi nhận sản lượng, nên nó KHÔNG có chỉ tiêu.
+  // Vẽ nó bằng đúng ô "Đạt / Kế hoạch" của OP sản xuất là dựng một con số sai
+  // trên màn hình treo tường: "0 / 400" đọc ra như một công đoạn đang tụt tiến độ.
+  test('task hỗ trợ nói đúng loại việc, không mượn ô sản lượng của OP sản xuất', async ({ page }) => {
+    const date = hcmDate();
+    const state = await mockKiosk(page, { date, taskCount: 1 });
+    state.tasks.push({
+      po_id: PO.id, po_code: PO.code,
+      operation_id: 902, operation_code: 'OP-SETUP-02',
+      operation_name: 'Chuẩn bị máy', operation_type: 'SETUP',
+      operation_status: 'IN_PROGRESS', day_state: 'RUNNING', open_session_count: 1,
+      planned_quantity: 400, total_good_qty: 0, day_good_qty: 0,
+      day_defect_qty: 0, day_rework_qty: 0, unconfirmed_count: 0,
+      active_workers: [{ employee_id: 92, name: 'Thợ Chuẩn Bị' }],
+    });
+    await login(page);
+    await openKiosk(page, date);
+
+    const support = page.locator('.kiosk-task[data-op="902"]');
+    await expect(support).toBeVisible();
+    await expect(support.locator('.kiosk-task-kind')).toHaveText('Chuẩn bị máy');
+    // Không "0 / 400", và không thanh tiến độ trên một việc không có tiến độ.
+    await expect(support).not.toContainText('/ 400');
+    await expect(support.locator('.kiosk-meter')).toHaveCount(0);
+
+    // OP sản xuất bên cạnh KHÔNG đổi: vẫn đủ số và thanh tiến độ.
+    const production = page.locator('.kiosk-task[data-op="500"]');
+    await expect(production.locator('.kiosk-task-qty b')).toBeVisible();
+    await expect(production.locator('.kiosk-meter')).toHaveCount(1);
+  });
+
   test('API hỏng thì giữ số liệu cũ và báo mất kết nối', async ({ page }) => {
     const date = hcmDate();
     const state = await mockKiosk(page, { date });

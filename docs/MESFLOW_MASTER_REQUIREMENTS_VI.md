@@ -2168,8 +2168,17 @@ dưới đây là điểm-vào để sinh testcase từ đó.
 - **Nhật ký kiểm toán**: giống REQ-SESS-001/002. `action_logs` ghi actor rỗng
   cho một lời gọi kiosk ẩn danh; actor của bản ghi nghiệp vụ là nhân viên đã
   quét thẻ — đó mới là danh tính có ý nghĩa với sản xuất.
+- **Bảng mô phỏng máy quét**: `#demo-panel` trên `/kiosk` chạy ĐÚNG luồng này,
+  không phải luồng giả — nó bơm chuỗi QR vào cùng hàm `scan()` mà súng quét bơm
+  vào, và ghi `work_sessions` thật. Danh sách trong bảng do
+  `GET /api/kiosk-web/demo-data` cung cấp và endpoint đó vẫn chỉ dành cho tài
+  khoản đã đăng nhập (nó mang QR thẻ của mọi nhân viên); còn scan/start/finish
+  mà bảng thực hiện chính là các lời gọi công khai như một trạm thật. Ràng buộc
+  đầy đủ — thứ gì bảng chào mời thì sau khi start phải nhìn thấy được trên màn
+  hình điều hành — ở REQ-KIOSK-014.
 - **Liên quan**: §7.1, REQ-SESS-001/002, REQ-KIOSK-010 (bảng điều hành — màn
-  hình KHÁC, vẫn yêu cầu đăng nhập).
+  hình KHÁC, vẫn yêu cầu đăng nhập), REQ-KIOSK-014 (quét thành công thì phải
+  thành một task nhìn thấy được).
 - **Độ ưu tiên**: P0.
 - **Khía cạnh kiểm thử**: positive, negative, boundary.
 
@@ -2454,6 +2463,65 @@ xong" và chạm vào rollup + hàng chờ sửa + đối soát → thuộc lane
 - **Liên quan**: REQ-KIOSK-011 (bản thân luồng và luật `*` trái / `#` phải — cả hai giữ nguyên), REQ-KIOSK-001.
 - **Độ ưu tiên**: P0.
 - **Chiều kiểm thử**: thuận (bàn phím mềm, bàn phím cứng, số 0 tường minh), nghịch (chạm lặp một điểm; `#` lặp), bố cục tính toán (hai vùng không giao nhau, desktop và Pixel 7), trạng thái thừa (lượt của người kế tiếp).
+
+### REQ-KIOSK-014 — Quét được thì phải nhìn thấy được: kiosk và màn hình điều hành nói cùng một chuyện
+
+> **Nguồn sự thật:** mọi loại Operation mà kiosk MỞ ĐƯỢC session đều phải hiện
+> thành một dòng task trên Kiosk điều hành, trong đúng nhịp làm mới của màn hình
+> đó. Một lượt quét thành công không bao giờ được là một thay đổi VÔ HÌNH.
+
+- **Mô-đun**: ranh giới giữa Kiosk web/ESP (REQ-KIOSK-001/002 — nơi GHI) và Kiosk
+  điều hành (REQ-KIOSK-010 — nơi ĐỌC). Mục này không thuộc hẳn về màn nào: nó
+  buộc hai bên dùng chung một định nghĩa "việc đang chạy".
+- **Mục đích**: chặn kiểu hỏng im lặng tệ nhất của một hệ MES — máy báo "Đã bắt
+  đầu", dữ liệu ghi đúng, và màn hình vẫn không nói gì. Người đứng máy kết luận
+  máy hỏng; quản đốc kết luận người đó chưa làm.
+
+**Bảng mô phỏng trong `/kiosk` chạy luồng THẬT, không phải luồng giả**
+
+Bảng "mô phỏng máy quét" (`#demo-panel`) tồn tại vì laptop không có súng quét.
+Nó KHÔNG phải chế độ demo và KHÔNG được sinh ra thành công giả: nút quét của nó
+bơm đúng chuỗi QR vào cùng hàm `scan()` mà súng quét bơm vào, đi qua đúng
+`POST /api/kiosk-web/scan` rồi `POST /api/kiosk-web/start`, và ghi
+`work_sessions` thật. `GET /api/kiosk-web/demo-data` chỉ trả về DANH SÁCH mã QR
+để chọn (và chỉ cho tài khoản đã đăng nhập, vì nó mang QR thẻ của mọi nhân
+viên) — nó không thực hiện thao tác nào. Hệ quả bắt buộc: mọi Operation bảng đó
+CHÀO MỜI phải là Operation mà, sau khi start, người dùng NHÌN THẤY được kết quả.
+
+**Hợp đồng**
+
+| Điều | Yêu cầu |
+|---|---|
+| Tập loại | Tập Operation mà Kiosk điều hành hiện thành task phải BẰNG `STARTABLE_TYPES` (`PRODUCTION` + `SETUP`) — đúng tập `lock_startable_operation()` cho phép mở session, và đúng tập được in tem QR. Ba tập này là MỘT câu trả lời, không phải ba. |
+| Xuất hiện | Start thành công một Operation thuộc PO đang được theo dõi → dòng task của Operation đó có mặt ở lần gọi `/api/kiosk-board` kế tiếp, không đòi tải lại trang. |
+| Đếm đúng | `open_session_count` và `active_worker_count` phải bằng số thật trong `work_sessions` của PO đó. Một ca đang chạy bị bỏ khỏi KPI là nói dối về năng lực đang dùng. |
+| Không có thành công rỗng | `/api/kiosk-web/start` chỉ được trả `2xx` khi đã ghi được session. Ghi hỏng → mã lỗi + hành động, và KHÔNG có dòng task nào xuất hiện. |
+| Định danh | Dòng task bám `operation_id` chuẩn. Mã Operation không được quyết định task nào hiện lên; tem mới mang `WF|OPID|<id>` chính vì mã không phải định danh bền. |
+| Cô lập PO | Mở rộng tập loại KHÔNG được nới phạm vi PO: task của PO khác vẫn không lọt vào (REQ-KIOSK-010). |
+
+- **Việc hỗ trợ hiện ra sao**: OP phụ ghi nhận CÔNG chứ không ghi nhận sản lượng,
+  nên nó KHÔNG có chỉ tiêu để so. Dòng của nó thay ô `Đạt / Kế hoạch` bằng nhãn
+  loại việc (`Chuẩn bị máy`), không vẽ thanh tiến độ. Vẽ `0 / 400` ở đây là dựng
+  một con số sai trên màn hình treo tường: nó đọc ra như một công đoạn đang tụt
+  tiến độ, trong khi công đoạn này không hề có tiến độ để tụt.
+- **Ranh giới CỐ Ý giữ nguyên**: "Tiến độ theo Operation" của Dashboard theo ngày
+  vẫn CHỈ tính OP sản xuất. Hai panel trả lời hai câu hỏi khác nhau — "tiến độ so
+  với chỉ tiêu" và "ai đang làm gì ngay bây giờ" — nên mặc định của
+  `DashboardRepository.daily_progress()` giữ nguyên chỉ-sản-xuất, và việc mở rộng
+  là một tham số phải nói ra ở nơi gọi. Nới mặc định là để sản lượng OP phụ lọt
+  vào tiến độ PO, đúng họ lỗi mà `domain/policy.py` sinh ra để chặn.
+- **Lỗi / trạng thái đặc biệt**: PO chưa Start hoặc đang tạm dừng → `409 PO-001`
+  ngay ở bước quét, không có session và không có task. Nhân viên đã có ca đang mở
+  → start thứ hai bị từ chối, không ghi thêm gì.
+- **Quyền / audit**: không đổi. Hai endpoint của màn hình lớn vẫn `login_required`
+  và chỉ đọc; đường ghi vẫn là `production_client_required`.
+- **Liên quan**: REQ-KIOSK-001 (đường ghi), REQ-KIOSK-010 (đường đọc),
+  REQ-QR-001 (tem SETUP phải in được thì mới quét được), REQ-DASH-003/006.
+- **Độ ưu tiên**: P0 — một ca làm việc có thật biến mất khỏi màn hình điều hành.
+- **Chiều kiểm thử**: thuận (start PRODUCTION và start SETUP đều lên bảng), đối
+  chiếu KPI với DB, nghịch (start bị từ chối thì không có task; PO tạm dừng),
+  cô lập PO, định danh (hai Operation trùng TÊN không tráo chỗ cho nhau), hành vi
+  theo thời gian (lên màn trong nhịp làm mới, không reload).
 
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 
@@ -3046,6 +3114,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-010 (tương phản vùng điều khiển kiosk) | `tests/e2e/kiosk-control-contrast.spec.js`, `tests/test_daily_dashboard_kiosk_contract.py` | A |
 | REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (gồm nhóm "Ô XÁC NHẬN nằm bên phải" — đo toạ độ thật, cả ở 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-KIOSK-013 (Kiosk web an toàn khi chạm — chạm lặp không đi xuyên màn) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; đo vùng không giao nhau, đường bàn phím mềm/IME, negative proof bằng mutation) | A |
+| REQ-KIOSK-014 (quét được thì phải nhìn thấy được — kiosk ↔ màn hình điều hành) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 case: start PRODUCTION và start SETUP đều lên bảng, KPI đối chiếu DB, start bị từ chối không sinh task, PO tạm dừng, cô lập PO, hai OP trùng tên không tráo chỗ, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (khoá `BOARD_TASK_TYPES == STARTABLE_TYPES` và giữ mặc định chỉ-sản-xuất của `daily_progress()`), `tests/e2e/daily-dashboard-kiosk.spec.js` (task mới lên màn trong nhịp làm mới, không reload; dòng việc hỗ trợ không mượn ô sản lượng) | A — negative proof: gỡ bản vá thì 3 bài đỏ (`assert 1 == 2` ở KPI), 7 bài canh vẫn xanh |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |

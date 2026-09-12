@@ -29,13 +29,30 @@ from flask import Blueprint, jsonify, request
 
 from mesflow.db.connection import fetch_all, fetch_one
 from mesflow.db.repositories.analytics import DashboardRepository
-from mesflow.domain.policy import production_only_sql
+from mesflow.domain.policy import STARTABLE_TYPES, production_only_sql
 from mesflow.web.auth import login_required
 from mesflow.web.errors import api_error_response
 
 bp = Blueprint('kiosk_board', __name__, url_prefix='/api')
 
 PRODUCTION_ONLY_O = production_only_sql('o')
+
+#: Loại Operation được coi là MỘT TASK trên màn hình điều hành.
+#:
+#: Đúng bằng tập kiosk MỞ ĐƯỢC session (PRODUCTION + SETUP), và đó là cả điểm
+#: mấu chốt: thứ gì quét vào mà máy báo "Đã bắt đầu" thì phải nhìn thấy được ở
+#: đây. Trước 2026-09-12 bảng task lọc cứng PRODUCTION trong khi
+#: lock_startable_operation() vẫn nhận SETUP, nên một ca chuẩn bị máy có thật
+#: -- work_session OPEN trong DB, sự kiện SESSION_STARTED chạy trên dòng hoạt
+#: động ngay cạnh -- lại không có dòng task nào, và KPI "session đang mở" /
+#: "người đang làm" đếm thiếu đúng người đó. Đo được lúc đó: DB 2 session OPEN,
+#: KPI báo 1.
+#:
+#: Đây KHÔNG phải nới lỏng quy tắc sản lượng. "Tiến độ theo Operation" của
+#: Dashboard theo ngày vẫn chỉ-sản-xuất (mặc định của daily_progress): panel đó
+#: nói về bước có chỉ tiêu, còn màn hình lớn nói về việc đang chạy. OP phụ
+#: không ghi nhận sản lượng nên mọi tổng Đạt/NG ở đây cộng thêm đúng 0.
+BOARD_TASK_TYPES = STARTABLE_TYPES
 
 #: Số sự kiện giữ lại cho dòng "Hoạt động vừa xảy ra" của PO đang xem.
 FOCUS_EVENT_LIMIT = 40
@@ -148,7 +165,8 @@ def kiosk_board():
                            kpis={}, tasks=[], date=date)
 
         po_total = _po_options_total()
-        day = DashboardRepository().daily_dashboard(date, limit=2000)
+        day = DashboardRepository().daily_dashboard(date, limit=2000,
+                                                   operation_types=BOARD_TASK_TYPES)
         focus_id = int(po['id'])
         # Thu hẹp về PO đang xem NGAY tại đây. Mọi panel phía sau chỉ đọc
         # `items`, nên không có đường nào để dữ liệu PO khác lọt vào.

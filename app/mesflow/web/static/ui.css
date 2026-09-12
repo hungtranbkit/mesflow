@@ -3020,6 +3020,16 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 .kiosk-task-people{color:#c6d3e8;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kiosk-task-qty{display:flex;flex-direction:column;gap:0;font-size:14px;line-height:1.2}
 .kiosk-task-qty b{font-size:16px}
+/* Task hỗ trợ (SETUP/SỬA HÀNG) ghi nhận CÔNG chứ không ghi nhận sản lượng, nên
+   nó không có chỉ tiêu để so. Ô "Đạt / Kế hoạch" nhường chỗ cho nhãn loại việc:
+   vẽ "0 / 100" kèm thanh 0% ở đây đọc ra như một OP đang tụt tiến độ, trong khi
+   OP này không hề có tiến độ để tụt. Màu lấy từ đúng bộ đang dùng quanh nó
+   (#c6d3e8 của .kiosk-task-people) -- không thêm màu viết cứng thứ hai.
+   CỐ Ý không đụng border-left: màu viền thuộc về TRẠNG THÁI (đang chạy / cần xử
+   lý), và một ca chuẩn bị máy đang chạy vẫn phải đọc ra là đang chạy. */
+.kiosk-task-qty-support{justify-content:center}
+.kiosk-task-kind{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;
+  line-height:1.5;color:#c6d3e8;background:#1d2c46;border:1px solid #2b3b57;white-space:nowrap}
 .kiosk-task-ng{text-align:right;font-size:16px;color:#8194b4}
 .kiosk-task-ng.has{color:#ff8a8a;font-weight:700}
 .kiosk-task-state small{display:block;font-size:11px;line-height:1.25;color:#93a6c4;margin-top:1px;
