@@ -3232,6 +3232,17 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
 /* Rộng ra thì các dữ kiện xếp ngang cho đỡ cao, nhưng vẫn là THẺ: không có
    cột cố định, không kẻ ngang xuyên suốt. */
 @media(min-width:860px){.op-card-body{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));align-items:start}}
+/* "Tiến độ theo Operation" là thẻ DUY NHẤT có .op-dual-progress: hai thanh đo
+   (thời gian + sản phẩm) nằm một cột, cạnh một cột dữ kiện chỉ vài dòng chữ
+   ngắn. Với auto-fit ở trên, hai cột chia đều 1fr/1fr -- đo ở 1366x768 ra
+   519px/519px, tức thanh đo chỉ chiếm 49.6% bề rộng dùng được, nửa phải gần
+   như trống. Thanh đo là nội dung chính của thẻ này nên nó được 2/3, phần dữ
+   kiện 1/3; minmax(0,*) để cột không bao giờ bị nội dung đẩy rộng ra ngoài.
+   CHỈ trong .op-time-panel: ba thẻ .op-card-body còn lại (Dashboard theo ngày,
+   danh sách Operation, Hàng chờ sửa) không có thanh đo, chúng xếp toàn dữ kiện
+   ngang hàng nên auto-fit chia đều mới đúng. Dưới 860px không đụng tới: thẻ
+   xếp một cột, thanh đo đã chiếm trọn bề rộng. */
+@media(min-width:860px){.op-time-panel .op-card-body{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}}
 
 /* "Hàng chờ sửa" -- cùng một archetype với danh sách Operation (một bản ghi
    nhiều dữ kiện cần quyết định), nên dùng LẠI `.op-card`/`.op-card-list` chứ
