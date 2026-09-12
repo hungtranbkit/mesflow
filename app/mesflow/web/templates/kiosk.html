@@ -116,13 +116,13 @@
 
 
 
-    <aside id="demo-panel" data-testid="kiosk-demo-panel" class="demo-panel" aria-hidden="true">
+    <aside id="demo-panel" data-testid="kiosk-demo-panel" class="demo-panel" data-demo-state="idle" aria-hidden="true" aria-busy="false">
       <div class="demo-panel-head">
         <div><strong>Mô phỏng quét QR</strong><small>Chọn nhân viên và công đoạn của lệnh đang chạy</small></div>
         <button id="demo-close" class="demo-close" type="button" aria-label="Đóng"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        <div id="demo-busy" data-testid="kiosk-demo-busy" class="demo-busy" aria-hidden="true"></div>
       </div>
-      <div id="demo-loading" class="demo-loading">Đang tải dữ liệu...</div>
-      <div id="demo-content" data-testid="kiosk-demo-content" hidden>
+      <div id="demo-content" data-testid="kiosk-demo-content">
         <label>Nhân viên
           <select id="demo-employee"></select>
         </label>
@@ -141,6 +141,7 @@
         </div>
         <div id="demo-operation-qr" class="demo-qr"></div>
         <button id="demo-refresh" class="secondary demo-refresh" type="button">Tải lại danh sách</button>
+        <p id="demo-error" data-testid="kiosk-demo-error" class="demo-error" role="alert" aria-live="polite" hidden></p>
       </div>
     </aside>
 

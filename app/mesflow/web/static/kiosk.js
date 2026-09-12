@@ -624,8 +624,13 @@
   const demoPanel = document.getElementById('demo-panel');
   const demoToggle = document.getElementById('demo-toggle');
   const demoClose = document.getElementById('demo-close');
-  const demoLoading = document.getElementById('demo-loading');
-  const demoContent = document.getElementById('demo-content');
+  const demoBusy = document.getElementById('demo-busy');
+  const demoError = document.getElementById('demo-error');
+  // Mọi thứ khoá được trong lúc chờ. Khoá bằng `disabled` -- kích thước nút
+  // không đổi một pixel nào, khác hẳn việc thay nội dung bằng chữ "đang tải".
+  const demoControls = ['demo-employee','demo-operation','demo-scan-employee','demo-copy-employee',
+    'demo-scan-operation','demo-copy-operation','demo-refresh'].map(id => document.getElementById(id));
+  let demoInflight = 0;
   const demoEmployee = document.getElementById('demo-employee');
   const demoOperation = document.getElementById('demo-operation');
   let demoLoaded = false;
@@ -662,24 +667,70 @@
     }
   }
 
+  // Chỉ báo chờ KHÔNG được chiếm chỗ trong luồng: thanh 2px nằm absolute trên
+  // viền dưới của đầu bảng. Trước đây #demo-loading là một block chữ chờ
+  // cao ~70px chèn ngay trên #demo-content, nên mỗi lần làm mới -- kể cả lần
+  // tự làm mới 10 giây/lần trong lúc người ta đang quét -- toàn bộ select, nút
+  // và ô QR bị đẩy xuống rồi nhảy ngược lên. Đó chính là cú nhảy layout này.
+  function setDemoBusy(on) {
+    demoInflight = Math.max(0, demoInflight + (on ? 1 : -1));
+    const busy = demoInflight > 0;
+    demoPanel.dataset.demoState = busy ? 'loading' : (demoLoaded ? 'ready' : 'idle');
+    demoPanel.setAttribute('aria-busy', busy ? 'true' : 'false');
+    demoBusy.setAttribute('aria-hidden', busy ? 'false' : 'true');
+    demoControls.forEach(el => { if (el) el.disabled = busy; });
+  }
+  // Lỗi là phần tử CUỐI bảng: hiện nó ra không đẩy bất cứ control nào bên trên.
+  function setDemoError(message='') {
+    demoError.textContent = message;
+    demoError.hidden = !message;
+  }
+
   function showTutorialDemoFallback(reason='') {
     demoEmployee.innerHTML='';
     demoOperation.innerHTML='';
     ensureTutorialDemoOptions();
     demoLoaded=true;
     updateDemoQr();
-    demoLoading.hidden=true;
-    demoContent.hidden=false;
+    setDemoError('');
+    demoPanel.dataset.demoState='ready';
     if (reason) document.getElementById('scan-status').textContent='Đang dùng dữ liệu hướng dẫn dự phòng';
   }
 
-  async function loadDemoData(force=false) {
+  // Chữ ký của một danh sách: nếu lần làm mới trả về đúng dữ liệu cũ thì KHÔNG
+  // dựng lại option nào. Lần tự làm mới 10 giây/lần vì thế im lặng tuyệt đối --
+  // không chớp ô QR, không đóng dropdown đang mở, không đổi chiều cao.
+  function optionsSignature(list, toText, toQr) {
+    return (list || []).map(x => `${x.id}\u0001${toQr(x)}\u0001${toText(x)}`).join('\u0002');
+  }
+  function renderedSignature(select) {
+    return [...select.options].map(o => `${o.value}\u0001${o.dataset.qr || ''}\u0001${o.textContent}`).join('\u0002');
+  }
+  function fillSelect(select, list, toText, toQr, emptyLabel) {
+    select.innerHTML = '';
+    (list || []).forEach(item => {
+      const option = document.createElement('option');
+      option.value = item.id; option.dataset.qr = toQr(item);
+      option.textContent = toText(item);
+      select.appendChild(option);
+    });
+    if (!select.options.length) select.innerHTML = `<option value="">${emptyLabel}</option>`;
+  }
+
+  // `silent`: lần tự làm mới nền -- không chỉ báo, không chớp gì cả. Chỉ lần do
+  // người dùng bấm (mở bảng / "Tải lại danh sách") mới bật thanh chờ.
+  async function loadDemoData(force=false, {silent=false}={}) {
     if (demoLoaded && !force) return;
     const selectedEmployee = demoEmployee.value;
     const selectedOperation = demoOperation.value;
-    demoLoading.textContent = 'Đang tải dữ liệu...';
-    demoLoading.hidden = false;
-    if (!demoLoaded) demoContent.hidden = true;
+    const employeeText = emp => `${emp.employee_no} · ${emp.name}${emp.department ? ` · ${emp.department}` : ''}`;
+    const employeeQrOf = emp => emp.qr || `WF|EMP|${emp.employee_no}`;
+    const operationText = op => `${op.po_code || '-'} · ${op.part_code || '-'} · ${op.code} · ${op.name}`;
+    const operationQrOf = op => op.qr || `WF|OP|${op.code}`;
+    // Giữ nguyên màn hình cũ cho tới khi có response: KHÔNG ẩn #demo-content,
+    // không xoá option nào ở đây. Thất bại thì người dùng vẫn còn đúng danh
+    // sách đang cầm trên tay.
+    if (!silent) setDemoBusy(true);
     try {
       const request=api('/api/kiosk-web/demo-data');
       const data=tutorialMode
@@ -688,25 +739,16 @@
             new Promise((_,reject)=>setTimeout(()=>reject(new Error('demo-data timeout')),6000))
           ])
         : await request;
-      demoEmployee.innerHTML = ''; demoOperation.innerHTML = '';
-      (data.employees || []).forEach(emp => {
-        const option = document.createElement('option');
-        option.value = emp.id; option.dataset.qr = emp.qr || `WF|EMP|${emp.employee_no}`;
-        option.textContent = `${emp.employee_no} · ${emp.name}${emp.department ? ` · ${emp.department}` : ''}`;
-        demoEmployee.appendChild(option);
-      });
-      (data.operations || []).forEach(op => {
-        const option = document.createElement('option');
-        option.value = op.id; option.dataset.qr = op.qr || `WF|OP|${op.code}`;
-        option.textContent = `${op.po_code || '-'} · ${op.part_code || '-'} · ${op.code} · ${op.name}`;
-        demoOperation.appendChild(option);
-      });
+      if (renderedSignature(demoEmployee) !== optionsSignature(data.employees, employeeText, employeeQrOf)) {
+        fillSelect(demoEmployee, data.employees, employeeText, employeeQrOf, 'Chưa có nhân viên hoạt động');
+      }
+      if (renderedSignature(demoOperation) !== optionsSignature(data.operations, operationText, operationQrOf)) {
+        fillSelect(demoOperation, data.operations, operationText, operationQrOf, 'Chưa có công đoạn từ lệnh đang chạy');
+      }
       ensureTutorialDemoOptions();
-      if (!demoEmployee.options.length) demoEmployee.innerHTML = '<option value="">Chưa có nhân viên hoạt động</option>';
-      if (!demoOperation.options.length) demoOperation.innerHTML = '<option value="">Chưa có công đoạn từ lệnh đang chạy</option>';
       if (selectedEmployee && [...demoEmployee.options].some(x => x.value === selectedEmployee)) demoEmployee.value = selectedEmployee;
       if (selectedOperation && [...demoOperation.options].some(x => x.value === selectedOperation)) demoOperation.value = selectedOperation;
-      demoLoaded = true; updateDemoQr(); demoLoading.hidden = true; demoContent.hidden = false;
+      demoLoaded = true; updateDemoQr(); setDemoError('');
     } catch (error) {
       if (tutorialMode) {
         showTutorialDemoFallback(error.message);
@@ -715,9 +757,12 @@
       // The roster is signed-in-only now (it carries every badge QR). A real
       // terminal never needs it -- the scanner types into the input -- so this
       // says who can open it rather than reading as a kiosk failure.
-      demoLoading.textContent = String(error.code || '').includes('401') || error.code === 'AUTH_REQUIRED'
+      setDemoError(String(error.code || '').includes('401') || error.code === 'AUTH_REQUIRED'
         ? 'Danh sách mô phỏng chỉ dành cho tài khoản đã đăng nhập. Máy quét thật vẫn hoạt động bình thường.'
-        : `Không tải được dữ liệu mô phỏng: ${error.message}`;
+        : `Không tải được dữ liệu mô phỏng: ${error.message}`);
+    } finally {
+      if (!silent) setDemoBusy(false);
+      else demoPanel.dataset.demoState = demoLoaded ? 'ready' : 'idle';
     }
   }
   function openDemo() {
@@ -739,7 +784,7 @@
   window.MESFlowKioskDemo = {
     open: openDemo,
     close: closeDemo,
-    reload: () => { demoLoaded=false; return loadDemoData(true); },
+    reload: () => loadDemoData(true),
     scanEmployee: () => scan(employeeQr()),
     scanOperation: () => scan(operationQr()),
     // Feed an arbitrary payload through the same path a scanner gun uses --
@@ -749,9 +794,9 @@
 
   demoToggle.addEventListener('click', openDemo);
   demoClose.addEventListener('click', closeDemo);
-  document.getElementById('demo-refresh').addEventListener('click', () => { demoLoaded=false; loadDemoData(true); });
+  document.getElementById('demo-refresh').addEventListener('click', () => loadDemoData(true));
   demoEmployee.addEventListener('change', updateDemoQr); demoOperation.addEventListener('change', updateDemoQr);
-  setInterval(() => { if (demoIsOpen()) loadDemoData(true); }, 10000);
+  setInterval(() => { if (demoIsOpen()) loadDemoData(true, {silent:true}); }, 10000);
   document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr()));
   document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr()));
   document.getElementById('demo-copy-employee').addEventListener('click', () => copyText(employeeQr()));
