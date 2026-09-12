@@ -142,6 +142,47 @@ vẫn giữ.
 | `2` hoặc `*` | quay lại (`INPUT_REWORK` nếu `rework>0`, không thì `INPUT_DEFECT`) | như vậy | ✅ |
 | `Enter` | — | như `#` | ➕ web thêm |
 
+### 2.4 Ô chưa gõ gì — web ĐÒI một chữ số, ESP thì không
+
+| | ESP v2 | Web Kiosk | Khớp |
+|---|---|---|---|
+| `#` trên màn nhập số khi bộ đệm rỗng | nhận, coi như `0`, đi tiếp | **ở lại màn**, hiện `Nhập số… — bấm 0 nếu không có` | ⚠️ web chặt hơn |
+
+**Vì sao web phải khác.** Trên ESP, `#` là một phím **vật lý** cố định: ngón tay
+đặt lên nó thì nó vẫn là `#` ở mọi màn, không có cách nào để một cú bấm "rơi
+sang" màn sau. Trên màn cảm ứng thì ngược lại — **cùng một vùng màn hình** đổi
+thành hành động khác ngay khi bước chuyển. Đo được trên Kiosk web trước khi
+sửa (Pixel 7, cùng một toạ độ x):
+
+| Màn | Nút "đi tiếp" | Vùng dọc |
+|---|---|---|
+| `quantity-good` | `TIẾP TỤC` | y 396–444 |
+| `quantity-defect` | `TIẾP TỤC` | y 418–466 |
+| `quantity-rework` | `TIẾP TỤC` | y 395–443 |
+| `finish-confirm` | `XÁC NHẬN` | y 382–458 |
+
+Bốn vùng chồng nhau, nên **ba cú chạm ở đúng một điểm** đi thẳng
+`quantity-good → quantity-defect → finish-confirm → GỬI`, ghi `good=0,
+defect=0` mà người đứng máy chưa nhập gì và chưa nhìn thấy bảng số. Số 0 dựng
+sẵn trong ô là thứ cho phép mỗi bước đi qua.
+
+Nên web tách `0` do ô **sinh ra** khỏi `0` do người **nhập**: chỉ cái thứ hai
+mới là câu trả lời. Ô vẫn luôn hiển thị `0` (ô rỗng là thứ đã làm người đứng
+máy tin mình đã nhập — xem §2.1), và mọi đường nhập đều tính là đã nhập, kể cả
+bàn phím mềm/Gboard/IME vốn không đi qua `keydown` mang chữ số.
+
+Đi kèm là một luật **bố cục**: hàng nút của màn `finish-confirm` bị ghim xuống
+đáy, nên vùng `XÁC NHẬN` không còn giao với vùng `TIẾP TỤC` của bất kỳ màn nhập
+số nào. Luật `*` trái / `#` phải ở §2.0 **không đổi** — thứ tự trong hàng vẫn do
+`[data-action-slot]` quyết định.
+
+**Không có gì khác thay đổi**: nghĩa của mọi phím giữ nguyên, payload gửi đi
+giữ nguyên, và `NG = 0 → bỏ qua ASK_REWORK` (§1) vẫn đúng như firmware.
+Firmware **không** cần đổi theo: rủi ro này không tồn tại trên bàn phím cứng.
+
+Chốt bằng `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7), và
+REQ-KIOSK-013 trong master requirements.
+
 ---
 
 ## 3. Khoảng hợp lệ của "lỗi sửa được"

@@ -78,6 +78,24 @@
   const QTY_IDS = ['good-qty','defect-qty','rework-qty'];
   const QTY_MAX_DIGITS = 7;
   const qty = {'good-qty':'0','defect-qty':'0','rework-qty':'0'};
+  // SỐ 0 MẶC ĐỊNH KHÔNG PHẢI LÀ CÂU TRẢ LỜI.
+  //
+  // Ô luôn hiển thị '0' (quyết định của vòng trước: ô rỗng làm người đứng máy
+  // tin mình đã nhập trong khi hệ thống đọc ra 0). Nhưng '0' hiển thị sẵn và
+  // '0' người thật sự bấm là HAI thứ khác nhau, và trước đây cả hai đọc ra
+  // cùng một số. Hậu quả đo được: nút TIẾP TỤC của quantity-good,
+  // quantity-defect và nút XÁC NHẬN của finish-confirm CHỒNG LÊN NHAU trên
+  // màn hình (Pixel 7: y 396-444 / 418-466 / 382-458 tại cùng x), nên ba cú
+  // chạm ở ĐÚNG MỘT ĐIỂM đi thẳng qua ba màn và ghi 0/0 mà không ai nhập gì.
+  //
+  // `qtyTouched` là thứ tách hai nghĩa đó ra. Mọi đường nhập đều đánh dấu:
+  // gõ phím theo state, bàn phím mềm/IME/Gboard/dán/đọc chính tả qua `input`.
+  // Đây là guard theo TRẠNG THÁI, không phải cửa sổ thời gian -- không cú
+  // chạm hợp lệ nào bị nuốt: cú chạm vẫn chạy, vẫn hiện thông báo, chỉ không
+  // trả lời thay người một câu hỏi chưa ai trả lời.
+  const qtyTouched = {'good-qty':false,'defect-qty':false,'rework-qty':false};
+  function markQtyTouched(id) { if (id in qtyTouched) qtyTouched[id] = true; }
+  function clearQtyTouched(id) { if (id in qtyTouched) qtyTouched[id] = false; }
   function renderQty(id) {
     const el = document.getElementById(id);
     if (el && el.value !== qty[id]) el.value = qty[id];
@@ -93,7 +111,7 @@
     qty[id] = digits;
     renderQty(id);
   }
-  function resetQty() { QTY_IDS.forEach(id => setQty(id, '0')); }
+  function resetQty() { QTY_IDS.forEach(id => { setQty(id, '0'); clearQtyTouched(id); }); }
   function show(name) {
     // Mỗi lần chuyển màn là một bước mới của luồng. Lần trả-về đang chờ thuộc
     // về màn sắp rời, không được phép nổ vào màn sắp tới -- một lần quét mới
@@ -271,6 +289,9 @@
           document.getElementById('finish-operation').textContent =
             `${openSession.operation_display_key || openSession.operation_code} · ${openSession.operation_name}`;
           pendingFinish.requestId = `${deviceUuid}-FINISH-${Date.now()}`;
+          // Bắt đầu một lượt kết thúc là bắt đầu từ trắng: số của lượt trước
+          // (và dấu "đã nhập" của nó) không được chảy sang người kế tiếp.
+          resetQty();
           if (OpPolicy.isSetup(openSession)) {
             // A setup produces nothing, so there is nothing to type. The
             // backend discards quantities for a setup session anyway (see
@@ -319,6 +340,10 @@
   // rơi phím thành "Confirm 0/0" im lặng.
   function readQuantity(id, minimum=0) {
     const raw = qty[id];
+    // Chưa ai chạm vào ô này -> chưa có câu trả lời. Trả null y như ô rỗng,
+    // nên màn hình ở lại và hiện thông báo thay vì đi tiếp bằng số 0 mặc
+    // định mà không ai nhập (xem chú thích ở `qtyTouched`).
+    if (!qtyTouched[id]) return null;
     if (raw === '') return null;
     const value = Number(raw);
     return Number.isSafeInteger(value) && value >= minimum ? value : null;
@@ -329,14 +354,14 @@
   function focusQuantity(id) { const el=document.getElementById(id); if(el) el.focus({preventScroll:true}); }
   function nextGood() {
     const value = readQuantity('good-qty');
-    if (value === null) { document.getElementById('good-validation').textContent = 'Nhập số nguyên từ 0 trở lên'; return; }
+    if (value === null) { document.getElementById('good-validation').textContent = 'Nhập số sản phẩm đạt — bấm 0 nếu không có'; return; }
     document.getElementById('good-validation').textContent = '';
     pendingFinish.good = value;
     show('quantity-defect'); focusQuantity('defect-qty');
   }
   function nextDefect() {
     const value = readQuantity('defect-qty');
-    if (value === null) { document.getElementById('defect-validation').textContent = 'Nhập số nguyên từ 0 trở lên'; return; }
+    if (value === null) { document.getElementById('defect-validation').textContent = 'Nhập số sản phẩm lỗi — bấm 0 nếu không có'; return; }
     document.getElementById('defect-validation').textContent = '';
     pendingFinish.defect = value;
     if (value === 0) {
@@ -354,7 +379,9 @@
     field.max = String(pendingFinish.defect);
     field.min = '0';
     const current = readQuantity('rework-qty', 0);
-    if (current === null || current > pendingFinish.defect) setQty('rework-qty', '0');
+    // Ô do HỆ THỐNG đặt lại thì vẫn là chưa ai trả lời -- người vừa bấm "CÓ,
+    // NHẬP SỐ" thì phải nhập số, không được đi tiếp bằng 0 dựng sẵn.
+    if (current === null || current > pendingFinish.defect) { setQty('rework-qty', '0'); clearQtyTouched('rework-qty'); }
     document.getElementById('rework-max').textContent = `Nhập 0 đến ${pendingFinish.defect}`;
     document.getElementById('rework-validation').textContent = '';
     show('quantity-rework'); focusQuantity('rework-qty');
@@ -480,11 +507,14 @@
             event.preventDefault();
             const cur = (qty[id] === '0' || qty[id] === '') ? '' : qty[id];
             setQty(id, cur + event.key);
+            markQtyTouched(id);
             return;
           }
           if (event.key === 'Backspace') {
             event.preventDefault();
             setQty(id, qty[id].slice(0, -1) || '0');
+            // Xoá cũng là một câu trả lời: người đã cầm lấy ô này rồi.
+            markQtyTouched(id);
             return;
           }
         }
@@ -536,10 +566,15 @@
     qtyInput.addEventListener('focus', selectAll);
     qtyInput.addEventListener('pointerup', selectAll);
 
-    // Đường nhập KHÔNG qua keydown: bàn phím mềm/IME (keyCode 229), dán, đọc
-    // chính tả, nút tăng-giảm của <input type=number>. Trình duyệt đã ghi
-    // thẳng vào ô; kéo nó về state để state vẫn là nguồn sự thật duy nhất.
-    qtyInput.addEventListener('input', () => setQty(id, qtyInput.value));
+    // Đường nhập KHÔNG qua keydown: bàn phím mềm/Gboard/IME (keydown bắn
+    // key='Unidentified', keyCode 229, KHÔNG mang chữ số), dán, đọc chính tả,
+    // nút tăng-giảm của <input type=number>. Trình duyệt đã ghi thẳng vào ô;
+    // kéo nó về state để state vẫn là nguồn sự thật duy nhất, VÀ đánh dấu
+    // touched -- nếu không, người gõ bằng bàn phím điện thoại sẽ bị coi là
+    // chưa nhập gì và kẹt vĩnh viễn ở màn nhập số. (`beforeinput` không cần
+    // nghe riêng: `input` bắn sau MỌI lần chèn, kể cả khi IME kết thúc soạn
+    // thảo.)
+    qtyInput.addEventListener('input', () => { setQty(id, qtyInput.value); markQtyTouched(id); });
 
     // Trên màn nhập số, ô này là ĐÍCH DUY NHẤT của bàn phím mềm. Nếu focus
     // rời đi mà vẫn đang ở màn đó (chuyển màn xong focus không dính, người

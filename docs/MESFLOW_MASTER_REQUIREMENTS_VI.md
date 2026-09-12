@@ -2372,6 +2372,31 @@ ngay khi ai đó sửa. Sửa đúng cần tách "repairable đã khai báo" kh�
 xong" và chạm vào rollup + hàng chờ sửa + đối soát → thuộc lane Rework.
 
 
+### REQ-KIOSK-013 — Kiosk web an toàn khi chạm: chạm lặp không được đi xuyên màn
+
+> **Vì sao đây là chuyện riêng của web:** trên ESP v2, `#` là một phím VẬT LÝ cố
+> định, không bao giờ đổi nghĩa dưới ngón tay. Trên màn cảm ứng thì CÙNG MỘT
+> VÙNG màn hình đổi thành hành động khác ngay khi bước chuyển, nên một ngón tay
+> đứng yên có thể chạy qua nhiều bước. Mọi điều dưới đây chỉ ràng buộc Kiosk
+> trình duyệt; không đổi hành vi firmware, không đổi trường nào được gửi đi.
+
+- **Module**: luồng nhập sản lượng của Kiosk web (`/kiosk`). Cùng luồng với REQ-KIOSK-011; mục này quy định cách một CÚ CHẠM đi vào luồng đó.
+- **Mục đích**: chặn việc chạm lặp ở một điểm chạy hết luồng và ghi sản lượng không ai nhập. Đo trước khi sửa (Pixel 7, cùng một x): `good-next` y 396–444, `defect-next` y 418–466, `rework-next` y 395–443, `finish-confirm-ok` y 382–458 — bốn vùng chồng nhau, nên ba cú chạm ở đúng một điểm đã gửi `good=0, defect=0`.
+- **Tác nhân**: người đứng máy. **Tiền điều kiện**: đang ở luồng nhập sản lượng. **Kích hoạt**: hai cú chạm trở lên liên tiếp ở cùng toạ độ.
+- **Luồng chính — số 0 dựng sẵn không phải câu trả lời**: ô vẫn luôn hiện `0` (ô rỗng chính là thứ làm người đứng máy tin mình đã nhập), nhưng `0` do ô SINH RA và `0` do người NHẬP là hai trạng thái khác nhau. Khi chưa ai nhập, ô đọc ra "chưa trả lời": màn hình ở lại và hiện dòng thông báo của nó. Ô được đánh dấu đã nhập bởi **mọi** đường vào — chữ số và Backspace theo đường keydown theo state, và `beforeinput`/`input` của bàn phím mềm, IME/Gboard (bắn `keydown key='Unidentified'`, keyCode 229, KHÔNG mang chữ số), dán, đọc chính tả, hay nút tăng-giảm của `<input type=number>`.
+- **Luồng chính — nút xác nhận không được nằm chỗ nút đi tiếp vừa bấm**: hàng nút gửi của `#screen-finish-confirm` bị ghim xuống đáy màn, nên vùng XÁC NHẬN **không được giao** với vùng TIẾP TỤC của `quantity-good`, `quantity-defect` hay `quantity-rework`, ở cả bề rộng desktop lẫn Pixel 7. Đây là luật BỐ CỤC, kiểm bằng toạ độ đo được, không phải bằng độ trễ.
+- **Đầu ra mong đợi**: chạm lặp ở một điểm để luồng ở nguyên màn đã bắt đầu, không gửi gì, và hiện dòng thông báo nói rõ phải nhập gì. Nhập `0` thật vẫn đi tiếp được bằng đúng một phím.
+- **Chuyển trạng thái**: vào luồng kết thúc là đặt lại cả ba ô sản lượng **và** dấu đã-nhập của chúng, nên số của người này không bao giờ chảy sang lượt của người kế tiếp.
+- **Cách làm bị CẤM**: không được dùng cửa sổ thời gian để nuốt cú chạm. Một cú chạm luôn phải làm điều gì đó quan sát được — đi tiếp, hoặc nói thiếu gì. Lặng lẽ vứt bỏ một cú chạm đã rơi trúng nút chính là lỗi mà mục này sinh ra để chặn.
+- **Ràng buộc hợp lệ**: giữ nguyên như REQ-KIOSK-011 (`0 <= rework_qty <= defect_qty`, cả UI lẫn server).
+- **Lỗi / trạng thái đặc biệt**: phiên SETUP vẫn kết thúc với `0/0` mà không qua màn nhập số (nó không tạo ra sản phẩm nào) — mục này không đụng vào đường đó.
+- **Biên**: người thật sự làm ra 0 sản phẩm đạt; người chỉ dùng bàn phím mềm; bốn cú chạm ở một điểm; chạm đúp ở bước cuối trước khi gửi; người thứ hai bắt đầu lượt trên trạm người trước bỏ dở.
+- **Khác biệt CỐ Ý với firmware**: ESP chấp nhận `#` trên màn chưa gõ gì. Trình duyệt đòi một chữ số tường minh, vì chỉ trình duyệt mới có rủi ro vùng chạm chồng nhau. Ghi ở `docs/KIOSK_ESP_PARITY.md` §2.4. Không đổi nghĩa phím nào, không đổi trường payload nào.
+- **Quyền / audit**: như Kiosk web hiện có.
+- **Liên quan**: REQ-KIOSK-011 (bản thân luồng và luật `*` trái / `#` phải — cả hai giữ nguyên), REQ-KIOSK-001.
+- **Độ ưu tiên**: P0.
+- **Chiều kiểm thử**: thuận (bàn phím mềm, bàn phím cứng, số 0 tường minh), nghịch (chạm lặp một điểm; `#` lặp), bố cục tính toán (hai vùng không giao nhau, desktop và Pixel 7), trạng thái thừa (lượt của người kế tiếp).
+
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 
 Chi tiết đầy đủ ở §6.4 và schema `work_shifts`/`work_shift_intervals`
@@ -2962,6 +2987,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
 | REQ-KIOSK-010 (tương phản vùng điều khiển kiosk) | `tests/e2e/kiosk-control-contrast.spec.js`, `tests/test_daily_dashboard_kiosk_contract.py` | A |
 | REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (gồm nhóm "Ô XÁC NHẬN nằm bên phải" — đo toạ độ thật, cả ở 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
+| REQ-KIOSK-013 (Kiosk web an toàn khi chạm — chạm lặp không đi xuyên màn) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; đo vùng không giao nhau, đường bàn phím mềm/IME, negative proof bằng mutation) | A |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
