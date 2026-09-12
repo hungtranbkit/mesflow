@@ -3603,3 +3603,5 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .tpl-preview-unused td{padding:6px 8px;border-bottom:1px solid var(--line);color:var(--text);vertical-align:top}
 .tpl-preview-warn summary{cursor:pointer}
 .tpl-preview-warn ul{margin:8px 0 0;padding-left:18px;max-height:200px;overflow:auto}
+.tpl-preview-block{margin:12px 0;padding:12px 14px;border:1px solid #e2b9b5;border-radius:var(--ui-radius-md);background:#fff7f6;color:var(--status-danger);font-size:13px}
+.tpl-preview-block ul{margin:8px 0 0;padding-left:18px;max-height:220px;overflow:auto}

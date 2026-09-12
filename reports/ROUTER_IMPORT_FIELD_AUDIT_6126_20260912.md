@@ -166,10 +166,21 @@ Nhập file có `PO NUMBER` nay tạo luôn PO. Kết quả thật trên file n�
 
 ```
 Template TPL-6126 + Production Order 6126
-44 Part · 112 Operation · 47 OP Setup · 110 sản phẩm
+44 Part · 113 Operation · 47 OP Setup · 110 sản phẩm
 parts.planned_quantity: 32 Part = 110 · 11 Part = 220 · 1 Part = 440
-operations: 112/112 có source_op_no, source_title, expected_total_seconds
+operations: 112/113 có source_op_no, source_title, expected_total_seconds
 ```
+
+> **Cập nhật sau khi chốt quy tắc** (cùng ngày): con số Operation là **113**,
+> không phải 112. File có 112 block `OPERATION # ...`, cộng **một** công đoạn
+> quy trình suy ra từ tờ `SƠN TĨNH ĐIỆN` — tờ đó không viết theo khuôn block vì
+> sơn làm trên cả cụm, và trước đây bị bỏ qua, làm bước sơn biến mất khỏi PO.
+> Công đoạn suy ra **không** có `source_op_no`: trên giấy không có số nào để giữ.
+>
+> Cũng từ lần chốt đó, **chính file này không nhập được nữa**: 10 chỗ có hai
+> công đoạn cùng số trong CÙNG một Part nay là lỗi chặn (xem mục trùng số OP ở
+> trên). Xưởng phải đánh lại số rồi nhập lại. Các con số ở trên là kết quả đo
+> trước khi quy tắc đó có hiệu lực.
 
 Ba quy tắc:
 - **nhập lại ĐÚNG file** (khớp sha256 của bytes) → no-op sạch, không báo lỗi,

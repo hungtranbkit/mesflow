@@ -192,6 +192,15 @@ def link_workbook(conn, template_id, blob_id, digest, filename):
         (int(template_id), int(blob_id), digest, str(filename or '')[:200]))
 
 
+#: Ghi nhận KHÔNG phải cảnh báo.
+#:
+#: DUPLICATE_OP_IN_PART là lỗi chặn và đi qua `sections.error` với đúng câu đã
+#: chốt, không phải một dòng người dùng có thể cuộn qua. NO_OPERATION_DATA là
+#: chuyện bình thường của tờ mức quy trình. Cả hai đều không thuộc "cảnh báo cần
+#: xử lý" -- danh sách đó chỉ nên chứa thứ người dùng THẬT SỰ phải làm gì đó.
+INFO_NOTE_KINDS = frozenset({'DUPLICATE_OP_IN_PART'})
+
+
 def unused_field_sections(parsed):
     """Ba mục màn xem trước phải hiện. Không có mục nào được rỗng một cách im lặng.
 
@@ -242,5 +251,12 @@ def unused_field_sections(parsed):
         'reason': 'Trường VẬN HÀNH — MESFlow thu thập qua Session/QC/duyệt. '
                   'Không tạo dữ liệu thực tế giả khi nhập.'})
 
-    warnings = list(parsed.get('notes') or [])
+    # Trùng số OP trong cùng Part KHÔNG nằm ở đây: nó là LỖI CHẶN, đi qua
+    # `sections.error` với đúng câu đã chốt, chứ không phải một dòng trong danh
+    # sách cảnh báo mà người dùng có thể cuộn qua.
+    # Ghi nhận trung tính đi vào mục "có trong Excel nhưng chưa dùng", không vào
+    # "cảnh báo cần xử lý": một tờ mức quy trình không có công đoạn nào là chuyện
+    # bình thường, người dùng không phải làm gì cả.
+    warnings = [note for note in (parsed.get('notes') or [])
+                if note.get('kind') not in INFO_NOTE_KINDS]
     return {'imported': imported, 'unused': unused, 'warnings': warnings}

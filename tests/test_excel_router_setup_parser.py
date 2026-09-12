@@ -3,7 +3,8 @@
 BỐI CẢNH. Tờ GO ROUTER của xưởng có sẵn ô "Thời gian Setup ( phút )" trong mỗi
 block Operation, nhưng importer trước đây không đọc nó: mọi Operation vào hệ
 thống với ``requires_setup=False``, và người quản lý phải vào từng OP bật tay.
-Với file thật (NEWARK ARM CHAIR: 44 sheet, 112 Operation, 47 chỗ có setup) thì
+Với file thật (NEWARK ARM CHAIR: 44 sheet, 112 block OPERATION + 1 công đoạn quy
+trình suy ra từ tờ 'SƠN TĨNH ĐIỆN', 47 chỗ có setup) thì
 đó là 47 lần bật tay cho MỘT lần nhập file.
 
 Bài test khoá bốn thứ:
@@ -183,28 +184,29 @@ def test_block_khong_co_nhan_setup_thi_khong_khai_bao_gi():
 
 # --- danh tính Operation ---------------------------------------------------
 
-def test_ma_op_trung_trong_cung_part_van_nhap_du_va_giu_so_goc():
-    """Hai công đoạn khác nhau cùng mang một số OP -- nhập đủ, giữ nguyên số.
+def test_ma_op_trung_trong_cung_part_duoc_ghi_nhan_de_chan():
+    """Trùng số trong CÙNG một Part: parser ghi nhận, không tự sửa.
 
-    Sheet 'Thanh la khung ngồi phía trước' của file NEWARK có HAI block cùng
-    'OPERATION # 02': CHAMFER LỖ và LÀM NGUỘI. Đó là hai công đoạn thật, không
-    phải lỗi đánh máy. Từ chối cả file là vứt dữ liệu lộ trình thật; đổi số của
-    khách là bịa ra một mã không có trên giấy. Nên: số gốc giữ verbatim, mã nội
-    bộ sinh duy nhất, danh tính canonical vẫn là operation.id.
+    Một Part không thể có hai công đoạn số 02. Parser KHÔNG đẻ ra mã thứ hai để
+    cho qua -- làm vậy là hợp thức hoá lỗi. Nó ghi lại đủ tờ/Part/số/hai dòng,
+    và tầng nhập biến cái đó thành lỗi chặn.
     """
     parsed = _parse([('Thanh la khung ngồi', 'KM-317', [
         (1, 'CẮT LASER', 20, 100),
         (2, 'CHAMFER LỖ', 0, 40),
         (2, 'LÀM NGUỘI', 0, 50),
     ])])
-    assert len(parsed['operations']) == 3, 'không được mất Operation nào'
-    assert [op['source_op_no'] for op in parsed['operations']] == [1, 2, 2]
-    codes = [op['code'] for op in parsed['operations']]
-    assert len(codes) == len(set(codes)), 'mã nội bộ phải duy nhất'
-    duplicates = [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_SOURCE_OP_NO']
+    duplicates = [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_OP_IN_PART']
     assert len(duplicates) == 1
-    assert 'LÀM NGUỘI' in duplicates[0]['raw']
-
+    note = duplicates[0]
+    assert note['part'] == 'KM-317'
+    assert note['op_code'] == 'OP02'
+    # Cả hai dòng đụng nhau, không chỉ dòng thứ hai.
+    assert note['first_row'] == 20 and note['row'] == 32
+    # Và KHÔNG có mã nào bị đẻ thêm hậu tố.
+    assert all('-2' not in op['code'] for op in parsed['operations'])
+    assert [op['code'] for op in parsed['operations']] == [
+        'KM-317-OP01', 'KM-317-OP02', 'KM-317-OP02']
 
 def test_ma_op_trung_giua_hai_part_khac_nhau_la_hop_le():
     """OP01 ở Part khác KHÔNG phải va chạm -- không được cảnh báo nhầm."""

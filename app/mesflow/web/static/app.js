@@ -1615,9 +1615,12 @@ function showTemplateImportPreview(file,data,{onDone}={}){
       <div><b>Template</b><span>${esc(data.plan.template.message||'')}</span></div>
       <div><b>Production Order</b><span>${esc(data.plan.po.message||'')}</span></div>
     </div>`:''}
-    ${(sections.warnings||[]).length?`<details class="tpl-preview-warn" open><summary><b>Cảnh báo cần xử lý (${
-      sections.warnings.length})</b></summary><ul>${
-      sections.warnings.map(w=>`<li>${esc(w.message||w)}</li>`).join('')}</ul></details>`:''}
+    ${sections.error?`<div class="tpl-preview-block"><b>${esc(sections.error.split('\n')[0])}</b><ul>${
+      (sections.conflicts||[]).map(c=>`<li>Sheet ${esc(c.sheet)} · Part ${esc(c.part)} · ${
+        esc(c.op_code)} — dòng ${c.rows.join(', ')}</li>`).join('')}</ul></div>`:''}
+    ${(sections.warnings||[]).filter(w=>w.kind!=='DUPLICATE_OP_IN_PART').length?`<details class="tpl-preview-warn"><summary><b>Cảnh báo cần xử lý (${
+      sections.warnings.filter(w=>w.kind!=='DUPLICATE_OP_IN_PART').length})</b></summary><ul>${
+      sections.warnings.filter(w=>w.kind!=='DUPLICATE_OP_IN_PART').map(w=>`<li>${esc(w.message||w)}</li>`).join('')}</ul></details>`:''}
     ${(sections.unused||[]).length?`<details class="tpl-preview-unused"><summary><b>Thông tin Excel có nhưng MESFlow chưa dùng trực tiếp (${
       sections.unused.length})</b></summary><table><thead><tr><th>Trường</th><th>Vị trí</th><th>Giá trị</th><th>Lý do</th></tr></thead><tbody>${
       sections.unused.map(u=>`<tr><td>${esc(u.field)}</td><td>${esc(u.sheet)} · ${esc(u.cell)}</td><td>${
@@ -1679,7 +1682,12 @@ function showTemplateImportPreview(file,data,{onDone}={}){
     }
     box.querySelector('#tplPvCount').textContent=
       `Đang chọn ${ops} Operation · ${setups} OP Setup`;
-    box.querySelector('#tplPvConfirm').disabled=ops===0;
+    // File còn lỗi chặn thì không cho bấm: người dùng đang cầm file, sửa xong
+    // nhập lại nhanh hơn là bấm rồi nhận lỗi từ server.
+    const blocked=!!sections.error;
+    const confirmButton=box.querySelector('#tplPvConfirm');
+    confirmButton.disabled=ops===0||blocked;
+    if(blocked)confirmButton.title='Sửa lỗi trùng mã OP trong file Excel rồi nhập lại';
   };
   box.addEventListener('change',e=>{
     // "Chọn tất cả" KHÔNG mang data-key, nên phải xử lý TRƯỚC lần return sớm

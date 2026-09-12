@@ -207,35 +207,53 @@ def _go_router_workbook(sheets):
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 
-def test_go_router_workbook_imports_duplicate_source_op_numbers_and_keeps_them_raw(db, api):
-    """Trùng SỐ OP trong một sheet là dữ liệu thật, không phải lỗi đánh máy.
+def test_go_router_workbook_blocks_duplicate_op_code_inside_one_part(db, api):
+    """Hai công đoạn cùng số trong CÙNG một Part là lỗi dữ liệu -> chặn cả file.
 
-    Quyết định 2026-09-09 là TỪ CHỐI cả file và nêu sheet + dòng. Điều đó đã bị
-    thay sau khi audit chính file của xưởng: 10 chỗ trùng số ấy là những công
-    đoạn KHÁC NHAU dùng chung một số (OPERATION # 02 vừa là CHAMFER LỖ vừa là
-    LÀM NGUỘI; OPERATION # 01 vừa là TIỆN BƯỚC 1 vừa là TIỆN BƯỚC 2). Từ chối
-    file là vứt dữ liệu lộ trình thật; đổi số của khách là bịa ra một mã không
-    có trên giấy.
+    Một Part không thể có hai công đoạn số 02. Trước đây hệ thống tự đẻ ra mã
+    thứ hai ('OP02-2') để cho qua -- tức là hợp thức hoá lỗi và đưa vào sản xuất
+    một mã không có trong tài liệu của khách. Nay từ chối, và câu lỗi nêu đủ tờ
+    nào, Part nào, số nào, và TẤT CẢ các dòng đang đụng nhau.
 
-    Hợp đồng hiện tại: nhập ĐỦ, giữ NGUYÊN số và tiêu đề gốc, mã nội bộ sinh
-    duy nhất, danh tính canonical là operation.id, và mỗi chỗ trùng là một
-    cảnh báo hiện trên màn xem trước -- không im lặng.
+    Trùng số giữa hai Part KHÁC nhau vẫn hợp lệ -- xem bài ngay dưới.
     """
+    before_templates = db.execute('SELECT COUNT(*) c FROM templates').fetchone()['c']
+    before_pos = db.execute('SELECT COUNT(*) c FROM production_orders').fetchone()['c']
+
     payload = _go_router_workbook({'KM-3172005-08': [(1, 'CẮT LASER'), (2, 'CHAMFER LỖ'),
                                                      (2, 'LÀM NGUỘI')]})
     response = _upload(api, 'go_router.xlsx', payload)
+    assert response.status_code == 400, response.text[:400]
+    body = response.json()
+    assert body['reason'] == 'DUPLICATE_OP_IN_PART'
+    # Câu chốt với người dùng, nguyên văn.
+    assert body['message'].startswith(
+        'Lỗi: OP trùng mã trong cùng một Part. Vui lòng sửa lại file Excel.')
+    # Và phải chỉ đúng chỗ phải sửa: tờ, Part, mã, và MỌI dòng đụng nhau.
+    conflict = body['detail']['conflicts'][0]
+    assert conflict['sheet'] == 'KM-3172005-08'
+    assert conflict['part'] == 'KM-3172005-08'
+    assert conflict['op_code'] == 'OP02'
+    assert conflict['rows'] == [6, 8], conflict
+    assert 'dòng 6, 8' in body['message']
+
+    # Không tạo/cập nhật gì cả -- kiểm bằng CSDL, không tin lời API.
+    assert db.execute('SELECT COUNT(*) c FROM templates').fetchone()['c'] == before_templates
+    assert db.execute('SELECT COUNT(*) c FROM production_orders').fetchone()['c'] == before_pos
+
+
+def test_go_router_workbook_allows_the_same_op_code_in_different_parts(db, api):
+    """Mỗi tờ bản vẽ đánh số lại từ OP01 -- trùng giữa hai Part là bình thường."""
+    payload = _go_router_workbook({'KM-AAA-01': [(1, 'CẮT LASER'), (2, 'LÀM NGUỘI')],
+                                   'KM-BBB-02': [(1, 'CẮT LASER'), (2, 'LÀM NGUỘI')]})
+    response = _upload(api, 'go_router.xlsx', payload)
     assert response.status_code == 200, response.text[:400]
     template_id = response.json()['template_id']
-
-    rows = db.execute("""SELECT o.code,o.source_op_no,o.source_title
+    rows = db.execute("""SELECT p.code part_code,o.source_op_no
         FROM template_operations o JOIN template_parts p ON p.id=o.part_id
-        WHERE o.template_id=%s ORDER BY o.sort_order""", (template_id,)).fetchall()
-    assert len(rows) == 3, 'không được mất Operation nào'
-    # Số gốc giữ verbatim -- hai công đoạn cùng mang số 2.
-    assert [r['source_op_no'] for r in rows] == [1, 2, 2]
-    assert rows[1]['source_title'].endswith('CHAMFER LỖ')
-    assert rows[2]['source_title'].endswith('LÀM NGUỘI')
-    # Mã nội bộ thì phải duy nhất, nếu không hai dòng đụng nhau trong CSDL.
-    codes = [r['code'] for r in rows]
-    assert len(codes) == len(set(codes)), codes
+        WHERE o.template_id=%s ORDER BY p.code,o.sort_order""", (template_id,)).fetchall()
+    assert len(rows) == 4
+    # Cả hai Part đều có OP01 và OP02, và đó không phải lỗi.
+    assert [(r['part_code'], r['source_op_no']) for r in rows] == [
+        ('KM-AAA-01', 1), ('KM-AAA-01', 2), ('KM-BBB-02', 1), ('KM-BBB-02', 2)]
 

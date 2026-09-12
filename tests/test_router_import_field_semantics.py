@@ -27,13 +27,17 @@ def _sheet(wb, title, drawing_code, blocks, *, sheet_qty=110,
            setup_label='Thời gian Setup ( phút )',
            cycle_label='Thời gian gia công / sản phẩm (s)',
            total_label='Tổng thời gian gia công dự kiến ( giờ )',
-           drawing_name=None, order_type='SẢN XUẤT HÀNG LOẠT'):
+           drawing_name='__same_as_title__', order_type='SẢN XUẤT HÀNG LOẠT'):
     """Sheet Part đúng bố cục thật: nhãn trái->phải, nhãn phải->xuống dưới."""
     ws = wb.create_sheet(title)
     ws['A2'] = 'PO NUMBER:'; ws['C2'] = 6126
     ws['G2'] = 'LOẠI ĐƠN HÀNG'; ws['I2'] = 'SỐ LƯỢNG'; ws['J2'] = 'HÌNH ẢNH'
     ws['A3'] = 'QTY:'; ws['C3'] = 110
     ws['A4'] = 'TÊN BẢN VẼ:'
+    # Tờ bản vẽ thật khai CẢ tên lẫn mã; bài nào muốn tờ mức quy trình thì
+    # truyền drawing_name=None cùng drawing_code=None.
+    if drawing_name == '__same_as_title__':
+        drawing_name = title
     if drawing_name is not None:
         ws['C4'] = drawing_name
     ws['G4'] = order_type
@@ -231,27 +235,36 @@ def test_so_luong_khong_nhat_nham_o_ben_canh():
 
 # --- danh tính: giữ nguyên số OP gốc -------------------------------------
 
-def test_so_op_trung_van_nhap_du_va_giu_nguyen_so_goc():
-    """Hai công đoạn khác nhau cùng mang số 02 -- cả hai phải vào, số giữ nguyên."""
+def test_so_op_trung_trong_cung_part_duoc_ghi_nhan_day_du_de_chan():
+    """Trùng số trong CÙNG một Part: ghi nhận đủ tờ/Part/số/hai dòng, không tự sửa.
+
+    Parser không quyết định chặn hay không -- nó chỉ phải ghi đủ thông tin để
+    tầng nhập dựng câu lỗi chỉ đúng chỗ phải sửa trên file.
+    """
     parsed = _parse([('Thanh la khung ngồi', 'KM-317', [
         ('CẮT LASER', 20, 100, 3.39, 1),
         ('CHAMFER LỖ', 0, 40, 1.22, 2),
         ('LÀM NGUỘI', 0, 50, 1.53, 2),
     ])])
-    assert len(parsed['operations']) == 3, 'không được mất OP nào'
-    numbers = [op['source_op_no'] for op in parsed['operations']]
-    assert numbers == [1, 2, 2], 'số OP gốc phải giữ nguyên verbatim'
-    titles = [op['source_title'] for op in parsed['operations']]
-    assert titles[1] == 'OPERATION # 02- CHAMFER LỖ'
-    assert titles[2] == 'OPERATION # 02- LÀM NGUỘI'
-    # Mã nội bộ thì phải duy nhất để hai dòng không đụng nhau trong CSDL.
-    codes = [op['code'] for op in parsed['operations']]
-    assert len(codes) == len(set(codes))
-    # Và người dùng được BÁO, không phải đoán.
-    duplicates = [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_SOURCE_OP_NO']
-    assert len(duplicates) == 1
-    assert 'LÀM NGUỘI' in duplicates[0]['raw']
+    assert len(parsed['operations']) == 3
+    assert [op['source_op_no'] for op in parsed['operations']] == [1, 2, 2]
+    # Mã giữ nguyên, KHÔNG hậu tố -- hợp thức hoá lỗi là điều bị cấm.
+    assert [op['code'] for op in parsed['operations']] == [
+        'KM-317-OP01', 'KM-317-OP02', 'KM-317-OP02']
+    note = next(n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_OP_IN_PART')
+    assert note['part'] == 'KM-317' and note['op_code'] == 'OP02'
+    assert note['first_row'] != note['row']
 
+
+def test_so_op_trung_giua_hai_part_khong_phai_loi():
+    """Mỗi tờ bản vẽ đánh số lại từ OP01 -- không cảnh báo, không lỗi."""
+    parsed = _parse([
+        ('Chân ghế A', 'KM-001', [('CẮT LASER', 20, 100, 3.39, 1)]),
+        ('Chân ghế B', 'KM-002', [('CẮT LASER', 20, 100, 3.39, 1)]),
+    ])
+    assert [op['source_op_no'] for op in parsed['operations']] == [1, 1]
+    assert [op['code'] for op in parsed['operations']] == ['KM-001-OP01', 'KM-002-OP01']
+    assert not [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_OP_IN_PART']
 
 def test_part_number_trong_block_trong_thi_ke_thua_tu_sheet():
     parsed = _parse([('Chân ghế A', 'KM-001', [
@@ -267,13 +280,36 @@ def test_part_number_trong_block_trong_thi_ke_thua_tu_sheet():
 
 # --- sheet đặc biệt phải được NÓI RA -------------------------------------
 
-def test_sheet_khong_co_ma_ban_ve_duoc_ghi_chu():
+def test_to_muc_quy_trinh_khong_bi_coi_la_thieu_du_lieu():
+    """Tờ không khai TÊN lẫn MÃ BẢN VẼ là tờ MỨC QUY TRÌNH, không phải tờ lỗi.
+
+    Công đoạn sơn/kiểm tra/đóng gói làm trên cả cụm, không gắn vào một bản vẽ
+    nào. Bắt chúng khai mã bản vẽ là bắt xưởng bịa ra một con số.
+    """
     parsed = _parse([('SƠN TĨNH ĐIỆN', None, [('SƠN', 0, 30, 0.92)])],
                     drawing_name=None)
-    kinds = [n['kind'] for n in parsed['notes']]
-    assert 'SHEET_WITHOUT_DRAWING_IDENTITY' in kinds
-    note = next(n for n in parsed['notes'] if n['kind'] == 'SHEET_WITHOUT_DRAWING_IDENTITY')
-    assert note['sheet'] == 'SƠN TĨNH ĐIỆN'
+    assert parsed['parts'][0]['sheet_kind'] == 'PROCESS_LEVEL_SHEET'
+    assert not [n for n in parsed['notes']
+                if n['kind'] == 'DRAWING_SHEET_MISSING_IDENTITY']
+    # Và công đoạn của tờ đó vẫn được nhập bình thường.
+    assert len(parsed['operations']) == 1
+
+
+def test_to_khai_ten_ma_thieu_ma_ban_ve_thi_moi_canh_bao():
+    """Có TÊN mà thiếu MÃ -- tự nhận là tờ bản vẽ nhưng không có khoá để khớp."""
+    parsed = _parse([('Chân ghế A', None, [('CẮT LASER', 20, 100, 3.39)])],
+                    drawing_name='Chân ghế A')
+    note = next(n for n in parsed['notes']
+                if n['kind'] == 'DRAWING_SHEET_MISSING_CODE')
+    assert 'MÃ BẢN VẼ' in note['message']
+
+
+def test_to_co_ma_ma_thieu_ten_thi_khong_canh_bao():
+    """Thiếu TÊN mà có MÃ thì không mơ hồ: mã chính là danh tính."""
+    parsed = _parse([('Chân ghế A', 'KM-001', [('CẮT LASER', 20, 100, 3.39)])],
+                    drawing_name=None)
+    assert parsed['parts'][0]['sheet_kind'] == 'DRAWING_PART_SHEET'
+    assert not [n for n in parsed['notes'] if n['kind'] == 'DRAWING_SHEET_MISSING_CODE']
 
 
 def test_metadata_po_duoc_giu_lai():
