@@ -294,23 +294,100 @@ def test_template_khong_co_marker_van_dung_cach_dat_cu():
         assert item['anchor'][0] >= 'M'
 
 
-def test_thieu_mot_marker_trong_file_da_co_marker_thi_bi_tu_choi():
-    """Biểu mẫu đã chừa ô QRCODE thì THIẾU một ô là lỗi, không phải lời mời đoán.
+def test_thieu_mot_marker_trong_file_da_co_marker_thi_chi_canh_bao():
+    """Luật user chốt: thiếu ô QRCODE ở một block CHỈ CẢNH BÁO, không chặn xuất.
 
-    Đây là chỗ dễ sai nhất của hợp đồng. Nếu hỏi "có marker không" theo TỪNG
-    tem, một biểu mẫu chừa sót vài ô sẽ lặng lẽ có vài tem rơi vào làn tự đoán:
-    file vẫn xuất ra, vẫn đủ số tem, và không ai biết cho tới khi cầm tờ giấy
-    in thấy tem nằm chỗ khác. Câu hỏi phải đặt ở mức CẢ workbook.
+    Đây là chỗ dễ sai nhất của hợp đồng, và luật đã đổi: một biểu mẫu chừa sót
+    vài ô KHÔNG được chặn cả file. Tem của block có ô QRCODE vẫn dán đúng ô;
+    tem của block thiếu thì BỎ QUA (không rơi vào làn tự đoán) và ghi cảnh báo
+    chỉ đúng sheet/dòng/Operation/loại tem để người sửa biểu mẫu tới thẳng chỗ
+    thiếu. File vẫn xuất được.
     """
+    # Block có ô QRCODE cho tem OP nhưng KHÔNG có ô cho tem SETUP.
     sheets = [('Chân ghế A', 'KM-001', [('CẮT LASER', 20, 14, None)])]
     rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
                  part_name='Chân ghế A', setup_id=201)]
-    with pytest.raises(RouterMarkerError) as error:
-        _stamp_source_workbook(_workbook(sheets), PO, rows)
-    assert error.value.reason == 'MISSING_MARKER'
-    assert error.value.sheet == 'Chân ghế A'
-    assert 'SETUP' in str(error.value)
-    assert QR_MARKER_TEXT in str(error.value)
+    warnings = []
+    wb, placed, matched, unmatched = _stamp_source_workbook(
+        _workbook(sheets), PO, rows, warnings=warnings)
+    # File vẫn xuất được, không ném lỗi.
+    assert matched == 1 and unmatched == []
+    # Tem OP có ô QRCODE -> vẫn dán đúng ô marker; tem SETUP thiếu ô -> bỏ qua.
+    by_op = _by_operation(placed)
+    assert 201 not in by_op            # SETUP không được dán vào đâu cả
+    assert by_op[101]['placement'] == 'marker'
+    # Không có tem nào rơi vào làn tự đoán.
+    assert all(item['placement'] == 'marker' for item in placed)
+    # Cảnh báo chỉ đúng chỗ thiếu.
+    assert len(warnings) == 1
+    warn = warnings[0]
+    assert warn['reason'] == 'MISSING_MARKER'
+    assert warn['sheet'] == 'Chân ghế A'
+    assert warn['kind'] == 'SETUP'
+    assert warn['operation'] == 'PO-6126-KM-001-OP01'
+    assert 'SETUP' in warn['message'] and QR_MARKER_TEXT in warn['message']
+
+
+def test_mixed_blocks_cung_sheet_thieu_mot_block_van_xuat_va_canh_bao():
+    """CA USER BÁO: cùng một sheet, vài block có ô QRCODE, MỘT block thiếu.
+
+    Bối cảnh thật: sheet 'Chân ghế A - Trái', block dòng 8 (OP ...-OP01) thiếu ô
+    QRCODE trong khi các block khác của chính sheet đó đã có. Trước đây cả file
+    bị chặn (409). Luật đã chốt: thiếu ô ở BẤT KỲ block nào chỉ CẢNH BÁO ->
+      * các block có ô QRCODE vẫn được dán QR đúng ô của chúng,
+      * block thiếu bị BỎ QUA tem (không rơi vào làn tự đoán),
+      * cảnh báo chỉ đúng sheet + dòng block + Operation bị thiếu,
+      * và toàn file vẫn xuất ra được.
+    """
+    # 3 block trong CÙNG một sheet; block ĐẦU (dòng 8) không có ô QRCODE, hai
+    # block sau có. Marker OP nằm ở cột 14 (N), dòng = dòng block + 6.
+    wb = Workbook(); wb.remove(wb.active)
+    _sheet(wb, 'Chân ghế A - Trái', 'KM-967-232006L', [
+        ('CẮT',   0, None, None),   # block dòng 8  -> THIẾU ô QRCODE
+        ('CHẤN',  0, 14,   None),   # block dòng 20 -> có ô QRCODE ở N26
+        ('SƠN',   0, 14,   None),   # block dòng 32 -> có ô QRCODE ở N38
+    ])
+    buffer = BytesIO(); wb.save(buffer)
+    rows = [
+        _row(1, 'PO-6126-KM-967-232006L-OP01', 'CẮT', part_code='KM-967-232006L',
+             part_name='Chân ghế A - Trái'),
+        _row(2, 'PO-6126-KM-967-232006L-OP02', 'CHẤN', part_code='KM-967-232006L',
+             part_name='Chân ghế A - Trái', sort_order=1),
+        _row(3, 'PO-6126-KM-967-232006L-OP03', 'SƠN', part_code='KM-967-232006L',
+             part_name='Chân ghế A - Trái', sort_order=2),
+    ]
+    warnings = []
+    wb2, placed, matched, unmatched = _stamp_source_workbook(
+        buffer.getvalue(), PO, rows, warnings=warnings)
+
+    # 1) File vẫn xuất được: khớp cả 3 OP, không leftover, không ném lỗi.
+    assert matched == 3 and unmatched == []
+    out = BytesIO(); wb2.save(out)          # save() không được ném lỗi
+
+    # 2) Đúng một cảnh báo, chỉ thẳng sheet + dòng block + Operation bị thiếu.
+    assert len(warnings) == 1
+    warn = warnings[0]
+    assert warn['reason'] == 'MISSING_MARKER'
+    assert warn['sheet'] == 'Chân ghế A - Trái'
+    assert warn['block_row'] == 8
+    assert warn['operation'] == 'PO-6126-KM-967-232006L-OP01'
+    assert warn['kind'] == 'OP'
+    assert 'Chân ghế A - Trái' in warn['message']
+
+    # 3) Hai block có ô QRCODE vẫn được dán ĐÚNG ô của chúng; block thiếu bị bỏ
+    #    qua hoàn toàn -- không có tem nào rơi vào làn tự đoán.
+    by_op = _by_operation(placed)
+    assert set(by_op) == {2, 3}             # OP01 (thiếu) không có tem
+    assert by_op[2]['placement'] == 'marker' and by_op[2]['marker_cell'] == 'N26'
+    assert by_op[3]['placement'] == 'marker' and by_op[3]['marker_cell'] == 'N38'
+    assert all(item['placement'] == 'marker' for item in placed)
+
+    # 4) File xuất ra có ĐÚNG 2 ảnh QR (2 block có ô), neo đúng ô marker.
+    sheet = wb2['Chân ghế A - Trái']
+    assert len(sheet._images) == 2
+    anchored = {(_region_of(img)[0], _region_of(img)[1]) for img in sheet._images}
+    # 0-based: N=13, dòng 26->25, dòng 38->37.
+    assert anchored == {(13, 25), (13, 37)}
 
 
 def test_file_chua_co_marker_nao_thi_khong_bi_coi_la_thieu():

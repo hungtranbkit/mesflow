@@ -683,7 +683,7 @@ def _set_value_below(ws, label_cell, value):
     ws.cell(row=label_cell.row + 1, column=label_cell.column).value = value
 
 
-def _stamp_source_workbook(source_bytes, po, rows):
+def _stamp_source_workbook(source_bytes, po, rows, warnings=None):
     """Mở lại workbook gốc và đóng QR vào đúng block của từng Operation.
 
     HAI CHẾ ĐỘ ĐẶT TEM, marker thắng tuyệt đối:
@@ -693,11 +693,24 @@ def _stamp_source_workbook(source_bytes, po, rows):
       * không có marker -> giữ nguyên cách cũ: làn trống bên phải vùng dữ liệu.
 
     Chế độ quyết định theo CẢ WORKBOOK, không theo từng ô. Một tờ router là một
-    biểu mẫu: hoặc người vẽ đã chừa ô QRCODE, hoặc chưa. Workbook đã có marker
-    mà một block thiếu ô thì đó là biểu mẫu vẽ sót -> dừng và chỉ đúng chỗ,
-    KHÔNG lặng lẽ thả tem đó vào làn tự đoán. Hỏi theo từng ô thì file vẫn xuất
-    ra, vẫn đủ số tem, và cái sai chỉ lộ khi cầm tờ giấy in.
+    biểu mẫu: hoặc người vẽ đã chừa ô QRCODE, hoặc chưa.
+
+    Workbook đã có marker mà một block THIẾU ô QRCODE -> KHÔNG chặn cả file nữa
+    (luật user chốt: thiếu ô ở bất kỳ block nào chỉ CẢNH BÁO). Các block có ô
+    QRCODE vẫn được dán đúng ô; block thiếu thì bỏ qua tem của block đó và ghi
+    một cảnh báo (sheet/dòng/Operation/loại tem) vào ``warnings`` để route trả
+    ra. KHÔNG rơi về làn tự đoán cho block thiếu -- "đặt tùy ý cột/dòng" là thứ
+    hợp đồng cấm; thà bỏ trống tem đó và nói rõ còn hơn đặt sai chỗ lặng lẽ.
+
+    Lưu ý: đây CHỈ là ô QRCODE bị thiếu. Marker HỎNG (mồ côi ngoài block,
+    trùng loại trong một block) vẫn DỪNG cả lần xuất -- đó là template vẽ sai,
+    không phải vẽ sót.
+
+    ``warnings`` (tuỳ chọn): list mà người gọi truyền vào để nhận các cảnh báo
+    thiếu-marker; giữ nguyên bộ giá trị trả về 4 phần tử để không vỡ call-site.
     """
+    if warnings is None:
+        warnings = []
     blocks, starts, sheet_of_part = _index_source_blocks(source_bytes, po['code'])
     if not blocks:
         return None, [], 0, []
@@ -838,16 +851,29 @@ def _stamp_source_workbook(source_bytes, po, rows):
                 return
             if marker_mode == 'MARKER':
                 # Biểu mẫu đã chừa ô QRCODE ở chỗ khác, nghĩa là người vẽ nó
-                # quyết định chỗ dán. Thiếu một ô là biểu mẫu vẽ sót, không
-                # phải lời mời phần mềm tự chọn cột.
-                raise RouterMarkerError(
-                    f"Sheet '{sheet_name}': block dòng {excel_row} "
-                    f"(Operation {row['code']}) chưa có ô {QR_MARKER_TEXT} cho tem "
-                    f'{kind}, trong khi các block khác của file này đã có. Thêm ô '
-                    f'{QR_MARKER_TEXT} vào đúng block này rồi nhập lại Template '
-                    'nguồn; MESFlow không tự chọn cột/dòng thay biểu mẫu.',
-                    sheet=sheet_name, context=f'block dòng {excel_row}',
-                    reason='MISSING_MARKER', operation=row['code'])
+                # quyết định chỗ dán. Thiếu một ô ở block này là biểu mẫu vẽ
+                # SÓT -- không phải lời mời phần mềm tự chọn cột. Luật user chốt:
+                # thiếu ô QRCODE ở bất kỳ block nào CHỈ CẢNH BÁO, KHÔNG chặn cả
+                # file. Bỏ qua tem của riêng block này (không rơi về làn tự
+                # đoán -- "đặt tùy ý cột/dòng" là thứ hợp đồng cấm), các block
+                # có ô QRCODE vẫn được dán, và ghi rõ chỗ thiếu để người sửa
+                # biểu mẫu tới thẳng nơi cần bổ sung ô QRCODE.
+                warnings.append({
+                    'reason': 'MISSING_MARKER',
+                    'sheet': sheet_name,
+                    'block_row': excel_row,
+                    'operation': row['code'],
+                    'kind': kind,
+                    'message': (
+                        f"Sheet '{sheet_name}': block dòng {excel_row} "
+                        f"(Operation {row['code']}) chưa có ô {QR_MARKER_TEXT} cho "
+                        f'tem {kind}, trong khi các block khác của file này đã có. '
+                        f'Tem {kind} của block này được BỎ QUA; các block có ô '
+                        f'{QR_MARKER_TEXT} vẫn được dán bình thường. Thêm ô '
+                        f'{QR_MARKER_TEXT} vào đúng block này rồi nhập lại Template '
+                        'nguồn nếu muốn in tem cho công đoạn này.'),
+                })
+                return
             column = fallback_column()
             _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
                                  sheet=sheet_name, operation=row['code'])
@@ -923,7 +949,9 @@ def build_router_workbook(po_id: int):
             'đúng biểu mẫu Lộ trình sản xuất. Hãy nhập lại file Excel Router của '
             'Template nguồn (Template → Công cụ → Nhập từ Excel), rồi xuất lại.',
             reason='NO_SOURCE_WORKBOOK')
-    wb, placed, matched, unmatched = _stamp_source_workbook(source['data'], po, rows)
+    missing_markers = []
+    wb, placed, matched, unmatched = _stamp_source_workbook(
+        source['data'], po, rows, warnings=missing_markers)
     if wb is None:
         raise RouterSourceUnavailable(
             f"File Excel gốc đang lưu ({source['filename']}) không đọc được thành các "
@@ -955,7 +983,8 @@ def build_router_workbook(po_id: int):
             f'{listed}{more}. Nhiều khả năng file đang lưu không phải file đã tạo ra PO '
             'này. Hãy nhập lại đúng file Lộ trình sản xuất của Template nguồn rồi xuất lại.',
             reason='UNMATCHED_OPERATIONS')
-    return po, wb, placed, {**source, 'matched': matched, 'unmatched': []}
+    return po, wb, placed, {**source, 'matched': matched, 'unmatched': [],
+                            'missing_markers': missing_markers}
 
 
 def _router_filename(po_code: str) -> str:
@@ -981,6 +1010,21 @@ MARKER_MODE_NONE_WARNING = (
 def _marker_mode(placed):
     """'MARKER' nếu file nguồn có chừa ô QRCODE, 'NONE' nếu đi làn tự đoán."""
     return 'MARKER' if any(p.get('placement') == 'marker' for p in placed) else 'NONE'
+
+
+def _router_warnings(placed, source):
+    """Mọi cảnh báo NON-FATAL của một lần xuất, dạng câu chữ cho người dùng.
+
+    Hai nguồn, cùng một tinh thần "file vẫn xuất, nhưng phải NÓI RA":
+
+      * cả workbook không có ô QRCODE nào -> tem đi làn tự đoán (MODE_NONE).
+      * workbook CÓ ô QRCODE nhưng vài block thiếu -> tem của block đó bị bỏ qua.
+    """
+    out = []
+    if _marker_mode(placed) == 'NONE':
+        out.append(MARKER_MODE_NONE_WARNING)
+    out.extend(w['message'] for w in source.get('missing_markers', []))
+    return out
 
 
 def _content_disposition(filename: str) -> str:
@@ -1013,6 +1057,10 @@ def export_production_order_router(po_id: int):
         response.headers['X-MESFlow-Router-Matched'] = str(source['matched'])
         response.headers['X-MESFlow-Router-Unmatched'] = str(len(source['unmatched']))
         response.headers['X-MESFlow-Router-Marker-Mode'] = _marker_mode(placed)
+        # Block thiếu ô QRCODE không còn chặn xuất -- nhưng tờ giấy ra sẽ THIẾU
+        # tem ở những block đó, nên phải nói ra qua header để giao diện cảnh báo.
+        missing = source.get('missing_markers', [])
+        response.headers['X-MESFlow-Router-Missing-Markers'] = str(len(missing))
         return response
     except (RouterMarkerError, RouterPlacementError, RouterBlockTemplateError) as exc:
         # Cùng họ 409: file hợp lệ về mặt HTTP nhưng nội dung chưa cho phép dán
@@ -1044,7 +1092,8 @@ def preview_router_labels(po_id: int):
                                     'import_id': source['import_id'],
                                     'imported_at': source['imported_at']},
                        marker_mode=mode,
-                       warnings=([MARKER_MODE_NONE_WARNING] if mode == 'NONE' else []),
+                       warnings=_router_warnings(placed, source),
+                       missing_markers=source.get('missing_markers', []),
                        matched=source['matched'], unmatched=source['unmatched'])
     except (RouterMarkerError, RouterPlacementError, RouterBlockTemplateError) as exc:
         return jsonify(ok=False, message=str(exc), reason=exc.reason,
