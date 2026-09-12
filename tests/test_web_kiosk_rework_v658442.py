@@ -22,6 +22,9 @@ def test_web_kiosk_rework_flow_contract():
 def test_web_kiosk_keyboard_shortcuts():
     js = (ROOT / 'app/mesflow/web/static/kiosk.js').read_text(encoding='utf-8')
     assert "state === 'finish-confirm'" in js
-    assert "event.key === '#'" in js
+    # Phím xác nhận của WEB là Enter. `#` đã được gỡ khỏi Kiosk web 2026-09-12:
+    # bàn phím số rời (thứ người đứng máy thật sự dùng) không có phím đó.
+    assert "event.key === 'Enter'" in js
+    assert "event.key === '#'" not in js, 'Kiosk web không được xử lý `#` nữa'
     assert "event.key === '*'" in js
     assert "state === 'ask-rework'" in js

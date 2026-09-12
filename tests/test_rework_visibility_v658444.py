@@ -41,4 +41,6 @@ def test_kiosk_rework_hint_visible():
 
     js = text('app/mesflow/web/static/kiosk.js')
     assert "if (event.key === '1') { event.preventDefault(); chooseRework(); }" in js
-    assert "event.key === '2' || event.key === '#' || event.key === 'Enter'" in js
+    # `#` đã rời ánh xạ phím của WEB (P1 2026-09-12): bàn phím số rời không có
+    # phím đó. ESP giữ `#` — thiết bị khác, firmware khác, xem §2.2 của doc trên.
+    assert "event.key === '2' || event.key === 'Enter'" in js

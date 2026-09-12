@@ -2120,6 +2120,66 @@ must be an Operation whose start the user can then actually SEE.
   paused PO), PO isolation, identity (two Operations sharing a NAME never swap
   places), time behaviour (arrives within the refresh cycle, no reload).
 
+### REQ-KIOSK-015 — Web Kiosk: the confirm key is `Enter`, and a detached numeric keypad must work
+
+> **Source of truth:** the key the web Kiosk tells someone to press must be a key
+> that EXISTS on the keyboard in front of them. Operators use a **detached
+> numeric keypad**, and a numeric keypad has no `#` key.
+
+- **Module**: the **web Kiosk** (`/kiosk`) quantity-entry flow. This entry governs
+  the keyboard mapping of the web surface and **only** the web surface.
+- **ESP IS NOT TOUCHED**: the ESP v2 device's 4×4 membrane keypad has a
+  **physical** `#` and the firmware still uses it. REQ-KIOSK-002 is unchanged;
+  no payload field changes, no state changes. Both mappings side by side in
+  `docs/KIOSK_ESP_PARITY.md` §2.5.
+- **Purpose**: an operator types quantities one-handed on the number pad and then
+  **has no way to confirm** — the screen prints `#`, and their keypad has no such
+  key.
+- **Actors**: shop-floor worker. **Preconditions**: in the quantity-entry flow.
+  **Trigger**: pressing the confirm key.
+
+**Why it changes — and why only half of it changes**
+
+| | ESP v2 keypad (4×4 membrane) | The operator's detached numeric keypad |
+|---|---|---|
+| has `#` | **yes** | **NO** (`#` is Shift+3 on the main block) |
+| has `*` | yes | **yes** |
+| has `Enter` | no | **yes**, and it is the largest key on the pad |
+
+Therefore: **the confirm key becomes `Enter`**, and **the back key `*` stays**.
+The change is deliberately **asymmetric**, because the hardware is asymmetric.
+
+**Contract**
+
+| Item | Requirement |
+|---|---|
+| Confirm key | `Enter` confirms/advances on **every** screen of the flow: good quantity, defect quantity, "repairable?", repairable quantity, confirm, and retry. |
+| Both Enter keys | The main-block Enter and the numpad Enter must both work. Both reach the browser with `event.key === 'Enter'`; they differ only in `event.code` (`Enter` / `NumpadEnter`). |
+| One press, one action | A single press must produce **exactly one** action — never crossing two screens, never submitting twice. Adding an `event.code === 'NumpadEnter'` branch next to the `event.key` branch is **prohibited**: it matches a second time on the same press. |
+| `#` is removed outright | The web Kiosk no longer handles `#` and no longer prints `#` in any label or hint. Label and behaviour must say the same thing; leaving `#` working silently just creates a secret key. |
+| `*` unchanged | `*` still goes back — a numeric keypad has that key. |
+| Buttons still work | Every on-screen button (`TIẾP TỤC`, `XÁC NHẬN`, `QUAY LẠI`, `THỬ LẠI`) keeps working by mouse/touch; the keyboard is an **additional** path, not a replacement. |
+| Num Lock hint | The three quantity screens carry a fixed hint line: `Bấm Enter để tiếp tục. Nếu phím số không hoạt động, hãy bật Num Lock trên bàn phím rời.` |
+| No layout shift | The hint is **always** in the markup (no popup, no conditional reveal) and sits **after** the button row in the DOM, so it cannot push the `TIẾP TỤC` button by a single pixel — a precondition for REQ-KIOSK-013's measured layout rule to keep holding. |
+
+- **Errors / special states**: unchanged. An untouched quantity field still
+  **stays on its screen** and shows its validation line (REQ-KIOSK-013) — `Enter`
+  must never answer on the operator's behalf. A SETUP session still finishes
+  `0/0` without the quantity screens.
+- **Boundary**: holding `Enter` (auto-repeat); repeated `Enter` while a submit is
+  in flight (exactly one submit — `request_id` plus the `submitting` flag);
+  pressing `#` (must do nothing); 390px width.
+- **Permission / audit**: unchanged. The web Kiosk stays a public surface
+  (REQ-KIOSK-001).
+- **Related**: REQ-KIOSK-011 (the finish flow), REQ-KIOSK-013 (the measured
+  layout rule this must not break), REQ-KIOSK-002 (ESP, **unchanged**),
+  `docs/KIOSK_ESP_PARITY.md` §2.1/§2.2/§2.3/§2.5/§6.
+- **Priority**: P1.
+- **Dimensions**: positive (Enter and NumpadEnter drive the whole flow), one
+  press = one action, negative (`#` does nothing and appears in no text), `*`
+  still goes back, geometry (hint sits below the button row; does not move when
+  a validation line appears), 390px.
+
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 
 Full detail in §6.4 and §4.10's `work_shifts`/`work_shift_intervals`
@@ -2702,6 +2762,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-011 (web Kiosk ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (incl. the "Ô XÁC NHẬN nằm bên phải" group — real measured geometry, desktop and 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-KIOSK-013 (web Kiosk touch safety — a repeated tap must not cross screens) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; measured band non-intersection, soft-keyboard/IME path, negative proof by mutation) | A |
 | REQ-KIOSK-014 (scannable means visible — kiosk ↔ control-room board) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 cases: both a PRODUCTION and a SETUP start reach the board, KPIs reconciled against the database, a refused start yields no task, paused PO, PO isolation, two same-named Operations never swap, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (locks `BOARD_TASK_TYPES == STARTABLE_TYPES` and keeps `daily_progress()`'s production-only default), `tests/e2e/daily-dashboard-kiosk.spec.js` (a new task arrives within the refresh cycle with no reload; a support row does not borrow the output cell) | A — negative proof: with the fix reverted 3 tests fail (`assert 1 == 2` on the KPI) and the 7 guard tests stay green |
+| REQ-KIOSK-015 (web Kiosk: `Enter` confirm key + Num Lock hint; ESP unchanged) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 cases: Enter and NumpadEnter drive the whole flow, one press = one action, repeated presses mid-submit still yield exactly ONE submit, `#` does nothing and appears in no text, `*` still goes back, hint sits below the button row / does not move when validation appears / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (measured layout rule still holds), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (static labels + key mapping), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
