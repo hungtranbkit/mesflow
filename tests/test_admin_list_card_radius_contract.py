@@ -65,8 +65,14 @@ def test_card_shape_is_owned_by_one_rule():
     body = m.group(1)
     assert 'border-radius:var(--radius-surface)!important' in body, body
     # .part-block defines its own shape and must stay excluded, or the Part
-    # block at PO detail and at Template editor drift apart again.
-    assert ':not(.part-block)' in CSS
+    # block at PO detail and at Template editor drift apart again. The
+    # exclusion list holds more than one selector now, so check MEMBERSHIP
+    # rather than one exact spelling -- pinning the literal string made this
+    # test fail the moment a second, legitimate exclusion was added.
+    excluded = re.search(r':where\(:not\(([^)]*)\)\)', CSS)
+    assert excluded, 'the :not(...) exclusion on the card-shape rule is gone'
+    names = {part.strip() for part in excluded.group(1).split(',')}
+    assert '.part-block' in names, names
 
 
 def test_op_list_container_uses_a_container_radius():
