@@ -7,13 +7,21 @@ from mesflow import __version__
 from mesflow.domain.qr_identity import (AmbiguousEmployeeQR, AmbiguousOperationQR,
                                         is_operation_qr, resolve_employee_id, resolve_operation_id)
 from mesflow.domain.policy import STARTABLE_TYPES, type_in_sql
-from mesflow.web.auth import login_required, production_client_required
+from mesflow.web.auth import kiosk_public, login_required
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
 from mesflow.domain.errors import PermissionDeniedError
 
 bp = Blueprint('web_kiosk', __name__)
+
+# PUBLIC KIOSK SURFACE (business owner decision, 2026-09-12). Every route in
+# this module is reachable by a workshop machine that has never logged in and
+# has no session cookie: /kiosk and /kiosk/employee-productivity render
+# directly, and scan/start/finish carry @kiosk_public (see web/auth.py for the
+# full boundary rationale). Operator identity comes from the scanned employee
+# badge, never from a web account. The ONE exception is /api/kiosk-web/demo-
+# data below, which stays @login_required because it dumps badge QR values.
 
 # Danh sách việc trên kiosk chỉ được chứa loại Operation MỞ ĐƯỢC session.
 # lock_startable_operation() từ chối bàn SỬA HÀNG, nên liệt kê nó ở đây là đưa
@@ -137,7 +145,7 @@ def kiosk_demo_data():
 
 
 @bp.post('/api/kiosk-web/scan')
-@production_client_required
+@kiosk_public
 def kiosk_scan():
     body = request.get_json(silent=True) or {}
     qr = _normalize_qr(body.get('qr'))
@@ -228,7 +236,7 @@ def kiosk_scan():
 
 
 @bp.post('/api/kiosk-web/start')
-@production_client_required
+@kiosk_public
 def kiosk_start():
     body = request.get_json(silent=True) or {}
     try:
@@ -245,7 +253,7 @@ def kiosk_start():
 
 
 @bp.post('/api/kiosk-web/finish/<int:session_id>')
-@production_client_required
+@kiosk_public
 def kiosk_finish(session_id: int):
     body = request.get_json(silent=True) or {}
     try:

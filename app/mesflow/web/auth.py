@@ -161,6 +161,56 @@ def roles_required(*allowed_roles):
         return wrapped
     return decorate
 
+# --------------------------------------------------------------------------
+# PUBLIC KIOSK BOUNDARY
+# --------------------------------------------------------------------------
+# The shop-floor Kiosk web surface is a PUBLIC operational surface: a machine
+# in the workshop opens /kiosk directly and must work with no web account, no
+# login page, and no browser session at all. The person doing the work is
+# identified by scanning their employee badge/QR -- never by a web login.
+#
+# This decorator is that boundary, stated once and explicitly (rather than a
+# scattering of "no decorator here" holes), so the set of anonymous-reachable
+# routes is a single greppable list: `grep -rn kiosk_public app/`.
+#
+# HISTORY -- this deliberately reverses part of the 2026-09-09 P0-2 fix, which
+# put production_client_required() on scan/start/finish. That fix was correct
+# about the risk but wrong about the deployment: it assumed a shop-floor
+# terminal could always carry a device token, and in practice it locked real
+# workshop machines out of the kiosk entirely. Business owner confirmed
+# (2026-09-12) that the kiosk web surface must open directly. What the P0-2
+# fix protected that is NOT reopened:
+#   * /api/kiosk-web/demo-data stays @login_required -- it dumps the whole
+#     employee roster INCLUDING every badge QR value, which is a credential.
+#     A real terminal never calls it (a real scanner types into the input);
+#     only the on-screen demo scanner does, and that is an admin tool.
+#   * every Admin/Dashboard/PO/Session/Exception/Template/kiosk-management API
+#     keeps its own decorator, untouched.
+# What still protects the reopened routes: the business guards, the
+# request_id idempotency keys and the audit trail in WorkSessionRepository,
+# all of which are independent of who is (or is not) signed in.
+def kiosk_public(fn):
+    """Marks a route as part of the public Kiosk operational surface.
+
+    Anonymous callers are allowed through. An X-Kiosk-Token header is still
+    OPTIONAL extra device identity -- but if one is presented it must be a
+    valid, enabled kiosk token: claiming a device identity you no longer hold
+    is an error, not a silent downgrade to anonymous, so an admin disabling a
+    kiosk in /kiosk-management still takes effect immediately for that device.
+    """
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        token=str(request.headers.get('X-Kiosk-Token') or '').strip()
+        if token:
+            try:
+                from mesflow.db.repositories.execution import KioskRepository
+                KioskRepository().verify_token_any(token)
+            except Exception:
+                return jsonify(ok=False,error='FORBIDDEN',message='Kiosk token is invalid or disabled'),403
+        return fn(*args, **kwargs)
+    return wrapped
+
+
 def production_client_required(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):

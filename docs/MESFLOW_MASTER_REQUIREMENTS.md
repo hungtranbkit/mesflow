@@ -854,8 +854,53 @@ changes `status`. Each writes its own domain event
 
 ### 7.1 Kiosk v1 (browser-based, `/kiosk`, `/api/kiosk-web/*`)
 
-No device-token auth — a lighter, browser-facing flow intended for
-demo/manual testing on any browser that can reach the app.
+**The Kiosk web surface is a PUBLIC operational surface. It does NOT require
+a web account login; the worker is identified by scanning their employee
+badge/QR.** A machine on the shop floor opens `/kiosk` directly, has never
+signed in, has no session cookie, and must keep working across a reload and
+after any cookie expires. It must never be redirected to `/login` and must
+never show a login prompt or guard modal.
+
+Server-side this boundary is a single explicit decorator,
+`kiosk_public` in `app/mesflow/web/auth.py` — deliberately one named,
+greppable marker rather than a scattering of undecorated routes, so the set
+of anonymous-reachable endpoints can be audited at a glance.
+
+The public surface is exactly:
+
+| Endpoint | Why it is public |
+|---|---|
+| `GET /kiosk` | The operating terminal itself |
+| `GET /kiosk/employee-productivity` | Wall-mounted TV display; nobody is signed in at a TV |
+| `GET /api/kiosk-web/health` | Liveness probe |
+| `POST /api/kiosk-web/heartbeat` | Device liveness + deploy-version check |
+| `POST /api/kiosk-web/scan` | Badge/Operation identification |
+| `POST /api/kiosk-web/start` | Open a work session |
+| `POST /api/kiosk-web/finish/<id>` | Close a work session + quantities |
+
+What is **not** opened, and why:
+
+* `GET /api/kiosk-web/demo-data` stays signed-in only. It returns the whole
+  employee roster *including every badge QR value*, which is a credential —
+  publishing it is equivalent to publishing everyone's key. A real terminal
+  never calls it (a real scanner types into the input field); only the
+  on-screen demo scanner does, and that is an admin tool.
+* Every Admin / Dashboard / Production-Order / Session-management /
+  Exception / Template / Kiosk-management API keeps its own decorator,
+  unchanged. The control-room board APIs (`/api/kiosk-board*`) stay
+  signed-in only: that screen is a page *inside* the authenticated `/app`
+  SPA (`dashboard.view`), not a public URL — see REQ-KIOSK-010.
+
+An `X-Kiosk-Token` header remains **optional** extra device identity. A
+terminal that presents one must present a valid, enabled one: a revoked
+token is rejected (403) rather than silently downgraded to anonymous, so
+disabling a kiosk in Kiosk Management still cuts that device off.
+
+No CSRF token is involved: these routes read no ambient credential at all,
+so there is nothing for a cross-site request to borrow. Duplicate-submit
+protection is unchanged and independent of auth — it is the `request_id`
+idempotency key enforced in the repository (see REQ-SESS-001/002), as are
+the business guards and the audit trail.
 
 | Step | Endpoint | Input | Success | Failure |
 |---|---|---|---|---|
@@ -1859,8 +1904,11 @@ are the test-entry-points into it.
 
 - **Module**: Kiosk v1
 - **Purpose**: Manual/demo-friendly browser-based kiosk flow.
-- **Actors**: no role check — browser-facing, unauthenticated device flow (§7.1).
-- **Preconditions**: valid employee/Operation QR values exist.
+- **Actors**: no role check and **no web account login** — the Kiosk web
+  surface is a public operational surface (§7.1). The operator is identified
+  by the employee badge/QR they scan, never by a browser session.
+- **Preconditions**: valid employee/Operation QR values exist. Explicitly NOT
+  a precondition: a logged-in browser, a session cookie, or a device token.
 - **Input**: `{qr}` per scan; start/finish inputs identical to REQ-SESS-001/002.
 - **Trigger**: `POST /api/kiosk-web/scan`, `/start`, `/finish/<id>`.
 - **Main flow**: §7.1's 3-step table.
@@ -1870,10 +1918,18 @@ are the test-entry-points into it.
 - **Validation**: `qr` required and non-empty for scan.
 - **Errors**: empty `qr` → `400 QR_REQUIRED`, `error_code SCN-001`, "Chưa nhận được mã quét", action hint "Kiểm tra nguồn và dây máy quét, rồi quét lại."; all downstream errors identical to REQ-SESS-001/002.
 - **Boundary**: same as REQ-SESS-001/002 (this is the same business logic reached through a different door).
-- **Permission**: N/A (no role gate on this flow).
-- **Concurrency**: same idempotency guarantees as REQ-SESS-001/002.
-- **Audit**: same as REQ-SESS-001/002.
-- **Related**: §7.1, REQ-SESS-001/002.
+- **Permission**: N/A (no role gate, and no login gate, on this flow). The
+  page must not redirect to `/login` or show a login modal for an anonymous
+  browser; a reload after any cookie expires must stay on the Kiosk and keep
+  working. Scope is strictly §7.1's table — no management API is opened.
+- **Concurrency**: same idempotency guarantees as REQ-SESS-001/002 —
+  `request_id` dedupe lives in the repository and is unaffected by the caller
+  being anonymous.
+- **Audit**: same as REQ-SESS-001/002. `action_logs` records an empty actor
+  for an anonymous kiosk call; the business record's actor is the scanned
+  employee, which is the identity that matters for production.
+- **Related**: §7.1, REQ-SESS-001/002, REQ-KIOSK-010 (control-room board —
+  a DIFFERENT screen that stays signed-in only).
 - **Priority**: P0.
 - **Dimensions**: positive, negative, boundary.
 
@@ -2568,7 +2624,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-PO-*, REQ-PART-*, REQ-TPL-* | `tests/e2e/catalog-crud.spec.js`, `catalog-visual.spec.js`, `template-ui.spec.js`; `test_p1_audit_2026_08_28.py`, `test_production_state_integrity.py`, `test_production_consistency_p1.py` | A (P for PO-transition rules beyond the enum, §5.3 gap) |
 | REQ-EMP-* | `tests/e2e/catalog-crud.spec.js` | P — no dedicated employee-lifecycle test file |
 | REQ-SESS-* | `test_session_lifecycle_state_machine_property.py`, `test_session_lifecycle_observability_phase13.py`, `test_session_overlap_and_exceptions.py`, `test_shift_session_lifecycle.py`, `test_write_path_po_lock_contention.py`, `tests/e2e/session-management-*.spec.js` (3 files) | A |
-| REQ-KIOSK-001 (v1) | `tests/e2e/kiosk-setup-flow.spec.js`, `tests/e2e/kiosk-quantity-entry-p0.spec.js`, `tests/e2e/kiosk-result-auto-return.spec.js` (15 s screen lifecycle, fake clock), `tests/test_kiosk_web_result_auto_return_15s.py`; otherwise indirect via `tests/e2e/mesflow.spec.js` | P (A for the screen lifecycle) |
+| REQ-KIOSK-001 (v1) | `tests/test_public_kiosk_boundary_contract.py` (public boundary, source-level), `tests/e2e/kiosk-public-no-login.spec.js` (real browser, blank context), `tests/integration/test_p0_scan_auth_and_support_op_rollups.py` (anonymous scan/start/finish end to end, idempotency under anonymous retry, and the paired negative: management APIs still 401/403), `tests/e2e/kiosk-setup-flow.spec.js`, `tests/e2e/kiosk-esp-parity.spec.js`, `tests/e2e/kiosk-quantity-entry-p0.spec.js`, `tests/e2e/kiosk-result-auto-return.spec.js` (15 s screen lifecycle, fake clock), `tests/test_kiosk_web_result_auto_return_15s.py`; otherwise indirect via `tests/e2e/mesflow.spec.js` | A |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — most heavily tested module in the system |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-011 (web Kiosk ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (incl. the "Ô XÁC NHẬN nằm bên phải" group — real measured geometry, desktop and 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |

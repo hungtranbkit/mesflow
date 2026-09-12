@@ -7,7 +7,12 @@ behaviour rather than a comment promising not to do it again.
   P0-1  the legacy ESP validation endpoint refused every id-based QR payload,
         which made SETUP labels unscannable on older firmware
   P0-2  /api/kiosk-web/* accepted unauthenticated production writes and served
-        the whole employee roster (badge QR values included) to the internet
+        the whole employee roster (badge QR values included) to the internet.
+        SUPERSEDED IN PART, 2026-09-12: the business owner confirmed the Kiosk
+        web surface is a PUBLIC operational surface -- a workshop machine opens
+        /kiosk with no web account at all -- so scan/start/finish are anonymous
+        again, deliberately and with tests that say so. The roster half of the
+        fix stands: demo-data is still signed-in only.
   P1-e  support Operations were counted as production Operations in four
         management rollups, permanently deflating progress
 """
@@ -75,32 +80,85 @@ def _anon():
     return requests.Session()
 
 
-def test_kiosk_web_writes_reject_an_unauthenticated_caller(seeded_factory):
-    """These three endpoints write the authoritative production record.
+def test_kiosk_web_writes_accept_an_anonymous_workshop_browser(seeded_factory):
+    """The Kiosk web surface is PUBLIC (business owner decision, 2026-09-12).
 
-    Until this fix they carried no decorator at all: anyone who could reach
-    the host could open and close work sessions in a real employee's name, and
-    close a session out from under a worker who was mid-task.
+    A machine on the shop floor opens /kiosk directly: no web account, no
+    login page, no session cookie -- ever. It must be able to run the whole
+    scan -> start -> finish loop anonymously, because the person doing the
+    work is identified by the badge they scan, not by a browser login.
+
+    This supersedes the 2026-09-09 P0-2 decision that put
+    production_client_required() on these three routes. That decorator
+    assumed every shop-floor terminal could carry a device token; in
+    practice it locked the real workshop machines out of the kiosk. The
+    roster endpoint below stays closed -- that part of P0-2 still stands.
     """
     graph = seeded_factory
     anon = _anon()
 
     scan = anon.post(f'{BASE_URL}/api/kiosk-web/scan',
                      json={'qr': f"WF|EMP|TEST-{graph['suffix']}"}, timeout=15)
-    assert scan.status_code in (401, 403), scan.text
+    assert scan.status_code == 200, scan.text
+    assert scan.json()['employee']['id'] == graph['employee_id']
 
-    start = anon.post(f'{BASE_URL}/api/kiosk-web/start', json={
+    started = anon.post(f'{BASE_URL}/api/kiosk-web/start', json={
         'employee_id': graph['employee_id'], 'operation_id': graph['operation_id'],
-        'request_id': f'ANON-{uuid.uuid4()}'}, timeout=15)
-    assert start.status_code in (401, 403), start.text
+        'station_id': graph['station_id'], 'device_uuid': f"ANON-{graph['suffix']}",
+        'request_id': f'ANON-START-{uuid.uuid4()}'}, timeout=15)
+    assert started.status_code == 201, started.text
+    session_id = started.json()['session']['id']
 
-    finish = anon.post(f'{BASE_URL}/api/kiosk-web/finish/1',
-                       json={'good_qty': 5, 'request_id': f'ANON-{uuid.uuid4()}'}, timeout=15)
-    assert finish.status_code in (401, 403), finish.text
+    finished = anon.post(f'{BASE_URL}/api/kiosk-web/finish/{session_id}',
+                         json={'good_qty': 5, 'defect_qty': 0,
+                               'request_id': f'ANON-FINISH-{uuid.uuid4()}'}, timeout=15)
+    assert finished.status_code == 200, finished.text
 
-    # Nothing was written by any of the three.
-    assert anon.get(f'{BASE_URL}/api/kiosk-web/health', timeout=15).status_code == 200, \
-        'the unauthenticated health probe must keep working'
+    assert anon.get(f'{BASE_URL}/api/kiosk-web/health', timeout=15).status_code == 200
+
+
+def test_anonymous_kiosk_start_is_still_idempotent(seeded_factory):
+    """Opening the surface must not cost the duplicate-submit protection.
+
+    request_id idempotency lives in the repository, not in the auth layer, so
+    a retry from an anonymous kiosk (flaky shop-floor Wi-Fi, operator double-
+    tap) still returns the same session instead of opening a second one.
+    """
+    graph = seeded_factory
+    anon = _anon()
+    request_id = f'ANON-IDEM-{uuid.uuid4()}'
+    body = {'employee_id': graph['employee_id'], 'operation_id': graph['operation_id'],
+            'station_id': graph['station_id'], 'device_uuid': f"ANON-{graph['suffix']}",
+            'request_id': request_id}
+
+    first = anon.post(f'{BASE_URL}/api/kiosk-web/start', json=body, timeout=15)
+    assert first.status_code == 201, first.text
+    replay = anon.post(f'{BASE_URL}/api/kiosk-web/start', json=body, timeout=15)
+    assert replay.status_code == 201, replay.text
+    assert replay.json()['session']['id'] == first.json()['session']['id']
+
+
+def test_opening_the_kiosk_did_not_open_the_admin_apis(seeded_factory):
+    """The public boundary is the kiosk surface and nothing else.
+
+    Same anonymous client that just ran a production session above must still
+    be refused by every management API -- this is the regression that would
+    turn a scoped kiosk fix into a full auth bypass.
+    """
+    anon = _anon()
+    for path in ('/api/employees',
+                 '/api/production-orders',
+                 '/api/session-management/sessions',
+                 '/api/session-exceptions',
+                 '/api/templates',
+                 '/api/kiosks',
+                 '/api/users',
+                 '/api/system/action-logs',
+                 '/api/kiosk-board',
+                 '/api/kiosk-board/activity',
+                 '/api/kiosk-board/po-options'):
+        response = anon.get(f'{BASE_URL}{path}', timeout=15)
+        assert response.status_code in (401, 403), f'{path} is reachable anonymously: {response.text[:200]}'
 
 
 def test_employee_roster_is_not_public(seeded_factory):
@@ -259,10 +317,12 @@ def test_an_admin_can_issue_a_kiosk_token_and_that_token_works(api, db, seeded_f
         'announcing itself must NOT hand a device a credential -- an admin issues it'
 
     try:
-        # ...and until then it cannot write, even though its row says ACTIVE.
+        # ...and it can already work, because the kiosk surface is public
+        # (2026-09-12). Enrollment is about binding a terminal to a station
+        # and being able to CUT IT OFF later, not about unlocking the kiosk.
         unenrolled = requests.post(f'{BASE_URL}/api/kiosk-web/scan',
                                    json={'qr': f"WF|EMP|TEST-{graph['suffix']}"}, timeout=15)
-        assert unenrolled.status_code in (401, 403), unenrolled.text
+        assert unenrolled.status_code == 200, unenrolled.text
 
         # 2. The admin issues a token against a real station.
         issued = api.post(f"{BASE_URL}/api/kiosk-identities/{identity['id']}/approve",
@@ -287,6 +347,10 @@ def test_an_admin_can_issue_a_kiosk_token_and_that_token_works(api, db, seeded_f
         stale = client.post(f'{BASE_URL}/api/kiosk-web/scan',
                             json={'qr': f"WF|EMP|TEST-{graph['suffix']}"}, timeout=15)
         assert stale.status_code in (401, 403), 'the previous token must stop working'
+        # The revoked token is refused rather than silently downgraded to the
+        # anonymous public path -- otherwise revocation would be a no-op and
+        # an admin would have no way to cut a specific terminal off at all.
+        assert client.headers['X-Kiosk-Token'] == token
     finally:
         with db.cursor() as cur:
             cur.execute('DELETE FROM kiosk_status WHERE device_uuid=%s', (device,))

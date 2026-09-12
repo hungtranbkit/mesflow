@@ -165,17 +165,21 @@
     'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra session đang mở.',
     'QTY-409':'Giảm số lượng hoặc kiểm tra sản lượng OP nguồn.',
     'NET-001':'Kiểm tra Wi-Fi/LAN và địa chỉ máy chủ.',
-    'AUTH_REQUIRED':'Máy này chưa được cấp token. Nhờ quản trị viên cấp token cho kiosk rồi mở lại màn hình bằng đường dẫn kèm token, hoặc đăng nhập trên máy này.',
-    'FORBIDDEN':'Token của máy này đã bị thu hồi hoặc hết hiệu lực. Nhờ quản trị viên cấp lại.',
+    'AUTH_REQUIRED':'Màn hình này không cần đăng nhập. Nếu vẫn báo lỗi, chụp màn hình và báo quản trị viên.',
+    'FORBIDDEN':'Token của máy này đã bị thu hồi hoặc hết hiệu lực. Nhờ quản trị viên cấp lại, hoặc xóa token trên máy này để dùng ở chế độ công khai.',
     'SYS-500':'Báo quản trị viên kèm mã lỗi này.'
   };
   function workerError(data,status) {
     const raw=`${data?.reason||''} ${data?.message||''}`.toUpperCase();
-    // Not enrolled / token revoked: the operator can do nothing at the screen
-    // itself, so say who to ask instead of showing a raw auth failure.
-    if(status===401||status===403)
-      return {message:'Máy kiosk này chưa được cấp quyền ghi dữ liệu.',
-              action:ERROR_HELP[status===401?'AUTH_REQUIRED':'FORBIDDEN']};
+    // The kiosk surface itself needs no login (see web/auth.py kiosk_public),
+    // so a 401 here is an unexpected server-side condition, not "please sign
+    // in" -- never tell a worker at a locked-down machine to log in. A 403 is
+    // still real and actionable: this machine is carrying a kiosk token that
+    // an admin has since revoked.
+    if(status===403)
+      return {message:'Token của máy kiosk này đã bị thu hồi.',action:ERROR_HELP['FORBIDDEN']};
+    if(status===401)
+      return {message:'Máy chủ từ chối yêu cầu của kiosk.',action:ERROR_HELP['AUTH_REQUIRED']};
     if(raw.includes('COMPLETED'))return {message:'Công đoạn này đã hoàn thành.',action:'Chọn công đoạn khác hoặc báo quản đốc nếu cần làm lại.'};
     if(raw.includes('CANCELLED'))return {message:'Công đoạn này đã bị hủy.',action:'Không tiếp tục sản xuất. Hỏi quản đốc để được điều phối.'};
     if(raw.includes('WIP=0')||raw.includes('NO_WIP'))return {message:'Chưa có sản phẩm đầu vào.',action:'Chờ WIP từ công đoạn trước hoặc báo quản đốc.'};

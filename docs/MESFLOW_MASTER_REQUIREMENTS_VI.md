@@ -880,9 +880,53 @@ dòng hay đổi `status`. Mỗi hành động ghi domain event riêng
 
 ### 7.1 Kiosk v1 (chạy trên trình duyệt, `/kiosk`, `/api/kiosk-web/*`)
 
-Không có xác thực bằng token thiết bị — một luồng nhẹ hơn, hướng tới
-trình duyệt, dành cho demo/kiểm thử thủ công trên bất kỳ trình duyệt
-nào có thể truy cập app.
+**Kiosk web là bề mặt vận hành CÔNG KHAI, không yêu cầu đăng nhập tài khoản
+web; nhân viên được nhận diện bằng thẻ/QR.** Máy đặt ngoài xưởng mở thẳng
+`/kiosk`, chưa từng đăng nhập, không có cookie phiên, và phải chạy được cả
+khi tải lại trang cũng như sau khi cookie hết hạn. Tuyệt đối không được
+chuyển hướng về `/login`, không hiện modal hay guard đòi đăng nhập.
+
+Phía máy chủ, ranh giới này là MỘT decorator duy nhất, có tên rõ ràng:
+`kiosk_public` trong `app/mesflow/web/auth.py` — cố ý dùng một dấu hiệu tra
+cứu được bằng `grep` thay vì rải rác các route "quên" decorator, để tập
+endpoint ẩn danh truy cập được luôn kiểm tra được trong một lần nhìn.
+
+Bề mặt công khai gồm đúng những endpoint sau:
+
+| Endpoint | Vì sao công khai |
+|---|---|
+| `GET /kiosk` | Chính màn hình thao tác |
+| `GET /kiosk/employee-productivity` | Màn hình TV treo tường; không ai đăng nhập trên một cái TV |
+| `GET /api/kiosk-web/health` | Thăm dò sống/chết |
+| `POST /api/kiosk-web/heartbeat` | Báo sống + phát hiện bản deploy mới |
+| `POST /api/kiosk-web/scan` | Nhận diện thẻ nhân viên / Operation |
+| `POST /api/kiosk-web/start` | Mở work session |
+| `POST /api/kiosk-web/finish/<id>` | Kết thúc session + nhập sản lượng |
+
+Những thứ **không** được mở, và lý do:
+
+* `GET /api/kiosk-web/demo-data` vẫn chỉ dành cho tài khoản đã đăng nhập. Nó
+  trả về toàn bộ danh sách nhân viên *kèm mọi giá trị QR của thẻ* — mà QR thẻ
+  chính là thông tin xác thực; công khai nó tương đương công khai chìa khóa
+  của tất cả mọi người. Máy quét thật không bao giờ gọi endpoint này (máy quét
+  gõ thẳng vào ô nhập); chỉ bảng mô phỏng trên màn hình dùng tới, và đó là
+  công cụ của quản trị viên.
+* Mọi API Quản trị / Dashboard / Lệnh sản xuất / Quản lý session / Ngoại lệ /
+  Template / Quản lý kiosk giữ nguyên decorator của chúng. API bảng điều hành
+  (`/api/kiosk-board*`) vẫn yêu cầu đăng nhập: màn hình đó là một trang *bên
+  trong* SPA `/app` đã xác thực (`dashboard.view`), không phải URL công khai —
+  xem REQ-KIOSK-010.
+
+Header `X-Kiosk-Token` vẫn là danh tính thiết bị **tùy chọn**. Máy nào có gửi
+token thì token đó phải hợp lệ và còn hiệu lực: token đã thu hồi bị từ chối
+(403) chứ không âm thầm hạ xuống mức ẩn danh — nhờ vậy thao tác vô hiệu hóa
+một kiosk trong Quản lý Kiosk vẫn cắt được đúng máy đó.
+
+Không có CSRF token nào ở đây: các route này không đọc bất kỳ thông tin xác
+thực ngầm nào, nên không có gì để một request từ site khác mượn. Cơ chế chống
+gửi trùng không đổi và độc lập với xác thực — đó là khóa idempotency
+`request_id` do repository bảo đảm (xem REQ-SESS-001/002), các business guard
+và nhật ký kiểm toán cũng vậy.
 
 | Bước | Endpoint | Đầu vào | Thành công | Thất bại |
 |---|---|---|---|---|
@@ -2097,8 +2141,13 @@ dưới đây là điểm-vào để sinh testcase từ đó.
 
 - **Mô-đun**: Kiosk v1
 - **Mục đích**: Luồng kiosk trên trình duyệt, thân thiện cho thủ công/demo.
-- **Đối tượng thực hiện**: không kiểm tra role — luồng thiết bị hướng trình duyệt, không xác thực (§7.1).
+- **Đối tượng thực hiện**: không kiểm tra role và **không yêu cầu đăng nhập
+  tài khoản web** — Kiosk web là bề mặt vận hành công khai (§7.1). Người thao
+  tác được nhận diện bằng thẻ/QR nhân viên họ quét, không bao giờ bằng phiên
+  đăng nhập trình duyệt.
 - **Điều kiện tiên quyết**: tồn tại giá trị QR nhân viên/Operation hợp lệ.
+  KHÔNG phải điều kiện tiên quyết: trình duyệt đã đăng nhập, cookie phiên,
+  hay token thiết bị.
 - **Đầu vào**: `{qr}` mỗi lần quét; đầu vào start/finish giống hệt REQ-SESS-001/002.
 - **Kích hoạt bởi**: `POST /api/kiosk-web/scan`, `/start`, `/finish/<id>`.
 - **Luồng chính**: bảng 3 bước ở §7.1.
@@ -2108,10 +2157,19 @@ dưới đây là điểm-vào để sinh testcase từ đó.
 - **Kiểm tra hợp lệ**: `qr` bắt buộc và không rỗng cho scan.
 - **Lỗi**: `qr` rỗng → `400 QR_REQUIRED`, `error_code SCN-001`, "Chưa nhận được mã quét", gợi ý hành động "Kiểm tra nguồn và dây máy quét, rồi quét lại."; mọi lỗi phía sau giống hệt REQ-SESS-001/002.
 - **Ranh giới**: giống REQ-SESS-001/002 (đây là cùng logic nghiệp vụ, tiếp cận qua một cửa khác).
-- **Quyền**: N/A (không gate role trên luồng này).
-- **Đồng thời**: cùng đảm bảo idempotency như REQ-SESS-001/002.
-- **Nhật ký kiểm toán**: giống REQ-SESS-001/002.
-- **Liên quan**: §7.1, REQ-SESS-001/002.
+- **Quyền**: N/A (không gate role, và không gate đăng nhập, trên luồng này).
+  Trang không được chuyển hướng về `/login` hay hiện modal đăng nhập với
+  trình duyệt ẩn danh; tải lại trang sau khi cookie hết hạn vẫn phải ở Kiosk
+  và chạy bình thường. Phạm vi đúng bằng bảng ở §7.1 — không mở thêm bất kỳ
+  API quản trị nào.
+- **Đồng thời**: cùng đảm bảo idempotency như REQ-SESS-001/002 — cơ chế khử
+  trùng theo `request_id` nằm ở repository, không phụ thuộc việc người gọi có
+  ẩn danh hay không.
+- **Nhật ký kiểm toán**: giống REQ-SESS-001/002. `action_logs` ghi actor rỗng
+  cho một lời gọi kiosk ẩn danh; actor của bản ghi nghiệp vụ là nhân viên đã
+  quét thẻ — đó mới là danh tính có ý nghĩa với sản xuất.
+- **Liên quan**: §7.1, REQ-SESS-001/002, REQ-KIOSK-010 (bảng điều hành — màn
+  hình KHÁC, vẫn yêu cầu đăng nhập).
 - **Độ ưu tiên**: P0.
 - **Khía cạnh kiểm thử**: positive, negative, boundary.
 
@@ -2981,7 +3039,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-PO-005 (liệt kê Part/Operation trong phạm vi một PO) | `tests/integration/test_po_detail_operation_scope.py`, `tests/test_po_detail_fetches_scoped_data.py` | A |
 | REQ-EMP-* | `tests/e2e/catalog-crud.spec.js` | P — chưa có file test riêng cho vòng đời nhân viên |
 | REQ-SESS-* | `test_session_lifecycle_state_machine_property.py`, `test_session_lifecycle_observability_phase13.py`, `test_session_overlap_and_exceptions.py`, `test_shift_session_lifecycle.py`, `test_write_path_po_lock_contention.py`, `tests/e2e/session-management-*.spec.js` (3 file) | A |
-| REQ-KIOSK-001 (v1) | `tests/e2e/kiosk-setup-flow.spec.js`, `tests/e2e/kiosk-quantity-entry-p0.spec.js`, `tests/e2e/kiosk-result-auto-return.spec.js` (vòng đời màn hình 15 giây, đồng hồ giả), `tests/test_kiosk_web_result_auto_return_15s.py`; phần còn lại chỉ gián tiếp qua `tests/e2e/mesflow.spec.js` | P (A cho vòng đời màn hình) |
+| REQ-KIOSK-001 (v1) | `tests/test_public_kiosk_boundary_contract.py` (ranh giới công khai, mức mã nguồn), `tests/e2e/kiosk-public-no-login.spec.js` (trình duyệt thật, context trắng), `tests/integration/test_p0_scan_auth_and_support_op_rollups.py` (scan/start/finish ẩn danh đầu-cuối, idempotency khi gửi lại ẩn danh, và vế phủ định đi kèm: API quản trị vẫn 401/403), `tests/e2e/kiosk-setup-flow.spec.js`, `tests/e2e/kiosk-esp-parity.spec.js`, `tests/e2e/kiosk-quantity-entry-p0.spec.js`, `tests/e2e/kiosk-result-auto-return.spec.js` (vòng đời màn hình 15 giây, đồng hồ giả), `tests/test_kiosk_web_result_auto_return_15s.py`; phần còn lại gián tiếp qua `tests/e2e/mesflow.spec.js` | A |
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — module được test nhiều nhất hệ thống |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 case), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-010 (kiosk điều hành, PO focus) | `tests/integration/test_kiosk_board_po_focus.py`, `tests/e2e/kiosk-po-focus.spec.js` | A |
