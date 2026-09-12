@@ -1967,6 +1967,31 @@ are the test-entry-points into it.
 - **Priority**: P1.
 - **Dimensions**: positive (NG=0; NG>0 choosing 2/#/Enter; choosing 1 then entering), negative (`rework > NG`), boundary (`rework = 0`), stale state (after submit, after reload), computed layout (confirm slot on the right on every screen, desktop and 390px).
 
+### REQ-KIOSK-013 — Web Kiosk touch safety: a repeated tap must not cross screens
+
+> **Why this is web-only:** on the ESP v2 device `#` is a fixed physical key that
+> never changes meaning under the finger. On a touch screen the *same screen
+> region* becomes a different action the instant the step advances, so a finger
+> that does not move can drive several steps. Everything below constrains the
+> browser Kiosk only; no firmware behaviour and no submitted field changes.
+
+- **Module**: web Kiosk (`/kiosk`) quantity-entry flow. Same flow as REQ-KIOSK-011; this entry governs how a **touch** reaches it.
+- **Purpose**: stop a repeated tap at one point from walking the flow and recording output nobody entered. Measured before the fix (Pixel 7, one x): `good-next` y 396–444, `defect-next` y 418–466, `rework-next` y 395–443, `finish-confirm-ok` y 382–458 — four overlapping bands, so three taps at one unmoving point submitted `good=0, defect=0`.
+- **Actors**: shop-floor worker. **Preconditions**: the quantity-entry flow is on screen. **Trigger**: two or more taps in quick succession at the same coordinates.
+- **Main flow — an untouched default is not an answer**: each quantity field keeps showing `0` (an empty box is what made workers believe they had entered a number), but a `0` the field was *born* with and a `0` a worker *entered* are different states. Until a field has actually been entered it reads as "no answer": the screen stays put and shows its validation line. The field is marked entered by **every** input path — digits and Backspace from the state-driven keydown route, and `beforeinput`/`input` from a soft keyboard, IME/Gboard (which sends `keydown key='Unidentified'`, keyCode 229, and carries no digit), paste, dictation, or the `<input type=number>` spinner.
+- **Main flow — the confirm action must not sit where the previous advance sat**: the submit row of `#screen-finish-confirm` is pinned to the bottom of the screen, so the XÁC NHẬN band **must not intersect** the TIẾP TỤC band of `quantity-good`, `quantity-defect` or `quantity-rework`, at desktop width and at Pixel 7 width. This is a layout rule, checked as measured geometry, not a delay.
+- **Expected output**: repeated taps at one point leave the flow on the screen it started on, submit nothing, and show a validation line naming what to enter. Entering a real `0` still advances with a single key.
+- **State transition**: entering the finish flow resets all three quantities **and** their entered-marks, so one worker's numbers can never carry into the next worker's turn.
+- **Prohibited implementation**: no time window may be used to swallow a tap. A tap must always do something observable — advance, or say what is missing. Silently discarding a tap that landed on a real control is itself the defect this entry exists to prevent.
+- **Validation**: unchanged from REQ-KIOSK-011 (`0 <= rework_qty <= defect_qty`, UI and server).
+- **Errors / special states**: a SETUP session still finishes with `0/0` without visiting the quantity screens (it produces nothing) — this entry does not touch that path.
+- **Boundary**: a worker who genuinely produced 0 good; a soft-keyboard-only worker; four taps at one point; a double tap on the last step before submit; a second worker starting a turn on a station the previous worker left mid-flow.
+- **Deliberate divergence from the firmware**: the ESP accepts `#` on a screen where nothing was typed. The browser requires one explicit digit, because only the browser has the overlapping-tap-target hazard. Recorded in `docs/KIOSK_ESP_PARITY.md` §2.4. No key meaning and no payload field changes.
+- **Permission / audit**: as the existing web Kiosk.
+- **Related**: REQ-KIOSK-011 (the flow itself and the `*` left / `#` right rule, both unchanged), REQ-KIOSK-001.
+- **Priority**: P0.
+- **Dimensions**: positive (soft keyboard, hard keyboard, explicit 0), negative (repeated tap at one point; repeated `#`), computed layout (band non-intersection, desktop and Pixel 7), stale state (next worker's turn).
+
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 
 Full detail in §6.4 and §4.10's `work_shifts`/`work_shift_intervals`
@@ -2545,6 +2570,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-002/003 (v2) | `test_kiosk_v2_bootstrap_environment.py`, `test_kiosk_v2_disabled_identity_rejection.py`, `test_kiosk_v2_heartbeat_liveness.py`, `test_kiosk_v2_p0_device_authorization.py`, `test_kiosk_v2_reset_projection_safety.py`, `test_kiosk_v2_shared_terminal.py`, `test_legacy_kiosk_security_phase10.py`, `test_kiosk_offline_sync.py`, `test_offline_sync_concurrency_blocker6.py`, `test_offline_burst_gate14.py`, `test_offline_trusted_timestamp_phase7.py`, `test_kiosk_rebind_security_blocker2.py`, `test_kiosk_lookup_po_status.py` | A — most heavily tested module in the system |
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-011 (web Kiosk ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (incl. the "Ô XÁC NHẬN nằm bên phải" group — real measured geometry, desktop and 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
+| REQ-KIOSK-013 (web Kiosk touch safety — a repeated tap must not cross screens) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; measured band non-intersection, soft-keyboard/IME path, negative proof by mutation) | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
