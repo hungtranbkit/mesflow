@@ -1413,10 +1413,15 @@ def import_template_workbook():
                 # planned_quantity là SỐ LƯỢNG của chính sheet đó, độc lập với
                 # QTY cấp PO. None (không phải 0) khi file không khai báo: 0 là
                 # một lời khai báo, thiếu là thiếu.
-                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order,drawing_path,planned_quantity) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',
+                # drawing_code là MÃ BẢN VẼ nguyên văn trên tờ giấy -- danh tính
+                # kỹ thuật mà thợ, kho và QC đều gọi theo. Khác với `code`, vốn
+                # đã được lọc ký tự để dùng làm mã nội bộ. Tờ mức quy trình
+                # không có bản vẽ nào thì để NULL, không bịa.
+                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order,drawing_path,planned_quantity,drawing_code) VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING id',
                     (t['id'],pitem['code'],pitem['name'],pitem['sort_order'],
                      keep_drawings.get(str(pitem['code'] or '').upper(),''),
-                     pitem.get('planned_quantity') or None)).fetchone()
+                     pitem.get('planned_quantity') or None,
+                     pitem.get('source_drawing_code') or None)).fetchone()
                 ids[pitem['key']]=r['id']
             if source_format=='go_router':
                 # Dòng nối phải nằm TRONG transaction này. Ghi ngoài rồi rollback

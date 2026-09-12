@@ -165,7 +165,7 @@ class ProductionOrderRepository(BaseRepository):
 class PartRepository(BaseRepository):
     table='parts'; id_column='id'
     scope_column='production_order_id'
-    selectable_columns=('id','production_order_id','code','name','drawing_path','sort_order','active','created_at','updated_at')
+    selectable_columns=('id','production_order_id','code','name','drawing_code','drawing_path','sort_order','active','created_at','updated_at')
     writable_columns=('production_order_id','code','name','drawing_path','sort_order','active')
 
     def delete(self,entity_id):
@@ -708,8 +708,12 @@ class TemplateTreeRepository:
             conn.execute('DELETE FROM template_parts WHERE template_id=%s',(template_id,))
             part_ids={}
             for idx,part in enumerate(parts):
-                row=conn.execute('INSERT INTO template_parts(template_id,code,name,drawing_path,sort_order) VALUES(%s,%s,%s,%s,%s) RETURNING id',
-                    (template_id,part.get('code',''),part.get('name',''),str(part.get('drawing_path') or ''),part.get('sort_order',idx))).fetchone()
+                # drawing_code phải đi qua đây, nếu không: sửa bất cứ thứ gì
+                # trong Template rồi Lưu sẽ xoá sạch mã bản vẽ của mọi Part --
+                # replace_tree xoá rồi ghi lại toàn bộ cây.
+                row=conn.execute('INSERT INTO template_parts(template_id,code,name,drawing_path,sort_order,drawing_code) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',
+                    (template_id,part.get('code',''),part.get('name',''),str(part.get('drawing_path') or ''),part.get('sort_order',idx),
+                     str(part.get('drawing_code') or '').strip() or None)).fetchone()
                 part_ids[str(part.get('key',idx))]=row['id']
             for idx,op in enumerate(operations):
                 part_id=part_ids.get(str(op.get('part_key')))
@@ -809,12 +813,18 @@ class TemplateTreeRepository:
             part_map={}
             for part in template_parts:
                 created=conn.execute(
-                    'INSERT INTO parts(production_order_id,code,name,drawing_path,sort_order,active,planned_quantity) VALUES(%s,%s,%s,%s,%s,true,%s) RETURNING id',
+                    'INSERT INTO parts(production_order_id,code,name,drawing_path,sort_order,active,planned_quantity,drawing_code) VALUES(%s,%s,%s,%s,%s,true,%s,%s) RETURNING id',
                     # Số lượng riêng của Part đi theo Part, KHÔNG lấy theo số
                     # lượng của PO: một Part có thể phải làm gấp 2x/4x số thành
                     # phẩm (bội số BOM). Gộp về QTY của PO là xoá mất định mức.
+                    #
+                    # drawing_code được CHỤP LẠI ở đây chứ không đọc xuyên sang
+                    # Template: Template còn sửa được sau khi PO đã chạy, và
+                    # sửa Template không được lặng lẽ viết lại tài liệu của một
+                    # PO đang sản xuất.
                     (po['id'],part['code'],part['name'],part.get('drawing_path') or '',
-                     part['sort_order'],part.get('planned_quantity')),
+                     part['sort_order'],part.get('planned_quantity'),
+                     part.get('drawing_code')),
                 ).fetchone()
                 part_map[part['id']]=created['id']
             operation_ids=[]
