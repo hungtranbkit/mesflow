@@ -236,7 +236,12 @@ def _archived_source(template_id):
 
 
 def _index_source_blocks(source_bytes, po_code):
-    """Bản đồ (mã Part, hậu tố mã OP) -> (tên sheet, dòng) của workbook gốc.
+    """Bản đồ block của workbook gốc.
+
+    Trả về ``(blocks, starts)``: ``blocks`` là (mã Part, hậu tố mã OP) ->
+    (tên sheet, dòng tiêu đề); ``starts`` là tên sheet -> danh sách dòng tiêu đề
+    đã sắp xếp, dùng để suy ra BIÊN của mỗi block (một block chạy tới ngay trước
+    block kế tiếp) khi đi tìm marker.
 
     Dựng bằng CHÍNH hàm parse của luồng nhập, nên vị trí block ở đây và
     Operation trong CSDL sinh ra từ cùng một cách đọc. Khoá là cặp
@@ -249,15 +254,27 @@ def _index_source_blocks(source_bytes, po_code):
     parsed = _parse_go_router_template(load_workbook(BytesIO(source_bytes), data_only=True),
                                        f'{po_code}.xlsx')
     if not parsed:
-        return {}
+        return {}, {}, {}
     part_code_by_key = {p['key']: p['code'] for p in parsed['parts']}
     blocks = {}
+    starts = {}
     for op in parsed['operations']:
         part_code = part_code_by_key.get(op['part_key'])
         key = (str(part_code or '').upper(),
                str(operation_code_suffix(part_code, op['code']) or '').upper())
-        blocks[key] = (op.get('_excel_sheet') or '', int(op.get('_excel_row') or 0))
-    return blocks
+        sheet = op.get('_excel_sheet') or ''
+        excel_row = int(op.get('_excel_row') or 0)
+        blocks[key] = (sheet, excel_row)
+        starts.setdefault(sheet, []).append(excel_row)
+    for sheet in starts:
+        starts[sheet].sort()
+    # Part -> sheet của nó. OP do người dùng thêm sau này phải rơi vào ĐÚNG tờ
+    # của Part mình, chứ không phải một tờ nào đó còn chỗ.
+    sheet_of_part = {}
+    for op in parsed['operations']:
+        part_code = str(part_code_by_key.get(op['part_key']) or '').upper()
+        sheet_of_part.setdefault(part_code, op.get('_excel_sheet') or '')
+    return blocks, starts, sheet_of_part
 
 
 def _operation_match_keys(row, po_prefix):
@@ -342,9 +359,253 @@ def _assert_lane_is_free(ws, column, span, *, sheet, operation):
             sheet=sheet, operation=operation, reason='DRAWING_IN_THE_WAY')
 
 
+#: Chữ đặt sẵn trong template để nói "dán QR vào ĐÚNG ô này".
+#:
+#: Template router thế hệ sau sẽ chừa sẵn ô chứa đúng chữ này, thay vì để hệ
+#: thống tự đoán chỗ trống. Nhờ vậy người vẽ biểu mẫu quyết định tem nằm ở đâu
+#: -- họ đang cầm tờ giấy, họ biết chỗ nào in ra đẹp -- còn phần mềm không phải
+#: đoán. File hiện tại chưa có marker nên vẫn đi đường cũ (xem _qr_lane_column).
+QR_MARKER_TEXT = 'QRCODE'
+
+
+class RouterMarkerError(Exception):
+    """Marker QRCODE có nhưng không nói rõ được nó thuộc về Operation nào.
+
+    Đoán bừa ở đây nghĩa là dán tem của công đoạn này lên ô của công đoạn khác,
+    và cái sai đó chỉ lộ ra khi thợ quét nhầm việc. Thà dừng và chỉ đúng sheet +
+    ô + lý do.
+    """
+
+    def __init__(self, message, *, sheet, cell='', context='', reason=''):
+        super().__init__(message)
+        self.sheet = sheet
+        self.cell = cell
+        self.context = context
+        self.reason = reason
+
+
+def _merged_anchor(ws, row, column):
+    """Ô neo thật của một ô: góc trên-trái của vùng merge nếu nó nằm trong merge.
+
+    Không gỡ merge, không tạo merge -- chỉ đọc. Neo ảnh vào ô giữa một vùng đã
+    merge thì Excel đẩy ảnh về vị trí khó đoán, nên phải quy về góc trên-trái.
+    """
+    for merged in ws.merged_cells.ranges:
+        if (merged.min_row <= row <= merged.max_row
+                and merged.min_col <= column <= merged.max_col):
+            return merged.min_row, merged.min_col
+    return row, column
+
+
+def _setup_region(ws, start_row, end_row):
+    """Khoảng dòng thuộc phần SETUP bên trong một block Operation.
+
+    Bố cục tờ router đặt nhãn 'Thời gian Setup ( phút )' rồi tới số phút, sau đó
+    mới tới 'Thời gian gia công / sản phẩm'. Phần nằm giữa hai nhãn đó là vùng
+    nói về việc set máy -- marker rơi vào đấy thuộc về OP SETUP, không phải OP
+    sản xuất. Trả (0, -1) khi block không khai báo setup, tức là không có vùng nào.
+    """
+    from mesflow.web.excel_io import _deaccent
+
+    setup_label = cycle_label = None
+    for row in range(start_row, end_row + 1):
+        for cell in ws[row]:
+            text = _deaccent(cell.value)
+            if not text:
+                continue
+            if setup_label is None and 'thoi gian setup' in text:
+                setup_label = row
+            if cycle_label is None and 'thoi gian gia cong / san pham' in text:
+                cycle_label = row
+    if setup_label is None:
+        return 0, -1
+    return setup_label, (cycle_label - 1) if cycle_label and cycle_label > setup_label else end_row
+
+
+def _scan_markers(ws, starts):
+    """Marker QRCODE trên một sheet, gán về block và phân loại OP / SETUP.
+
+    Trả ``{dòng tiêu đề block: {'OP': (row, col), 'SETUP': (row, col)}}``.
+
+    Hai thứ bị CHẶN ngay tại đây, vì cả hai đều dẫn tới dán tem sai chỗ mà
+    không ai biết: marker nằm ngoài mọi block (không suy được nó thuộc công
+    đoạn nào), và hai marker cùng loại trong một block (không biết cái nào là
+    cái thật).
+    """
+    if not starts:
+        starts = []
+    found = {}
+    bounds = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] - 1 if index + 1 < len(starts) else ws.max_row
+        bounds.append((start, end))
+    for row in ws.iter_rows():
+        for cell in row:
+            if not isinstance(cell.value, str) or cell.value.strip().upper() != QR_MARKER_TEXT:
+                continue
+            owner = next((b for b in bounds if b[0] <= cell.row <= b[1]), None)
+            if owner is None:
+                raise RouterMarkerError(
+                    f"Sheet '{ws.title}' ô {cell.coordinate}: có chữ {QR_MARKER_TEXT} nhưng "
+                    'không nằm trong block OPERATION nào, nên không biết dán QR của công '
+                    'đoạn nào vào đây. Đặt marker bên trong đúng block của Operation.',
+                    sheet=ws.title, cell=cell.coordinate, reason='MARKER_OUTSIDE_BLOCK')
+            start, end = owner
+            setup_from, setup_to = _setup_region(ws, start, end)
+            kind = 'SETUP' if setup_from <= cell.row <= setup_to else 'OP'
+            slot = found.setdefault(start, {})
+            if kind in slot:
+                previous = slot[kind]
+                raise RouterMarkerError(
+                    f"Sheet '{ws.title}': block dòng {start} có hai ô {QR_MARKER_TEXT} cho "
+                    f'cùng một tem {kind} (ô {previous[2]} và ô {cell.coordinate}). Mỗi '
+                    'Operation chỉ được có một chỗ dán, nếu không sẽ không biết tem thật '
+                    'nằm ở đâu.',
+                    sheet=ws.title, cell=cell.coordinate, context=f'block dòng {start}',
+                    reason='DUPLICATE_MARKER')
+            slot[kind] = (cell.row, cell.column, cell.coordinate)
+    return found
+
+
+def _extend_print_area(print_area, last_row):
+    """Nới vùng in xuống tới dòng cuối của block vừa thêm.
+
+    Chỉ kéo DÀI biên dưới; cột và góc trên giữ nguyên. Block mới mà nằm ngoài
+    print area thì nó đơn giản là không in ra, và người nhận tờ giấy không hề
+    biết mình thiếu một công đoạn.
+    """
+    import re as _re
+
+    areas = print_area if isinstance(print_area, (list, tuple)) else [print_area]
+    out = []
+    for area in areas:
+        text = str(area)
+        match = _re.match(r"^(?:'?[^'!]+'?!)?\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$", text)
+        if not match:
+            out.append(text)
+            continue
+        left, top, right, bottom = match.groups()
+        prefix = text[:match.start(1)]
+        out.append(f'{prefix}{left}{top}:${right}${max(int(bottom), int(last_row))}')
+    return out if len(out) > 1 else out[0]
+
+
+class RouterBlockTemplateError(Exception):
+    """Không suy được block mẫu an toàn để dựng block cho OP người dùng thêm."""
+
+    def __init__(self, message, *, sheet, part='', operation='', reason=''):
+        super().__init__(message)
+        self.sheet = sheet
+        self.part = part
+        self.operation = operation
+        self.reason = reason
+
+
+def _block_bounds(starts, sheet_rows, index):
+    """(đầu, cuối) của block thứ ``index`` trong một sheet."""
+    start = starts[index]
+    end = starts[index + 1] - 1 if index + 1 < len(starts) else sheet_rows
+    return start, end
+
+
+def _block_pitch(starts, sheet_rows):
+    """Khoảng cách giữa hai block liên tiếp — nhịp bố cục của chính tờ đó.
+
+    Dùng nhịp chứ không dùng ``max_row``: một block thường có vài dòng trống ở
+    cuối (chỗ ký, chỗ ghi tay), và ``max_row`` dừng ở ô CÓ CHỮ cuối cùng. Lấy
+    theo max_row thì block mới bị kéo lên sát block trước, phá mất khoảng cách
+    mà biểu mẫu cố ý chừa ra — in ra là dính vào nhau.
+
+    Chỉ có một block thì không suy được nhịp; khi đó dùng tới hết phần có chữ.
+    """
+    if len(starts) >= 2:
+        return starts[-1] - starts[-2]
+    return max(sheet_rows - starts[-1] + 1, 1)
+
+
+def _clone_block(ws, template_start, template_end, destination_start):
+    """Sao một block Operation xuống ``destination_start``, giữ nguyên hình dạng.
+
+    Chép giá trị, style (font/fill/viền/căn lề/định dạng số), chiều cao dòng và
+    các vùng merge — dịch theo độ lệch dòng. Công thức được dịch tham chiếu bằng
+    Translator của openpyxl, nên một ô ``=L14*C3/3600`` ở block mẫu trỏ đúng ô
+    tương ứng của block mới thay vì vẫn trỏ về block cũ.
+
+    KHÔNG tự thiết kế gì: mọi thứ block mới có đều đến từ block mẫu của chính
+    sheet đó.
+    """
+    from copy import copy
+
+    from openpyxl.formula.translate import Translator
+    from openpyxl.utils import get_column_letter
+
+    offset = destination_start - template_start
+    for source_row in range(template_start, template_end + 1):
+        target_row = source_row + offset
+        height = ws.row_dimensions[source_row].height
+        if height is not None:
+            ws.row_dimensions[target_row].height = height
+        for cell in ws[source_row]:
+            target = ws.cell(row=target_row, column=cell.column)
+            value = cell.value
+            if isinstance(value, str) and value.startswith('='):
+                value = Translator(
+                    value, origin=f'{get_column_letter(cell.column)}{source_row}'
+                ).translate_formula(f'{get_column_letter(cell.column)}{target_row}')
+            target.value = value
+            if cell.has_style:
+                target._style = copy(cell._style)
+    for merged in list(ws.merged_cells.ranges):
+        if template_start <= merged.min_row and merged.max_row <= template_end:
+            ws.merge_cells(start_row=merged.min_row + offset, start_column=merged.min_col,
+                           end_row=merged.max_row + offset, end_column=merged.max_col)
+
+
+def _rewrite_block_fields(ws, start, end, *, sequence, row):
+    """Thay đúng những ô NÓI VỀ Operation trong một block vừa sao chép.
+
+    Tìm theo NHÃN như lúc đọc file, không theo offset cứng: block mẫu của mỗi
+    template có thể xếp khác nhau, và thứ duy nhất ổn định là cái nhãn nằm cạnh
+    con số.
+    """
+    from mesflow.web.excel_io import _deaccent
+
+    title = ws.cell(row=start, column=1)
+    title.value = f'OPERATION # {sequence:02d}- {row["name"]}'
+    for excel_row in range(start, end + 1):
+        for cell in ws[excel_row]:
+            text = _deaccent(cell.value)
+            if not text:
+                continue
+            if 'thoi gian setup' in text:
+                _set_value_below(ws, cell, int(row['setup_minutes'] or 0)
+                                 if row['setup_id'] else 0)
+            elif 'thoi gian gia cong / san pham' in text:
+                _set_value_below(ws, cell, float(row['standard_seconds_per_unit'] or 0))
+            elif 'part number' in text:
+                ws.cell(row=cell.row, column=cell.column + 1).value = row['part_code']
+
+
+def _set_value_below(ws, label_cell, value):
+    """Số nằm ngay dưới nhãn, cùng cột -- đúng cách parser đọc nó lên."""
+    ws.cell(row=label_cell.row + 1, column=label_cell.column).value = value
+
+
 def _stamp_source_workbook(source_bytes, po, rows):
-    """Mở lại workbook gốc và đóng QR vào đúng block của từng Operation."""
-    blocks = _index_source_blocks(source_bytes, po['code'])
+    """Mở lại workbook gốc và đóng QR vào đúng block của từng Operation.
+
+    HAI CHẾ ĐỘ ĐẶT TEM, marker thắng tuyệt đối:
+
+      * template có ô ghi ``QRCODE`` trong block -> dán đúng ô đó. Người vẽ biểu
+        mẫu đã nói chỗ, phần mềm không đoán nữa.
+      * không có marker -> giữ nguyên cách cũ: làn trống bên phải vùng dữ liệu.
+
+    Trộn được ở mức từng TEM: một block có marker cho OP nhưng không có marker
+    cho SETUP thì tem OP theo marker, tem SETUP theo làn cũ. Nhờ vậy template
+    đang dùng chạy y như trước, còn template mới chỉ cần thêm chữ vào ô là xong
+    -- không phải sửa code.
+    """
+    blocks, starts, sheet_of_part = _index_source_blocks(source_bytes, po['code'])
     if not blocks:
         return None, [], 0, []
     # keep_vba=False, nhưng KHÔNG data_only: data_only=True sẽ ghi đè công thức
@@ -354,29 +615,117 @@ def _stamp_source_workbook(source_bytes, po, rows):
     placed = []
     leftovers = []
     po_prefix = f"{str(po['code'] or '').upper()}-"
-    for row in rows:
-        block = _match_block(blocks, row, po_prefix)
-        sheet_name = block[0] if block else ''
-        if not block or sheet_name not in wb.sheetnames:
-            leftovers.append(row)
-            continue
-        sheet_name, excel_row = block
-        ws = wb[sheet_name]
+
+    def lane_for(ws, sheet_name):
         if sheet_name not in lanes:
             lanes[sheet_name] = _qr_lane_column(ws)
-        column = lanes[sheet_name]
-        # Kiểm TRƯỚC khi đặt: một tem đã dán lên rồi thì không gỡ ra được nữa.
-        _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
-                             sheet=sheet_name, operation=row['code'])
-        anchor = _place_qr(ws, row['op_qr'], QR_OP_LABEL, row=excel_row, column=column)
-        placed.append({'operation_id': row['id'], 'sheet': sheet_name, 'anchor': anchor,
-                       'payload': row['op_qr'], 'kind': 'OP'})
+        return lanes[sheet_name]
+
+    # Hai loại "không khớp block" KHÁC HẲN nhau, và gộp chúng lại là sai:
+    #
+    #   * Part của OP có tờ trong template -> đây là OP người dùng thêm vào sau
+    #     khi nhập, việc hoàn toàn hợp lệ. Dựng thêm một block cho nó TRONG ĐÚNG
+    #     tờ đó, sao từ block mẫu của chính tờ ấy.
+    #   * Part không có tờ nào -> ánh xạ đã hỏng (file đang lưu không phải file
+    #     sinh ra PO này). Không đoán, trả về cho người gọi báo lỗi.
+    appended = {}
+
+    def ensure_block(row):
+        """Trả (sheet, dòng tiêu đề) cho một OP chưa có block, hoặc None."""
+        part_code = str(row['part_code'] or '').upper()
+        sheet_name = sheet_of_part.get(part_code)
+        if not sheet_name or sheet_name not in wb.sheetnames:
+            return None
+        ws = wb[sheet_name]
+        sheet_starts = starts.get(sheet_name) or []
+        if not sheet_starts:
+            raise RouterBlockTemplateError(
+                f"Sheet '{sheet_name}' không có block OPERATION nào để lấy làm mẫu, nên "
+                f"không dựng được block cho Operation {row['code']} (Part {row['part_code']}) "
+                'mà người dùng thêm sau khi nhập. Hãy bổ sung công đoạn này vào file Lộ '
+                'trình sản xuất của Template nguồn rồi nhập lại.',
+                sheet=sheet_name, part=row['part_code'], operation=row['code'],
+                reason='NO_TEMPLATE_BLOCK')
+        # Block CUỐI của tờ làm mẫu: biên dưới của nó là biên tờ, nên hình dạng
+        # chắc chắn đầy đủ, và chèn tiếp ngay sau nó là chỗ template dành cho
+        # công đoạn thêm.
+        last_index = len(sheet_starts) - 1
+        sheet_rows = appended.get(sheet_name, ws.max_row)
+        pitch = _block_pitch(sheet_starts, sheet_rows)
+        template_start = sheet_starts[last_index]
+        template_end = template_start + pitch - 1
+        if template_end < template_start:
+            raise RouterBlockTemplateError(
+                f"Sheet '{sheet_name}': không xác định được ranh giới block mẫu để dựng "
+                f"block cho Operation {row['code']}.",
+                sheet=sheet_name, part=row['part_code'], operation=row['code'],
+                reason='UNCLEAR_BLOCK_BOUNDS')
+        height = pitch
+        destination = template_start + pitch
+        _clone_block(ws, template_start, template_end, destination)
+        _rewrite_block_fields(ws, destination, destination + height - 1,
+                              sequence=len(sheet_starts) + 1, row=row)
+        sheet_starts.append(destination)
+        appended[sheet_name] = destination + height - 1
+        # Block mới phải in được: nới print area nếu template có đặt.
+        if ws.print_area:
+            ws.print_area = _extend_print_area(ws.print_area, appended[sheet_name])
+        # Marker nằm trong block mẫu đã được sao sang block mới -> quét lại tờ này.
+        return sheet_name, destination
+
+    # LƯỢT 1 -- dựng đủ block trước. Phải xong hết rồi mới quét marker: một
+    # block nhân bản mang theo marker của block mẫu, và nếu quét trước thì
+    # marker đó chưa tồn tại. Ngược lại, nếu vừa dán vừa nhân bản thì block mẫu
+    # có thể đã bị xoá chữ marker trước khi được sao -- đúng lỗi đã gặp.
+    assignments = []
+    for row in rows:
+        block = _match_block(blocks, row, po_prefix)
+        if not block or block[0] not in wb.sheetnames:
+            block = ensure_block(row)
+        if not block:
+            leftovers.append(row)
+            continue
+        assignments.append((row, block))
+
+    # Quét marker trên MỌI sheet trước khi dán bất cứ thứ gì: marker hỏng
+    # (mồ côi / trùng) phải chặn cả lần xuất, chứ không phải chặn khi đã dán
+    # được nửa chừng.
+    markers = {name: _scan_markers(wb[name], starts.get(name, []))
+               for name in wb.sheetnames}
+
+    # LƯỢT 2 -- dán tem.
+    for row, block in assignments:
+        sheet_name, excel_row = block
+        ws = wb[sheet_name]
+        slots = markers.get(sheet_name, {}).get(excel_row, {})
+
+        def stamp(kind, payload, label, operation_id, fallback_column):
+            marker = slots.get(kind)
+            if marker:
+                marker_row, marker_col, coordinate = marker
+                anchor_row, anchor_col = _merged_anchor(ws, marker_row, marker_col)
+                # Ô marker là chỗ DUY NHẤT được phép đổi nội dung: nó là chỗ đặt
+                # sẵn, và để nguyên chữ 'QRCODE' thì tờ giấy in ra có chữ đó nằm
+                # dưới tem. Merge/định dạng/kích thước của ô không bị đụng.
+                ws.cell(row=marker_row, column=marker_col).value = None
+                anchor = _place_qr(ws, payload, label, row=anchor_row, column=anchor_col)
+                placed.append({'operation_id': operation_id, 'sheet': sheet_name,
+                               'anchor': anchor, 'payload': payload, 'kind': kind,
+                               'placement': 'marker', 'marker_cell': coordinate})
+                return
+            column = fallback_column()
+            _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
+                                 sheet=sheet_name, operation=row['code'])
+            anchor = _place_qr(ws, payload, label, row=excel_row, column=column)
+            placed.append({'operation_id': operation_id, 'sheet': sheet_name,
+                           'anchor': anchor, 'payload': payload, 'kind': kind,
+                           'placement': 'lane', 'marker_cell': ''})
+
+        stamp('OP', row['op_qr'], QR_OP_LABEL, row['id'],
+              lambda: lane_for(ws, sheet_name))
         if row['setup_id']:
-            setup_column = column + QR_COLUMN_GAP
-            setup_anchor = _place_qr(ws, row['setup_qr'], QR_SETUP_LABEL,
-                                     row=excel_row, column=setup_column)
-            placed.append({'operation_id': row['setup_id'], 'sheet': sheet_name,
-                           'anchor': setup_anchor, 'payload': row['setup_qr'], 'kind': 'SETUP'})
+            stamp('SETUP', row['setup_qr'], QR_SETUP_LABEL, row['setup_id'],
+                  lambda: lane_for(ws, sheet_name) + QR_COLUMN_GAP)
     # Operation nào không tìm được block thì trả NGUYÊN dòng về cho người gọi:
     # nó phải biết Part nào, OP nào, để câu lỗi chỉ đúng chỗ cần sửa.
     matched = len(rows) - len(leftovers)
@@ -442,11 +791,15 @@ def build_router_workbook(po_id: int):
             f"Part {row['part_code']} · {row['name']} ({row['code']})"
             for row in unmatched[:10])
         more = f' và {len(unmatched) - 10} Operation khác' if len(unmatched) > 10 else ''
+        # Tới được đây nghĩa là Part của những Operation này KHÔNG có tờ nào
+        # trong file gốc -- không phải "người dùng thêm công đoạn" (trường hợp
+        # đó đã được dựng thêm block ngay trong tờ của Part), mà là ánh xạ hỏng:
+        # file đang lưu nhiều khả năng không phải file đã sinh ra PO này.
         raise RouterSourceUnavailable(
-            f'{len(unmatched)} Operation của PO này không có trong file Excel gốc đang '
-            f'lưu ({source["filename"]}), nên không thể in tem cho chúng: {listed}{more}. '
-            'Những Operation này được thêm sau khi nhập file. Hãy cập nhật file Lộ trình '
-            'sản xuất của Template nguồn rồi nhập lại, sau đó xuất lại.',
+            f'{len(unmatched)} Operation của PO này thuộc Part không có trong file Excel '
+            f'gốc đang lưu ({source["filename"]}), nên không biết in tem vào tờ nào: '
+            f'{listed}{more}. Nhiều khả năng file đang lưu không phải file đã tạo ra PO '
+            'này. Hãy nhập lại đúng file Lộ trình sản xuất của Template nguồn rồi xuất lại.',
             reason='UNMATCHED_OPERATIONS')
     return po, wb, placed, {**source, 'matched': matched, 'unmatched': []}
 
@@ -492,6 +845,13 @@ def export_production_order_router(po_id: int):
         response.headers['X-MESFlow-Router-Matched'] = str(source['matched'])
         response.headers['X-MESFlow-Router-Unmatched'] = str(len(source['unmatched']))
         return response
+    except (RouterMarkerError, RouterPlacementError, RouterBlockTemplateError) as exc:
+        # Cùng họ 409: file hợp lệ về mặt HTTP nhưng nội dung chưa cho phép dán
+        # tem. Trả kèm sheet/ô để người sửa biểu mẫu tới thẳng chỗ cần sửa.
+        return jsonify(ok=False, message=str(exc), reason=exc.reason,
+                       sheet=exc.sheet, cell=getattr(exc, 'cell', ''),
+                       part=getattr(exc, 'part', ''),
+                       operation=getattr(exc, 'operation', '')), 409
     except RouterSourceUnavailable as exc:
         # 409: yêu cầu hợp lệ, nhưng trạng thái dữ liệu chưa cho phép xuất. Kèm
         # `reason` để giao diện tắt nút và chỉ đúng việc phải làm.
@@ -514,6 +874,11 @@ def preview_router_labels(po_id: int):
                                     'import_id': source['import_id'],
                                     'imported_at': source['imported_at']},
                        matched=source['matched'], unmatched=source['unmatched'])
+    except (RouterMarkerError, RouterPlacementError, RouterBlockTemplateError) as exc:
+        return jsonify(ok=False, message=str(exc), reason=exc.reason,
+                       sheet=exc.sheet, cell=getattr(exc, 'cell', ''),
+                       part=getattr(exc, 'part', ''),
+                       operation=getattr(exc, 'operation', '')), 409
     except RouterSourceUnavailable as exc:
         return jsonify(ok=False, message=str(exc), reason=exc.reason), 409
     except Exception as exc:
