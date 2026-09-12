@@ -1878,6 +1878,41 @@ không bao giờ ở bên ngoài.
 - **Độ ưu tiên**: P1.
 - **Khía cạnh kiểm thử**: positive, negative (mọi quy tắc §10), boundary, RBAC.
 
+### REQ-TPL-006 — File Lộ trình sản xuất: tự tạo OP SETUP và xuất lại kèm QR
+
+- **Mô-đun**: Template / Import-Export · Production Order / In tem
+- **Mục đích**: Tờ GO ROUTER của xưởng đã khai báo "Thời gian Setup ( phút )" cho từng công đoạn, nhưng importer bỏ qua ô đó, nên mọi Operation vào hệ thống với `requires_setup=false` và phải bật tay từng cái (file NEWARK thật: 47 chỗ trên 112 Operation). Đồng thời tờ router chỉ đi một chiều — không in lại được kèm tem QR để xưởng quét. Yêu cầu này đóng cả hai đầu.
+- **Đối tượng thực hiện**: admin, manager.
+- **Điều kiện tiên quyết**: workbook định dạng GO ROUTER (mỗi sheet là một Part, các block `OPERATION # NN- TÊN`); với xuất file, một PO đã được tạo từ Template đó.
+- **Đầu vào**: xem trước/nhập — file `.xlsx` multipart, kèm `selection` (JSON, tuỳ chọn); xuất — `po_id` trên URL.
+- **Kích hoạt bởi**: `POST /api/templates/preview-workbook`, `POST /api/templates/import-workbook`, `GET /api/production-orders/<po_id>/router.xlsx`, `GET /api/production-orders/<po_id>/router-labels`.
+- **Luồng chính**:
+  1. Đọc thời gian setup theo **neo nhãn trong phạm vi từng block** (nhãn `Thời gian Setup ( phút )`, giá trị nằm ngay dưới, cùng cột) — KHÔNG theo ô tuyệt đối, vì vị trí block thay đổi theo số công đoạn của sheet.
+  2. `> 0` → Operation được đánh dấu `requires_setup=true` và giữ `expected_setup_minutes`; khi tạo PO, cơ chế SETUP **sẵn có** (§REQ-KIOSK-012, `repositories/setup_ops.py`) sinh Operation `operation_type=SETUP`, `parent_operation_id=<OP sản xuất>`, QR riêng. **Không có cơ chế setup thứ hai.**
+  3. Màn xem trước liệt kê Part → Operation với checkbox; OP sản xuất tick sẵn như cũ, hàng **OP Setup tick sẵn khi phút > 0**.
+  4. Xuất file: mở lại **workbook gốc đã lưu trong kho** (`template_import_blobs`) rồi đóng thêm tem; không còn file gốc thì dựng workbook tương đương.
+- **Kết quả mong đợi**: xem trước trả cấu trúc + `counts.setups` và **không ghi gì vào CSDL**; nhập trả số Part/Operation/OP Setup đã tạo; xuất trả `.xlsx` tải về được, mỗi Operation quét được có một tem, kèm tem `QR Setup` cho OP có setup liên kết.
+- **Chuyển trạng thái**: nhập lại cùng file cập nhật Template tại chỗ (khớp theo `(mã Part, mã OP)`), không nhân bản.
+- **Kiểm tra hợp lệ**:
+  - `0`, ô trống, và các cách xưởng viết "không có" (`-`, `x`, `n/a`, `không`) → **không** tạo OP SETUP;
+  - số **âm** hoặc chữ không đọc được → **từ chối** kèm sheet + dòng, không âm thầm coi là 0;
+  - mã Operation trùng trong **cùng một Part** → tách bằng hậu tố xác định (`-2`) và **báo lên màn xem trước**; trùng giữa các Part khác nhau là hợp lệ, không cảnh báo.
+- **Lỗi**: `Sheet '<tên>' dòng <n> (Operation <mã>): Thời gian Setup ( phút ) không được âm (đang là ...)`; `... phải là số, đang là ...`; `Chưa chọn Operation nào để nhập.`; PO không tồn tại → `404`.
+- **Ranh giới**:
+  - bỏ tick OP sản xuất nhưng vẫn gửi `include_setup=true` → **server** bỏ luôn phần setup; không tạo được OP SETUP mồ côi kể cả khi gọi thẳng API;
+  - Operation không có block trong workbook gốc (thêm tay sau khi nhập) vẫn phải có tem — gom vào sheet `QR bổ sung`;
+  - hai sheet cùng tên công đoạn → hai tem khác nhau, tuyệt đối không dùng chung id.
+- **Quyền**: admin/manager cho cả ba endpoint. Đây là màn quản trị — không mở cho kiosk công khai.
+- **Đồng thời**: xem trước là đọc thuần, không khoá gì; nhập chạy trong đúng một transaction như REQ-TPL-005.
+- **Nhật ký kiểm toán**: mọi lần nhập (kể cả thất bại) vẫn được lưu vào kho file như REQ-TPL-005.
+- **Liên quan**: REQ-TPL-005 (luồng nhập nền), REQ-QR-001 (payload in ra), REQ-KIOSK-012 (OP SETUP như Operation hỗ trợ), §10.
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: positive, negative (âm/chữ/0/trống), boundary (trùng mã, OP ngoài file gốc), RBAC, round-trip (nhập → xuất → nhập lại).
+
+**Danh tính QR khi in lại.** Payload lấy từ `printable_qr_payload_sql()` — nơi duy nhất trả lời "tem MỚI được mang chuỗi nào". OP SETUP luôn địa chỉ theo id (`WF|OPID|<id>`) vì dòng và tem sinh ra cùng lúc; OP sản xuất **giữ nguyên** chuỗi đang lưu, để in lại một tem bình thường ra đúng cái đang dán ngoài xưởng, và chỉ chuyển sang địa chỉ theo id khi chuỗi cũ đã mơ hồ. REWORK cố ý **không** có tem (xem `domain/policy.py: LABELLED_TYPES`).
+
+**Vị trí tem trên giấy.** Tem nằm ở làn riêng bắt đầu từ cột đầu tiên **sau ô có chữ xa nhất về bên phải** của sheet, nên không đè Part Number, thời gian setup, thời gian gia công, số lượng hay tên người thực hiện. Nhãn `QR OP` và `QR Setup` in ngay trên mỗi tem. Khổ in được đặt `fitToWidth=1` để làn QR không rơi sang trang khác.
+
 ## 15.6 Nhân viên (`REQ-EMP-*`)
 
 ### REQ-EMP-001 — Tạo/sửa một Nhân viên
@@ -3281,6 +3316,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |
 | REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 case, chạy qua đúng đường finish của kiosk), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |
+| REQ-TPL-006 (router: tự tạo OP Setup + xuất Excel kèm QR) | `tests/test_excel_router_setup_parser.py` (25 case), `tests/test_router_export_qr.py` (18 case, giải mã ngược ảnh QR), `tests/integration/test_router_setup_import_export.py` (14 case, API + PostgreSQL thật), `tests/e2e/template-import-setup-preview.spec.js` (8 case), `tests/test_excel_import_export_source.py` | A |
 | REQ-QR-001 (payload nhãn QR Operation) | `tests/integration/test_qr_label_payload_is_scannable.py` (4 case: đổi mã, mơ hồ chéo cột, và hai ca giữ an toàn cho nhãn thường/SETUP) | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (cho đúng 2 màn hình đó) |
 | REQ-TUT-* | `tests/e2e/tutorial-*.spec.js` (3 file), 5 file `test_v6584*.py` | A |

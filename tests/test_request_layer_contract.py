@@ -168,7 +168,9 @@ def test_no_screen_module_calls_fetch_directly():
       login.js      -- chạy trước khi app nạp, tự xử lý lỗi bằng tiếng Việt
       kiosk.js      -- heartbeat fire-and-forget (keepalive), không được retry
       core/net.js   -- chính là lớp đó
-      app.js        -- ba lần upload multipart (FormData) + logout + manifest
+      app.js        -- năm lần upload multipart (FormData, gồm xem trước và
+                       nhập file router) + tải file .xlsx về dạng blob
+                       (api() chỉ đọc JSON) + logout + manifest
       wallboard-*   -- màn TV đã tự giữ bản vẽ cuối + banner "đang thử lại"
       text-guide.js -- đọc file JSON tĩnh trong /static, không phải API
     """
@@ -176,7 +178,7 @@ def test_no_screen_module_calls_fetch_directly():
         'core/net.js': None,
         'login.js': 2,
         'kiosk.js': 1,
-        'app.js': 5,
+        'app.js': 7,
         'wallboard-employee-productivity.js': 2,
         'pages/text-guide.js': 1,
     }

@@ -1051,6 +1051,31 @@ async function renderProductionOrders(){
   await load();
 }
 
+// Tải file Excel router của một PO. Đi qua fetch (không phải location.href) để
+// lỗi nghiệp vụ -- PO chưa có Operation nào, hết quyền -- hiện ra thành câu
+// tiếng Việt thay vì một tab trắng hoặc file .xlsx hỏng.
+async function exportProductionOrderRouter(poId,poCode,button){
+  const label=button?button.textContent:'';
+  if(button){button.disabled=true;button.textContent='Đang tạo file...'}
+  try{
+    const r=await fetch(`/api/production-orders/${poId}/router.xlsx`);
+    if(!r.ok){
+      const d=await r.json().catch(()=>({}));
+      throw new Error(d.message||d.detail||`HTTP ${r.status}`);
+    }
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    link.download=`Lo trinh san xuat ${poCode} - QR.xlsx`;
+    document.body.appendChild(link);link.click();link.remove();
+    URL.revokeObjectURL(url);
+    const labels=r.headers.get('X-MESFlow-Router-Labels');
+    toast(labels?`Đã xuất file kèm ${labels} tem QR`:'Đã xuất file Excel');
+  }catch(e){alert(`Không xuất được file Excel: ${e.message}`)}
+  finally{if(button){button.disabled=false;button.textContent=label}}
+}
+
 window.openProductionOrder=async function(id,{pushNav=true,pushUrl=true}={}){
   // pushNav=true records how to get back to whatever page the user drilled
   // in from (PO list, Overview, Gantt/Material Flow, Templates...) so the
@@ -1098,13 +1123,20 @@ function drawProductionOrderDetail(){
   // xuất.
   const supportOps=d.ops.filter(x=>OpPolicy.isSupport(x));
   const done=prodOps.reduce((n,x)=>n+Number(x.done_qty||0),0),defect=prodOps.reduce((n,x)=>n+Number(x.defect_qty||0),0),rework=prodOps.reduce((n,x)=>n+Number(x.rework_qty||0),0),repaired=prodOps.reduce((n,x)=>n+Number(x.repaired_qty||0),0),repairScrap=prodOps.reduce((n,x)=>n+Number(x.scrap_qty||0),0),completed=prodOps.filter(x=>String(x.status).toUpperCase()==='COMPLETED').length,progress=prodOps.length?Math.round(completed/prodOps.length*100):0,issues=prodOps.filter(x=>['CRITICAL','WARNING','WAITING'].includes(String(x.control_state||'')));
-  content.innerHTML=`<div class="po-detail-toolbar sticky-context">${AppNav.backButtonHtml('Danh sách PO','poBack')}<div class="po-detail-actions">${canStartProductionOrder(po.status)?`<button class="btn primary" id="poStart">${String(po.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:''}<button class="btn" id="poEdit">Sửa thông tin PO</button><button class="btn" id="poAddPart">+ Thêm Part</button></div></div>
+  content.innerHTML=`<div class="po-detail-toolbar sticky-context">${AppNav.backButtonHtml('Danh sách PO','poBack')}<div class="po-detail-actions">${canStartProductionOrder(po.status)?`<button class="btn primary" id="poStart">${String(po.status).toUpperCase()==='PAUSED'?'Tiếp tục sản xuất':'Bắt đầu sản xuất'}</button>`:''}<button class="btn" id="poExportRouter">Xuất Excel + QR</button><button class="btn" id="poEdit">Sửa thông tin PO</button><button class="btn" id="poAddPart">+ Thêm Part</button></div></div>
   <section class="panel po-workspace-head"><div class="po-workspace-title"><div><span class="badge po-status ${String(po.status||'').toLowerCase()}">${esc(po.status||'')}</span><h2>${esc(po.code)} · ${esc(po.product||'Production Order')}</h2><p>${format(po.planned_quantity||0)} sản phẩm · hạn ${esc(po.planned_end_at?fmt(po.planned_end_at):(po.due_date||'chưa đặt'))}</p></div><strong>${progress}%<small>${completed}/${d.ops.length} OP hoàn thành</small></strong></div><div class="po-workspace-progress"><i style="width:${progress}%"></i></div><div class="po-workspace-metrics"><span class="po-scale"><small>Part</small><b>${format(d.parts.length)}</b></span><span class="po-scale"><small>OP sản xuất</small><b>${format(prodOps.length)}</b></span>${supportOps.length?`<span class="po-scale"><small>OP phụ</small><b>${format(supportOps.length)}</b></span>`:''}<span><small>Đạt</small><b>${format(done)}</b></span><span><small>NG</small><b>${format(defect)}</b></span><span><small>Sửa được</small><b>${format(rework)}</b></span><span><small>Chờ sửa</small><b>${format(Math.max(rework-repaired-repairScrap,0))}</b></span><span><small>Phế</small><b>${format(Math.max(defect-rework,0)+repairScrap)}</b></span><span><small>Template</small><b>${esc(po.source_template_code||'PO cũ')}</b></span></div></section>${issues.length?`<section class="po-attention"><b>${issues.length} Operation cần chú ý</b><span>${issues.slice(0,3).map(x=>`${esc(x.operation_code)}: ${esc(x.recommended_action||x.readiness_reason||'Kiểm tra tiến độ')}`).join(' · ')}</span></section>`:'<section class="po-attention clear"><b>Chưa có cảnh báo cần xử lý</b><span>Tiếp tục theo dõi tiến độ và session đang chạy.</span></section>'}
   ${d.ops.some(x=>OpPolicy.isSupport(x))?`<label class="po-support-toggle"><input type="checkbox" id="poSupportOps" ${window.poShowSupportOps?'checked':''}><span>Hiện OP phụ (setup, sửa hàng) để đối chiếu</span></label>`:''}
   <section class="po-tree">${d.parts.length?d.parts.map((p,i)=>poPartCard(p,i)).join(''):'<div class="panel empty">PO này chưa có Part. Bấm “+ Thêm Part” để bắt đầu.</div>'}</section>`;
   const supportToggle=document.getElementById('poSupportOps');
   if(supportToggle)supportToggle.onchange=()=>{window.poShowSupportOps=supportToggle.checked;drawProductionOrderDetail()};
   document.getElementById('poBack').onclick=()=>{AppNav.setQuery({po_id:null});AppNav.back(()=>renderProductionOrders())};const startButton=document.getElementById('poStart');if(startButton)startButton.onclick=()=>startProductionOrder(po.id,po.code,'detail');document.getElementById('poEdit').onclick=()=>productionOrderModal(po).catch(e=>alert(`Không mở được form sửa PO: ${e.message}`));document.getElementById('poAddPart').onclick=()=>poPartModal(null);
+  // Xuất tờ Lộ trình sản xuất của ĐÚNG PO đang mở kèm tem QR cho mọi Operation
+  // (và tem QR Setup của những OP có setup). Id lấy từ `po` đang render chứ
+  // không từ bộ lọc hay dòng đang chọn ở danh sách -- màn này mở được từ nhiều
+  // đường (danh sách PO, Overview, Gantt), nên bám vào state chung là đúng cách
+  // xuất nhầm PO khác.
+  const exportButton=document.getElementById('poExportRouter');
+  if(exportButton)exportButton.onclick=()=>exportProductionOrderRouter(po.id,po.code,exportButton);
 }
 // Support Operations (SETUP) are deliberately NOT peers of the routing steps:
 // they have no target and would muddle both the list and the eye's sense of
@@ -1616,6 +1648,13 @@ function showTemplateImportPreview(file,data){
     box.querySelector('#tplPvConfirm').disabled=ops===0;
   };
   box.addEventListener('change',e=>{
+    // "Chọn tất cả" KHÔNG mang data-key, nên phải xử lý TRƯỚC lần return sớm
+    // bên dưới -- nếu không thì bỏ tick nó chẳng làm gì cả.
+    if(e.target.id==='tplPvAll'){
+      const on=e.target.checked;
+      for(const [key,st] of state){st.op=on;st.setup=on?setupDefaultFor(key):false}
+      return sync();
+    }
     const key=e.target.dataset.key;
     if(!key)return;
     if(e.target.classList.contains('tpl-pv-op')){
@@ -1628,10 +1667,6 @@ function showTemplateImportPreview(file,data){
     }else if(e.target.classList.contains('tpl-pv-setup')){
       setupTouched.add(key);
       state.get(key).setup=e.target.checked;
-      sync();
-    }else if(e.target.id==='tplPvAll'){
-      const on=e.target.checked;
-      for(const [key,st] of state){st.op=on;st.setup=on?setupDefaultFor(key):false}
       sync();
     }
   });

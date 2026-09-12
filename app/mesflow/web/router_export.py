@@ -127,6 +127,13 @@ def _load_po_operations(po_id: int):
     Một truy vấn, LEFT JOIN sang chính bảng operations theo
     ``parent_operation_id``: quan hệ cha–con của SETUP là cột đó, không phải
     quy ước đặt tên mã.
+
+    "Mọi Operation của PO" ở đây nghĩa là mọi Operation QUÉT ĐƯỢC, tức
+    ``policy.LABELLED_TYPES`` = PRODUCTION + SETUP. REWORK cố ý không có tem:
+    ``lock_startable_operation()`` từ chối mở session trên bàn sửa hàng, nên in
+    tem cho nó là đưa ra xưởng một mã QR mà kiosk sẽ từ chối -- xem chú thích
+    của LABELLED_TYPES trong domain/policy.py. Đây là chính sách chung của hệ
+    thống, không phải lựa chọn riêng của màn xuất file.
     """
     is_production = type_is_sql(PRODUCTION_TYPE, 'o')
     is_setup = type_is_sql(SETUP_TYPE, 's')
@@ -190,6 +197,78 @@ def _index_source_blocks(source_bytes, po_code):
     return blocks
 
 
+#: Tên sheet gom tem của những Operation không có block trong workbook gốc.
+EXTRA_SHEET_TITLE = 'QR bổ sung'
+
+
+def _append_leftover_sheet(wb, leftovers):
+    """Sheet phụ cho Operation không tìm thấy block trong workbook gốc.
+
+    Lời hứa của tính năng là "mọi Operation quét được của PO đều có tem trong
+    file xuất ra". Workbook gốc chỉ chứa những gì có lúc nhập, nên một OP thêm
+    tay sau đó -- hoặc một Part sửa tên sheet -- sẽ không khớp block nào. Bỏ
+    qua lặng lẽ thì người cầm tờ giấy thiếu đúng tem họ cần mà không biết.
+    """
+    ws = wb.create_sheet(EXTRA_SHEET_TITLE)
+    ws['A1'] = 'Tem QR của Operation không có trong file gốc'
+    ws['A1'].font = Font(bold=True, size=13)
+    ws['A2'] = ('Những Operation này được thêm sau khi nhập file, nên không có block '
+                'tương ứng trong workbook gốc.')
+    ws.column_dimensions['A'].width = 26
+    ws.column_dimensions['B'].width = 40
+    ws.column_dimensions['C'].width = 30
+    placed = []
+    excel_row = 4
+    for row in leftovers:
+        ws.cell(row=excel_row, column=1, value=str(row['part_code'] or '')).font = Font(bold=True)
+        ws.cell(row=excel_row, column=2, value=row['name'])
+        ws.cell(row=excel_row, column=3, value=row['code'])
+        column = 5
+        anchor = _place_qr(ws, row['op_qr'], QR_OP_LABEL, row=excel_row, column=column)
+        placed.append({'operation_id': row['id'], 'sheet': ws.title, 'anchor': anchor,
+                       'payload': row['op_qr'], 'kind': 'OP'})
+        if row['setup_id']:
+            setup_anchor = _place_qr(ws, row['setup_qr'], QR_SETUP_LABEL,
+                                     row=excel_row, column=column + QR_COLUMN_GAP)
+            placed.append({'operation_id': row['setup_id'], 'sheet': ws.title,
+                           'anchor': setup_anchor, 'payload': row['setup_qr'],
+                           'kind': 'SETUP'})
+        excel_row += 8
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    return placed
+
+
+def _operation_match_keys(row, po_prefix):
+    """Mọi cách một Operation thật có thể khớp với một block trong file gốc.
+
+    Mã Operation thật do master_data dựng là ``f"{mã PO}-{hậu tố}"``, còn chỉ
+    mục block thì khoá theo HẬU TỐ. Bỏ quên bước gỡ tiền tố PO là lỗi đã thực
+    sự xảy ra: mọi tem của file NEWARK (159 cái) rơi hết xuống sheet phụ thay
+    vì nằm đúng block của nó, mà tổng số tem vẫn đủ nên nhìn qua tưởng xong.
+    """
+    part_code = str(row['part_code'] or '').upper()
+    code = str(row['code'] or '').upper()
+    candidates = []
+    if po_prefix and code.startswith(po_prefix):
+        stripped = code[len(po_prefix):]
+        candidates.append(stripped)
+        # Hậu tố có thể đã gập mã Part vào; thử cả bản đã bỏ phần Part đó.
+        if part_code and stripped.startswith(f'{part_code}-'):
+            candidates.append(stripped[len(part_code) + 1:])
+    candidates.append(code)
+    candidates.append(str(operation_code_suffix(row['part_code'], row['code']) or '').upper())
+    return [(part_code, c) for c in candidates if c]
+
+
+def _match_block(blocks, row, po_prefix):
+    for key in _operation_match_keys(row, po_prefix):
+        if key in blocks:
+            return blocks[key]
+    return None
+
+
 def _stamp_source_workbook(source_bytes, po, rows):
     """Mở lại workbook gốc và đóng QR vào đúng block của từng Operation."""
     blocks = _index_source_blocks(source_bytes, po['code'])
@@ -198,20 +277,21 @@ def _stamp_source_workbook(source_bytes, po, rows):
     # keep_vba=False, nhưng KHÔNG data_only: data_only=True sẽ ghi đè công thức
     # bằng giá trị đã cache và tờ router xuất ra mất hết công thức tính giờ.
     wb = load_workbook(BytesIO(source_bytes))
+    if EXTRA_SHEET_TITLE in wb.sheetnames:
+        # Xuất lại từ một file đã từng xuất: dựng lại sheet phụ từ đầu thay vì
+        # chồng tem lên tem cũ.
+        wb.remove(wb[EXTRA_SHEET_TITLE])
     lanes = {}
     placed = []
+    leftovers = []
+    po_prefix = f"{str(po['code'] or '').upper()}-"
     for row in rows:
-        suffix = str(operation_code_suffix(row['part_code'], row['code']) or '').upper()
-        # Mã Operation thật mang tiền tố PO; hậu tố mới là phần khớp được với
-        # workbook. Thử cả mã nguyên bản cho Template đặt mã tự do.
-        block = (blocks.get((str(row['part_code'] or '').upper(), suffix))
-                 or blocks.get((str(row['part_code'] or '').upper(),
-                                str(row['code'] or '').upper())))
-        if not block:
+        block = _match_block(blocks, row, po_prefix)
+        sheet_name = block[0] if block else ''
+        if not block or sheet_name not in wb.sheetnames:
+            leftovers.append(row)
             continue
         sheet_name, excel_row = block
-        if sheet_name not in wb.sheetnames:
-            continue
         ws = wb[sheet_name]
         if sheet_name not in lanes:
             lanes[sheet_name] = _qr_lane_column(ws)
@@ -233,6 +313,8 @@ def _stamp_source_workbook(source_bytes, po, rows):
         ws.page_setup.fitToHeight = 0
         ws.print_area = (f'A1:{get_column_letter(column + QR_COLUMN_GAP + 1)}'
                          f'{max(ws.max_row, 1)}')
+    if leftovers:
+        placed.extend(_append_leftover_sheet(wb, leftovers))
     return wb, placed
 
 
@@ -258,7 +340,7 @@ def _generate_router_workbook(po, rows):
         ws['A1'] = 'GO ROUTER # LỘ TRÌNH SẢN XUẤT'
         ws['A1'].font = Font(bold=True, size=13)
         ws['A2'] = 'PO NUMBER:'; ws['C2'] = po['code']
-        ws['A3'] = 'QTY:'; ws['C3'] = po.get('plan_qty') or 0
+        ws['A3'] = 'QTY:'; ws['C3'] = po.get('planned_quantity') or 0
         ws['A4'] = 'TÊN BẢN VẼ:'; ws['C4'] = part_name
         ws['A5'] = 'MÃ BẢN VẼ:'; ws['C5'] = part_code
         ws.column_dimensions['A'].width = 30
@@ -306,8 +388,8 @@ def _generate_router_workbook(po, rows):
 
 def build_router_workbook(po_id: int):
     """(workbook, danh sách tem đã đóng, có-dùng-file-gốc-không) cho một PO."""
-    po = fetch_one('SELECT id,code,name,plan_qty,source_template_id FROM production_orders WHERE id=%s',
-                   (int(po_id),))
+    po = fetch_one('SELECT id,code,product,planned_quantity,source_template_id '
+                   'FROM production_orders WHERE id=%s', (int(po_id),))
     if not po:
         return None, [], False
     rows = _load_po_operations(po_id)

@@ -1681,6 +1681,41 @@ file — never external.
 - **Priority**: P1.
 - **Dimensions**: positive, negative (every §10 rule), boundary, RBAC.
 
+### REQ-TPL-006 — Router workbook: derive SETUP Operations and re-export with QR
+
+- **Module**: Template / Import-Export · Production Order / Labelling
+- **Purpose**: The workshop's GO ROUTER sheet already states a "Thời gian Setup ( phút )" per operation block, but the importer ignored that cell, so every Operation landed with `requires_setup=false` and had to be switched on by hand (the real NEWARK file: 47 of 112 Operations). The sheet also travelled one way only — it could not be printed back with scannable QR labels. This requirement closes both ends.
+- **Actors**: admin, manager.
+- **Preconditions**: a GO ROUTER workbook (one Part per sheet, `OPERATION # NN- NAME` blocks); for export, a PO instantiated from that Template.
+- **Input**: preview/import — multipart `.xlsx`, plus optional `selection` (JSON); export — `po_id` in the URL.
+- **Trigger**: `POST /api/templates/preview-workbook`, `POST /api/templates/import-workbook`, `GET /api/production-orders/<po_id>/router.xlsx`, `GET /api/production-orders/<po_id>/router-labels`.
+- **Main flow**:
+  1. Read the setup minutes by **label anchor scoped to one block** (the `Thời gian Setup ( phút )` label, value directly below it in the same column) — never by absolute cell, since a block's position shifts with the number of operations on the sheet.
+  2. `> 0` marks the Operation `requires_setup=true` and keeps `expected_setup_minutes`; instantiating the PO then uses the **existing** SETUP machinery (§REQ-KIOSK-012, `repositories/setup_ops.py`) to create an `operation_type=SETUP` row with `parent_operation_id=<production op>` and its own QR. **No second setup mechanism is introduced.**
+  3. The preview screen lists Part → Operation with checkboxes; production Operations stay checked by default, and the **SETUP row is checked by default whenever minutes > 0**.
+  4. Export reopens the **archived source workbook** (`template_import_blobs`) and stamps labels onto it; with no archived source it builds an equivalent workbook.
+- **Expected result**: preview returns the structure plus `counts.setups` and **writes nothing to the database**; import reports Parts/Operations/SETUP Operations created; export returns a downloadable `.xlsx` where every scannable Operation carries one label, plus a `QR Setup` label for any Operation with a linked setup.
+- **State transitions**: re-importing the same file updates the Template in place (matched on `(part_code, operation_code)`), never duplicating it.
+- **Validation**:
+  - `0`, blank, and the workshop's ways of writing "none" (`-`, `x`, `n/a`, `không`) → **no** SETUP Operation;
+  - a **negative** number or unreadable text → **rejected** naming the sheet and row, never silently treated as zero;
+  - an Operation number repeated **within one Part** → split with a deterministic `-2` suffix and **surfaced on the preview screen**; repetition across different Parts is legal and draws no warning.
+- **Errors**: `Sheet '<name>' dòng <n> (Operation <code>): Thời gian Setup ( phút ) không được âm (đang là ...)`; `... phải là số, đang là ...`; `Chưa chọn Operation nào để nhập.`; unknown PO → `404`.
+- **Edge cases**:
+  - unchecking a production Operation while still sending `include_setup=true` → the **server** drops the setup too; an orphan SETUP Operation cannot be created even by calling the API directly;
+  - an Operation with no block in the archived workbook (added by hand after import) still gets a label — collected onto a `QR bổ sung` sheet;
+  - two sheets sharing an operation name produce two distinct labels; ids are never reused across sheets.
+- **Permissions**: admin/manager on all three endpoints. This is an administration surface — it is not opened to the public kiosk.
+- **Concurrency**: preview is a pure read and takes no locks; import runs in one transaction exactly as REQ-TPL-005.
+- **Audit log**: every import attempt, failures included, is archived as in REQ-TPL-005.
+- **Related**: REQ-TPL-005 (underlying import flow), REQ-QR-001 (printed payload), REQ-KIOSK-012 (SETUP as a support Operation), §10.
+- **Priority**: P1.
+- **Test aspects**: positive, negative (negative/text/zero/blank), boundary (duplicate codes, Operations absent from the source workbook), RBAC, round-trip (import → export → re-import).
+
+**QR identity when reprinting.** The payload comes from `printable_qr_payload_sql()` — the single place that answers "what may a NEW label carry". SETUP Operations always address by id (`WF|OPID|<id>`) because the row and its label are created together; production Operations **keep** the payload already stored, so reprinting an ordinary label reproduces exactly the sticker on the shop floor, switching to id-addressing only once the old payload has become ambiguous. REWORK deliberately gets **no** label (see `domain/policy.py: LABELLED_TYPES`).
+
+**Label placement on paper.** Labels occupy a dedicated lane starting at the first column **past the right-most cell containing text**, so they cannot cover the Part Number, setup time, cycle time, quantity or operator-name fields. `QR OP` and `QR Setup` are printed directly above their labels. Page setup is `fitToWidth=1` so the QR lane does not spill onto another sheet of paper.
+
 ## 15.6 Employee (`REQ-EMP-*`)
 
 ### REQ-EMP-001 — Create/edit an Employee
@@ -2871,6 +2906,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
 | REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 cases, drives the real kiosk finish path), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | not found as a dedicated pytest file | — |
+| REQ-TPL-006 (router: derived SETUP Operations + Excel export with QR) | `tests/test_excel_router_setup_parser.py` (25 cases), `tests/test_router_export_qr.py` (18 cases, decodes the rendered QR back), `tests/integration/test_router_setup_import_export.py` (14 cases, real API + PostgreSQL), `tests/e2e/template-import-setup-preview.spec.js` (8 cases), `tests/test_excel_import_export_source.py` | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (for those two screens specifically) |
 | REQ-TUT-* | `tests/e2e/tutorial-*.spec.js` (3 files), 5 `test_v6584*.py` files | A |
 | REQ-SYS-001/002 | `test_v69_system_health.py` family | P |
