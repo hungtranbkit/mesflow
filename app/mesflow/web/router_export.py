@@ -17,10 +17,18 @@ BA QUYẾT ĐỊNH ĐÁNG GHI:
    khác) thì chuyển sang địa chỉ theo id. Tự ghép ``WF|OP|<mã>`` ở đây là dựng
    lại đúng lỗi mơ hồ mà hàm kia sinh ra để chặn.
 
-3. Giữ workbook GỐC khi còn. Mỗi lần nhập Template, file được lưu lại nguyên
-   bytes (``template_import_blobs``, content-addressed). Xuất = mở lại chính
-   file đó rồi ĐÓNG THÊM QR vào, nên công thức, định dạng, logo, khung in của
-   xưởng không mất gì. Không còn file gốc mới dựng workbook tương đương.
+3. Nguồn DUY NHẤT là workbook gốc. Mỗi lần nhập Template, file được lưu lại
+   nguyên bytes (``template_import_blobs``, đánh địa chỉ theo sha256, trên
+   volume uploads đã backup). Xuất = mở lại chính file đó rồi ĐÓNG THÊM QR vào,
+   nên sheet, tên sheet, merge, độ rộng cột, chiều cao dòng, logo/ảnh, khung in
+   và công thức của xưởng còn nguyên.
+
+   KHÔNG có nhánh dựng workbook mới. Tờ router là biểu mẫu của khách; một file
+   "tương đương" trông giống nhưng không phải cái xưởng đang dùng, và người cầm
+   tờ giấy không có cách nào biết mình đang cầm bản nào. Thiếu file gốc, file
+   gốc không đọc được thành block, hoặc không khớp được Operation nào -> báo
+   lỗi kèm việc phải làm (``RouterSourceUnavailable``, HTTP 409), chứ không
+   lặng lẽ xuất ra một tờ giấy khác.
 
 QR đặt ở LÀN RIÊNG bên phải vùng dữ liệu (cột đầu tiên sau cột cuối cùng có
 chữ), không đè lên Part Number, thời gian setup, thời gian gia công, số lượng
@@ -153,22 +161,40 @@ def _load_po_operations(po_id: int):
     """, (int(po_id),))
 
 
-def _archived_source_workbook(template_id):
-    """Bytes của workbook gốc đã nhập gần nhất cho Template này, nếu còn."""
+def _archived_source(template_id):
+    """File Excel đã nhập GẦN NHẤT của Template này, kèm danh tính của nó.
+
+    Kho file (``template_import_blobs``, migration 0046) lưu nguyên bytes,
+    đánh địa chỉ theo sha256, trên cùng volume uploads đã được backup -- không
+    phải file tạm, nên bản gốc vẫn còn sau khi container được dựng lại.
+
+    Chọn lần nhập THÀNH CÔNG gần nhất, vì đó là file đang quyết định nội dung
+    Template hiện tại: nhập lại một file mới làm bản cũ hết hiệu lực ngay, và
+    sha256 trả về cùng ở đây để người xuất biết mình vừa in từ bản nào.
+    """
     if not template_id:
         return None
     from pathlib import Path
 
-    for event in TemplateImportRepository().list(template_id=int(template_id), limit=50):
+    repository = TemplateImportRepository()
+    for event in repository.list(template_id=int(template_id), limit=50):
         if event['outcome'] == 'FAILED':
             # File bị từ chối không phải bản dựng nên Template hiện tại.
             continue
-        found = TemplateImportRepository().file_for(event['id'])
+        found = repository.file_for(event['id'])
         if not found:
             continue
         path = Path(found['storage_path'])
-        if path.is_file():
-            return path.read_bytes()
+        if not path.is_file():
+            continue
+        return {
+            'data': path.read_bytes(),
+            'filename': found['original_filename'] or event['original_filename'],
+            'sha256': event['sha256'],
+            'import_id': event['id'],
+            'imported_at': str(event['created_at']),
+            'outcome': event['outcome'],
+        }
     return None
 
 
@@ -273,7 +299,7 @@ def _stamp_source_workbook(source_bytes, po, rows):
     """Mở lại workbook gốc và đóng QR vào đúng block của từng Operation."""
     blocks = _index_source_blocks(source_bytes, po['code'])
     if not blocks:
-        return None, []
+        return None, [], 0, []
     # keep_vba=False, nhưng KHÔNG data_only: data_only=True sẽ ghi đè công thức
     # bằng giá trị đã cache và tờ router xuất ra mất hết công thức tính giờ.
     wb = load_workbook(BytesIO(source_bytes))
@@ -315,91 +341,64 @@ def _stamp_source_workbook(source_bytes, po, rows):
                          f'{max(ws.max_row, 1)}')
     if leftovers:
         placed.extend(_append_leftover_sheet(wb, leftovers))
-    return wb, placed
+    # matched = số OP tìm thấy đúng block của nó trong file gốc. 0 nghĩa là file
+    # đang lưu không phải file đã sinh ra PO này -- người gọi biến nó thành lỗi.
+    matched = len(rows) - len(leftovers)
+    return wb, placed, matched, [str(row['code']) for row in leftovers]
 
 
-def _generate_router_workbook(po, rows):
-    """Workbook router tương đương, cho PO không còn (hoặc chưa từng có) file gốc.
+class RouterSourceUnavailable(Exception):
+    """Không có file gốc đủ tin cậy để đóng tem lên.
 
-    Giữ đúng bộ nhãn của tờ giấy xưởng đang dùng, để người cầm hai tờ đọc thấy
-    như nhau và file xuất ra vẫn nhập lại được bằng chính parser GO ROUTER.
+    Cố ý là LỖI chứ không phải rơi về một workbook tự dựng. Tờ router là biểu
+    mẫu của khách (khung in, logo, ô ký, công thức tính giờ); một file "tương
+    đương" trông giống nhưng không phải cái xưởng đang dùng, và người cầm tờ
+    giấy không có cách nào biết mình đang cầm bản nào. Thà không xuất được và
+    nói rõ phải nhập lại Template nguồn.
     """
-    wb = Workbook()
-    wb.remove(wb.active)
-    placed = []
-    by_part = {}
-    for row in rows:
-        by_part.setdefault((row['part_sort'], row['part_id'],
-                            row['part_code'], row['part_name']), []).append(row)
-    for (_, _, part_code, part_name), part_rows in sorted(by_part.items()):
-        # Tên sheet Excel: tối đa 31 ký tự và không chứa : \ / ? * [ ]
-        title = str(part_name or part_code or 'Part')[:31]
-        for bad in ':\\/?*[]':
-            title = title.replace(bad, '-')
-        ws = wb.create_sheet(title or 'Part')
-        ws['A1'] = 'GO ROUTER # LỘ TRÌNH SẢN XUẤT'
-        ws['A1'].font = Font(bold=True, size=13)
-        ws['A2'] = 'PO NUMBER:'; ws['C2'] = po['code']
-        ws['A3'] = 'QTY:'; ws['C3'] = po.get('planned_quantity') or 0
-        ws['A4'] = 'TÊN BẢN VẼ:'; ws['C4'] = part_name
-        ws['A5'] = 'MÃ BẢN VẼ:'; ws['C5'] = part_code
-        ws.column_dimensions['A'].width = 30
-        ws.column_dimensions['C'].width = 26
-        ws.column_dimensions['L'].width = 22
-        excel_row = 8
-        for index, row in enumerate(part_rows, start=1):
-            ws.cell(row=excel_row, column=1,
-                    value=f'OPERATION # {index:02d}- {row["name"]}').font = Font(bold=True)
-            ws.cell(row=excel_row + 1, column=1, value='Part Number ( Mã bản vẽ )')
-            ws.cell(row=excel_row + 1, column=2, value=part_code)
-            ws.cell(row=excel_row + 2, column=1, value='Ngày/Tháng/Năm')
-            ws.cell(row=excel_row + 2, column=12, value='Thời gian Setup ( phút )')
-            ws.cell(row=excel_row + 3, column=1, value='SETUP')
-            ws.cell(row=excel_row + 3, column=12,
-                    value=int(row['setup_minutes'] or 0) if row['setup_id'] else 0)
-            ws.cell(row=excel_row + 4, column=1, value='Nhân viên Setup')
-            ws.cell(row=excel_row + 5, column=1, value='Ngày/Tháng/Năm')
-            ws.cell(row=excel_row + 5, column=12, value='Thời gian gia công / sản phẩm (s)')
-            ws.cell(row=excel_row + 6, column=1, value='Thời gian gia công')
-            ws.cell(row=excel_row + 6, column=12,
-                    value=float(row['standard_seconds_per_unit'] or 0))
-            for offset, label in enumerate(('Hàng đạt:', 'Hàng lỗi:', 'Tổng số lượng sản xuất:',
-                                            'Nhân viên SX:', 'Nhân viên QC:'), start=7):
-                ws.cell(row=excel_row + offset, column=1, value=label)
-            excel_row += 12
-        column = _qr_lane_column(ws)
-        excel_row = 8
-        for row in part_rows:
-            anchor = _place_qr(ws, row['op_qr'], QR_OP_LABEL, row=excel_row, column=column)
-            placed.append({'operation_id': row['id'], 'sheet': ws.title, 'anchor': anchor,
-                           'payload': row['op_qr'], 'kind': 'OP'})
-            if row['setup_id']:
-                setup_anchor = _place_qr(ws, row['setup_qr'], QR_SETUP_LABEL,
-                                         row=excel_row, column=column + QR_COLUMN_GAP)
-                placed.append({'operation_id': row['setup_id'], 'sheet': ws.title,
-                               'anchor': setup_anchor, 'payload': row['setup_qr'],
-                               'kind': 'SETUP'})
-            excel_row += 12
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
-    return wb, placed
+
+    def __init__(self, message, *, reason):
+        super().__init__(message)
+        self.reason = reason
 
 
 def build_router_workbook(po_id: int):
-    """(workbook, danh sách tem đã đóng, có-dùng-file-gốc-không) cho một PO."""
+    """(po, workbook, tem đã đóng, thông tin nguồn) cho một PO.
+
+    Chỉ có MỘT đường: mở lại workbook đã nhập của Template sinh ra PO này rồi
+    đóng tem lên đó. Không có nhánh dựng mới.
+    """
     po = fetch_one('SELECT id,code,product,planned_quantity,source_template_id '
                    'FROM production_orders WHERE id=%s', (int(po_id),))
     if not po:
-        return None, [], False
+        return None, None, [], None
     rows = _load_po_operations(po_id)
-    source_bytes = _archived_source_workbook(po.get('source_template_id'))
-    if source_bytes:
-        wb, placed = _stamp_source_workbook(source_bytes, po, rows)
-        if wb is not None and placed:
-            return wb, placed, True
-    wb, placed = _generate_router_workbook(po, rows)
-    return wb, placed, False
+    if not rows:
+        raise RouterSourceUnavailable(
+            'Production Order này chưa có Operation nào để in tem QR.',
+            reason='NO_OPERATIONS')
+    source = _archived_source(po.get('source_template_id'))
+    if not source:
+        raise RouterSourceUnavailable(
+            'Không còn file Excel gốc của Template đã tạo PO này, nên không thể xuất '
+            'đúng biểu mẫu Lộ trình sản xuất. Hãy nhập lại file Excel Router của '
+            'Template nguồn (Template → Công cụ → Nhập từ Excel), rồi xuất lại.',
+            reason='NO_SOURCE_WORKBOOK')
+    wb, placed, matched, unmatched = _stamp_source_workbook(source['data'], po, rows)
+    if wb is None:
+        raise RouterSourceUnavailable(
+            f"File Excel gốc đang lưu ({source['filename']}) không đọc được thành các "
+            'block "OPERATION # ..." nên không biết chèn tem vào đâu. Hãy nhập lại '
+            'đúng file Lộ trình sản xuất của Template nguồn rồi xuất lại.',
+            reason='SOURCE_NOT_A_ROUTER')
+    if not matched:
+        raise RouterSourceUnavailable(
+            f"Không khớp được Operation nào của PO với file Excel gốc đang lưu "
+            f"({source['filename']}). Rất có thể file đang lưu không phải file đã tạo "
+            'ra PO này. Hãy nhập lại đúng file Lộ trình sản xuất của Template nguồn '
+            'rồi xuất lại.',
+            reason='NO_BLOCK_MATCHED')
+    return po, wb, placed, {**source, 'matched': matched, 'unmatched': unmatched}
 
 
 def _content_disposition(filename: str) -> str:
@@ -412,13 +411,9 @@ def _content_disposition(filename: str) -> str:
 @roles_required('admin', 'manager')
 def export_production_order_router(po_id: int):
     try:
-        wb, placed, from_source = build_router_workbook(po_id)
+        po, wb, placed, source = build_router_workbook(po_id)
         if wb is None:
             return jsonify(ok=False, message='Không tìm thấy Production Order.'), 404
-        if not placed:
-            return jsonify(ok=False, message=(
-                'Production Order này chưa có Operation nào để in tem QR.')), 400
-        po = fetch_one('SELECT code FROM production_orders WHERE id=%s', (int(po_id),))
         out = BytesIO()
         wb.save(out)
         out.seek(0)
@@ -427,10 +422,19 @@ def export_production_order_router(po_id: int):
             out, as_attachment=True, download_name=filename, max_age=0,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response.headers['Content-Disposition'] = _content_disposition(filename)
-        # Để màn hình nói được "đã in từ file gốc" hay "dựng lại từ dữ liệu".
-        response.headers['X-MESFlow-Router-Source'] = 'workbook' if from_source else 'generated'
+        # Danh tính CHÍNH XÁC của bản gốc vừa đóng tem lên: người nhận biết tờ
+        # giấy trên tay dựng từ lần nhập nào, và hash nào.
+        response.headers['X-MESFlow-Router-Source'] = 'workbook'
+        response.headers['X-MESFlow-Router-Source-Sha256'] = source['sha256']
+        response.headers['X-MESFlow-Router-Source-Import'] = str(source['import_id'])
         response.headers['X-MESFlow-Router-Labels'] = str(len(placed))
+        response.headers['X-MESFlow-Router-Matched'] = str(source['matched'])
+        response.headers['X-MESFlow-Router-Unmatched'] = str(len(source['unmatched']))
         return response
+    except RouterSourceUnavailable as exc:
+        # 409: yêu cầu hợp lệ, nhưng trạng thái dữ liệu chưa cho phép xuất. Kèm
+        # `reason` để giao diện tắt nút và chỉ đúng việc phải làm.
+        return jsonify(ok=False, message=str(exc), reason=exc.reason), 409
     except Exception as exc:
         return api_error_response(exc, logger_name=__name__)
 
@@ -440,10 +444,16 @@ def export_production_order_router(po_id: int):
 def preview_router_labels(po_id: int):
     """Danh sách tem sẽ in ra — để kiểm tra mà không phải mở file Excel."""
     try:
-        wb, placed, from_source = build_router_workbook(po_id)
+        po, wb, placed, source = build_router_workbook(po_id)
         if wb is None:
             return jsonify(ok=False, message='Không tìm thấy Production Order.'), 404
-        return jsonify(ok=True, source='workbook' if from_source else 'generated',
-                       labels=placed, count=len(placed))
+        return jsonify(ok=True, source='workbook', labels=placed, count=len(placed),
+                       source_file={'filename': source['filename'],
+                                    'sha256': source['sha256'],
+                                    'import_id': source['import_id'],
+                                    'imported_at': source['imported_at']},
+                       matched=source['matched'], unmatched=source['unmatched'])
+    except RouterSourceUnavailable as exc:
+        return jsonify(ok=False, message=str(exc), reason=exc.reason), 409
     except Exception as exc:
         return api_error_response(exc, logger_name=__name__)

@@ -22,12 +22,13 @@ trượt -- đúng tinh thần "tem in ra quét được", chứ không phải "
 import pytest
 from io import BytesIO
 
+from pathlib import Path
+
 from openpyxl import Workbook, load_workbook
 
 from mesflow.web.router_export import (
-    EXTRA_SHEET_TITLE, QR_OP_LABEL, QR_SETUP_LABEL,
-    _generate_router_workbook, _place_qr, _qr_lane_column, _qr_png,
-    _stamp_source_workbook)
+    EXTRA_SHEET_TITLE, QR_OP_LABEL, QR_SETUP_LABEL, RouterSourceUnavailable,
+    _place_qr, _qr_lane_column, _qr_png, _stamp_source_workbook)
 
 PIL = pytest.importorskip('PIL', reason='Pillow là dependency của tính năng xuất QR')
 from PIL import Image  # noqa: E402
@@ -171,7 +172,7 @@ def test_moi_operation_deu_co_tem_va_setup_chi_khi_co_lien_ket():
         _row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', setup_id=201, setup_minutes=20),
         _row(102, 'PO-6126-KM-001-OP02', 'LÀM NGUỘI', sort_order=1),
     ]
-    wb, placed = _generate_router_workbook(PO, rows)
+    wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     kinds = {(p['operation_id'], p['kind']) for p in placed}
     assert (101, 'OP') in kinds and (102, 'OP') in kinds
     assert (201, 'SETUP') in kinds
@@ -189,7 +190,7 @@ def test_payload_khong_trung_va_khong_mo_ho():
              part_name='Chân ghế B', part_id=2, part_sort=1, setup_id=202,
              setup_minutes=20),
     ]
-    _, placed = _generate_router_workbook(PO, rows)
+    _, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     payloads = [p['payload'] for p in placed]
     assert len(payloads) == len(set(payloads)), 'có hai tem mang cùng payload'
     # Hai Part cùng tên công đoạn 'CẮT LASER' -> tem phải khác nhau.
@@ -199,7 +200,7 @@ def test_payload_khong_trung_va_khong_mo_ho():
 
 def test_nhan_tem_la_tieng_viet_ro_rang():
     rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', setup_id=201, setup_minutes=20)]
-    wb, _ = _generate_router_workbook(PO, rows)
+    wb, _, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     values = {c.value for r in _saved(wb)['Chân ghế A'].iter_rows() for c in r}
     assert QR_OP_LABEL in values and QR_SETUP_LABEL in values
     assert 'QR OP' == QR_OP_LABEL and 'QR Setup' == QR_SETUP_LABEL
@@ -211,26 +212,26 @@ def test_moi_sheet_part_giu_tem_cua_rieng_no():
         _row(102, 'PO-6126-KM-002-OP01', 'CẮT LASER', part_code='KM-002',
              part_name='Chân ghế B', part_id=2, part_sort=1),
     ]
-    _, placed = _generate_router_workbook(PO, rows)
+    _, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     by_sheet = {}
     for item in placed:
         by_sheet.setdefault(item['sheet'], set()).add(item['payload'])
     assert by_sheet == {'Chân ghế A': {'WF|OPID|101'}, 'Chân ghế B': {'WF|OPID|102'}}
 
 
-def test_giu_du_lieu_router_trong_workbook_tu_dung():
-    """Bản dựng lại vẫn phải đọc được bằng chính parser nhập -- round-trip."""
-    from mesflow.web.excel_io import _parse_go_router_template
-    rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', setup_id=201,
-                 setup_minutes=20, cycle=100)]
-    wb, _ = _generate_router_workbook(PO, rows)
-    buffer = BytesIO(); wb.save(buffer); buffer.seek(0)
-    parsed = _parse_go_router_template(load_workbook(buffer, data_only=True), 'x.xlsx')
-    assert parsed is not None
-    op = parsed['operations'][0]
-    assert op['requires_setup'] is True
-    assert op['expected_setup_minutes'] == 20
-    assert op['standard_seconds_per_unit'] == 100
+def test_khong_con_duong_dung_workbook_moi():
+    """Hợp đồng: xuất file CHỈ đi qua workbook gốc, không có nhánh dựng lại.
+
+    Tờ router là biểu mẫu của khách (khung in, logo, ô ký, công thức tính giờ).
+    Một file "tương đương" trông giống nhưng không phải cái xưởng đang dùng, và
+    người cầm tờ giấy không có cách nào biết mình đang cầm bản nào -- nên thiếu
+    file gốc phải là LỖI, không phải rơi về bản tự dựng.
+    """
+    import mesflow.web.router_export as module
+    assert not hasattr(module, '_generate_router_workbook')
+    source = Path(module.__file__).read_text(encoding='utf-8')
+    assert 'Workbook()' not in source, 'không được dựng workbook mới ở đây'
+    assert 'RouterSourceUnavailable' in source
 
 
 # --- đóng tem lên workbook gốc --------------------------------------------
@@ -253,7 +254,7 @@ def _source_bytes():
 
 def test_dong_tem_len_file_goc_giu_nguyen_o_du_lieu():
     rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', setup_id=201, setup_minutes=20)]
-    wb, placed = _stamp_source_workbook(_source_bytes(), PO, rows)
+    wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     ws = _saved(wb)['Chân ghế A']
     assert ws['L10'].value == 'Thời gian Setup ( phút )'
     assert ws['L11'].value == 20
@@ -273,7 +274,7 @@ def test_tem_nam_dung_tren_sheet_cua_block_chu_khong_roi_xuong_sheet_phu():
         _row(102, 'PO-6126-KM-002-OP01', 'CẮT LASER', part_code='KM-002',
              part_name='Chân ghế B', part_id=2, part_sort=1),
     ]
-    wb, placed = _stamp_source_workbook(_source_bytes(), PO, rows)
+    wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     assert EXTRA_SHEET_TITLE not in _saved(wb).sheetnames, (
         'mọi Operation đều có block trong file gốc, không được sinh sheet phụ')
     sheets = {p['operation_id']: p['sheet'] for p in placed}
@@ -284,7 +285,7 @@ def test_tem_nam_dung_tren_sheet_cua_block_chu_khong_roi_xuong_sheet_phu():
 def test_ma_op_khong_mang_tien_to_po_van_khop_duoc():
     """Template đặt mã tự do (không có tiền tố PO) vẫn phải khớp block."""
     rows = [_row(101, 'KM-001-OP01', 'CẮT LASER')]
-    wb, placed = _stamp_source_workbook(_source_bytes(), PO, rows)
+    wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     assert EXTRA_SHEET_TITLE not in _saved(wb).sheetnames
     assert placed[0]['sheet'] == 'Chân ghế A'
 
@@ -300,7 +301,7 @@ def test_operation_khong_co_trong_file_goc_van_duoc_tem():
              part_name='Part thêm tay', part_id=9, part_sort=5, setup_id=203,
              setup_minutes=15),
     ]
-    wb, placed = _stamp_source_workbook(_source_bytes(), PO, rows)
+    wb, placed, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     assert {p['operation_id'] for p in placed} == {101, 103, 203}
     saved = _saved(wb)
     assert EXTRA_SHEET_TITLE in saved.sheetnames
@@ -312,9 +313,9 @@ def test_xuat_lai_lan_hai_khong_chong_tem_cu():
     """Xuất lại từ file đã xuất không được nhân đôi sheet phụ."""
     rows = [_row(103, 'PO-6126-KM-009-OP01', 'THÊM TAY', part_code='KM-009',
                  part_name='Part thêm tay', part_id=9)]
-    wb, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
+    wb, _, _, _ = _stamp_source_workbook(_source_bytes(), PO, rows)
     buffer = BytesIO(); wb.save(buffer)
-    wb2, placed2 = _stamp_source_workbook(buffer.getvalue(), PO, rows)
+    wb2, placed2, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
     titles = _saved(wb2).sheetnames
     assert titles.count(EXTRA_SHEET_TITLE) == 1
     assert len(placed2) == 1

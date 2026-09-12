@@ -17,8 +17,10 @@ bị bỏ qua.
 """
 import json
 import os
+import re
 import uuid
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 import requests
@@ -266,6 +268,10 @@ def test_xuat_file_router_co_tem_cho_moi_operation(api, po, db):
     assert 'QR bổ sung' not in workbook.sheetnames, (
         'mọi Operation đều có block trong file gốc, không được sinh sheet phụ')
     assert response.headers['X-MESFlow-Router-Source'] == 'workbook'
+    # Danh tính bản gốc vừa in từ đó -- để không ai in nhầm bản cũ.
+    assert re.fullmatch(r'[0-9a-f]{64}', response.headers['X-MESFlow-Router-Source-Sha256'])
+    assert int(response.headers['X-MESFlow-Router-Matched']) == 3
+    assert int(response.headers['X-MESFlow-Router-Unmatched']) == 0
     for title in ('Chân ghế A', 'HÀN ROBOT'):
         assert len(workbook[title]._images) > 0, f'sheet {title} không có tem nào'
         labels = {c.value for row in workbook[title].iter_rows() for c in row}
@@ -323,6 +329,44 @@ def test_po_khong_ton_tai_tra_ve_404(api):
     assert response.status_code == 404
 
 
+def test_po_khong_co_file_goc_thi_tu_choi_chu_khong_xuat_file_generic(api, db):
+    """Template dựng tay (không nhập từ Excel) -> xuất file phải 409, không generic.
+
+    Đây là điểm cốt lõi của hợp đồng: thà KHÔNG xuất được còn hơn đưa ra một tờ
+    giấy trông giống biểu mẫu của khách nhưng không phải cái họ đang dùng. Mọi
+    PO đều phải sinh từ Template, nên "không có file gốc" chính là trường hợp
+    Template được gõ tay trong trình soạn thảo.
+    """
+    suffix = uuid.uuid4().hex[:8].upper()
+    created = api.post(f'{BASE_URL}/api/templates', json={
+        'code': f'TPL-HANDMADE-{suffix}', 'name': 'Template gõ tay',
+        'product': 'THỬ', 'version': '1.0', 'active': True}, timeout=30)
+    assert created.status_code in (200, 201), created.text[:300]
+    template_id = int(created.json()['id'])
+    tree = api.put(f'{BASE_URL}/api/templates/{template_id}/tree', json={
+        'parts': [{'key': 'p1', 'code': 'P1', 'name': 'Part 1', 'sort_order': 0}],
+        'operations': [{'part_key': 'p1', 'code': 'OP01', 'name': 'CẮT',
+                        'sort_order': 0, 'equipment_code': ''}],
+        'equipment': []}, timeout=30)
+    assert tree.status_code in (200, 201), tree.text[:300]
+    po = api.post(f'{BASE_URL}/api/templates/{template_id}/instantiate',
+        json={'code': f'PO-NOSRC-{suffix}', 'planned_quantity': 10}, timeout=60)
+    assert po.status_code in (200, 201), po.text[:300]
+    po_id = int(po.json()['production_order_id'])
+
+    response = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router.xlsx', timeout=60)
+    assert response.status_code == 409, response.text[:300]
+    body = response.json()
+    assert body['reason'] == 'NO_SOURCE_WORKBOOK'
+    assert 'nhập lại' in body['message'].lower()
+    # Và tuyệt đối không trả về một file Excel nào.
+    assert 'spreadsheetml' not in response.headers.get('Content-Type', '')
+    # Danh sách tem cũng phải từ chối y hệt, không được trả danh sách rỗng.
+    labels = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router-labels', timeout=60)
+    assert labels.status_code == 409
+    assert labels.json()['reason'] == 'NO_SOURCE_WORKBOOK'
+
+
 def test_kiosk_cong_khai_khong_doi(api):
     """Hồi quy: tính năng này không được nới lỏng biên giới kiosk công khai."""
     anonymous = requests.Session()
@@ -330,3 +374,120 @@ def test_kiosk_cong_khai_khong_doi(api):
                              timeout=30, allow_redirects=False)
     assert response.status_code in (302, 401, 403), (
         'xuất file router là màn quản trị, không được mở cho khách')
+    labels = anonymous.get(f'{BASE_URL}/api/production-orders/1/router-labels',
+                           timeout=30, allow_redirects=False)
+    assert labels.status_code in (302, 401, 403)
+
+
+# --- vòng tròn đầy đủ trên FILE THẬT của xưởng ----------------------------
+#
+# Yêu cầu bắt buộc dùng chính workbook mẫu: chỉ file thật mới có merge, độ rộng
+# cột, ảnh, khung in và 44 sheet để chứng minh "xuất = file gốc + tem".
+
+REAL_FIXTURE = Path(__file__).resolve().parents[1] / 'fixtures/router-newark-arm-chair.xlsx'
+
+
+@pytest.fixture(scope='module')
+def real_workbook_bytes():
+    assert REAL_FIXTURE.is_file(), f'thiếu fixture {REAL_FIXTURE}'
+    return REAL_FIXTURE.read_bytes()
+
+
+@pytest.fixture
+def real_po(api, real_workbook_bytes):
+    """Nhập file thật rồi tạo PO từ nó."""
+    files = {'file': (REAL_FIXTURE.name, real_workbook_bytes,
+                      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+    imported = api.post(f'{BASE_URL}/api/templates/import-workbook', files=files, timeout=600)
+    assert imported.status_code == 200, imported.text[:400]
+    body = imported.json()
+    assert body['setup_count'] == 47
+    code = f'PO-REAL-{uuid.uuid4().hex[:8].upper()}'
+    created = api.post(f"{BASE_URL}/api/templates/{body['template_id']}/instantiate",
+                       json={'code': code, 'planned_quantity': 110}, timeout=600)
+    assert created.status_code in (200, 201), created.text[:400]
+    return body['template_id'], created.json()
+
+
+def test_file_that_shop_uses_imports_end_to_end(real_po, db):
+    template_id, po = real_po
+    assert po['parts_created'] == 44
+    assert po['operations_created'] == 112
+    setups = db.execute("""SELECT COUNT(*) c FROM operations
+        WHERE production_order_id=%s AND operation_type='SETUP'""",
+        (int(po['production_order_id']),)).fetchone()['c']
+    assert setups == 47
+
+
+def test_export_of_real_po_is_the_source_workbook_with_labels(api, real_po, real_workbook_bytes):
+    """Xuất ra phải GIỮ NGUYÊN 44 sheet, merge và ảnh của file gốc, cộng tem."""
+    _, po = real_po
+    po_id = int(po['production_order_id'])
+    response = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router.xlsx', timeout=900)
+    assert response.status_code == 200, response.text[:400]
+    assert response.headers['X-MESFlow-Router-Source'] == 'workbook'
+    assert int(response.headers['X-MESFlow-Router-Labels']) == 112 + 47
+    assert int(response.headers['X-MESFlow-Router-Unmatched']) == 0
+
+    original = load_workbook(BytesIO(real_workbook_bytes))
+    exported = load_workbook(BytesIO(response.content))
+    # Cấu trúc gốc còn nguyên -- đây là điểm mà một file dựng lại sẽ trượt.
+    assert exported.sheetnames == original.sheetnames
+    assert 'QR bổ sung' not in exported.sheetnames
+    for name in original.sheetnames:
+        assert {str(r) for r in exported[name].merged_cells.ranges} == {
+            str(r) for r in original[name].merged_cells.ranges}, f'{name}: merge đổi'
+        assert len(exported[name]._images) >= len(original[name]._images), (
+            f'{name}: mất ảnh gốc')
+        for letter in 'ABCDEFGHIJKLM':
+            assert (exported[name].column_dimensions[letter].width
+                    == original[name].column_dimensions[letter].width), f'{name}:{letter}'
+    # Ô dữ liệu quan trọng của tờ giấy vẫn đúng.
+    sheet = exported['Chân ghế A  - Trái']
+    assert sheet['A8'].value == 'OPERATION # 01- CẮT LASER'
+    assert sheet['L10'].value == 'Thời gian Setup ( phút )'
+    assert sheet['L11'].value == 20
+    assert sheet['L14'].value == 100
+
+
+def test_real_po_labels_decode_to_canonical_operation_ids(api, real_po, db):
+    _, po = real_po
+    po_id = int(po['production_order_id'])
+    labels = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router-labels',
+                     timeout=900).json()
+    assert labels['count'] == 112 + 47
+    assert labels['unmatched'] == []
+    assert re.fullmatch(r'[0-9a-f]{64}', labels['source_file']['sha256'])
+
+    ids = {int(r['id']) for r in db.execute("""SELECT id FROM operations
+        WHERE production_order_id=%s AND COALESCE(operation_type,'PRODUCTION')
+        IN ('PRODUCTION','SETUP')""", (po_id,)).fetchall()}
+    assert {int(i['operation_id']) for i in labels['labels']} == ids
+    setup_ids = {int(r['id']) for r in db.execute(
+        "SELECT id FROM operations WHERE production_order_id=%s AND operation_type='SETUP'",
+        (po_id,)).fetchall()}
+    for item in labels['labels']:
+        if item['kind'] == 'SETUP':
+            assert int(item['operation_id']) in setup_ids
+            assert item['payload'] == f"WF|OPID|{item['operation_id']}"
+
+
+def test_re_import_points_the_export_at_the_new_file(api, real_po, real_workbook_bytes, db):
+    """Nhập lại thì lần xuất sau phải dùng BẢN MỚI, không dùng nhầm bản cũ."""
+    template_id, po = real_po
+    po_id = int(po['production_order_id'])
+    before = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router-labels',
+                     timeout=900).json()['source_file']
+
+    # Nhập lại cùng nội dung: content-addressed nên sha256 không đổi, nhưng
+    # phải là một lần nhập MỚI (import_id tăng) -- đó là thứ chỉ ra bản đang dùng.
+    files = {'file': (REAL_FIXTURE.name, real_workbook_bytes,
+                      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+    again = api.post(f'{BASE_URL}/api/templates/import-workbook', files=files, timeout=600)
+    assert again.status_code == 200, again.text[:400]
+    assert again.json()['template_id'] == template_id
+
+    after = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router-labels',
+                    timeout=900).json()['source_file']
+    assert after['sha256'] == before['sha256'], 'cùng nội dung -> cùng hash'
+    assert after['import_id'] >= before['import_id'], 'phải trỏ tới lần nhập mới nhất'

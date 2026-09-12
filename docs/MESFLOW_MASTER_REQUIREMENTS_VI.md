@@ -1890,8 +1890,8 @@ không bao giờ ở bên ngoài.
   1. Đọc thời gian setup theo **neo nhãn trong phạm vi từng block** (nhãn `Thời gian Setup ( phút )`, giá trị nằm ngay dưới, cùng cột) — KHÔNG theo ô tuyệt đối, vì vị trí block thay đổi theo số công đoạn của sheet.
   2. `> 0` → Operation được đánh dấu `requires_setup=true` và giữ `expected_setup_minutes`; khi tạo PO, cơ chế SETUP **sẵn có** (§REQ-KIOSK-012, `repositories/setup_ops.py`) sinh Operation `operation_type=SETUP`, `parent_operation_id=<OP sản xuất>`, QR riêng. **Không có cơ chế setup thứ hai.**
   3. Màn xem trước liệt kê Part → Operation với checkbox; OP sản xuất tick sẵn như cũ, hàng **OP Setup tick sẵn khi phút > 0**.
-  4. Xuất file: mở lại **workbook gốc đã lưu trong kho** (`template_import_blobs`) rồi đóng thêm tem; không còn file gốc thì dựng workbook tương đương.
-- **Kết quả mong đợi**: xem trước trả cấu trúc + `counts.setups` và **không ghi gì vào CSDL**; nhập trả số Part/Operation/OP Setup đã tạo; xuất trả `.xlsx` tải về được, mỗi Operation quét được có một tem, kèm tem `QR Setup` cho OP có setup liên kết.
+  4. Xuất file: mở lại **workbook gốc đã lưu trong kho** (`template_import_blobs`, đánh địa chỉ theo sha256 trên volume uploads đã backup — không phải file tạm) rồi đóng thêm tem lên chính nó. **Không có nhánh dựng workbook mới.**
+- **Kết quả mong đợi**: xem trước trả cấu trúc + `counts.setups` và **không ghi gì vào CSDL**; nhập trả số Part/Operation/OP Setup đã tạo; xuất trả `.xlsx` tải về được — **chính file gốc đã nhập**, giữ nguyên sheet/tên sheet/merge/độ rộng cột/chiều cao dòng/ảnh-logo/khung in/công thức — cộng thêm tem cho mỗi Operation quét được, kèm tem `QR Setup` cho OP có setup liên kết. Response mang theo `X-MESFlow-Router-Source-Sha256` và `X-MESFlow-Router-Source-Import` để biết vừa in từ bản nhập nào.
 - **Chuyển trạng thái**: nhập lại cùng file cập nhật Template tại chỗ (khớp theo `(mã Part, mã OP)`), không nhân bản.
 - **Kiểm tra hợp lệ**:
   - `0`, ô trống, và các cách xưởng viết "không có" (`-`, `x`, `n/a`, `không`) → **không** tạo OP SETUP;
@@ -1900,7 +1900,9 @@ không bao giờ ở bên ngoài.
 - **Lỗi**: `Sheet '<tên>' dòng <n> (Operation <mã>): Thời gian Setup ( phút ) không được âm (đang là ...)`; `... phải là số, đang là ...`; `Chưa chọn Operation nào để nhập.`; PO không tồn tại → `404`.
 - **Ranh giới**:
   - bỏ tick OP sản xuất nhưng vẫn gửi `include_setup=true` → **server** bỏ luôn phần setup; không tạo được OP SETUP mồ côi kể cả khi gọi thẳng API;
-  - Operation không có block trong workbook gốc (thêm tay sau khi nhập) vẫn phải có tem — gom vào sheet `QR bổ sung`;
+  - **không còn file gốc / file gốc không đọc được thành block / không khớp được Operation nào → HTTP `409` kèm `reason` và câu hướng dẫn nhập lại Template nguồn. TUYỆT ĐỐI không lặng lẽ xuất ra một workbook tự dựng theo layout generic**;
+  - Operation không có block trong workbook gốc (thêm tay sau khi nhập) vẫn phải có tem — gom vào sheet `QR bổ sung`, và số lượng được báo ở `X-MESFlow-Router-Unmatched`;
+  - sheet không chứa block `OPERATION #` nào (ví dụ `SƠN TĨNH ĐIỆN` trong file NEWARK) được giữ **y nguyên**, không đụng tới kể cả khổ in;
   - hai sheet cùng tên công đoạn → hai tem khác nhau, tuyệt đối không dùng chung id.
 - **Quyền**: admin/manager cho cả ba endpoint. Đây là màn quản trị — không mở cho kiosk công khai.
 - **Đồng thời**: xem trước là đọc thuần, không khoá gì; nhập chạy trong đúng một transaction như REQ-TPL-005.
@@ -1910,6 +1912,8 @@ không bao giờ ở bên ngoài.
 - **Khía cạnh kiểm thử**: positive, negative (âm/chữ/0/trống), boundary (trùng mã, OP ngoài file gốc), RBAC, round-trip (nhập → xuất → nhập lại).
 
 **Danh tính QR khi in lại.** Payload lấy từ `printable_qr_payload_sql()` — nơi duy nhất trả lời "tem MỚI được mang chuỗi nào". OP SETUP luôn địa chỉ theo id (`WF|OPID|<id>`) vì dòng và tem sinh ra cùng lúc; OP sản xuất **giữ nguyên** chuỗi đang lưu, để in lại một tem bình thường ra đúng cái đang dán ngoài xưởng, và chỉ chuyển sang địa chỉ theo id khi chuỗi cũ đã mơ hồ. REWORK cố ý **không** có tem (xem `domain/policy.py: LABELLED_TYPES`).
+
+**Xuất file là round-trip, không phải dựng lại.** Nguồn duy nhất của tờ xuất ra là chính workbook đã nhập cho Template sinh ra PO đó. Tờ router là biểu mẫu của khách — khung in, logo, ô ký, công thức tính giờ — nên một file "tương đương" trông giống nhưng không phải cái xưởng đang dùng, và người cầm tờ giấy không có cách nào biết mình đang cầm bản nào. Vì vậy nhánh dựng workbook mới đã bị **gỡ hẳn khỏi mã nguồn**, và `tests/test_router_export_qr.py::test_khong_con_duong_dung_workbook_moi` khoá lại điều đó. Kiểm chứng bằng **chính file thật** `tests/fixtures/router-newark-arm-chair.xlsx` (44 sheet): xuất ra giữ nguyên danh sách sheet, merge, độ rộng cột A..M, chiều cao dòng và ảnh gốc.
 
 **Vị trí tem trên giấy.** Tem nằm ở làn riêng bắt đầu từ cột đầu tiên **sau ô có chữ xa nhất về bên phải** của sheet, nên không đè Part Number, thời gian setup, thời gian gia công, số lượng hay tên người thực hiện. Nhãn `QR OP` và `QR Setup` in ngay trên mỗi tem. Khổ in được đặt `fitToWidth=1` để làn QR không rơi sang trang khác.
 
@@ -3316,7 +3320,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |
 | REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 case, chạy qua đúng đường finish của kiosk), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |
-| REQ-TPL-006 (router: tự tạo OP Setup + xuất Excel kèm QR) | `tests/test_excel_router_setup_parser.py` (25 case), `tests/test_router_export_qr.py` (18 case, giải mã ngược ảnh QR), `tests/integration/test_router_setup_import_export.py` (14 case, API + PostgreSQL thật), `tests/e2e/template-import-setup-preview.spec.js` (8 case), `tests/test_excel_import_export_source.py` | A |
+| REQ-TPL-006 (router: tự tạo OP Setup + xuất Excel kèm QR) | `tests/test_excel_router_setup_parser.py` (25 case), `tests/test_router_export_qr.py` (20 case, giải mã ngược ảnh QR), `tests/integration/test_router_setup_import_export.py` (19 case, API + PostgreSQL thật, gồm round-trip file thật), `tests/test_router_export_real_workbook.py` (12 case, chạy trên chính file 44 sheet của xưởng), `tests/e2e/template-import-setup-preview.spec.js` (8 case), `tests/test_excel_import_export_source.py` | A |
 | REQ-QR-001 (payload nhãn QR Operation) | `tests/integration/test_qr_label_payload_is_scannable.py` (4 case: đổi mã, mơ hồ chéo cột, và hai ca giữ an toàn cho nhãn thường/SETUP) | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (cho đúng 2 màn hình đó) |
 | REQ-TUT-* | `tests/e2e/tutorial-*.spec.js` (3 file), 5 file `test_v6584*.py` | A |

@@ -1061,6 +1061,10 @@ async function exportProductionOrderRouter(poId,poCode,button){
     const r=await fetch(`/api/production-orders/${poId}/router.xlsx`);
     if(!r.ok){
       const d=await r.json().catch(()=>({}));
+      // 409 = chưa có file Excel gốc đủ tin cậy để đóng tem lên. Câu trả về đã
+      // nói rõ phải nhập lại Template nguồn, nên hiện nguyên văn thay vì gói
+      // lại thành "không xuất được file".
+      if(r.status===409)throw new Error(d.message||'Chưa có file Excel gốc cho PO này.');
       throw new Error(d.message||d.detail||`HTTP ${r.status}`);
     }
     const blob=await r.blob();
