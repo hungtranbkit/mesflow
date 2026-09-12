@@ -24,7 +24,9 @@ from conftest import BASE_URL
 pytestmark = pytest.mark.postgres
 
 
-def _closed_session(api, graph, good, defect):
+def _closed_session(api, graph, good, defect, repairable=None):
+    # rework_qty = số NG công nhân KHAI LÀ SỬA ĐƯỢC (0051). Mặc định khai hết,
+    # vì mọi bài dưới đây đều cần số NG đó vào được hàng chờ sửa để resolve.
     started = api.post(f'{BASE_URL}/api/work-sessions/start', json={
         'request_id': f'RW-S-{uuid.uuid4()}', 'employee_id': graph['employee_id'],
         'operation_id': graph['operation_id'], 'station_id': graph['station_id']}, timeout=15)
@@ -32,7 +34,7 @@ def _closed_session(api, graph, good, defect):
     session_id = started.json()['session']['id']
     finished = api.post(f'{BASE_URL}/api/work-sessions/{session_id}/finish', json={
         'request_id': f'RW-F-{uuid.uuid4()}', 'good_qty': good, 'defect_qty': defect,
-        'rework_qty': 0}, timeout=15)
+        'rework_qty': defect if repairable is None else repairable}, timeout=15)
     assert finished.status_code == 200, finished.text
     return session_id
 
@@ -48,9 +50,10 @@ def test_adjust_cannot_erase_repairs_already_recorded_in_the_ledger(api, db, see
     session_id = _closed_session(api, graph, good=10, defect=5)
     assert _resolve(api, session_id, graph, repaired=2).status_code == 200
 
-    row = db.execute('SELECT good_qty,rework_qty FROM work_sessions WHERE id=%s',
+    row = db.execute('SELECT good_qty,rework_qty,repaired_qty FROM work_sessions WHERE id=%s',
                      (session_id,)).fetchone()
-    assert (row['good_qty'], row['rework_qty']) == (12, 2)
+    # rework_qty giữ nguyên khai báo (5); phần đã sửa nằm ở repaired_qty (0051).
+    assert (row['good_qty'], row['rework_qty'], row['repaired_qty']) == (12, 5, 2)
     ledger = db.execute('SELECT COALESCE(SUM(qty_reworked),0) n FROM rework_ledger WHERE source_session_id=%s',
                         (session_id,)).fetchone()['n']
     assert ledger == 2
@@ -63,9 +66,9 @@ def test_adjust_cannot_erase_repairs_already_recorded_in_the_ledger(api, db, see
     assert '2' in corrected.json().get('message', ''), corrected.text
 
     # Không có gì bị ghi: dòng session giữ nguyên credit.
-    after = db.execute('SELECT good_qty,rework_qty FROM work_sessions WHERE id=%s',
+    after = db.execute('SELECT good_qty,rework_qty,repaired_qty FROM work_sessions WHERE id=%s',
                        (session_id,)).fetchone()
-    assert (after['good_qty'], after['rework_qty']) == (12, 2)
+    assert (after['good_qty'], after['rework_qty'], after['repaired_qty']) == (12, 5, 2)
 
 
 def test_adjust_still_allows_a_correction_that_keeps_the_ledger_whole(api, db, seeded_factory):
@@ -78,9 +81,10 @@ def test_adjust_still_allows_a_correction_that_keeps_the_ledger_whole(api, db, s
         'request_id': f'RW-ADJ-{uuid.uuid4()}', 'good_qty': 20, 'defect_qty': 6,
         'rework_qty': 2, 'reason': 'Đếm lại thùng'}, timeout=20)
     assert ok.status_code == 200, ok.text
-    row = db.execute('SELECT good_qty,defect_qty,rework_qty FROM work_sessions WHERE id=%s',
+    row = db.execute('SELECT good_qty,defect_qty,rework_qty,repaired_qty FROM work_sessions WHERE id=%s',
                      (session_id,)).fetchone()
-    assert (row['good_qty'], row['defect_qty'], row['rework_qty']) == (20, 6, 2)
+    # Hạ khai báo sửa được xuống đúng bằng phần đã sửa (2) vẫn hợp lệ.
+    assert (row['good_qty'], row['defect_qty'], row['rework_qty'], row['repaired_qty']) == (20, 6, 2, 2)
 
 
 def test_resolve_reads_the_ledger_floor_so_repairs_cannot_be_credited_twice(api, db, seeded_factory):
@@ -95,8 +99,9 @@ def test_resolve_reads_the_ledger_floor_so_repairs_cannot_be_credited_twice(api,
     assert _resolve(api, session_id, graph, repaired=2).status_code == 200
 
     # Giả lập dữ liệu đã lệch từ trước: xoá credit khỏi dòng session, giữ ledger.
+    # Từ 0051 phần credit nằm ở repaired_qty, nên đó là cột bị xoá ở đây.
     with db.cursor() as cur:
-        cur.execute('UPDATE work_sessions SET good_qty=10,rework_qty=0 WHERE id=%s', (session_id,))
+        cur.execute('UPDATE work_sessions SET good_qty=10,repaired_qty=0 WHERE id=%s', (session_id,))
 
     # Còn chờ sửa thật = 5 - 2 (ledger) = 3, chứ không phải 5.
     too_many = _resolve(api, session_id, graph, repaired=4)
@@ -125,5 +130,5 @@ def test_edit_session_is_guarded_the_same_way(api, db, seeded_factory):
         'good_qty': 10, 'defect_qty': 5, 'rework_qty': 0,
         'reason': 'Nhập lại theo phiếu'}, timeout=20)
     assert edited.status_code == 409, edited.text
-    after = db.execute('SELECT rework_qty FROM work_sessions WHERE id=%s', (session_id,)).fetchone()
-    assert after['rework_qty'] == 2
+    after = db.execute('SELECT rework_qty,repaired_qty FROM work_sessions WHERE id=%s', (session_id,)).fetchone()
+    assert (after['rework_qty'], after['repaired_qty']) == (5, 2)

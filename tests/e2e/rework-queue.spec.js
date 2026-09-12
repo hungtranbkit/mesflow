@@ -16,7 +16,12 @@ async function login(page) {
 
 function queueItem(overrides = {}) {
   return {
-    source_session_id: 701, source_operation_id: 91, defect_qty: 8, rework_qty: 0, scrap_qty: 0,
+    // Bucket model per 0051: rework_qty is how many of the 8 NG the operator
+    // DECLARED repairable, repaired_qty/scrap_qty are how the bench resolved
+    // them, and pending_qty = rework - repaired - scrap. The old fixture had
+    // rework_qty 0 with pending 8, which under that model cannot happen.
+    source_session_id: 701, source_operation_id: 91, defect_qty: 8, rework_qty: 8,
+    repaired_qty: 0, scrap_qty: 0,
     pending_qty: 8, source_finished_at: '2026-09-08T09:30:00+07:00',
     employee_id: 900, employee_no: 'NV-001', employee_name: 'Trần Thị B',
     operation_code: 'OP-CAT-LASER', operation_name: 'CẮT LASER',
@@ -34,7 +39,7 @@ async function mockQueue(page, items) {
 
 test('hàng chờ sửa liệt kê mục chờ xử lý và có URL riêng', async ({ page }) => {
   await login(page);
-  await mockQueue(page, [queueItem(), queueItem({ source_session_id: 702, po_code: 'PO-777', production_order_id: 777, pending_qty: 3, defect_qty: 5, rework_qty: 2 })]);
+  await mockQueue(page, [queueItem(), queueItem({ source_session_id: 702, po_code: 'PO-777', production_order_id: 777, pending_qty: 3, defect_qty: 5, rework_qty: 4, repaired_qty: 1 })]);
 
   // Reached the way a real user does: expand the "Điều hành" group, then
   // click the entry -- this also pins where the page lives in the sidebar.

@@ -76,7 +76,7 @@ def priority_sort_key(row:dict):
 
 def dispatch_state_from_db(cur,operation_id:int)->dict:
     cur.execute('''SELECT o.*,po.status po_status,po.planned_quantity,
-      src.done_qty source_done_qty,src.rework_qty source_rework_qty,
+      src.done_qty source_done_qty,src.repaired_qty source_repaired_qty,
       pred.id predecessor_id,pred.status predecessor_status,pred.done_qty predecessor_done_qty,
       COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c
         WHERE c.source_operation_id=o.input_source_operation_id AND c.source_qty_kind=o.input_source_kind),0) source_consumed_qty
@@ -85,7 +85,9 @@ def dispatch_state_from_db(cur,operation_id:int)->dict:
       WHERE o.id=%s FOR UPDATE OF o,po''',(operation_id,));row=cur.fetchone()
     if not row:return {}
     item=dict(row);item['operation_status']=item.get('status')
-    supplied=int(item.get('source_rework_qty') or 0) if str(item.get('input_source_kind') or 'GOOD').upper()=='REWORK' else int(item.get('source_done_qty') or 0)
+    # REWORK pool = pieces the SỬA HÀNG bench RECOVERED (repaired_qty), not the
+    # declared-repairable bucket rework_qty now holds on its own (0051).
+    supplied=int(item.get('source_repaired_qty') or 0) if str(item.get('input_source_kind') or 'GOOD').upper()=='REWORK' else int(item.get('source_done_qty') or 0)
     item['input_available_qty']=max(supplied-int(item.get('source_consumed_qty') or 0),0)
     pred={'done_qty':item.get('predecessor_done_qty'),'operation_status':item.get('predecessor_status')} if item.get('predecessor_id') else None
     return {**operation_wip(item,pred),'operation':item}

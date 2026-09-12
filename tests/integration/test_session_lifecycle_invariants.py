@@ -228,20 +228,26 @@ def test_a_session_with_no_quantity_may_still_move_to_a_support_op(db, api):
 
 
 def test_lowering_defect_below_recorded_scrap_is_refused_not_a_500(db, api):
-    """CHECK của CSDL phải được chặn trước bằng câu tiếng Việt, không phải 500."""
+    """CHECK của CSDL phải được chặn trước bằng câu tiếng Việt, không phải 500.
+
+    Từ 0051 ràng buộc bị đụng là repaired_qty+scrap_qty <= rework_qty (khai báo
+    sửa được), không còn là rework+scrap <= defect. Mục đích bài test không đổi:
+    người dùng phải nhận lỗi nghiệp vụ tiếng Việt, không phải lỗi PostgreSQL.
+    """
     suffix = uuid.uuid4().hex[:8].upper()
     g = _flow_graph(db, api, suffix)
     try:
-        sid = _work(api, g, g['src'], good=10, defect=6, rework=0)
+        # Khai cả 6 NG là sửa được, để chúng vào được hàng chờ sửa (0051).
+        sid = _work(api, g, g['src'], good=10, defect=6, rework=6)
         resolved = api.post(f'{BASE_URL}/api/rework/queue/{sid}/resolve', json={
             'request_id': f'INV-R-{uuid.uuid4()}', 'employee_id': g['employee_id'],
             'repaired_qty': 1, 'scrapped_qty': 4}, timeout=25)
         assert resolved.status_code == 200, resolved.text
-        row = db.execute('SELECT rework_qty,scrap_qty,defect_qty FROM work_sessions WHERE id=%s',
+        row = db.execute('SELECT rework_qty,repaired_qty,scrap_qty,defect_qty FROM work_sessions WHERE id=%s',
                          (sid,)).fetchone()
-        assert row['scrap_qty'] == 4 and row['rework_qty'] == 1
+        assert (row['rework_qty'], row['repaired_qty'], row['scrap_qty']) == (6, 1, 4)
 
-        # defect=2 < scrap 4 + rework 1: CSDL sẽ từ chối. Người dùng phải nhận
+        # rework=1 < repaired 1 + scrap 4: CSDL sẽ từ chối. Người dùng phải nhận
         # lỗi nghiệp vụ, không phải lỗi PostgreSQL.
         bad = api.post(f'{BASE_URL}/api/supervisor/sessions/{sid}/adjust', json={
             'request_id': f'INV-A-{uuid.uuid4()}', 'good_qty': 10, 'defect_qty': 2,
@@ -262,16 +268,17 @@ def test_adjust_still_works_when_the_new_shape_is_valid(db, api):
     suffix = uuid.uuid4().hex[:8].upper()
     g = _flow_graph(db, api, suffix)
     try:
-        sid = _work(api, g, g['src'], good=10, defect=6, rework=0)
+        sid = _work(api, g, g['src'], good=10, defect=6, rework=6)
         api.post(f'{BASE_URL}/api/rework/queue/{sid}/resolve', json={
             'request_id': f'INV-R2-{uuid.uuid4()}', 'employee_id': g['employee_id'],
             'repaired_qty': 1, 'scrapped_qty': 4}, timeout=25)
+        # Hợp lệ: NG lên 8, khai sửa được vẫn 6 -- vẫn đủ chỗ cho 1 đã sửa + 4 phế.
         ok = api.post(f'{BASE_URL}/api/supervisor/sessions/{sid}/adjust', json={
             'request_id': f'INV-A2-{uuid.uuid4()}', 'good_qty': 12, 'defect_qty': 8,
-            'rework_qty': 1, 'reason': 'Đếm lại, NG nhiều hơn'}, timeout=20)
+            'rework_qty': 6, 'reason': 'Đếm lại, NG nhiều hơn'}, timeout=20)
         assert ok.status_code == 200, ok.text
-        row = db.execute('SELECT defect_qty,rework_qty,scrap_qty FROM work_sessions WHERE id=%s',
+        row = db.execute('SELECT defect_qty,rework_qty,repaired_qty,scrap_qty FROM work_sessions WHERE id=%s',
                          (sid,)).fetchone()
-        assert (row['defect_qty'], row['rework_qty'], row['scrap_qty']) == (8, 1, 4)
+        assert (row['defect_qty'], row['rework_qty'], row['repaired_qty'], row['scrap_qty']) == (8, 6, 1, 4)
     finally:
         _drop(db, g)

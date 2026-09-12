@@ -130,7 +130,10 @@ Exception — TWO independent systems, never conflate them:
 | **Work Session** | One employee's timed work block on one Operation. The atomic unit of production data. Has `status` = `OPEN` or `CLOSED` only. |
 | **good_qty** | Units produced that passed. Integer, always ≥ 0. |
 | **defect_qty** | Units produced that failed. Integer, always ≥ 0. |
-| **rework_qty** | Of `defect_qty`, how many are repairable. Integer, always ≥ 0, always ≤ `defect_qty` on the same session. |
+| **rework_qty** | Of `defect_qty`, how many are repairable. Integer, always ≥ 0, always ≤ `defect_qty` on the same session. Declared by the operator at finish ("Lỗi sửa được") and never rewritten afterwards — a repair credits `repaired_qty`, not this. |
+| **repaired_qty** | Of `rework_qty`, how many the SỬA HÀNG bench actually recovered. Those pieces are also credited to the Operation's `done_qty`. See REQ-RWK-001. |
+| **scrap_qty** | Of `rework_qty`, how many the SỬA HÀNG bench wrote off after triage. Total Phế is `(defect_qty − rework_qty) + scrap_qty` — the pieces never declared repairable, plus these. |
+| **Chờ sửa / pending repair** | `rework_qty − repaired_qty − scrap_qty`, floored at 0. Derived on every read, never stored. REQ-RWK-001. |
 | **quantity_confirmed** | Boolean. `TRUE` after any real operator finish or any admin/supervisor correction. `FALSE` only immediately after an auto-close, until a human corrects it. |
 | **excluded_from_reports** | Boolean. When `TRUE`, this session's numbers are excluded from every KPI/progress/exception-detection aggregate, but the row itself is never deleted and its `OPEN`/`CLOSED` status is untouched. |
 | **Reportable session** | The shared filter every KPI/report/exception query applies: `status = 'CLOSED' AND excluded_from_reports = FALSE`. |
@@ -487,7 +490,9 @@ FK, also reachable via part), optionally belongs to one `sales_order`.
 | started_at | timestamptz | NN, def now |
 | ended_at | timestamptz | nullable (set on close) |
 | good_qty / defect_qty | int | NN, def 0, always clamped ≥ 0 on write |
-| rework_qty | int | NN, def 0, always ≤ defect_qty on the same row |
+| rework_qty | int | NN, def 0, always ≤ defect_qty on the same row (CHECK `ck_work_sessions_rework_le_defect`) |
+| repaired_qty | int | NN, def 0 — added by `0051_repair_pending_semantics`; `repaired_qty + scrap_qty ≤ rework_qty` (CHECK `ck_work_sessions_resolved_le_rework`) |
+| scrap_qty | int | NN, def 0 — added by `0044_rework_queue`; written off at the SỬA HÀNG bench |
 | note | text | NN, def `''` |
 | start_request_id | text | NN, **unique** — idempotency key for the start call |
 | finish_request_id | text | unique, nullable — idempotency key for the finish call |
@@ -2301,7 +2306,103 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P1.
 - **Dimensions**: positive, negative (all 7 validation cases), boundary, RBAC.
 
-## 15.12 Search / Filter / Pagination (`REQ-SEARCH-*`)
+## 15.12 Hàng chờ sửa / Rework queue (`REQ-RWK-*`)
+
+Added 2026-09-12 after a P0 in which Tổng quan printed "Chờ sửa 1" for a
+session the operator had declared 2 repairable pieces on. The queue itself
+shipped with migrations `0044_rework_queue`/`0045_rework_queue_permissions`
+but was never written up here, and the gap is what let two contradictory
+readings of `rework_qty` coexist in one codebase: §4.5's definition
+("of `defect_qty`, how many are repairable") on every write path, and
+`0044`'s own docstring ("how many were FIXED") in the rollups built on it.
+§4.5 is and remains the definition; this section makes the rest of the model
+explicit so the same ambiguity cannot re-form around the newer columns.
+
+### REQ-RWK-001 — Defect bucket semantics and "Chờ sửa"
+
+- **Module**: Dashboard / Tổng quan / Hàng chờ sửa
+- **Purpose**: Give every screen ONE answer to "how many pieces are waiting to
+  be repaired", derived from the operator's own declaration.
+- **Actors**: read — any role with `session.view`.
+- **Preconditions**: at least one `CLOSED`, non-excluded session with `defect_qty > 0`.
+- **Input**: N/A (derived).
+- **Trigger**: `GET /dashboard/overview`, `GET /production-control`, `GET /rework/queue`.
+- **Main flow**: a session's defects split into exactly four buckets, decided at
+  two different moments:
+
+  | Column | Decided | Meaning |
+  |---|---|---|
+  | `defect_qty` | at finish | total NG found |
+  | `rework_qty` | at finish, by the operator ("Lỗi sửa được") | of those NG, how many **can** be repaired |
+  | `repaired_qty` | later, at the SỬA HÀNG bench | of the repairable bucket, how many were **recovered** |
+  | `scrap_qty` | later, at the SỬA HÀNG bench | of the repairable bucket, how many were **written off** after triage |
+
+- **Expected output**:
+  - **Chờ sửa** = `rework_qty − repaired_qty − scrap_qty`, floored at 0.
+  - **Phế** = `(defect_qty − rework_qty) + scrap_qty` — written off at
+    declaration, plus written off at the bench.
+  - **Đã sửa** = `repaired_qty`, and those pieces are also credited to the
+    source operation's `done_qty` (they are good output).
+  - Operation- and PO-level figures are the SUM of the member sessions'
+    quantities — never a count of sessions, ledger rows or queue rows.
+- **State transition**: a piece leaves "Chờ sửa" exactly once, into either
+  `repaired_qty` or `scrap_qty` (REQ-RWK-002).
+- **Validation**: `rework_qty ≤ defect_qty` (BR-006) and
+  `repaired_qty + scrap_qty ≤ rework_qty` (BR-020), both DB CHECK constraints.
+- **Errors**: an edit lowering `rework_qty` below `repaired_qty + scrap_qty` is
+  refused with a message naming how many were already resolved — never a raw
+  constraint violation.
+- **Boundary**: `rework_qty = 0` with `defect_qty > 0` means **all scrap and
+  nothing queued** — not "untriaged, therefore pending"; `rework_qty =
+  defect_qty` means nothing is scrap and the whole NG count is pending.
+- **Permission**: `session.view` to read; see REQ-RWK-002 to resolve.
+- **Concurrency**: reads are derived, never stored, so they cannot drift from
+  the columns they come from; a kiosk finish replayed with the same
+  `request_id` must not add the quantity twice.
+- **Audit**: `quantity_movements` carries `REPAIRABLE` for `rework_qty` and
+  `REWORK_RECOVERED` for `repaired_qty`.
+- **Related**: §4.5 (`rework_qty` definition), REQ-DASH-001, REQ-SESS-002,
+  BR-006, BR-019, BR-020, migration `0051_repair_pending_semantics`.
+- **Priority**: P0 — a wrong number here sends the wrong quantity of physical
+  goods to the repair bench, or hides goods that need repairing.
+- **Dimensions**: positive (declared N shows N), boundary (0 and
+  `rework_qty = defect_qty`), multi-session sum, partial repair, partial scrap,
+  idempotent replay, excluded session.
+
+### REQ-RWK-002 — Resolving a queue item
+
+- **Module**: Hàng chờ sửa
+- **Purpose**: Record what happened to pieces that were waiting for repair.
+- **Actors**: admin, manager, supervisor (`rework.resolve`).
+- **Preconditions**: a `CLOSED`, non-excluded PRODUCTION session with
+  Chờ sửa > 0.
+- **Input**: `{request_id, employee_id, repaired_qty?, scrapped_qty?, note?}`.
+- **Trigger**: `POST /rework/queue/<source_session_id>/resolve`.
+- **Main flow**: repaired pieces are credited to the SOURCE operation's
+  `done_qty` and `repaired_qty`; scrapped pieces go to `scrap_qty`. A labour-only
+  session is written against the auto-created SỬA HÀNG workbench operation and a
+  `rework_ledger` row records the dated audit of this specific action. The
+  operator's original declaration (`rework_qty`) is **never** rewritten.
+- **Expected output**: `200` with the updated source session and the new
+  Chờ sửa balance.
+- **State transition**: a fully resolved session leaves the queue entirely.
+- **Validation**: `repaired_qty + scrapped_qty > 0` and
+  `≤ Chờ sửa`; `employee_id` must be an active employee.
+- **Errors**: exceeding Chờ sửa → `409 BUSINESS_CONFLICT` naming the balance;
+  zero total → `ValueError`; SỬA HÀNG cannot be started by scanning its QR
+  (it is a workbench, not a routing step).
+- **Boundary**: resolving exactly the whole balance; a replayed `request_id`
+  must return the first result and credit nothing twice.
+- **Permission**: `rework.resolve` (migration `0045`).
+- **Concurrency**: one advisory lock per source session; the source row is
+  locked `FOR UPDATE` for the whole transaction.
+- **Audit**: `REWORK_RESOLVED` audit + domain event, plus the `rework_ledger` row.
+- **Related**: REQ-RWK-001, REQ-SESS-004.
+- **Priority**: P0.
+- **Dimensions**: positive, boundary (exact balance), negative (over-resolve),
+  idempotent replay, RBAC.
+
+## 15.13 Search / Filter / Pagination (`REQ-SEARCH-*`)
 
 ### REQ-SEARCH-001 — Bounded list responses
 
@@ -2324,7 +2425,7 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P2.
 - **Dimensions**: positive, boundary.
 
-## 15.13 Tutorial / Help (`REQ-TUT-*`)
+## 15.14 Tutorial / Help (`REQ-TUT-*`)
 
 ### REQ-TUT-001 — Tutorial manifest and video serving
 
@@ -2347,7 +2448,7 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P0 (the path-traversal protection is a real security boundary).
 - **Dimensions**: positive, negative (path traversal), boundary, empty-state (zero videos published).
 
-## 15.14 Admin / System (`REQ-SYS-*`)
+## 15.15 Admin / System (`REQ-SYS-*`)
 
 ### REQ-SYS-001 — Users & Roles management
 
@@ -2412,7 +2513,7 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P0 (this is the most security-sensitive boundary in the whole system — a leak here means an ordinary admin could restart production services).
 - **Dimensions**: positive, negative (admin-must-fail boundary — the single most important RBAC test case in the system), RBAC.
 
-## 15.15 Audit / History (`REQ-AUDIT-*`)
+## 15.16 Audit / History (`REQ-AUDIT-*`)
 
 ### REQ-AUDIT-001 — Action logs & error traces (admin-only)
 
@@ -2456,7 +2557,7 @@ Exact formulas are §8 — requirements below are the test-entry-points.
 - **Priority**: P1.
 - **Dimensions**: positive, RBAC.
 
-## 15.16 Cross-cutting API behavior (`REQ-API-*`)
+## 15.17 Cross-cutting API behavior (`REQ-API-*`)
 
 ### REQ-API-001 — Idempotency
 
@@ -2568,6 +2669,8 @@ Independently numbered `BR-###`; a `REQ-*` may cite one or more.
 | BR-016 | A stale, superseded UI request must never overwrite a more recent one's rendered result. | REQ-DASH-002 |
 | BR-017 | Timezone/shift math is always shift-relative-minutes against the site timezone, never naive wall-clock subtraction — required for cross-midnight shifts. | REQ-SHIFT-001 |
 | BR-018 | KPI/report/exception-detection queries share one predicate (`status='CLOSED' AND NOT excluded_from_reports`) rather than each hand-rolling their own. | REQ-PROD-001, REQ-EXC-001 |
+| BR-019 | "Chờ sửa" is the operator's declared-repairable bucket minus what has been resolved (`rework_qty − repaired_qty − scrap_qty`), and every screen derives it from one shared helper rather than re-spelling the arithmetic. NG the operator did **not** declare repairable is Phế, never pending. | REQ-RWK-001 |
+| BR-020 | A repair never rewrites the operator's declaration: `rework_qty` is fixed at finish, and `repaired_qty + scrap_qty ≤ rework_qty` is DB-enforced so a piece can leave the pending bucket exactly once. | REQ-RWK-001, REQ-RWK-002 |
 | BR-901 | Every login attempt (success or failure) writes an audit-trail row (`LOGIN_SUCCESS`/`LOGIN_FAILED`); the submitted password is never logged in any form, regardless of outcome. | REQ-AUTH-001 |
 | BR-902 | A deliberate logout must never bounce straight back into an authenticated session even when autologin is on — the app's own logout button always appends `?noauto=1`. | REQ-AUTH-002/005 |
 | BR-903 | Autologin requires `MESFLOW_ENV != production`, **or** both that condition failing **and** an explicit second flag (`MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1`) — never satisfied by the base flag alone on a production-flagged environment. | REQ-AUTH-004 |
@@ -2705,6 +2808,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
+| REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 cases, drives the real kiosk finish path), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | not found as a dedicated pytest file | — |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (for those two screens specifically) |
 | REQ-TUT-* | `tests/e2e/tutorial-*.spec.js` (3 files), 5 `test_v6584*.py` files | A |

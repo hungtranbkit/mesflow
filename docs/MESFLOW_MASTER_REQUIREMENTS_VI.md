@@ -143,7 +143,10 @@ Exception (Ngoại lệ) — HAI hệ thống độc lập, không được nh�
 | **Work Session** | Một phiên làm việc có tính giờ của 1 nhân viên trên 1 Operation. Đơn vị dữ liệu sản xuất nguyên tử (atomic). Chỉ có `status` = `OPEN` hoặc `CLOSED`. |
 | **good_qty** | Số lượng sản phẩm đạt. Số nguyên, luôn ≥ 0. |
 | **defect_qty** | Số lượng sản phẩm lỗi/NG. Số nguyên, luôn ≥ 0. |
-| **rework_qty** | Trong `defect_qty`, bao nhiêu cái có thể sửa được (repairable). Số nguyên, luôn ≥ 0, luôn ≤ `defect_qty` cùng session. |
+| **rework_qty** | Trong `defect_qty`, bao nhiêu cái có thể sửa được (repairable). Số nguyên, luôn ≥ 0, luôn ≤ `defect_qty` cùng session. Do công nhân khai lúc kết thúc session ("Lỗi sửa được") và không bao giờ bị ghi đè sau đó — một lần sửa cộng vào `repaired_qty`, không phải cột này. |
+| **repaired_qty** | Trong `rework_qty`, bàn SỬA HÀNG đã phục hồi được bao nhiêu cái. Những sản phẩm đó cũng được cộng vào `done_qty` của Operation. Xem REQ-RWK-001. |
+| **scrap_qty** | Trong `rework_qty`, bàn SỬA HÀNG đã loại bỏ bao nhiêu cái sau khi xem xét. Tổng Phế là `(defect_qty − rework_qty) + scrap_qty` — phần chưa bao giờ được khai là sửa được, cộng với phần này. |
+| **Chờ sửa** | `rework_qty − repaired_qty − scrap_qty`, chặn dưới ở 0. Suy ra mỗi lần đọc, không lưu trữ. REQ-RWK-001. |
 | **quantity_confirmed** | Boolean. `TRUE` sau bất kỳ lần finish thật của operator hoặc bất kỳ lần admin/supervisor sửa (correction). Chỉ `FALSE` ngay sau khi auto-close, cho tới khi có người sửa xác nhận lại. |
 | **excluded_from_reports** | Boolean. Khi `TRUE`, số liệu của session này bị loại khỏi mọi tổng hợp KPI/tiến độ/phát hiện ngoại lệ, nhưng bản ghi không bao giờ bị xóa và trạng thái `OPEN`/`CLOSED` của nó không đổi. |
 | **Reportable session** (session được tính vào báo cáo) | Bộ lọc dùng chung cho mọi truy vấn KPI/báo cáo/phát hiện ngoại lệ: `status = 'CLOSED' AND excluded_from_reports = FALSE`. |
@@ -500,7 +503,9 @@ truy cập được qua part), tùy chọn thuộc về một `sales_order`.
 | started_at | timestamptz | NN, def now |
 | ended_at | timestamptz | nullable (set khi đóng) |
 | good_qty / defect_qty | int | NN, def 0, luôn được clamp ≥ 0 khi ghi |
-| rework_qty | int | NN, def 0, luôn ≤ defect_qty cùng dòng |
+| rework_qty | int | NN, def 0, luôn ≤ defect_qty cùng dòng (CHECK `ck_work_sessions_rework_le_defect`) |
+| repaired_qty | int | NN, def 0 — thêm bởi `0051_repair_pending_semantics`; `repaired_qty + scrap_qty ≤ rework_qty` (CHECK `ck_work_sessions_resolved_le_rework`) |
+| scrap_qty | int | NN, def 0 — thêm bởi `0044_rework_queue`; loại bỏ tại bàn SỬA HÀNG |
 | note | text | NN, def `''` |
 | start_request_id | text | NN, **unique** — khóa idempotency cho lệnh gọi start |
 | finish_request_id | text | unique, nullable — khóa idempotency cho lệnh gọi finish |
@@ -2704,7 +2709,102 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Độ ưu tiên**: P1.
 - **Khía cạnh kiểm thử**: positive, negative (cả 7 case kiểm tra hợp lệ), boundary, RBAC.
 
-## 15.12 Tìm kiếm / Lọc / Phân trang (`REQ-SEARCH-*`)
+## 15.12 Hàng chờ sửa (`REQ-RWK-*`)
+
+Bổ sung 2026-09-12 sau một P0: màn Tổng quan hiển thị "Chờ sửa 1" cho một
+session mà công nhân đã khai báo 2 sản phẩm sửa được. Hàng chờ sửa đã lên từ
+migration `0044_rework_queue`/`0045_rework_queue_permissions` nhưng chưa từng
+được viết vào tài liệu này, và chính khoảng trống đó khiến hai cách hiểu trái
+ngược của `rework_qty` cùng tồn tại trong một codebase: định nghĩa ở §4.5
+("trong `defect_qty`, bao nhiêu cái có thể sửa được") trên mọi đường ghi, và
+docstring của `0044` ("bao nhiêu cái ĐÃ được sửa") trong các rollup dựng trên
+nó. §4.5 là và vẫn là định nghĩa; mục này viết rõ phần còn lại của mô hình để
+sự mập mờ đó không hình thành lại quanh các cột mới.
+
+### REQ-RWK-001 — Ngữ nghĩa các nhóm hàng lỗi và "Chờ sửa"
+
+- **Module**: Dashboard / Tổng quan / Hàng chờ sửa
+- **Mục đích**: Cho mọi màn hình MỘT câu trả lời duy nhất cho "còn bao nhiêu sản
+  phẩm đang đợi sửa", suy ra từ chính khai báo của công nhân.
+- **Tác nhân**: xem — mọi vai trò có `session.view`.
+- **Điều kiện trước**: có ít nhất một session `CLOSED`, không bị loại khỏi báo
+  cáo, với `defect_qty > 0`.
+- **Đầu vào**: N/A (giá trị suy ra).
+- **Kích hoạt**: `GET /dashboard/overview`, `GET /production-control`, `GET /rework/queue`.
+- **Luồng chính**: hàng lỗi của một session chia thành đúng bốn nhóm, được
+  quyết định ở hai thời điểm khác nhau:
+
+  | Cột | Quyết định lúc | Ý nghĩa |
+  |---|---|---|
+  | `defect_qty` | kết thúc session | tổng số NG phát hiện |
+  | `rework_qty` | kết thúc session, do công nhân khai ("Lỗi sửa được") | trong số NG đó, bao nhiêu cái **có thể** sửa |
+  | `repaired_qty` | sau đó, tại bàn SỬA HÀNG | trong nhóm sửa được, bao nhiêu cái đã **phục hồi** |
+  | `scrap_qty` | sau đó, tại bàn SỬA HÀNG | trong nhóm sửa được, bao nhiêu cái phải **loại bỏ** sau khi xem xét |
+
+- **Kết quả mong đợi**:
+  - **Chờ sửa** = `rework_qty − repaired_qty − scrap_qty`, chặn dưới ở 0.
+  - **Phế** = `(defect_qty − rework_qty) + scrap_qty` — loại ngay lúc khai báo,
+    cộng với loại tại bàn sửa.
+  - **Đã sửa** = `repaired_qty`, và những sản phẩm đó cũng được cộng vào
+    `done_qty` của Operation nguồn (chúng là hàng đạt).
+  - Số liệu cấp Operation và PO là TỔNG SỐ LƯỢNG của các session thành phần —
+    không bao giờ là số session, số dòng ledger hay số dòng hàng đợi.
+- **Chuyển trạng thái**: một sản phẩm rời "Chờ sửa" đúng một lần, sang
+  `repaired_qty` hoặc `scrap_qty` (REQ-RWK-002).
+- **Kiểm tra hợp lệ**: `rework_qty ≤ defect_qty` (BR-006) và
+  `repaired_qty + scrap_qty ≤ rework_qty` (BR-020), cả hai là CHECK constraint ở DB.
+- **Lỗi**: sửa `rework_qty` xuống dưới `repaired_qty + scrap_qty` bị từ chối
+  kèm thông báo nêu rõ đã xử lý bao nhiêu — không phải lỗi constraint thô.
+- **Ranh giới**: `rework_qty = 0` trong khi `defect_qty > 0` nghĩa là **toàn bộ
+  là phế, không có gì vào hàng đợi** — KHÔNG phải "chưa phân loại nên coi là
+  chờ sửa"; `rework_qty = defect_qty` nghĩa là không có phế và toàn bộ số NG
+  đang chờ sửa.
+- **Quyền**: `session.view` để xem; xem REQ-RWK-002 để xử lý.
+- **Đồng thời**: số liệu được suy ra, không lưu, nên không thể lệch khỏi các cột
+  gốc; một lần finish từ kiosk gửi lại cùng `request_id` không được cộng đôi.
+- **Nhật ký**: `quantity_movements` ghi `REPAIRABLE` cho `rework_qty` và
+  `REWORK_RECOVERED` cho `repaired_qty`.
+- **Liên quan**: §4.5 (định nghĩa `rework_qty`), REQ-DASH-001, REQ-SESS-002,
+  BR-006, BR-019, BR-020, migration `0051_repair_pending_semantics`.
+- **Ưu tiên**: P0 — sai số ở đây khiến đưa nhầm số lượng hàng thật xuống bàn
+  sửa, hoặc giấu mất hàng cần sửa.
+- **Chiều kiểm thử**: positive (khai N hiện N), ranh giới (0 và
+  `rework_qty = defect_qty`), cộng dồn nhiều session, sửa một phần, loại một
+  phần, gửi lại idempotent, session bị loại khỏi báo cáo.
+
+### REQ-RWK-002 — Xử lý một mục trong hàng chờ sửa
+
+- **Module**: Hàng chờ sửa
+- **Mục đích**: Ghi nhận điều đã xảy ra với những sản phẩm đang đợi sửa.
+- **Tác nhân**: admin, manager, supervisor (`rework.resolve`).
+- **Điều kiện trước**: một session PRODUCTION đã `CLOSED`, không bị loại khỏi
+  báo cáo, có Chờ sửa > 0.
+- **Đầu vào**: `{request_id, employee_id, repaired_qty?, scrapped_qty?, note?}`.
+- **Kích hoạt**: `POST /rework/queue/<source_session_id>/resolve`.
+- **Luồng chính**: số sửa được cộng vào `done_qty` và `repaired_qty` của
+  Operation NGUỒN; số loại vào `scrap_qty`. Một session chỉ ghi CÔNG được tạo
+  trên Operation bàn SỬA HÀNG (tự sinh), và một dòng `rework_ledger` lưu nhật ký
+  có ngày giờ của chính hành động này. Khai báo gốc của công nhân (`rework_qty`)
+  **không bao giờ** bị ghi đè.
+- **Kết quả mong đợi**: `200` kèm session nguồn đã cập nhật và số Chờ sửa còn lại.
+- **Chuyển trạng thái**: session đã xử lý hết sẽ rời hẳn hàng đợi.
+- **Kiểm tra hợp lệ**: `repaired_qty + scrapped_qty > 0` và `≤ Chờ sửa`;
+  `employee_id` phải là nhân viên đang hoạt động.
+- **Lỗi**: vượt quá Chờ sửa → `409 BUSINESS_CONFLICT` nêu rõ số dư; tổng bằng 0
+  → `ValueError`; không được Start bàn SỬA HÀNG bằng quét QR (đó là bàn làm
+  việc, không phải một bước trong quy trình).
+- **Ranh giới**: xử lý đúng bằng toàn bộ số dư; gửi lại cùng `request_id` phải
+  trả về kết quả lần đầu và không cộng thêm lần nào.
+- **Quyền**: `rework.resolve` (migration `0045`).
+- **Đồng thời**: một advisory lock cho mỗi session nguồn; dòng nguồn được khóa
+  `FOR UPDATE` suốt giao dịch.
+- **Nhật ký**: audit + domain event `REWORK_RESOLVED`, kèm dòng `rework_ledger`.
+- **Liên quan**: REQ-RWK-001, REQ-SESS-004.
+- **Ưu tiên**: P0.
+- **Chiều kiểm thử**: positive, ranh giới (đúng số dư), negative (xử lý vượt),
+  gửi lại idempotent, RBAC.
+
+## 15.13 Tìm kiếm / Lọc / Phân trang (`REQ-SEARCH-*`)
 
 ### REQ-SEARCH-001 — Response danh sách có giới hạn
 
@@ -2727,7 +2827,7 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Độ ưu tiên**: P2.
 - **Khía cạnh kiểm thử**: positive, boundary.
 
-## 15.13 Hướng dẫn / Trợ giúp (`REQ-TUT-*`)
+## 15.14 Hướng dẫn / Trợ giúp (`REQ-TUT-*`)
 
 ### REQ-TUT-001 — Manifest hướng dẫn và phục vụ video
 
@@ -2750,7 +2850,7 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Độ ưu tiên**: P0 (bảo vệ path-traversal là một ranh giới bảo mật thật).
 - **Khía cạnh kiểm thử**: positive, negative (path traversal), boundary, empty-state (0 video đã publish).
 
-## 15.14 Quản trị / Hệ thống (`REQ-SYS-*`)
+## 15.15 Quản trị / Hệ thống (`REQ-SYS-*`)
 
 ### REQ-SYS-001 — Quản lý Người dùng & Phân quyền
 
@@ -2815,7 +2915,7 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Độ ưu tiên**: P0 (đây là ranh giới nhạy cảm bảo mật nhất toàn hệ thống — rò rỉ ở đây nghĩa là một admin thường có thể restart dịch vụ production).
 - **Khía cạnh kiểm thử**: positive, negative (ranh giới admin-phải-thất-bại — testcase RBAC quan trọng nhất toàn hệ thống), RBAC.
 
-## 15.15 Nhật ký / Lịch sử (`REQ-AUDIT-*`)
+## 15.16 Nhật ký / Lịch sử (`REQ-AUDIT-*`)
 
 ### REQ-AUDIT-001 — Action log & error trace (chỉ admin)
 
@@ -2859,7 +2959,7 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 - **Độ ưu tiên**: P1.
 - **Khía cạnh kiểm thử**: positive, RBAC.
 
-## 15.16 Hành vi API xuyên suốt (`REQ-API-*`)
+## 15.17 Hành vi API xuyên suốt (`REQ-API-*`)
 
 ### REQ-API-001 — Idempotency (chống áp dụng trùng)
 
@@ -2971,6 +3071,8 @@ Công thức chính xác ở §8 — các yêu cầu dưới đây là điểm-v
 | BR-016 | Một request UI cũ, đã bị thay thế không bao giờ được phép ghi đè kết quả render của một request mới hơn. | REQ-DASH-002 |
 | BR-017 | Toán học timezone/ca luôn tính theo phút-tương-đối-theo-ca so với timezone của site, không bao giờ trừ wall-clock ngây thơ — bắt buộc cho ca qua đêm (cross-midnight). | REQ-SHIFT-001 |
 | BR-018 | Truy vấn KPI/báo cáo/phát hiện ngoại lệ dùng chung một điều kiện lọc (`status='CLOSED' AND NOT excluded_from_reports`) thay vì mỗi cái tự viết riêng. | REQ-PROD-001, REQ-EXC-001 |
+| BR-019 | "Chờ sửa" là nhóm sửa được do công nhân khai trừ đi phần đã xử lý (`rework_qty − repaired_qty − scrap_qty`), và mọi màn hình đều lấy từ một hàm dùng chung thay vì tự viết lại công thức. Hàng NG công nhân **không** khai là sửa được thì là Phế, không bao giờ là chờ sửa. | REQ-RWK-001 |
+| BR-020 | Một lần sửa không bao giờ ghi đè khai báo của công nhân: `rework_qty` cố định từ lúc finish, và `repaired_qty + scrap_qty ≤ rework_qty` được DB ép buộc để mỗi sản phẩm rời nhóm chờ sửa đúng một lần. | REQ-RWK-001, REQ-RWK-002 |
 | BR-901 | Mọi lần thử đăng nhập (thành công hay thất bại) đều ghi một dòng audit trail (`LOGIN_SUCCESS`/`LOGIN_FAILED`); password gửi lên không bao giờ được log dưới bất kỳ hình thức nào, bất kể kết quả. | REQ-AUTH-001 |
 | BR-902 | Một lần đăng xuất chủ động không bao giờ được phép bật ngay lại thành một session đã xác thực kể cả khi autologin đang bật — nút đăng xuất của chính app luôn tự thêm `?noauto=1`. | REQ-AUTH-002/005 |
 | BR-903 | Autologin yêu cầu `MESFLOW_ENV != production`, **hoặc** cả điều kiện đó không thỏa **và** một cờ thứ hai tường minh (`MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1`) — không bao giờ chỉ thỏa mãn bởi cờ cơ bản trên một môi trường gắn cờ production. | REQ-AUTH-004 |
@@ -3120,6 +3222,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |
+| REQ-RWK-001/002, BR-019/BR-020 | `tests/integration/test_repair_pending_semantics.py` (14 case, chạy qua đúng đường finish của kiosk), `test_rework_queue_v1.py`, `test_rework_overview_rollup.py`, `test_rework_qr_kiosk_scan.py`, `test_rework_input_flow_supply.py`, `test_dashboard_po_summary.py`, `tests/test_repair_backlog_v6584422.py` | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |
 | REQ-QR-001 (payload nhãn QR Operation) | `tests/integration/test_qr_label_payload_is_scannable.py` (4 case: đổi mã, mơ hồ chéo cột, và hai ca giữ an toàn cho nhãn thường/SETUP) | A |
 | REQ-SEARCH-* | `tests/e2e/session-management-dependent-filters.spec.js`, `production-schedule-sticky.spec.js` | A (cho đúng 2 màn hình đó) |

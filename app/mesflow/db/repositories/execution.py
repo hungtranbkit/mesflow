@@ -110,7 +110,7 @@ def _validate_and_upsert_input_consumption(cur, *, session_id:int, target_operat
     if not source_id:
         cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
         return None
-    cur.execute("SELECT id,code,production_order_id,COALESCE(done_qty,0) done_qty,COALESCE(rework_qty,0) rework_qty FROM operations WHERE id=%s FOR UPDATE",(source_id,))
+    cur.execute("SELECT id,code,production_order_id,COALESCE(done_qty,0) done_qty,COALESCE(repaired_qty,0) repaired_qty FROM operations WHERE id=%s FOR UPDATE",(source_id,))
     source=cur.fetchone()
     if not source or source['production_order_id']!=target['production_order_id']:
         raise ConflictError('OP nguồn đầu vào không hợp lệ')
@@ -121,18 +121,24 @@ def _validate_and_upsert_input_consumption(cur, *, session_id:int, target_operat
     if source_kind not in ('GOOD','REWORK'):
         source_kind='GOOD'
     # Repaired pieces belong to BOTH numbers on the source operation: a repair
-    # credits done_qty and rework_qty with the same physical pieces (rework.py,
-    # migration 0044). Budgeting the two kinds independently -- which is what
-    # filtering this sum by source_qty_kind alone did -- therefore handed the
-    # same pieces to a GOOD-fed successor and a REWORK-fed one. Proven at 104
-    # pieces drawn from an operation that produced 98
+    # credits done_qty and repaired_qty with the same physical pieces
+    # (rework.py, migration 0044). Budgeting the two kinds independently --
+    # which is what filtering this sum by source_qty_kind alone did --
+    # therefore handed the same pieces to a GOOD-fed successor and a REWORK-fed
+    # one. Proven at 104 pieces drawn from an operation that produced 98
     # (tests/integration/test_rework_input_flow_supply.py).
     #
     # done_qty is the physical ceiling for every kind, because a repaired piece
-    # is a good piece; rework_qty only ADDITIONALLY caps how many of those may
-    # be claimed specifically as REWORK. A pure-GOOD graph (no REWORK-fed
+    # is a good piece; repaired_qty only ADDITIONALLY caps how many of those
+    # may be claimed specifically as REWORK. A pure-GOOD graph (no REWORK-fed
     # successor anywhere) is unaffected: consumed_total then equals the GOOD
     # total this used to compute.
+    #
+    # repaired_qty, not rework_qty, since 0051 split the column: the REWORK
+    # pool is the pieces the bench actually RECOVERED and handed back as good
+    # output. rework_qty is now only the declaration of how many were repairable,
+    # and feeding a successor off that would let it consume pieces still sitting
+    # in the repair queue -- unrepaired, and not part of done_qty.
     cur.execute("""SELECT COALESCE(SUM(good_qty_consumed+defect_qty_consumed),0) consumed_total,
                      COALESCE(SUM(good_qty_consumed+defect_qty_consumed)
                               FILTER (WHERE source_qty_kind=%s),0) consumed_kind
@@ -142,7 +148,7 @@ def _validate_and_upsert_input_consumption(cur, *, session_id:int, target_operat
     consumed=int(totals.get('consumed_kind') or 0)
     consumed_total=int(totals.get('consumed_total') or 0)
     produced=int(source.get('done_qty') or 0)
-    supplied=int(source.get('rework_qty') or 0) if source_kind=='REWORK' else produced
+    supplied=int(source.get('repaired_qty') or 0) if source_kind=='REWORK' else produced
     available=max(produced-consumed_total,0)
     if source_kind=='REWORK':
         available=min(available,max(supplied-consumed,0))
@@ -170,6 +176,7 @@ def _validate_and_upsert_input_consumption(cur, *, session_id:int, target_operat
                        origin=EXCLUDED.origin,updated_at=CURRENT_TIMESTAMP
                    RETURNING *""",(source_id,target_operation_id,session_id,consume_good,consume_defect,source_kind,origin))
     return cur.fetchone()
+
 
 class KioskRepository:
     def register(self,data:dict[str,Any]):
@@ -363,38 +370,49 @@ def _rework_ledger_floor(cur,session_id):
     return int(row.get('reworked') or 0),int(row.get('scrapped') or 0)
 
 
-def _guard_quantity_shape(*,good,defect,rework,scrap):
+def _guard_quantity_shape(*,good,defect,rework,repaired,scrap):
     """Chặn trước những tổ hợp mà CSDL sẽ từ chối, để lỗi ra đúng nghĩa.
 
-    work_sessions có CHECK ck_work_sessions_rework_scrap_le_defect:
-    rework_qty + scrap_qty <= defect_qty. adjust() và edit_session() trước đây
-    chỉ kiểm rework > defect, KHÔNG kiểm phần phế. Một session đã qua Hàng chờ
-    sửa với scrap_qty=5 mà bị hạ defect xuống 2 sẽ vi phạm CHECK: người dùng
-    nhận HTTP 500 kèm thông báo của PostgreSQL thay vì một câu tiếng Việt nói
-    rõ vì sao không được.
+    Hai CHECK của work_sessions sau 0051_repair_pending_semantics:
+      rework_qty <= defect_qty                      (khai sửa được <= tổng NG)
+      repaired_qty + scrap_qty <= rework_qty        (đã xử lý <= nhóm sửa được)
 
-    scrap_qty cố ý KHÔNG nhận từ đầu vào của hai đường sửa này: phế chỉ sinh ra
-    qua Hàng chờ sửa và được ghi vào rework_ledger, nên nó là số cộng dồn có
-    nguồn gốc, không phải ô cho người dùng gõ đè.
+    adjust() và edit_session() trước đây chỉ kiểm rework > defect. Một session
+    đã qua Hàng chờ sửa mà bị hạ số liệu xuống dưới phần đã xử lý sẽ vi phạm
+    CHECK: người dùng nhận HTTP 500 kèm thông báo của PostgreSQL thay vì một
+    câu tiếng Việt nói rõ vì sao không được.
+
+    repaired_qty/scrap_qty cố ý KHÔNG nhận từ đầu vào của hai đường sửa này:
+    chúng chỉ sinh ra qua Hàng chờ sửa và được ghi vào rework_ledger, nên là số
+    cộng dồn có nguồn gốc, không phải ô cho người dùng gõ đè.
     """
-    if good < 0 or defect < 0 or rework < 0 or scrap < 0:
+    if good < 0 or defect < 0 or rework < 0 or repaired < 0 or scrap < 0:
         raise ValueError('Số lượng không được âm')
     if rework > defect:
         raise ValueError('rework_qty cannot exceed defect_qty')
-    if rework + scrap > defect:
-        raise ValueError(
-            f'Session này đã có {scrap} sản phẩm phế và {rework} sản phẩm sửa được '
-            f'qua Hàng chờ sửa (tổng {rework + scrap}). Số NG không thể thấp hơn tổng đó '
-            f'-- đang đặt {defect}.')
+    # Cố ý KHÔNG kiểm repaired+scrap<=rework ở đây. Đó không phải lỗi hình dạng
+    # của con số người dùng vừa gõ, mà là xung đột với công việc ĐÃ GHI SỔ ở
+    # Hàng chờ sửa -- _guard_rework_ledger() sở hữu nó và trả 409 Conflict kèm
+    # số liệu ledger (nguồn sự thật), thay vì 400 Invalid request từ đây.
 
 
-def _guard_rework_ledger(cur,session_id,*,rework,scrap):
-    """Chặn một lệnh sửa số liệu làm rơi tổng xuống dưới những gì đã ghi sổ."""
+def _guard_rework_ledger(cur,session_id,*,rework,repaired,scrap):
+    """Chặn một lệnh sửa số liệu làm rơi tổng xuống dưới những gì đã ghi sổ.
+
+    Từ 0051 phần ĐÃ SỬA nằm ở repaired_qty (rework_qty chỉ còn là khai báo của
+    công nhân), nên đối chiếu ledger với repaired_qty; và nhóm sửa được phải
+    còn đủ chỗ cho mọi thứ ledger đã ghi.
+    """
     reworked,scrapped=_rework_ledger_floor(cur,session_id)
-    if rework<reworked:
+    if repaired<reworked:
         raise ConflictError(
             f'Session này đã ghi nhận {reworked} sản phẩm sửa được qua Hàng chờ sửa. '
-            f'Không thể đặt số sửa được xuống {rework}.')
+            f'Không thể đặt số đã sửa xuống {repaired}.')
+    if rework<reworked+scrapped:
+        raise ConflictError(
+            f'Session này đã xử lý {reworked+scrapped} sản phẩm qua Hàng chờ sửa '
+            f'({reworked} sửa được, {scrapped} phế). Số "Lỗi sửa được" không thể '
+            f'thấp hơn tổng đó -- đang đặt {rework}.')
     if scrap<scrapped:
         raise ConflictError(
             f'Session này đã ghi nhận {scrapped} sản phẩm phế qua Hàng chờ sửa. '
@@ -808,7 +826,7 @@ class SupervisorRepository:
                 if pre: lock_production_order_for_operation_first(cur,pre['operation_id'])
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
                 if not row: raise NotFoundError('session not found')
-                _guard_quantity_shape(good=good,defect=defect,rework=rework,scrap=int(row.get('scrap_qty') or 0))
+                _guard_quantity_shape(good=good,defect=defect,rework=rework,repaired=int(row.get('repaired_qty') or 0),scrap=int(row.get('scrap_qty') or 0))
                 # Một session cũ có thể đã nằm sẵn trên OP phụ (dữ liệu có
                 # trước guard này). Điều chỉnh số lượng lên đó là ghi thêm sản
                 # lượng vào chỗ không ai cộng -- chặn ở đây, cùng luật với
@@ -820,7 +838,7 @@ class SupervisorRepository:
                     good=good,defect=defect,rework=rework)
                 if row['status']=='CLOSED':
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=row['operation_id'],good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
-                _guard_rework_ledger(cur,session_id,rework=rework,scrap=int(row.get('scrap_qty') or 0))
+                _guard_rework_ledger(cur,session_id,rework=rework,repaired=int(row.get('repaired_qty') or 0),scrap=int(row.get('scrap_qty') or 0))
                 cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
                 movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
                 # An explicit admin/supervisor correction IS the human
@@ -944,8 +962,8 @@ class SupervisorRepository:
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=operation_id,good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 else:
                     cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
-                _guard_quantity_shape(good=good,defect=defect,rework=rework,scrap=int(old.get('scrap_qty') or 0))
-                _guard_rework_ledger(cur,session_id,rework=rework,scrap=int(old.get('scrap_qty') or 0))
+                _guard_quantity_shape(good=good,defect=defect,rework=rework,repaired=int(old.get('repaired_qty') or 0),scrap=int(old.get('scrap_qty') or 0))
+                _guard_rework_ledger(cur,session_id,rework=rework,repaired=int(old.get('repaired_qty') or 0),scrap=int(old.get('scrap_qty') or 0))
                 cur.execute('SELECT username FROM users WHERE id=%s',(user_id,));actor_row=cur.fetchone();actor_name=(actor_row or {}).get('username','')
                 movements=record_quantities(cur,session=old,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,source='CORRECTION',reason=reason,correlation_id=request_id)
                 # Same confirmation rule as adjust() above.

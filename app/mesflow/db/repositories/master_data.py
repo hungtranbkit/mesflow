@@ -231,7 +231,7 @@ def _assert_legacy_qr_unambiguous(code, qr, *, operation_id=None):
 class OperationRepository(BaseRepository):
     table='operations'; id_column='id'
     scope_column='production_order_id'
-    selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','scrap_qty','is_rework_op','operation_type','parent_operation_id','requires_setup','expected_setup_minutes','setup_completed_at','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
+    selectable_columns=('id','production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','repaired_qty','scrap_qty','is_rework_op','operation_type','parent_operation_id','requires_setup','expected_setup_minutes','setup_completed_at','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input','created_at','updated_at')
     writable_columns=('production_order_id','part_id','code','name','done_qty','defect_qty','rework_qty','status','sort_order','qr','equipment_id','standard_seconds_per_unit','repair_cycle_time_seconds_per_unit','predecessor_operation_id','dependency_type','lag_minutes','planned_start_at','planned_end_at','input_flow_enabled','input_source_operation_id','input_source_kind','defects_consume_input')
 
     def list(self,*,limit=200,offset=0,scope_id=None):
@@ -845,9 +845,9 @@ class TemplateTreeRepository:
                     setup_code=f"{op_code}{SETUP_CODE_SUFFIX}"
                     setup=conn.execute(
                         """INSERT INTO operations(production_order_id,part_id,code,name,done_qty,defect_qty,
-                            rework_qty,scrap_qty,status,sort_order,qr,operation_type,parent_operation_id,
+                            rework_qty,repaired_qty,scrap_qty,status,sort_order,qr,operation_type,parent_operation_id,
                             expected_setup_minutes)
-                           VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',%s,%s,%s,%s,%s) RETURNING id""",
+                           VALUES(%s,%s,%s,%s,0,0,0,0,0,'PLANNED',%s,%s,%s,%s,%s) RETURNING id""",
                         (po['id'],part_id,setup_code,f"Setup {op['name']}",2147483646,
                          f'PENDING-{created["id"]}',SETUP_TYPE,created['id'],op.get('expected_setup_minutes')),
                     ).fetchone()

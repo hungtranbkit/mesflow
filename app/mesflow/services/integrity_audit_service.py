@@ -45,7 +45,7 @@ def _status_ended_at_mismatch() -> list[dict[str, Any]]:
 
 def _negative_quantity() -> list[dict[str, Any]]:
     # rework_qty already has a DB CHECK constraint (rework_qty>=0 AND
-    # rework_qty<=defect_qty, migration 0022); good_qty/defect_qty do not --
+    # rework_qty<=defect_qty, migration 0022, restored by 0051); good_qty/defect_qty do not --
     # this is the only thing standing between a bad code path and a
     # negative quantity silently corrupting every report built on top of
     # these columns.
@@ -244,24 +244,33 @@ def _rework_ledger_does_not_balance() -> list[dict[str, Any]]:
     cộng dồn. Lệch nhau nghĩa là một lệnh sửa số liệu đã ghi đè lên phần đã
     ghi sổ, và sản phẩm đã sửa có thể quay lại hàng chờ để được credit lần hai.
     """
-    return fetch_all("""SELECT ws.id session_id,ws.rework_qty,ws.scrap_qty,
+    # Từ 0051 phần ĐÃ SỬA nằm ở repaired_qty, không còn ở rework_qty (rework_qty
+    # chỉ là khai báo của công nhân). Đối chiếu ledger với đúng cột đó; thêm
+    # điều kiện nhóm khai báo phải còn đủ chỗ cho mọi thứ ledger đã ghi.
+    return fetch_all("""SELECT ws.id session_id,ws.rework_qty,ws.repaired_qty,ws.scrap_qty,
             l.reworked ledger_reworked,l.scrapped ledger_scrapped
         FROM work_sessions ws
         JOIN (SELECT source_session_id,SUM(qty_reworked) reworked,SUM(qty_scrapped) scrapped
               FROM rework_ledger GROUP BY source_session_id) l ON l.source_session_id=ws.id
-        WHERE ws.rework_qty<l.reworked OR ws.scrap_qty<l.scrapped
+        WHERE ws.repaired_qty<l.reworked OR ws.scrap_qty<l.scrapped
+           OR ws.rework_qty<l.reworked+l.scrapped
         ORDER BY ws.id""")
 
 
 def _quantity_shape_violates_check() -> list[dict[str, Any]]:
-    """rework + phế vượt quá NG trên cùng một session.
+    """Bốn nhóm sản lượng không lồng nhau đúng trên cùng một session.
 
-    CSDL có CHECK cho việc này, nên một dòng ở đây nghĩa là constraint đã bị
-    gỡ hoặc dữ liệu vào bằng đường không qua ứng dụng.
+    Luật (0051_repair_pending_semantics):
+      rework_qty <= defect_qty                 khai sửa được <= tổng NG
+      repaired_qty + scrap_qty <= rework_qty   đã xử lý <= nhóm sửa được
+
+    CSDL có CHECK cho cả hai, nên một dòng ở đây nghĩa là constraint đã bị gỡ
+    hoặc dữ liệu vào bằng đường không qua ứng dụng.
     """
-    return fetch_all("""SELECT id session_id,good_qty,defect_qty,rework_qty,scrap_qty
+    return fetch_all("""SELECT id session_id,good_qty,defect_qty,rework_qty,repaired_qty,scrap_qty
         FROM work_sessions
-        WHERE COALESCE(rework_qty,0)+COALESCE(scrap_qty,0)>COALESCE(defect_qty,0)
+        WHERE COALESCE(rework_qty,0)>COALESCE(defect_qty,0)
+           OR COALESCE(repaired_qty,0)+COALESCE(scrap_qty,0)>COALESCE(rework_qty,0)
         ORDER BY id""")
 
 

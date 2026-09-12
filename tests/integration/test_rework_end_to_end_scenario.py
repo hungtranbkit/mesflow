@@ -73,7 +73,9 @@ def _drop(db, g):
         cur.execute('DELETE FROM employees WHERE id IN (%s,%s)', (g['employee_id'], g['fixer_id']))
 
 
-def _work(api, g, operation_id, good, defect, rework=0, employee=None):
+def _work(api, g, operation_id, good, defect, rework=None, employee=None):
+    # rework_qty = số NG công nhân KHAI LÀ SỬA ĐƯỢC (0051). Mặc định khai hết,
+    # vì kịch bản end-to-end này cần chúng vào được hàng chờ sửa.
     started = api.post(f'{BASE_URL}/api/work-sessions/start', json={
         'request_id': f'E2E-S-{uuid.uuid4()}', 'employee_id': employee or g['employee_id'],
         'operation_id': operation_id}, timeout=20)
@@ -81,7 +83,7 @@ def _work(api, g, operation_id, good, defect, rework=0, employee=None):
     sid = started.json()['session']['id']
     done = api.post(f'{BASE_URL}/api/work-sessions/{sid}/finish', json={
         'request_id': f'E2E-F-{uuid.uuid4()}', 'good_qty': good,
-        'defect_qty': defect, 'rework_qty': rework}, timeout=20)
+        'defect_qty': defect, 'rework_qty': defect if rework is None else rework}, timeout=20)
     assert done.status_code == 200, done.text
     return sid
 
@@ -93,7 +95,7 @@ def _op(db, op_id):
 
 
 def _session(db, sid):
-    return db.execute("""SELECT good_qty,defect_qty,rework_qty,scrap_qty
+    return db.execute("""SELECT good_qty,defect_qty,rework_qty,repaired_qty,scrap_qty
         FROM work_sessions WHERE id=%s""", (sid,)).fetchone()
 
 
@@ -105,8 +107,9 @@ def test_full_rework_scenario_reconciles_end_to_end(db, api):
         sid = _work(api, g, g['op'], good=92, defect=8)
         row = _session(db, sid)
         assert (row['good_qty'], row['defect_qty']) == (92, 8)
-        assert row['rework_qty'] == 0 and row['scrap_qty'] == 0, (
-            'R3: lỗi chưa xử lý KHÔNG được tự thành phế hay tự thành sửa được')
+        assert row['rework_qty'] == 8, 'cả 8 NG được khai là sửa được'
+        assert row['repaired_qty'] == 0 and row['scrap_qty'] == 0, (
+            'R3: lỗi chưa xử lý KHÔNG được tự thành phế hay tự thành đã sửa')
 
         op = _op(db, g['op'])
         assert op['status'] != 'COMPLETED', 'R5: 92 < 100 thì chưa hoàn thành'
@@ -120,8 +123,9 @@ def test_full_rework_scenario_reconciles_end_to_end(db, api):
         row = _session(db, sid)
         assert row['good_qty'] == 98, f"R1: đạt phải là 92+6=98, đang là {row['good_qty']}"
         assert row['defect_qty'] == 8, 'NG gốc không đổi -- nó là sự thật đã xảy ra'
-        assert row['rework_qty'] == 6 and row['scrap_qty'] == 2
-        pending = row['defect_qty'] - row['rework_qty'] - row['scrap_qty']
+        assert row['rework_qty'] == 8, 'khai báo gốc không đổi khi có người sửa'
+        assert row['repaired_qty'] == 6 and row['scrap_qty'] == 2
+        pending = row['rework_qty'] - row['repaired_qty'] - row['scrap_qty']
         assert pending == 0, f'R1: chờ sửa phải về 0, đang là {pending}'
 
         # --- R2: credit về ĐÚNG OP nguồn, không lan sang OP khác ----------
@@ -212,7 +216,7 @@ def test_resolving_twice_does_not_double_credit(db, api):
         assert second.status_code == 200, second.text
         row = _session(db, sid)
         assert row['good_qty'] == 94, f"credit hai lần: {row['good_qty']}"
-        assert row['rework_qty'] == 4
+        assert row['repaired_qty'] == 4
         count = db.execute('SELECT COUNT(*) c FROM rework_ledger WHERE source_session_id=%s',
                            (sid,)).fetchone()['c']
         assert count == 1, f'sổ ghi {count} dòng cho một lần xử lý'

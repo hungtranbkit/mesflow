@@ -33,7 +33,9 @@ def _setup_row_for(api, operation_id):
     return api.get(f'{BASE_URL}/api/operations/{operation_id}/setup', timeout=15).json()['setup']
 
 
-def _closed_session(api, graph, *, good=0, defect=0, rework=0, operation_id=None):
+def _closed_session(api, graph, *, good=0, defect=0, rework=None, operation_id=None):
+    # rework_qty = số NG công nhân KHAI LÀ SỬA ĐƯỢC (0051). Mặc định khai hết,
+    # để NG vào được hàng chờ sửa -- rework=0 nghĩa là "toàn bộ là phế".
     started = api.post(f'{BASE_URL}/api/work-sessions/start', json={
         'request_id': f'B2-{uuid.uuid4()}', 'employee_id': graph['employee_id'],
         'operation_id': operation_id or graph['operation_id'],
@@ -42,7 +44,7 @@ def _closed_session(api, graph, *, good=0, defect=0, rework=0, operation_id=None
     session_id = started.json()['session']['id']
     finished = api.post(f'{BASE_URL}/api/work-sessions/{session_id}/finish', json={
         'request_id': f'B2-{uuid.uuid4()}', 'good_qty': good, 'defect_qty': defect,
-        'rework_qty': rework}, timeout=15)
+        'rework_qty': defect if rework is None else rework}, timeout=15)
     assert finished.status_code == 200, finished.text
     return session_id
 
@@ -244,17 +246,19 @@ def test_repaired_quantity_credits_the_source_operation_exactly_once(api, db, th
     Sửa được phải cộng về OP NGUỒN (10 + 3), phế là phế thật, và không có bất
     kỳ số nào rơi vào bàn SỬA HÀNG.
     """
-    source = db.execute('SELECT good_qty,defect_qty,rework_qty,scrap_qty FROM work_sessions WHERE id=%s',
+    source = db.execute('SELECT good_qty,defect_qty,rework_qty,repaired_qty,scrap_qty FROM work_sessions WHERE id=%s',
                         (three_types['source_session_id'],)).fetchone()
-    assert int(source['rework_qty']) == 3 and int(source['scrap_qty']) == 1, dict(source)
+    # rework_qty=4 là KHAI BÁO (cả 4 NG sửa được); 3 đã sửa + 1 phế là kết quả.
+    assert int(source['rework_qty']) == 4, dict(source)
+    assert int(source['repaired_qty']) == 3 and int(source['scrap_qty']) == 1, dict(source)
 
-    operation = db.execute('SELECT done_qty,rework_qty,scrap_qty FROM operations WHERE id=%s',
+    operation = db.execute('SELECT done_qty,rework_qty,repaired_qty,scrap_qty FROM operations WHERE id=%s',
                            (three_types['operation_id'],)).fetchone()
     assert int(operation['done_qty']) == 13, \
         f"sửa được không credit về OP nguồn (hoặc credit hai lần): {dict(operation)}"
     assert int(operation['scrap_qty']) == 1, dict(operation)
 
-    bench = db.execute('SELECT done_qty,defect_qty,rework_qty,scrap_qty FROM operations WHERE id=%s',
+    bench = db.execute('SELECT done_qty,defect_qty,rework_qty,repaired_qty,scrap_qty FROM operations WHERE id=%s',
                        (three_types['rework_id'],)).fetchone()
     assert all(int(bench[k] or 0) == 0 for k in bench), \
         f'bàn SỬA HÀNG giữ sản lượng riêng -- sẽ bị đếm hai lần ở đâu đó: {dict(bench)}'
