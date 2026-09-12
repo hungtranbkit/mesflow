@@ -43,6 +43,48 @@ def reportable_session_sql(alias: str = 'ws') -> str:
     prefix = f'{alias}.' if alias else ''
     return f'NOT {prefix}excluded_from_reports'
 
+
+def repair_pending_sql(alias: str = 'o') -> str:
+    """Single source of truth for "Chờ sửa" -- pieces declared repairable and
+    not yet resolved.
+
+    Same reasoning as reportable_session_sql above, and the same failure it
+    exists to prevent: before 0051 this arithmetic was spelled out by hand in
+    three separate rollups (po_progress's repair_rollup, operation_overview,
+    ReworkQueueRepository.queue) and all three spelled it the SAME wrong way --
+    `defect - rework - scrap`, which under the real, write-side meaning of
+    rework_qty ("Lỗi sửa được", declared repairable) is the SCRAP remainder,
+    the exact complement of the answer. Declaring 3 NG of which 2 repairable
+    put **1** on the Tổng quan "Chờ sửa" column; declaring 5 NG of which none
+    repairable put all 5 into the repair queue.
+
+    Works against work_sessions rows and against the operations aggregate
+    alike -- reconcile_operation() keeps the four columns name-for-name
+    identical on both. Pass alias='' for an unaliased query.
+    """
+    p = f'{alias}.' if alias else ''
+    return (f'GREATEST(COALESCE({p}rework_qty,0)-COALESCE({p}repaired_qty,0)'
+            f'-COALESCE({p}scrap_qty,0),0)')
+
+
+def scrap_total_sql(alias: str = 'o') -> str:
+    """Single source of truth for "Phế" -- everything written off, from both
+    of the two moments it can happen.
+
+    (defect_qty - rework_qty) is written off at DECLARATION: NG the operator
+    judged unrepairable at the kiosk, which the confirmation screen has always
+    shown them as "Phế". scrap_qty is written off LATER, at the SỬA HÀNG
+    bench, when a piece that was queued as repairable turns out not to be.
+
+    Before 0051 the rollups reported only the second term, so a session
+    declaring 5 NG with none repairable showed "Phế 0" -- while those same 5
+    pieces were being listed as "Chờ sửa".
+    """
+    p = f'{alias}.' if alias else ''
+    return (f'(GREATEST(COALESCE({p}defect_qty,0)-COALESCE({p}rework_qty,0),0)'
+            f'+COALESCE({p}scrap_qty,0))')
+
+
 class BaseRepository:
     table:str=''
     id_column:str='id'

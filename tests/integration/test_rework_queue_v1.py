@@ -16,10 +16,12 @@ def _start(api, graph):
     }, timeout=10)
 
 
-def _finish(api, session_id, good, defect):
+def _finish(api, session_id, good, defect, repairable=None):
+    # rework_qty = how many of the NG the operator declares REPAIRABLE (0051).
+    # Default: all of them, which is what every test below wants queued.
     return api.post(f'{BASE_URL}/api/work-sessions/{session_id}/finish', json={
         'request_id': f'REWORK-FINISH-{uuid.uuid4()}', 'good_qty': good,
-        'defect_qty': defect, 'rework_qty': 0,
+        'defect_qty': defect, 'rework_qty': defect if repairable is None else repairable,
     }, timeout=10)
 
 
@@ -46,23 +48,24 @@ def test_rework_queue_buckets_credit_original_operation_and_completion(api, db, 
         'repaired_qty': 6,
     }, timeout=10)
     assert repair.status_code == 200, repair.text
-    op = db.execute('SELECT done_qty,defect_qty,rework_qty,scrap_qty,status FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
-    assert tuple(op.values()) == (98, 8, 6, 0, 'IN_PROGRESS')
+    op = db.execute('SELECT done_qty,defect_qty,rework_qty,repaired_qty,scrap_qty,status FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
+    # rework_qty stays 8: the declaration is history, the repair is repaired_qty.
+    assert tuple(op.values()) == (98, 8, 8, 6, 0, 'IN_PROGRESS')
 
     scrap = api.post(f'{BASE_URL}/api/rework/queue/{source_id}/resolve', json={
         'request_id': f'REWORK-SCRAP-{uuid.uuid4()}', 'employee_id': graph['employee_id'],
         'scrapped_qty': 2,
     }, timeout=10)
     assert scrap.status_code == 200, scrap.text
-    op = db.execute('SELECT done_qty,defect_qty,rework_qty,scrap_qty,status FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
-    assert tuple(op.values()) == (98, 8, 6, 2, 'IN_PROGRESS')
+    op = db.execute('SELECT done_qty,defect_qty,rework_qty,repaired_qty,scrap_qty,status FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
+    assert tuple(op.values()) == (98, 8, 8, 6, 2, 'IN_PROGRESS')
     assert db.execute('SELECT COUNT(*) n FROM rework_ledger WHERE source_session_id=%s', (source_id,)).fetchone()['n'] == 2
-    assert db.execute('SELECT defect_qty-rework_qty-scrap_qty pending_qty FROM work_sessions WHERE id=%s', (source_id,)).fetchone()['pending_qty'] == 0
+    assert db.execute('SELECT rework_qty-repaired_qty-scrap_qty pending_qty FROM work_sessions WHERE id=%s', (source_id,)).fetchone()['pending_qty'] == 0
 
     # Only two real additional GOOD pieces complete the source OP.  Pending
     # or repaired+scrapped quantities must never be used as a completion hack.
     second = _start(api, graph)
     assert second.status_code == 201, second.text
     assert _finish(api, second.json()['session']['id'], 2, 0).status_code == 200
-    op = db.execute('SELECT done_qty,defect_qty,rework_qty,scrap_qty,status FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
-    assert tuple(op.values()) == (100, 8, 6, 2, 'COMPLETED')
+    op = db.execute('SELECT done_qty,defect_qty,rework_qty,repaired_qty,scrap_qty,status FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
+    assert tuple(op.values()) == (100, 8, 8, 6, 2, 'COMPLETED')

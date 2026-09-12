@@ -133,15 +133,21 @@ const SCHEDULE = (date) => ({ ok:true, items:[
     input_flow_enabled:false, defects_consume_input:false },
 ]});
 
+// Bucket model per 0051: rework_qty = khai báo sửa được, repaired_qty/scrap_qty
+// = đã xử lý tại bàn SỬA HÀNG, pending = rework - repaired - scrap. Hàng cũ ở
+// đây (defect 18 / rework 4 / pending 12) không còn là trạng thái mà hệ thống
+// có thể sinh ra, nên trang được vẽ bằng dữ liệu không tồn tại thật.
 const REWORK = (date) => ({ ok:true, items:[
   { source_session_id:1, operation_id:11, operation_code:'111-THAN-THUNG-R-04',
     operation_name:'Hàn thùng rác inox', po_code:'PO-HP3-1', part_id:1, part_code:'PART-1',
     part_name:'Thân thùng', employee_name:'Nguyễn Văn A', employee_no:'EMP-001',
-    source_finished_at:at(date,9,0), defect_qty:18, rework_qty:4, scrap_qty:2, pending_qty:12 },
+    source_finished_at:at(date,9,0), defect_qty:18, rework_qty:16, repaired_qty:2,
+    scrap_qty:2, pending_qty:12 },
   { source_session_id:2, operation_id:12, operation_code:'OP-SON-02',
     operation_name:'Sơn tĩnh điện', po_code:'PO-HP3-1', part_id:1, part_code:'PART-1',
     part_name:'Thân thùng', employee_name:'Trần Thị B', employee_no:'EMP-002',
-    source_finished_at:at(date,11,0), defect_qty:6, rework_qty:0, scrap_qty:0, pending_qty:6 },
+    source_finished_at:at(date,11,0), defect_qty:6, rework_qty:6, repaired_qty:0,
+    scrap_qty:0, pending_qty:6 },
 ]});
 
 

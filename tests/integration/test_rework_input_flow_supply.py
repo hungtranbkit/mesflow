@@ -2,7 +2,7 @@
 
 Residual risk #4 from the 2026-09-09 rework audit, stated there as unproven:
 a repair credits the SOURCE operation's good output (done_qty += N) AND its
-rework_qty (+= N) -- the same N physical pieces -- while
+repaired_qty (+= N) -- the same N physical pieces -- while
 _validate_and_upsert_input_consumption() budgets GOOD and REWORK separately
 (its `consumed` subquery filters on source_qty_kind). So a Part with one
 successor consuming GOOD and another consuming REWORK could each draw the
@@ -26,10 +26,12 @@ def _start(api, employee_id, operation_id, station_id):
     }, timeout=10)
 
 
-def _finish(api, session_id, good, defect=0):
+def _finish(api, session_id, good, defect=0, repairable=None):
+    # rework_qty = NG declared REPAIRABLE (0051); default all of them so the
+    # defects reach the repair queue these tests then resolve from.
     return api.post(f'{BASE_URL}/api/work-sessions/{session_id}/finish', json={
         'request_id': f'FLOW-FINISH-{uuid.uuid4()}', 'good_qty': good,
-        'defect_qty': defect, 'rework_qty': 0,
+        'defect_qty': defect, 'rework_qty': defect if repairable is None else repairable,
     }, timeout=10)
 
 
@@ -37,8 +39,9 @@ def test_repaired_pieces_are_supplied_once_across_good_and_rework_inputs(api, db
     graph = seeded_factory
     extra_ops, rework_op_id = [], None
     try:
-        # Source operation: 92 good + 8 NG, then repair 6 -> done_qty 98,
-        # rework_qty 6. The 6 repaired pieces are part of the 98.
+        # Source operation: 92 good + 8 NG (all declared repairable), then
+        # repair 6 -> done_qty 98, repaired_qty 6. The 6 repaired pieces are
+        # part of the 98, and they are the REWORK input pool.
         source = _start(api, graph['employee_id'], graph['operation_id'], graph['station_id'])
         assert source.status_code == 201, source.text
         source_session = source.json()['session']['id']
@@ -50,8 +53,8 @@ def test_repaired_pieces_are_supplied_once_across_good_and_rework_inputs(api, db
         assert resolved.status_code == 200, resolved.text
         rework_op_id = db.execute('SELECT id FROM operations WHERE production_order_id=%s AND is_rework_op',
                                   (graph['po_id'],)).fetchone()['id']
-        src = db.execute('SELECT done_qty,rework_qty FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
-        assert (src['done_qty'], src['rework_qty']) == (98, 6)
+        src = db.execute('SELECT done_qty,rework_qty,repaired_qty FROM operations WHERE id=%s', (graph['operation_id'],)).fetchone()
+        assert (src['done_qty'], src['rework_qty'], src['repaired_qty']) == (98, 8, 6)
 
         # Two successors of the SAME source: one fed by GOOD, one by REWORK.
         with db.cursor() as cur:

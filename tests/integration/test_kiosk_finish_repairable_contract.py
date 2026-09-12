@@ -61,39 +61,42 @@ class TestRepairableIsNotProduction:
         assert queue.status_code == 200, queue.text
         mine = [x for x in queue.json()['items'] if int(x['source_session_id']) == session_id]
         assert mine, 'session có NG chưa xử lý phải nằm trong hàng chờ sửa'
-        # Hành vi HIỆN TẠI: pending = NG - rework - scrap = 6 - 4 - 0 = 2.
-        # Xem test_declared_repairable_is_not_lost bên dưới để biết vì sao con
-        # số này đang có vấn đề.
-        assert int(mine[0]['pending_qty']) == 2
+        # Chờ sửa = số CÔNG NHÂN KHAI LÀ SỬA ĐƯỢC và chưa xử lý = 4.
+        # Trước 0051_repair_pending_semantics con số này là 2 -- tức
+        # defect - rework - scrap, chính là 2 cái công nhân khai là KHÔNG sửa
+        # được. Xem test_declared_repairable_is_not_lost ngay dưới.
+        assert int(mine[0]['pending_qty']) == 4
 
-    @pytest.mark.xfail(strict=True, reason=(
-        'LỖI NGHIỆP VỤ CÓ SẴN, không do lane Kiosk parity gây ra. '
-        'work_sessions.rework_qty đang mang HAI NGHĨA ở hai nơi ghi: '
-        'ReworkQueueRepository.resolve() cộng nó cùng lúc với good_qty nên ở đó '
-        'nó nghĩa là "đã sửa xong và đã tính đạt"; còn finish() từ kiosk ghi nó '
-        'là "khai báo có thể sửa" và KHÔNG đụng good_qty. '
-        'Hệ quả: N cái khai báo sửa được bị trừ khỏi pending của hàng chờ sửa '
-        '(pending = defect - rework - scrap) nhưng không bao giờ được credit về '
-        'good -- N sản phẩm đó biến mất khỏi cả hai sổ. '
-        'Sửa đúng cần tách "repairable đã khai báo" khỏi "đã sửa xong" (một cột '
-        'rework_pending riêng, hoặc chỉ dùng rework_ledger làm nguồn sự thật), '
-        'chạm vào rollup + hàng chờ sửa + đối soát -- thuộc lane Rework, không '
-        'phải lane này. Bài test sẽ XPASS khi ai đó sửa; lúc đó gỡ xfail.'))
     def test_declared_repairable_is_not_lost(self, api, seeded_factory):
         """Khai báo 4 sửa được thì 4 cái đó phải còn đường quay lại sản lượng.
 
-        Hoặc chúng vẫn nằm chờ trong hàng sửa (pending còn đủ 6), hoặc chúng đã
-        được credit về good. Hiện tại không cái nào đúng.
+        xfail(strict) do lane Kiosk parity đặt, kèm chẩn đoán đúng: rework_qty
+        mang HAI NGHĨA, nên N cái khai là sửa được bị trừ khỏi pending mà không
+        bao giờ được credit về good -- biến mất khỏi cả hai sổ. Đã sửa tại
+        0051_repair_pending_semantics (tách repaired_qty ra khỏi rework_qty),
+        nên gỡ xfail theo đúng lời dặn trong reason.
+
+        MỘT ĐIỂM KHÁC với bản gốc: bài cũ chờ `pending == 6`. Con số đó gộp hai
+        thứ khác nhau -- "NG không bị mất" và "NG đang chờ sửa". 2 cái công nhân
+        khai là KHÔNG sửa được là PHẾ ngay tại thời điểm khai báo; đưa chúng vào
+        hàng chờ sửa là mời người ta đi sửa hàng đã bỏ. Bất biến đúng là không
+        cái nào biến mất: chờ sửa + phế = tổng NG.
         """
         session_id = _start(api, seeded_factory)
         assert _finish(api, session_id, good=40, defect=6, rework=4).status_code == 200
         queue = api.get(f'{BASE_URL}/api/rework/queue?limit=1000', timeout=20).json()
         mine = [x for x in queue['items'] if int(x['source_session_id']) == session_id]
         pending = int(mine[0]['pending_qty']) if mine else 0
-        assert pending == 6, (
-            f'{6 - pending} sản phẩm khai báo sửa được không còn ở hàng chờ sửa '
+        assert pending == 4, (
+            f'{4 - pending} sản phẩm khai báo sửa được không còn ở hàng chờ sửa '
             'mà cũng chưa được tính vào sản lượng đạt'
         )
+        overview = api.get(f'{BASE_URL}/api/dashboard/overview?limit=5000', timeout=20).json()
+        row = next(x for x in overview['operations']
+                   if int(x['operation_id']) == int(seeded_factory['operation_id']))
+        assert int(row['repair_pending_quantity']) == 4, 'Tổng quan phải nói đúng con số đó'
+        assert int(row['scrap_qty']) == 2, '2 cái khai là không sửa được là phế'
+        assert int(row['repair_pending_quantity']) + int(row['scrap_qty']) == 6, 'không cái nào biến mất'
 
     def test_repairable_above_defect_is_refused_by_the_server(self, api, seeded_factory):
         """Giao diện chặn là lớp đầu; API phải tự chặn kể cả khi gọi thẳng."""

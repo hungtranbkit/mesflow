@@ -7,10 +7,15 @@ def record_event(cur,*,event_type,category,title,po_id=None,part_id=None,operati
     cur.execute("""INSERT INTO production_trace_events(event_type,category,occurred_at,actor_id,actor_name,production_order_id,part_id,operation_id,session_id,title,description,quantity_delta,metadata_json,correlation_id,session_trace_id,source)
       VALUES(%s,%s,COALESCE(%s,CURRENT_TIMESTAMP),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
       (event_type,category,occurred_at,actor_id,actor_name,po_id or ctx.get('production_order_id'),part_id or ctx.get('part_id'),operation_id,session_id,title,description,quantity_delta,Jsonb(metadata or {}),correlation_id,session_trace_id,source));return cur.fetchone()
-def record_quantities(cur,*,session,good,defect,rework,actor_id=None,actor_name='',source,reason='',correlation_id='',session_trace_id=''):
-    ctx=context(cur,session['operation_id']);old={'GOOD':int(session.get('good_qty') or 0),'DEFECT':int(session.get('defect_qty') or 0),'REPAIRABLE':int(session.get('rework_qty') or 0)};new={'GOOD':good,'DEFECT':defect,'REPAIRABLE':rework}
+def record_quantities(cur,*,session,good,defect,rework,repaired=None,actor_id=None,actor_name='',source,reason='',correlation_id='',session_trace_id=''):
+    # REPAIRABLE is work_sessions.rework_qty -- how many NG the operator
+    # DECLARED repairable. REWORK_RECOVERED (a movement type 0032 defined and
+    # nothing wrote until 0051) is repaired_qty -- how many of those the SỬA
+    # HÀNG bench actually got back. Callers that do not touch the repair bench
+    # leave `repaired` as None and no REWORK_RECOVERED row is considered.
+    ctx=context(cur,session['operation_id']);old={'GOOD':int(session.get('good_qty') or 0),'DEFECT':int(session.get('defect_qty') or 0),'REPAIRABLE':int(session.get('rework_qty') or 0),'REWORK_RECOVERED':int(session.get('repaired_qty') or 0)};new={'GOOD':good,'DEFECT':defect,'REPAIRABLE':rework,'REWORK_RECOVERED':old['REWORK_RECOVERED'] if repaired is None else int(repaired)}
     rows=[]
-    for kind in ('GOOD','DEFECT','REPAIRABLE'):
+    for kind in ('GOOD','DEFECT','REPAIRABLE','REWORK_RECOVERED'):
         delta=new[kind]-old[kind]
         if not delta:continue
         cur.execute("""INSERT INTO quantity_movements(movement_type,delta,previous_value,new_value,production_order_id,operation_id,session_id,actor_id,actor_name,source,reason,correlation_id,session_trace_id)

@@ -31,10 +31,14 @@ def _start(api, graph):
     }, timeout=10)
 
 
-def _finish(api, session_id, good, defect):
+def _finish(api, session_id, good, defect, repairable=None):
+    # rework_qty is the operator's declaration of how many of the NG are
+    # REPAIRABLE (0051). These tests all want the NG to land in the repair
+    # queue, so they declare them repairable; passing 0 here (as this helper
+    # used to) means "all 8 are scrap" and correctly queues nothing.
     return api.post(f'{BASE_URL}/api/work-sessions/{session_id}/finish', json={
         'request_id': f'RWOV-FINISH-{uuid.uuid4()}', 'good_qty': good,
-        'defect_qty': defect, 'rework_qty': 0,
+        'defect_qty': defect, 'rework_qty': defect if repairable is None else repairable,
     }, timeout=10)
 
 
@@ -66,9 +70,11 @@ def test_resolving_rework_keeps_po_progress_and_repair_buckets_honest(api, db, s
     assert _finish(api, source_id, 92, 8).status_code == 200
 
     before = _po_row(api, po_id)
-    # 8 NG, none triaged yet: all 8 are pending repair, nothing is scrap.
+    # 8 NG, all declared repairable and none triaged yet: all 8 are pending
+    # repair, nothing is scrap.
     assert (before['good_quantity'], before['defect_quantity']) == (92, 8)
     assert (before['repair_pending_quantity'], before['scrap_quantity']) == (8, 0)
+    assert before['repairable_quantity'] == 8
     assert float(before['progress_percent']) == 92.0
 
     assert _resolve(api, graph, source_id, repaired=6, scrapped=2).status_code == 200
@@ -114,18 +120,23 @@ def test_rework_session_is_not_a_second_quantity_source(api, db, seeded_factory)
     # Deliberately NO is_rework_op filter: this is what a query that forgot it
     # would see, and it must still be the real production total.
     totals = db.execute("""SELECT COALESCE(SUM(ws.good_qty),0) good,COALESCE(SUM(ws.defect_qty),0) defect,
-          COALESCE(SUM(ws.rework_qty),0) rework,COALESCE(SUM(ws.scrap_qty),0) scrap
+          COALESCE(SUM(ws.rework_qty),0) rework,COALESCE(SUM(ws.repaired_qty),0) repaired,
+          COALESCE(SUM(ws.scrap_qty),0) scrap
         FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id
         WHERE o.production_order_id=%s""", (graph['po_id'],)).fetchone()
-    assert (totals['good'], totals['defect'], totals['rework'], totals['scrap']) == (98, 8, 6, 2)
+    # rework=8 is the DECLARATION (unchanged by the repair, 0051); repaired=6
+    # and scrap=2 are how that bucket was resolved.
+    assert (totals['good'], totals['defect'], totals['rework'],
+            totals['repaired'], totals['scrap']) == (98, 8, 8, 6, 2)
 
     # The rework session still exists as the record of who did the repair and
     # when -- it just carries no quantities of its own.
-    labour = db.execute("""SELECT employee_id,good_qty,defect_qty,rework_qty,scrap_qty,status
+    labour = db.execute("""SELECT employee_id,good_qty,defect_qty,rework_qty,repaired_qty,scrap_qty,status
         FROM work_sessions WHERE operation_id=%s""", (rework_op_id,)).fetchone()
     assert labour is not None, 'the repair itself must still be recorded'
     assert int(labour['employee_id']) == int(graph['employee_id'])
-    assert (labour['good_qty'], labour['defect_qty'], labour['rework_qty'], labour['scrap_qty']) == (0, 0, 0, 0)
+    assert (labour['good_qty'], labour['defect_qty'], labour['rework_qty'],
+            labour['repaired_qty'], labour['scrap_qty']) == (0, 0, 0, 0, 0)
 
     # ...and the quantities are in the ledger, which is where the dated audit of
     # this specific action belongs.

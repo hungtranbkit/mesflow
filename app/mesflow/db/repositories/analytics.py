@@ -11,7 +11,8 @@ import json
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
 from mesflow.db.connection import transaction, fetch_all, fetch_one
-from .base import NotFoundError, ConflictError, reportable_session_sql
+from .base import (NotFoundError, ConflictError, reportable_session_sql,
+                   repair_pending_sql, scrap_total_sql)
 from mesflow.core.working_calendar import get_working_calendar, get_work_shift, shift_bounds, resolve_shift_context, working_seconds_between,all_shift_working_seconds_between
 from mesflow.core.time_policy import coerce_utc,utc_now,business_date,business_date_start_utc
 from mesflow.db.repositories.scheduling import priority_for_operation,priority_sort_key
@@ -163,7 +164,9 @@ class DashboardRepository:
           (SELECT COALESCE(SUM(done_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_good_qty,
           (SELECT COALESCE(SUM(defect_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_defect_qty,
           (SELECT COALESCE(SUM(rework_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_rework_qty,
-          (SELECT COALESCE(SUM(scrap_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_scrap_qty,
+          (SELECT COALESCE(SUM(repaired_qty),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_repaired_qty,
+          (SELECT COALESCE(SUM({repair_pending_sql('')}),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_repair_pending_qty,
+          (SELECT COALESCE(SUM({scrap_total_sql('')}),0) FROM operations WHERE {PRODUCTION_ONLY_BARE}) total_scrap_qty,
           (SELECT COUNT(*) FROM work_sessions WHERE status='OPEN' AND {reportable_session_sql('')}) active_sessions,
           -- spec section 5: "Dashboard phai co kha nang bao: Co N session
           -- chua xac nhan so lieu" -- quantity_confirmed=FALSE sessions are
@@ -182,6 +185,7 @@ class DashboardRepository:
         # the final sort-order operation. Because the schema has one PO-level
         # plan (no Part-level quantity), multiple terminal Parts are weighted
         # equally and expressed as equivalent finished PO units.
+        pending, scrap = repair_pending_sql(""), scrap_total_sql("")
         return fetch_all(f"""WITH ranked_operations AS (
           SELECT o.*,
             ROW_NUMBER() OVER (PARTITION BY o.part_id ORDER BY o.sort_order DESC,o.id DESC) reverse_rank,
@@ -217,27 +221,39 @@ class DashboardRepository:
           SELECT production_order_id,COUNT(*) terminal_operation_count,
             ROUND(COALESCE(SUM(done_qty),0)::numeric/NULLIF(COUNT(*),0))::bigint good_quantity,
             COALESCE(SUM(defect_qty),0)::bigint defect_quantity,
-            -- rework_qty means "of these defects, how many were FIXED" (0044's
-            -- model, and what the kiosk's own "sửa được" input has always
-            -- written). It is NOT the pending bucket -- see repair_rollup.
-            COALESCE(SUM(rework_qty),0)::bigint repaired_quantity,
-            COALESCE(SUM(scrap_qty),0)::bigint scrapped_quantity
+            -- 0051: rework_qty means "of these defects, how many were
+            -- DECLARED REPAIRABLE" -- that is what the kiosk's own "Lỗi sửa
+            -- được" input writes and what 0032's ledger calls REPAIRABLE.
+            -- Pieces actually recovered at the SỬA HÀNG bench are
+            -- repaired_qty; 0044's reading of rework_qty as "fixed" is what
+            -- made the Overview print the scrap remainder under "Chờ sửa".
+            COALESCE(SUM(rework_qty),0)::bigint repairable_declared_quantity,
+            COALESCE(SUM(repaired_qty),0)::bigint repaired_quantity,
+            COALESCE(SUM({scrap}),0)::bigint scrapped_quantity
           FROM terminal_operations GROUP BY production_order_id
         ), repair_rollup AS (
-          -- P1 (2026-09-09 rework audit): "chờ sửa" is defect MINUS what has
-          -- already been resolved, never rework_qty itself. Reading
-          -- SUM(rework_qty) as pending inverted the meaning -- the Overview
-          -- showed the ALREADY-FIXED count under "Chờ sửa" and the still-
-          -- pending count under "Phế". Confirmed on live TEST data (op 38:
-          -- 17 NG / 5 fixed / 0 scrapped displayed as "chờ sửa 5, phế 12"
-          -- when the truth is "chờ sửa 12, phế 0"). GREATEST(...,0) because
-          -- operation rows are aggregates that can lag a source session
-          -- correction (see 0044's own note on not adding a CHECK here).
+          -- P0 2026-09-12: "Chờ sửa" is the DECLARED-REPAIRABLE bucket minus
+          -- what the SỬA HÀNG bench has since resolved -- repair_pending_sql(),
+          -- shared with operation_overview() and the queue itself so the three
+          -- can never drift apart again.
+          --
+          -- The 2026-09-09 audit corrected this line to defect-rework-scrap on
+          -- the belief that rework_qty meant "already fixed". It does not, and
+          -- never did on the write path: every input screen labels it "Lỗi sửa
+          -- được" and 0032 books it as movement_type REPAIRABLE. So that
+          -- correction printed defect-minus-repairable -- the SCRAP remainder --
+          -- under "Chờ sửa". Declaring 3 NG of which 2 repairable showed 1;
+          -- declaring 5 NG of which 0 repairable queued all 5 for repair.
+          -- Reproduced end-to-end through the real finish path in
+          -- tests/integration/test_repair_pending_semantics.py before changing
+          -- this. See 0051_repair_pending_semantics.py for the full history.
+          -- GREATEST(...,0) stays: operation rows are aggregates that can lag a
+          -- source session correction (0044's own note on not adding a CHECK).
           SELECT production_order_id,
-            COALESCE(SUM(GREATEST(defect_qty-rework_qty-scrap_qty,0)),0)::bigint repair_pending_quantity,
-            COALESCE(SUM(GREATEST(defect_qty-rework_qty-scrap_qty,0)*repair_cycle_time_seconds_per_unit),0)::bigint estimated_repair_work_seconds,
-            COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0) repair_operation_count,
-            COUNT(*) FILTER (WHERE defect_qty-rework_qty-scrap_qty>0 AND repair_cycle_time_seconds_per_unit<=0) repair_unconfigured_operation_count
+            COALESCE(SUM({pending}),0)::bigint repair_pending_quantity,
+            COALESCE(SUM({pending}*repair_cycle_time_seconds_per_unit),0)::bigint estimated_repair_work_seconds,
+            COUNT(*) FILTER (WHERE {pending}>0) repair_operation_count,
+            COUNT(*) FILTER (WHERE {pending}>0 AND repair_cycle_time_seconds_per_unit<=0) repair_unconfigured_operation_count
           FROM operations WHERE {PRODUCTION_ONLY_BARE} GROUP BY production_order_id
         ) SELECT po.id,po.id po_id,po.code,po.code po_code,po.product,po.status,
           po.planned_quantity,po.due_date,po.planned_start_at,po.planned_end_at,
@@ -245,18 +261,23 @@ class DashboardRepository:
           COALESCE(op.completed_count,0) completed_count,COALESCE(tr.terminal_operation_count,0) terminal_operation_count,
           COALESCE(tr.good_quantity,0) done_qty,COALESCE(tr.good_quantity,0) good_quantity,
           COALESCE(tr.defect_quantity,0) defect_qty,COALESCE(tr.defect_quantity,0) defect_quantity,
-          COALESCE(tr.repaired_quantity,0) rework_qty,COALESCE(tr.repaired_quantity,0) repaired_quantity,
-          -- Deprecated alias kept so an older client reading this field does
-          -- not break; it has always carried SUM(rework_qty) = pieces FIXED,
-          -- despite the "repairable" name. Prefer repaired_quantity.
-          COALESCE(tr.repaired_quantity,0) repairable_quantity,
+          -- rework_qty keeps carrying the DECLARED-REPAIRABLE total, which is
+          -- what work_sessions.rework_qty has always physically held and what
+          -- every "Lỗi sửa được" label on screen means. repairable_quantity is
+          -- its explicit name; repaired_quantity is the separate, new count of
+          -- pieces the bench actually recovered (0051).
+          COALESCE(tr.repairable_declared_quantity,0) rework_qty,
+          COALESCE(tr.repairable_declared_quantity,0) repairable_quantity,
+          COALESCE(tr.repaired_quantity,0) repaired_quantity,
           COALESCE(rr.repair_pending_quantity,0) repair_pending_quantity,
           COALESCE(rr.estimated_repair_work_seconds,0) estimated_repair_work_seconds,
           COALESCE(rr.repair_operation_count,0) repair_operation_count,
           COALESCE(rr.repair_unconfigured_operation_count,0) repair_unconfigured_operation_count,
-          -- Real scrap (work_sessions.scrap_qty, added by 0044), not the old
-          -- "defect - rework" stand-in that silently counted every not-yet-
-          -- triaged defect as written off.
+          -- Phế = written off at declaration (defect-repairable) PLUS written
+          -- off at the bench after a failed repair (scrap_qty) -- scrap_total_sql().
+          -- Reporting only the second term made a session that declared 5 NG,
+          -- none of them repairable, show "Phế 0" while those same 5 pieces sat
+          -- in the repair queue.
           COALESCE(tr.scrapped_quantity,0) scrap_quantity,
           GREATEST(COALESCE(po.planned_quantity,0)-COALESCE(tr.good_quantity,0),0) remaining_quantity,
           CASE WHEN COALESCE(po.planned_quantity,0)>0 THEN
@@ -270,17 +291,21 @@ class DashboardRepository:
         LEFT JOIN repair_rollup rr ON rr.production_order_id=po.id
         ORDER BY po.updated_at DESC LIMIT %s""",(min(max(limit,1),500),))
     def operation_overview(self,limit:int=1000):
+        pending, scrap = repair_pending_sql('o'), scrap_total_sql('o')
         rows=fetch_all(f"""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_quantity,po.due_date,
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
           CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
                ELSE p.code||'-'||o.code END operation_display_key,
-          o.status operation_status,COALESCE(o.done_qty,0) done_qty,COALESCE(o.defect_qty,0) defect_qty,COALESCE(o.rework_qty,0) rework_qty,
-          COALESCE(o.scrap_qty,0) scrap_qty,
-          -- Same P1 correction as po_progress()'s repair_rollup: pending is
-          -- what is left un-triaged, not what has already been repaired.
-          GREATEST(COALESCE(o.defect_qty,0)-COALESCE(o.rework_qty,0)-COALESCE(o.scrap_qty,0),0) repair_pending_quantity,
+          o.status operation_status,COALESCE(o.done_qty,0) done_qty,COALESCE(o.defect_qty,0) defect_qty,
+          -- rework_qty = declared repairable; repaired_qty = recovered at the
+          -- bench; scrap_qty = written off AT the bench. See 0051.
+          COALESCE(o.rework_qty,0) rework_qty,COALESCE(o.repaired_qty,0) repaired_qty,
+          {scrap} scrap_qty,
+          -- The Tổng quan "Chờ sửa" column the P0 was reported against. Shares
+          -- repair_pending_sql() with po_progress() and the queue.
+          {pending} repair_pending_quantity,
           COALESCE(o.repair_cycle_time_seconds_per_unit,0) repair_cycle_time_seconds_per_unit,
-          (GREATEST(COALESCE(o.defect_qty,0)-COALESCE(o.rework_qty,0)-COALESCE(o.scrap_qty,0),0)*COALESCE(o.repair_cycle_time_seconds_per_unit,0))::bigint estimated_repair_work_seconds,
+          ({pending}*COALESCE(o.repair_cycle_time_seconds_per_unit,0))::bigint estimated_repair_work_seconds,
           COUNT(ws.id) FILTER (WHERE ws.status='OPEN') open_session_count,
           STRING_AGG(DISTINCT e.name,', ' ORDER BY e.name) FILTER (WHERE ws.status='OPEN') active_workers,
           MAX(COALESCE(ws.ended_at,ws.updated_at,ws.started_at)) last_activity_at
@@ -495,15 +520,15 @@ class DashboardRepository:
                   'title':f"{row['code']} · {row['product']}",'message':row['health_reason'],'occurred_at':row.get('planned_end_at') or row.get('due_date')})
 
         flow_bottlenecks=fetch_all("""SELECT po.id po_id,po.code po_code,p.code part_code,o.id operation_id,o.code operation_code,o.name operation_name,
-          src.code source_operation_code,src.done_qty source_done_qty,src.rework_qty source_rework_qty,o.input_source_kind,
-          GREATEST(CASE WHEN o.input_source_kind='REWORK' THEN src.rework_qty ELSE src.done_qty END-
+          src.code source_operation_code,src.done_qty source_done_qty,src.repaired_qty source_repaired_qty,o.input_source_kind,
+          GREATEST(CASE WHEN o.input_source_kind='REWORK' THEN src.repaired_qty ELSE src.done_qty END-
             COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=src.id AND c.source_qty_kind=o.input_source_kind),0),0) waiting_qty,
           po.planned_quantity
         FROM operations o JOIN operations src ON src.id=o.input_source_operation_id
         JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
         WHERE po.status IN ('RELEASED','IN_PROGRESS','PAUSED')
           AND o.input_flow_enabled=true AND o.status<>'COMPLETED'
-          AND GREATEST(CASE WHEN o.input_source_kind='REWORK' THEN src.rework_qty ELSE src.done_qty END-
+          AND GREATEST(CASE WHEN o.input_source_kind='REWORK' THEN src.repaired_qty ELSE src.done_qty END-
             COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=src.id AND c.source_qty_kind=o.input_source_kind),0),0)>=GREATEST(1,CASE WHEN o.input_source_kind='REWORK' THEN 1 ELSE CEIL(COALESCE(po.planned_quantity,0)*0.1) END)
         ORDER BY waiting_qty DESC LIMIT 6""")
         bottlenecks=[]
@@ -561,8 +586,8 @@ class DashboardRepository:
           o.predecessor_operation_id,o.dependency_type,o.lag_minutes,o.standard_seconds_per_unit,o.done_qty,o.defect_qty,o.rework_qty,
           o.planned_start_at,o.planned_end_at,o.input_flow_enabled,o.input_source_operation_id,o.input_source_kind,o.defects_consume_input,
           src.code input_source_code,src.name input_source_name,
-          CASE WHEN o.input_source_kind='REWORK' THEN src.rework_qty ELSE src.done_qty END input_source_done_qty,
-          GREATEST(COALESCE(CASE WHEN o.input_source_kind='REWORK' THEN src.rework_qty ELSE src.done_qty END,0)-
+          CASE WHEN o.input_source_kind='REWORK' THEN src.repaired_qty ELSE src.done_qty END input_source_done_qty,
+          GREATEST(COALESCE(CASE WHEN o.input_source_kind='REWORK' THEN src.repaired_qty ELSE src.done_qty END,0)-
             COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=src.id AND c.source_qty_kind=o.input_source_kind),0),0) input_available_qty,
           MIN(ws.started_at) actual_start_at,MAX(ws.ended_at) actual_end_at,COUNT(ws.id) FILTER (WHERE ws.status='OPEN') active_sessions
         FROM production_orders po JOIN parts p ON p.production_order_id=po.id

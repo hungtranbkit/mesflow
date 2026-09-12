@@ -4,12 +4,28 @@ The source Session remains the bucket owner.  Resolving a queue item moves
 quantity out of its pending bucket exactly once: repaired pieces increase the
 original operation's GOOD result, while scrapped pieces enter SCRAP.  The
 ledger is an audit/history record, never a second quantity source.
+
+Bucket model (0051_repair_pending_semantics, which supersedes 0044's reading
+of rework_qty -- read that migration for why):
+
+    defect_qty    NG found by the source session
+    rework_qty    of those, DECLARED REPAIRABLE by the operator at finish
+    repaired_qty  of the repairable bucket, recovered here
+    scrap_qty     of the repairable bucket, written off here after triage
+
+    Chờ sửa = rework_qty - repaired_qty - scrap_qty
+
+resolve() must NOT add the repaired pieces back into rework_qty. That is what
+0044 did, and combined with the queue reading pending as defect-rework-scrap it
+made the queue list the pieces the operator declared UNrepairable and hide the
+ones they declared repairable.
 """
 from __future__ import annotations
 from mesflow.domain.policy import REWORK_TYPE, is_production, production_only_sql, type_is_sql
 
 from mesflow.db.connection import transaction, fetch_all
-from mesflow.db.repositories.base import ConflictError, NotFoundError
+from mesflow.db.repositories.base import (ConflictError, NotFoundError,
+                                          repair_pending_sql)
 from mesflow.db.repositories.production_state import (reconcile_operation_and_po,
     lock_production_order_first_for_session)
 from mesflow.domain.audit import record_audit
@@ -58,17 +74,19 @@ def _rework_operation(cur, production_order_id: int, part_id: int):
     code = f"REWORK-{production_order_id}-{part['code']}"
     cur.execute("""INSERT INTO operations(
         production_order_id,part_id,code,name,done_qty,defect_qty,rework_qty,
-        scrap_qty,status,sort_order,qr,operation_type)
-        VALUES(%s,%s,%s,%s,0,0,0,0,'PLANNED',2147483647,%s,%s)
+        repaired_qty,scrap_qty,status,sort_order,qr,operation_type)
+        VALUES(%s,%s,%s,%s,0,0,0,0,0,'PLANNED',2147483647,%s,%s)
         RETURNING *""", (production_order_id, part_id, code, "SỬA HÀNG", f"WF|OP|{code}", REWORK_TYPE))
     return cur.fetchone()
 
 
 class ReworkQueueRepository:
     def queue(self, limit: int = 1000):
+        pending = repair_pending_sql('ws')
         rows = fetch_all(f"""SELECT ws.id source_session_id, ws.operation_id source_operation_id,
-            ws.defect_qty,ws.rework_qty,ws.scrap_qty,
-            (ws.defect_qty-ws.rework_qty-ws.scrap_qty) pending_qty,
+            ws.defect_qty,ws.rework_qty,ws.repaired_qty,ws.scrap_qty,
+            ws.rework_qty repairable_qty,
+            {pending} pending_qty,
             ws.ended_at source_finished_at,e.id employee_id,e.employee_no,e.name employee_name,
             o.code operation_code,o.name operation_name,po.id production_order_id,po.code po_code,
             p.id part_id,p.code part_code,p.name part_name
@@ -76,7 +94,7 @@ class ReworkQueueRepository:
           JOIN operations o ON o.id=ws.operation_id AND {PRODUCTION_ONLY_O}
           JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
           WHERE ws.status='CLOSED' AND COALESCE(ws.excluded_from_reports,FALSE)=FALSE
-            AND ws.defect_qty > ws.rework_qty + ws.scrap_qty
+            AND ws.rework_qty > ws.repaired_qty + ws.scrap_qty
           ORDER BY p.code,ws.ended_at,ws.id LIMIT %s""", (min(max(int(limit), 1), 5000),))
         return rows
 
@@ -113,20 +131,24 @@ class ReworkQueueRepository:
                     raise NotFoundError('source session not found')
                 if source['status'] != 'CLOSED' or not is_production(source.get('operation_type')):
                     raise ConflictError('Session nguồn không hợp lệ cho hàng chờ sửa')
-                # "Còn chờ sửa" phải là số THẤP HƠN giữa hai nguồn: dòng
-                # session (tổng cộng dồn, có thể bị lệnh sửa số liệu ghi đè) và
-                # rework_ledger (bản ghi bất biến từng lần resolve). Trước đây
-                # chỉ đọc dòng session, nên một lệnh chỉnh số liệu đưa
-                # rework_qty về 0 sẽ làm chính những sản phẩm đã sửa quay lại
-                # hàng chờ -- resolve lần hai thì good_qty đếm hai lần cùng một
-                # sản phẩm vật lý, và Operation có thể lên COMPLETED bằng hàng
-                # không tồn tại. execution.py chặn ở chiều ghi; đây chặn ở
-                # chiều đọc, để dù có dữ liệu cũ lệch sẵn cũng không credit lại.
+                # Chờ sửa = nhóm CÔNG NHÂN KHAI LÀ SỬA ĐƯỢC (rework_qty) trừ
+                # đi phần đã xử lý -- KHÔNG phải defect-rework-scrap, vốn là
+                # số hàng khai là KHÔNG sửa được (0051_repair_pending_semantics).
+                #
+                # Phần đã xử lý vẫn lấy số CAO HƠN giữa hai nguồn: dòng session
+                # (tổng cộng dồn, có thể bị lệnh sửa số liệu ghi đè) và
+                # rework_ledger (bản ghi bất biến từng lần resolve). Chỉ đọc
+                # dòng session thì một lệnh chỉnh số liệu đưa repaired_qty về 0
+                # sẽ làm chính những sản phẩm đã sửa quay lại hàng chờ --
+                # resolve lần hai thì good_qty đếm hai lần cùng một sản phẩm vật
+                # lý, và Operation có thể lên COMPLETED bằng hàng không tồn tại.
+                # execution.py chặn ở chiều ghi; đây chặn ở chiều đọc, để dù có
+                # dữ liệu cũ lệch sẵn cũng không credit lại.
                 from mesflow.db.repositories.execution import _rework_ledger_floor
                 ledger_reworked, ledger_scrapped = _rework_ledger_floor(cur, source_session_id)
-                already_reworked = max(int(source.get('rework_qty') or 0), ledger_reworked)
+                already_reworked = max(int(source.get('repaired_qty') or 0), ledger_reworked)
                 already_scrapped = max(int(source.get('scrap_qty') or 0), ledger_scrapped)
-                pending = int(source.get('defect_qty') or 0) - already_reworked - already_scrapped
+                pending = int(source.get('rework_qty') or 0) - already_reworked - already_scrapped
                 if repaired + scrapped > pending:
                     raise ConflictError(f'Số lượng xử lý vượt Chờ sửa ({max(pending,0)})')
                 cur.execute('SELECT id,active FROM employees WHERE id=%s FOR SHARE', (employee_id,))
@@ -157,21 +179,28 @@ class ReworkQueueRepository:
                 # in rework_ledger (dated audit of this specific action).
                 cur.execute("""INSERT INTO work_sessions(
                     employee_id,operation_id,station_id,device_uuid,status,started_at,ended_at,
-                    good_qty,defect_qty,rework_qty,scrap_qty,start_request_id,finish_request_id,note)
-                    VALUES(%s,%s,%s,%s,'CLOSED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,0,0,0,0,%s,%s,%s)
+                    good_qty,defect_qty,rework_qty,repaired_qty,scrap_qty,start_request_id,finish_request_id,note)
+                    VALUES(%s,%s,%s,%s,'CLOSED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,0,0,0,0,0,%s,%s,%s)
                     RETURNING *""", (employee_id,rework_op['id'],data.get('station_id'),
                     str(data.get('device_uuid') or 'REWORK-QUEUE'),
                     f'{request_id}-START',f'{request_id}-FINISH',str(data.get('note') or '')))
                 rework_session = cur.fetchone()
+                # rework_qty is the operator's DECLARATION and is left exactly
+                # as they made it -- 0032's REPAIRABLE movement describes how
+                # many pieces entered the bucket, and a repair does not change
+                # that. 0044 incremented it here, which both double-counted the
+                # declaration and (with the old pending formula) let a resolved
+                # item immediately re-enter the queue.
                 record_quantities(cur, session=source,
                     good=int(source.get('good_qty') or 0)+repaired,
                     defect=int(source.get('defect_qty') or 0),
-                    rework=int(source.get('rework_qty') or 0)+repaired,
+                    rework=int(source.get('rework_qty') or 0),
+                    repaired=int(source.get('repaired_qty') or 0)+repaired,
                     actor_id=actor_user_id, actor_name=actor_username,
                     source='REWORK_RESOLUTION', reason=str(data.get('note') or ''),
                     correlation_id=correlation_id or request_id)
                 cur.execute("""UPDATE work_sessions SET good_qty=good_qty+%s,
-                    rework_qty=rework_qty+%s,scrap_qty=scrap_qty+%s,
+                    repaired_qty=repaired_qty+%s,scrap_qty=scrap_qty+%s,
                     updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *""",
                     (repaired,repaired,scrapped,source_session_id))
                 updated = cur.fetchone()

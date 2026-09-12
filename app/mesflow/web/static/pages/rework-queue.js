@@ -5,11 +5,14 @@
 // resolutions ever recorded, because the only way to resolve one was to POST
 // to the API by hand. This page is that missing interface.
 //
-// Model (see 0044_rework_queue.py's docstring, which is the spec):
-//   defect_qty = NG on the source session
-//   rework_qty = of those, how many were FIXED
-//   scrap_qty  = of those, how many were WRITTEN OFF
-//   pending    = defect_qty - rework_qty - scrap_qty, derived, never stored
+// Model (see 0051_repair_pending_semantics.py, which supersedes 0044's
+// reading of rework_qty -- that reading is what put the SCRAP remainder under
+// "Chờ sửa" on Tổng quan):
+//   defect_qty   = NG on the source session
+//   rework_qty   = of those, how many the operator DECLARED REPAIRABLE
+//   repaired_qty = of the repairable bucket, how many were FIXED here
+//   scrap_qty    = of the repairable bucket, how many were WRITTEN OFF here
+//   pending      = rework_qty - repaired_qty - scrap_qty, derived, never stored
 // Resolving credits repaired pieces back to the SOURCE operation's good
 // output and books scrapped pieces to scrap -- the server does all of that in
 // one transaction (ReworkQueueRepository.resolve); this page only collects
@@ -48,7 +51,13 @@ function rqRow(item) {
       <div class="op-card-fact rq-split">
         <small>NG / đã xử lý</small>
         <b>NG ${rqNum(item.defect_qty)}</b>
-        <small>Đã sửa ${rqNum(item.rework_qty)} · Đã loại ${rqNum(item.scrap_qty)}</small>
+        <!-- "Đã sửa" là repaired_qty, KHÔNG phải rework_qty: rework_qty là KHAI
+             BÁO của công nhân về số sửa được -- kích thước của nhóm chờ sửa,
+             không phải tiến độ xử lý nhóm đó (0051). Giữ nguyên hai vế như bố
+             cục gốc của thẻ: số khai báo suy ra được từ những gì thẻ đã hiện
+             (chờ sửa + đã sửa + đã loại), nên thêm vế thứ ba chỉ làm dòng này
+             xuống hàng ở 390/1366 mà không nói thêm điều gì. -->
+        <small>Đã sửa ${rqNum(item.repaired_qty)} · Đã loại ${rqNum(item.scrap_qty)}</small>
       </div>
       <div class="op-card-fact rq-act">${canResolve
         ? `<button class="btn primary mini" data-rq-resolve="${Number(item.source_session_id)}" type="button">Xử lý</button>`

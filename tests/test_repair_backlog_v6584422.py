@@ -4,27 +4,44 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def source(path): return (ROOT / path).read_text(encoding="utf-8")
 
-# Updated 2026-09-09 (rework audit). These contracts used to pin the OLD
-# model, in which "chờ sửa" was read straight off rework_qty and scrap was
-# inferred as `defect - rework`. Migration 0044 settled the real model:
-# rework_qty = pieces FIXED, scrap_qty = pieces WRITTEN OFF, and pending is
-# whatever is left over -- so the pinned formulas here were locking in the
-# very inversion the audit found on live TEST data.
+# Rewritten 2026-09-12 (P0: Tổng quan showed "Chờ sửa 1" for a declared 2).
+#
+# This file has now pinned the formula twice and been wrong twice, which is
+# the argument for what it pins today. The 2026-09-09 revision replaced a
+# literal `rework_qty` with a literal `defect_qty-rework_qty-scrap_qty` on the
+# belief that rework_qty meant "already fixed"; it does not, and never did on
+# the write path (see 0051_repair_pending_semantics.py), so that formula
+# printed the scrap remainder under "Chờ sửa".
+#
+# So: stop pinning SQL text. What matters is that all three rollups derive
+# pending from ONE shared helper -- repair_pending_sql() -- so they cannot
+# disagree, and that the arithmetic itself is asserted against real data by
+# tests/integration/test_repair_pending_semantics.py, which drives the real
+# kiosk finish path and would have caught both inversions.
 
-def test_repair_pending_is_derived_not_read_off_rework_qty():
+def test_repair_pending_comes_from_the_one_shared_helper():
     repo=source("app/mesflow/db/repositories/analytics.py")
+    base=source("app/mesflow/db/repositories/base.py")
+    rework=source("app/mesflow/db/repositories/rework.py")
     assert "repair_pending_quantity" in repo
     assert "repair_completed_quantity" not in repo
-    # Pending must be defect minus what has already been resolved.
-    assert "defect_qty-rework_qty-scrap_qty" in repo
-    # ...and must never be plain SUM(rework_qty) again.
-    assert "SUM(rework_qty),0)::bigint repair_pending_quantity" not in repo
+    assert "def repair_pending_sql" in base
+    # The bucket is what the operator DECLARED repairable, less what the
+    # bench has resolved -- never defect minus repairable, which is scrap.
+    assert "rework_qty,0)-COALESCE({p}repaired_qty,0)" in base
+    # Each of the three readers of "chờ sửa" must go through it.
+    assert repo.count("repair_pending_sql(") >= 2
+    assert "repair_pending_sql(" in rework
+    # ...and none of them may spell the arithmetic out for itself again.
+    for spelled in ("defect_qty-rework_qty-scrap_qty",
+                    "SUM(rework_qty),0)::bigint repair_pending_quantity"):
+        assert spelled not in repo, spelled
 
 def test_workload_uses_explicit_repair_standard():
     repo=source("app/mesflow/db/repositories/analytics.py")
     # Remaining repair workload is priced off the PENDING quantity, using the
     # repair standard -- never the production standard.
-    assert "defect_qty-rework_qty-scrap_qty,0)*repair_cycle_time_seconds_per_unit" in repo
+    assert "{pending}*repair_cycle_time_seconds_per_unit" in repo
     assert "rework_qty*standard_seconds_per_unit" not in repo
 
 def test_support_operations_excluded_from_po_progress():

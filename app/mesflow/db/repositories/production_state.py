@@ -113,6 +113,7 @@ def reconcile_operation(cur, operation_id: int):
           COALESCE(SUM(good_qty) FILTER (WHERE status='CLOSED'),0) good_qty,
           COALESCE(SUM(defect_qty) FILTER (WHERE status='CLOSED'),0) defect_qty,
           COALESCE(SUM(rework_qty) FILTER (WHERE status='CLOSED'),0) rework_qty,
+          COALESCE(SUM(repaired_qty) FILTER (WHERE status='CLOSED'),0) repaired_qty,
           COALESCE(SUM(scrap_qty) FILTER (WHERE status='CLOSED'),0) scrap_qty
         FROM work_sessions WHERE operation_id=%s AND {reportable_session_sql("")}''', (operation_id,))
     facts = cur.fetchone() or {}
@@ -121,7 +122,11 @@ def reconcile_operation(cur, operation_id: int):
     open_sessions = int(facts.get('open_session_count') or 0)
     good = int(facts.get('good_qty') or 0)
     defect = int(facts.get('defect_qty') or 0)
+    # rework = DECLARED REPAIRABLE (see 0051_repair_pending_semantics); the
+    # pieces the SỬA HÀNG queue has since recovered or written off are
+    # repaired/scrap. "Chờ sửa" is rework-repaired-scrap, never defect-rework.
     rework = int(facts.get('rework_qty') or 0)
+    repaired = int(facts.get('repaired_qty') or 0)
     scrap = int(facts.get('scrap_qty') or 0)
     planned = int(operation.get('planned_quantity') or 0)
     if current == 'CANCELLED':
@@ -152,10 +157,10 @@ def reconcile_operation(cur, operation_id: int):
         status = current
     else:
         status = 'PLANNED'
-    cur.execute('''UPDATE operations SET done_qty=%s,defect_qty=%s,rework_qty=%s,scrap_qty=%s,status=%s,
+    cur.execute('''UPDATE operations SET done_qty=%s,defect_qty=%s,rework_qty=%s,repaired_qty=%s,scrap_qty=%s,status=%s,
           updated_at=CURRENT_TIMESTAMP WHERE id=%s
-          RETURNING id,production_order_id,done_qty,defect_qty,rework_qty,scrap_qty,status''',
-        (good, defect, rework, scrap, status, operation_id))
+          RETURNING id,production_order_id,done_qty,defect_qty,rework_qty,repaired_qty,scrap_qty,status''',
+        (good, defect, rework, repaired, scrap, status, operation_id))
     result = dict(cur.fetchone())
     if status!=current:
         record_event(cur,event_type='OPERATION_COMPLETED' if status=='COMPLETED' else ('OPERATION_STARTED' if status=='IN_PROGRESS' else 'OPERATION_STATUS_CHANGED'),

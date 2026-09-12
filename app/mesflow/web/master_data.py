@@ -362,7 +362,7 @@ def operation_material_flow(operation_id):
         with transaction() as conn:
             op_row=conn.execute("""SELECT o.*,po.code po_code,po.planned_quantity,p.code part_code,p.name part_name,
                 src.code input_source_code,src.name input_source_name,src.part_id input_source_part_id,
-                src.done_qty input_source_done_qty,src.defect_qty input_source_defect_qty,src.rework_qty input_source_rework_qty,
+                src.done_qty input_source_done_qty,src.defect_qty input_source_defect_qty,src.repaired_qty input_source_repaired_qty,
                 COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.target_operation_id=o.id),0) consumed_qty,
                 COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=o.id),0) allocated_qty,
                 COALESCE((SELECT SUM(c.good_qty_consumed+c.defect_qty_consumed) FROM operation_input_consumptions c WHERE c.source_operation_id=o.id AND c.source_qty_kind='GOOD'),0) good_allocated_qty,
@@ -403,14 +403,20 @@ def operation_material_flow(operation_id):
 
             op=dict(op_row)
             produced=int(op.get('done_qty') or 0)
+            # rework = DECLARED REPAIRABLE, repair_scrap = written off at the
+            # SỬA HÀNG bench. Phế is the sum of the two write-off moments --
+            # see scrap_total_sql()/0051; this used to report only
+            # defect-rework and so missed every bench write-off.
             rework=int(op.get('rework_qty') or 0)
             defect=int(op.get('defect_qty') or 0)
+            repaired=int(op.get('repaired_qty') or 0)
+            repair_scrap=int(op.get('scrap_qty') or 0)
             allocated=int(op.get('allocated_qty') or 0)
             good_allocated=int(op.get('good_allocated_qty') or 0)
             rework_allocated=int(op.get('rework_allocated_qty') or 0)
             consumed=int(op.get('consumed_qty') or 0)
             source_kind=str(op.get('input_source_kind') or 'GOOD').upper()
-            source_produced=int(op.get('input_source_rework_qty') or 0) if source_kind=='REWORK' else int(op.get('input_source_done_qty') or 0)
+            source_produced=int(op.get('input_source_repaired_qty') or 0) if source_kind=='REWORK' else int(op.get('input_source_done_qty') or 0)
             source_allocated=0
             if op.get('input_source_operation_id'):
                 source_allocated=int(conn.execute("""SELECT COALESCE(SUM(good_qty_consumed+defect_qty_consumed),0) qty
@@ -430,7 +436,9 @@ def operation_material_flow(operation_id):
                 'this_operation_consumed_qty':consumed,
             }
             return jsonify(ok=True,operation=op,relation=relation,summary={
-                'produced_qty':produced,'rework_qty':rework,'scrap_qty':max(defect-rework,0),
+                'produced_qty':produced,'rework_qty':rework,'repaired_qty':repaired,
+                'repair_pending_qty':max(rework-repaired-repair_scrap,0),
+                'scrap_qty':max(defect-rework,0)+repair_scrap,
                 'allocated_qty':allocated,'available_qty':max(produced-good_allocated,0),
                 'good_allocated_qty':good_allocated,'good_available_qty':max(produced-good_allocated,0),
                 'rework_allocated_qty':rework_allocated,'rework_available_qty':max(rework-rework_allocated,0),

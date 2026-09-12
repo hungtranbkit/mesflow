@@ -27,10 +27,11 @@ def _start(api, employee_id, operation_id, station_id=None):
     }, timeout=15)
 
 
-def _finish(api, session_id, good=0, defect=0):
+def _finish(api, session_id, good=0, defect=0, repairable=None):
+    # rework_qty = NG declared REPAIRABLE (0051).
     return api.post(f'{BASE_URL}/api/work-sessions/{session_id}/finish', json={
         'request_id': f'SETUP-FINISH-{uuid.uuid4()}', 'good_qty': good, 'defect_qty': defect,
-        'rework_qty': 0}, timeout=15)
+        'rework_qty': defect if repairable is None else repairable}, timeout=15)
 
 
 SETUP_NOTE = ("1. Lắp khuôn số 3, siết đủ lực\n"
@@ -86,7 +87,7 @@ def test_C_the_instruction_sheet_prints_with_the_note_intact(api, seeded_factory
     """Paper is the instruction: the sheet must carry the note verbatim.
 
     Replaces the old "cannot complete while a required step is unticked" case --
-    the checklist is gone (0048). The ESP screen is small and fixed, so the
+    the checklist is gone (0051). The ESP screen is small and fixed, so the
     procedure is printed and kept at the machine instead.
     """
     graph = seeded_factory

@@ -42,7 +42,9 @@ def _seed_pending(api, db, graph, good=92, defect=8, repaired=1):
     started = _start(api, graph['employee_id'], graph['operation_id'], graph['station_id'])
     assert started.status_code == 201, started.text
     session_id = started.json()['session']['id']
-    assert _finish(api, session_id, good, defect).status_code == 200
+    # All NG declared REPAIRABLE, so they land in the queue this helper's name
+    # promises -- rework_qty=0 means "all scrap" and queues nothing (0051).
+    assert _finish(api, session_id, good, defect, rework=defect).status_code == 200
     resolved = api.post(f'{BASE_URL}/api/rework/queue/{session_id}/resolve', json={
         'request_id': f'QR-RESOLVE-{uuid.uuid4()}', 'employee_id': graph['employee_id'],
         'repaired_qty': repaired,
@@ -95,9 +97,9 @@ def test_scanning_the_workbench_qr_at_a_kiosk_is_refused(api, db, seeded_factory
     graph = seeded_factory
     source_session_id, rework_op = _seed_pending(api, db, graph)
 
-    before = db.execute('SELECT done_qty,rework_qty FROM operations WHERE id=%s',
+    before = db.execute('SELECT done_qty,repaired_qty FROM operations WHERE id=%s',
                         (graph['operation_id'],)).fetchone()
-    queued_before = db.execute("""SELECT defect_qty-rework_qty-scrap_qty pending
+    queued_before = db.execute("""SELECT rework_qty-repaired_qty-scrap_qty pending
         FROM work_sessions WHERE id=%s""", (source_session_id,)).fetchone()['pending']
 
     response = _start(api, graph['employee_id'], rework_op['id'], graph['station_id'])
@@ -108,10 +110,10 @@ def test_scanning_the_workbench_qr_at_a_kiosk_is_refused(api, db, seeded_factory
     # Nothing moved: no session, no credit, queue untouched.
     assert db.execute('SELECT COUNT(*) n FROM work_sessions WHERE operation_id=%s AND status=%s',
                       (rework_op['id'], 'OPEN')).fetchone()['n'] == 0
-    after = db.execute('SELECT done_qty,rework_qty FROM operations WHERE id=%s',
+    after = db.execute('SELECT done_qty,repaired_qty FROM operations WHERE id=%s',
                        (graph['operation_id'],)).fetchone()
-    assert (after['done_qty'], after['rework_qty']) == (before['done_qty'], before['rework_qty'])
-    assert db.execute("""SELECT defect_qty-rework_qty-scrap_qty pending FROM work_sessions WHERE id=%s""",
+    assert (after['done_qty'], after['repaired_qty']) == (before['done_qty'], before['repaired_qty'])
+    assert db.execute("""SELECT rework_qty-repaired_qty-scrap_qty pending FROM work_sessions WHERE id=%s""",
                       (source_session_id,)).fetchone()['pending'] == queued_before
 
 
