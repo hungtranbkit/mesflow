@@ -2528,6 +2528,62 @@ CHÀO MỜI phải là Operation mà, sau khi start, người dùng NHÌN THẤY
   cô lập PO, định danh (hai Operation trùng TÊN không tráo chỗ cho nhau), hành vi
   theo thời gian (lên màn trong nhịp làm mới, không reload).
 
+### REQ-KIOSK-015 — Kiosk web: phím xác nhận là `Enter`, và bàn phím số rời phải dùng được
+
+> **Nguồn sự thật:** phím mà màn hình Kiosk web bảo người ta bấm phải là một phím
+> CÓ THẬT trên bàn phím họ đang cầm. Người đứng máy dùng **bàn phím số rời**, và
+> bàn phím số rời không có phím `#`.
+
+- **Mô-đun**: luồng nhập sản lượng của **Kiosk web** (`/kiosk`). Mục này quy định
+  ÁNH XẠ BÀN PHÍM của web và **chỉ** của web.
+- **KHÔNG ĐỤNG ESP**: bàn phím màng 4×4 của thiết bị ESP v2 có `#` **vật lý** và
+  firmware vẫn dùng `#` y như cũ. REQ-KIOSK-002 **không đổi một chữ**; không
+  trường payload nào đổi, không state nào đổi. Bảng đối chiếu hai bên ở
+  `docs/KIOSK_ESP_PARITY.md` §2.5.
+- **Mục đích**: người đứng máy gõ sản lượng bằng một tay ở cụm số rời rồi **không
+  có cách nào xác nhận** — màn hình in `#`, còn cụm số của họ không có phím đó.
+- **Đối tượng thực hiện**: công nhân tại trạm. **Tiền điều kiện**: đang ở luồng
+  nhập sản lượng. **Kích hoạt**: bấm phím xác nhận.
+
+**Vì sao đổi — và vì sao chỉ đổi một nửa**
+
+| | Bàn phím ESP v2 (màng 4×4) | Bàn phím số rời của người dùng web |
+|---|---|---|
+| có `#` | **có** | **KHÔNG** (`#` là Shift+3 ở cụm phím chính) |
+| có `*` | có | **có** |
+| có `Enter` | không | **có**, và là phím to nhất cụm |
+
+Nên: **phím xác nhận đổi sang `Enter`**, **phím quay lại `*` giữ nguyên**. Thay
+đổi cố ý **không đối xứng**, vì phần cứng không đối xứng.
+
+**Hợp đồng**
+
+| Điều | Yêu cầu |
+|---|---|
+| Phím xác nhận | `Enter` xác nhận/tiếp tục ở **mọi** màn của luồng: `SẢN PHẨM ĐẠT`, `SẢN PHẨM LỖI`, `CÓ LỖI SỬA ĐƯỢC?`, `LỖI SỬA ĐƯỢC`, `XÁC NHẬN`, và `THỬ LẠI`. |
+| Cả hai phím Enter | Enter cụm chính và Enter cụm số đều phải chạy. Cả hai tới trình duyệt với `event.key === 'Enter'`; chúng chỉ khác `event.code` (`Enter` / `NumpadEnter`). |
+| Một bấm = một hành động | Một lần bấm chỉ được sinh **đúng một** hành động, không đi xuyên hai màn, không gửi hai lần. **CẤM** thêm nhánh `event.code === 'NumpadEnter'` cạnh nhánh `event.key`: nó khớp lần thứ hai trên cùng một lần bấm. |
+| `#` bị gỡ hẳn | Kiosk web **không** xử lý `#` nữa và **không** in `#` ở bất kỳ nhãn/hướng dẫn nào. Nhãn và hành vi phải nói cùng một chuyện; để `#` chạy ngầm là tạo ra một phím bí mật. |
+| `*` giữ nguyên | `*` vẫn quay lại — cụm số rời có phím này. |
+| Nút vẫn bấm được | Mọi nút trên màn (`TIẾP TỤC`, `XÁC NHẬN`, `QUAY LẠI`, `THỬ LẠI`) hoạt động bình thường bằng chuột/chạm; bàn phím là đường **thêm**, không thay thế. |
+| Nhắc Num Lock | Ba màn nhập số mang một dòng nhắc cố định: `Bấm Enter để tiếp tục. Nếu phím số không hoạt động, hãy bật Num Lock trên bàn phím rời.` |
+| Không nhảy layout | Dòng nhắc **luôn** có trong markup (không popup, không hiện-theo-điều-kiện) và nằm **SAU** hàng nút trong DOM, nên nó không đẩy nút `TIẾP TỤC` một pixel nào — điều kiện bắt buộc để luật đo được của REQ-KIOSK-013 còn đúng. |
+
+- **Lỗi / trạng thái đặc biệt**: không đổi. Ô chưa ai nhập vẫn **ở lại màn** và
+  hiện thông báo (REQ-KIOSK-013) — `Enter` không được trả lời hộ người dùng.
+  Phiên SETUP vẫn kết thúc `0/0` không qua màn nhập số.
+- **Ranh giới**: giữ `Enter` lâu (auto-repeat); bấm `Enter` liên tiếp lúc đang
+  gửi (phải đúng một lượt gửi — `request_id` + cờ `submitting`); bấm `#` (không
+  được làm gì); 390px.
+- **Quyền / audit**: không đổi. Kiosk web vẫn là bề mặt công khai (REQ-KIOSK-001).
+- **Liên quan**: REQ-KIOSK-011 (luồng kết thúc), REQ-KIOSK-013 (luật bố cục đo
+  được — mục này phải không phá), REQ-KIOSK-002 (ESP, **không đổi**),
+  `docs/KIOSK_ESP_PARITY.md` §2.1/§2.2/§2.3/§2.5/§6.
+- **Độ ưu tiên**: P1.
+- **Chiều kiểm thử**: thuận (Enter và NumpadEnter đi hết luồng), một-bấm-một-hành
+  động, nghịch (`#` không làm gì, không chữ nào in `#`), `*` vẫn quay lại, hình
+  học (dòng nhắc nằm dưới hàng nút; không dịch khi thông báo lỗi hiện), 390px.
+
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 
 Chi tiết đầy đủ ở §6.4 và schema `work_shifts`/`work_shift_intervals`
@@ -3217,6 +3273,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-011 (Kiosk web ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (gồm nhóm "Ô XÁC NHẬN nằm bên phải" — đo toạ độ thật, cả ở 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-KIOSK-013 (Kiosk web an toàn khi chạm — chạm lặp không đi xuyên màn) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; đo vùng không giao nhau, đường bàn phím mềm/IME, negative proof bằng mutation) | A |
 | REQ-KIOSK-014 (quét được thì phải nhìn thấy được — kiosk ↔ màn hình điều hành) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 case: start PRODUCTION và start SETUP đều lên bảng, KPI đối chiếu DB, start bị từ chối không sinh task, PO tạm dừng, cô lập PO, hai OP trùng tên không tráo chỗ, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (khoá `BOARD_TASK_TYPES == STARTABLE_TYPES` và giữ mặc định chỉ-sản-xuất của `daily_progress()`), `tests/e2e/daily-dashboard-kiosk.spec.js` (task mới lên màn trong nhịp làm mới, không reload; dòng việc hỗ trợ không mượn ô sản lượng) | A — negative proof: gỡ bản vá thì 3 bài đỏ (`assert 1 == 2` ở KPI), 7 bài canh vẫn xanh |
+| REQ-KIOSK-015 (Kiosk web: phím xác nhận `Enter` + nhắc Num Lock; ESP KHÔNG đổi) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 case: Enter và NumpadEnter đi hết luồng, một-bấm-một-hành-động, giữ/bấm liên tiếp lúc đang gửi vẫn đúng MỘT lượt, `#` không làm gì và không xuất hiện trong chữ, `*` vẫn quay lại, dòng nhắc nằm dưới hàng nút / không dịch khi lỗi hiện / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (luật bố cục đo được vẫn đúng), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (nhãn + ánh xạ phím tĩnh), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
 | REQ-KIOSK-001 (không nhảy layout vì loading trong luồng quét) | `tests/e2e/kiosk-scan-no-loading-layout-shift.spec.js` (đo bounding box vùng chính trước/trong/sau request bị làm chậm, ở 1280/820/390px; gồm cả lần tự làm mới nền 10 giây/lần bằng đồng hồ giả) | A — chỉ báo chờ phải không chiếm chỗ (`#demo-busy`, `position:absolute`), không chèn/xoá chữ chờ, không ẩn `#demo-content` giữa chừng |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |

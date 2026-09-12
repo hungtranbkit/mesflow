@@ -34,7 +34,9 @@ def test_choice_button_has_a_hidden_override():
 
 def test_confirm_screen_still_has_the_three_expected_buttons():
     html = (ROOT / 'app/mesflow/web/templates/kiosk.html').read_text(encoding='utf-8')
-    assert 'id="finish-confirm-ok"' in html and '<strong>#</strong><span>XÁC NHẬN</span>' in html
+    # Nhãn phím xác nhận là `Enter` từ 2026-09-12 (P1 bàn phím số rời: cụm số
+    # không có phím `#`). Ô back giữ `*` vì cụm số CÓ phím đó.
+    assert 'id="finish-confirm-ok"' in html and '<strong class="key-name">Enter</strong><span>XÁC NHẬN</span>' in html
     assert 'id="finish-confirm-edit"' in html and '<strong>*</strong><span>QUAY LẠI</span>' in html
     # Must stay `hidden` by default in markup -- the CSS override is what
     # makes that attribute actually take effect once JS toggles it.

@@ -52,6 +52,7 @@
       <p id="good-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
       <input id="finish-note" type="hidden" value="">
       <div class="actions"><button class="secondary" data-action="cancel" data-action-slot="back">HỦY</button><button id="good-next" data-testid="kiosk-quantity-next" data-action-slot="confirm">TIẾP TỤC</button></div>
+      <p class="key-hint" data-testid="kiosk-key-hint">Bấm <strong>Enter</strong> để tiếp tục. Nếu phím số không hoạt động, hãy bật <strong>Num Lock</strong> trên bàn phím rời.</p>
     </section>
 
     <section id="screen-quantity-defect" class="screen quantity-screen">
@@ -63,6 +64,7 @@
       </div>
       <p id="defect-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
       <div class="actions"><button id="defect-back" class="secondary" data-action-slot="back">QUAY LẠI</button><button id="defect-next" data-testid="kiosk-quantity-next" data-action-slot="confirm">TIẾP TỤC</button></div>
+      <p class="key-hint" data-testid="kiosk-key-hint">Bấm <strong>Enter</strong> để tiếp tục. Nếu phím số không hoạt động, hãy bật <strong>Num Lock</strong> trên bàn phím rời.</p>
     </section>
 
     <section id="screen-ask-rework" class="screen confirm-screen">
@@ -72,7 +74,7 @@
         <button id="rework-yes" data-testid="kiosk-rework-choice-yes" class="choice-button"><strong>1</strong><span>CÓ, NHẬP SỐ</span></button>
         <button id="rework-none" data-testid="kiosk-rework-choice-none" data-action-slot="confirm" class="choice-button secondary"><strong>2</strong><span>TIẾP TỤC, KHÔNG CÓ</span></button>
       </div>
-      <p class="choice-hint">Bấm <strong>#</strong> hoặc <strong>Enter</strong> để tiếp tục mà không nhập lỗi sửa được.</p>
+      <p class="choice-hint">Bấm <strong>Enter</strong> để tiếp tục mà không nhập lỗi sửa được.</p>
       <button id="ask-rework-back" class="text-back">QUAY LẠI (*)</button>
     </section>
 
@@ -85,6 +87,7 @@
       </div>
       <p id="rework-validation" class="quantity-validation" role="alert" aria-live="polite"></p>
       <div class="actions"><button id="rework-back" class="secondary" data-action-slot="back">QUAY LẠI</button><button id="rework-next" data-testid="kiosk-quantity-next" data-action-slot="confirm">TIẾP TỤC</button></div>
+      <p class="key-hint" data-testid="kiosk-key-hint">Bấm <strong>Enter</strong> để tiếp tục. Nếu phím số không hoạt động, hãy bật <strong>Num Lock</strong> trên bàn phím rời.</p>
     </section>
 
     <section id="screen-finish-confirm" class="screen confirm-screen">
@@ -94,8 +97,8 @@
       <p id="finish-submit-error" class="quantity-validation" role="alert" aria-live="polite"></p>
       <div class="choice-grid two-choice">
         <button id="finish-confirm-edit" data-testid="kiosk-quantity-back" data-action-slot="back" class="choice-button secondary"><strong>*</strong><span>QUAY LẠI</span></button>
-        <button id="finish-confirm-ok" data-testid="kiosk-quantity-confirm" data-action-slot="confirm" class="choice-button"><strong>#</strong><span>XÁC NHẬN</span></button>
-        <button id="finish-submit-retry" data-testid="kiosk-submit-retry" data-action-slot="confirm" class="choice-button" hidden><strong>#</strong><span>THỬ LẠI</span></button>
+        <button id="finish-confirm-ok" data-testid="kiosk-quantity-confirm" data-action-slot="confirm" class="choice-button"><strong class="key-name">Enter</strong><span>XÁC NHẬN</span></button>
+        <button id="finish-submit-retry" data-testid="kiosk-submit-retry" data-action-slot="confirm" class="choice-button" hidden><strong class="key-name">Enter</strong><span>THỬ LẠI</span></button>
       </div>
     </section>
 

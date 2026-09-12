@@ -110,7 +110,9 @@ test.describe('Luồng NG / lỗi sửa được — parity với ESP v2', () =>
     await expect(page.locator('#rework-max')).toContainText('0 đến 6');
   });
 
-  for (const key of ['2', '#', 'Enter']) {
+  // `#` CỐ Ý không còn nằm ở đây: bàn phím số rời không có phím đó (P1
+  // 2026-09-12). ESP vẫn dùng `#` -- đó là bàn phím khác, firmware khác.
+  for (const key of ['2', 'Enter']) {
     test(`phím ${key} = tiếp tục, không nhập lỗi sửa được`, async ({ page }) => {
       const state = freshState();
       await openQuantityFlow(page, state);
@@ -334,7 +336,7 @@ test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
 
     await page.locator('#finish-confirm-ok').click();
     await page.keyboard.press('Enter');
-    await page.keyboard.press('#');
+    await page.keyboard.press('Enter');
     await page.waitForTimeout(150);
     release();
 
@@ -357,14 +359,14 @@ test.describe('Kết thúc rồi phải về màn chờ quét thẻ', () => {
 });
 
 test.describe('Phím nhập số giống bàn phím ESP', () => {
-  test('# xác nhận từng màn nhập số', async ({ page }) => {
+  test('Enter xác nhận từng màn nhập số', async ({ page }) => {
     const state = freshState();
     await openQuantityFlow(page, state);
     await typeQty(page, 'good-qty', 10);
-    await page.keyboard.press('#');
+    await page.keyboard.press('Enter');
     await expect(page.locator('#screen-quantity-defect')).toHaveClass(/active/);
     await typeQty(page, 'defect-qty', 2);
-    await page.keyboard.press('#');
+    await page.keyboard.press('Enter');
     await expect(page.locator('#screen-ask-rework')).toHaveClass(/active/);
   });
 
@@ -442,7 +444,7 @@ async function reachConfirm(page, state, { defect = 0 } = {}) {
 }
 
 test.describe('Ô XÁC NHẬN nằm bên phải, giống footer ESP', () => {
-  test('màn XÁC NHẬN: * QUAY LẠI bên trái, # XÁC NHẬN bên phải', async ({ page }) => {
+  test('màn XÁC NHẬN: * QUAY LẠI bên trái, Enter XÁC NHẬN bên phải', async ({ page }) => {
     const state = freshState();
     await reachConfirm(page, state);
 
@@ -452,12 +454,12 @@ test.describe('Ô XÁC NHẬN nằm bên phải, giống footer ESP', () => {
     await expect(edit).toContainText('QUAY LẠI');
     expect(await expectConfirmOnTheRight(page, 'screen-finish-confirm')).toBe(1);
 
-    // Đảo vị trí mà vẫn bấm đúng nút: click # vẫn phải gửi.
+    // Đảo vị trí mà vẫn bấm đúng nút: click ô xác nhận vẫn phải gửi.
     await ok.click();
     await expect.poll(() => state.finished.length).toBe(1);
   });
 
-  test('nút THỬ LẠI cũng là ô "#" nên cũng phải ở bên phải', async ({ page }) => {
+  test('nút THỬ LẠI cũng là ô xác nhận nên cũng phải ở bên phải', async ({ page }) => {
     const state = freshState();
     state.failAll = true;
     await reachConfirm(page, state);
@@ -482,7 +484,7 @@ test.describe('Ô XÁC NHẬN nằm bên phải, giống footer ESP', () => {
     expect(await expectConfirmOnTheRight(page, 'screen-quantity-rework')).toBe(1);
   });
 
-  test('phím vật lý # vẫn xác nhận, phím * vẫn quay lại (vị trí đổi, ngữ nghĩa không)', async ({ page }) => {
+  test('Enter vẫn xác nhận, phím * vẫn quay lại (vị trí đổi, ngữ nghĩa không)', async ({ page }) => {
     const state = freshState();
     await reachConfirm(page, state, { defect: 6 });
 
@@ -492,11 +494,11 @@ test.describe('Ô XÁC NHẬN nằm bên phải, giống footer ESP', () => {
     await page.keyboard.press('2');
     await expect(page.locator('#screen-finish-confirm')).toHaveClass(/active/);
 
-    await page.keyboard.press('#');
+    await page.keyboard.press('Enter');
     await expect.poll(() => state.finished.length).toBe(1);
   });
 
-  test('390px: không tràn ngang, nút vẫn đủ to để bấm, # vẫn bên phải', async ({ page }) => {
+  test('390px: không tràn ngang, nút vẫn đủ to để bấm, ô xác nhận vẫn bên phải', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 780 });
     const state = freshState();
     await reachConfirm(page, state, { defect: 6 });

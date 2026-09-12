@@ -523,23 +523,41 @@
           }
         }
       }
-      // Bàn phím kiosk web phải gõ giống bàn phím ESP. Bảng đối chiếu đầy đủ
-      // ở docs/KIOSK_ESP_PARITY.md; chỗ web CỐ Ý khác firmware cũng nằm ở đó.
+      // PHÍM XÁC NHẬN CỦA WEB LÀ `Enter`, KHÔNG PHẢI `#`.
+      //
+      // Người dùng thật ở đây gõ bằng BÀN PHÍM SỐ RỜI, và bàn phím số rời
+      // KHÔNG CÓ phím `#` -- nó có 0-9, `.`, `/`, `*`, `-`, `+`, Num Lock và
+      // Enter, hết. Trên bàn phím đầy đủ `#` là Shift+3, tức là người đứng máy
+      // phải với sang cụm phím chính và bấm hai phím để xác nhận một con số họ
+      // vừa gõ bằng một tay ở cụm số. Màn hình lại đang in `#` như thể đó là
+      // một phím có thật trên thiết bị của họ.
+      //
+      // `*` thì NGƯỢC LẠI -- bàn phím số rời CÓ `*` -- nên phím quay lại giữ
+      // nguyên. Thay đổi ở đây cố ý không đối xứng, vì phần cứng không đối xứng.
+      //
+      // ESP KHÔNG ĐỔI: bàn phím màng của thiết bị có `#` vật lý và firmware vẫn
+      // dùng nó. Bảng đối chiếu hai bên ở docs/KIOSK_ESP_PARITY.md §2.
+      //
+      // `event.key === 'Enter'` bắt CẢ HAI phím Enter -- Enter cụm chính và
+      // Enter cụm số. Chúng chỉ khác nhau ở `event.code`
+      // (`Enter` / `NumpadEnter`), còn `key` đều là `'Enter'`. Vì vậy TUYỆT ĐỐI
+      // không thêm một nhánh `event.code === 'NumpadEnter'` bên cạnh: nó sẽ
+      // khớp lần thứ hai trên cùng một lần bấm và bắn hành động hai lần.
       if (state === 'ask-rework') {
-        // 1 = CÓ (nhập số), 2/#/Enter = tiếp tục không có, * = quay lại.
+        // 1 = CÓ (nhập số), 2/Enter = tiếp tục không có, * = quay lại.
         if (event.key === '1') { event.preventDefault(); chooseRework(); }
-        else if (event.key === '2' || event.key === '#' || event.key === 'Enter') { event.preventDefault(); chooseNoRework(); }
+        else if (event.key === '2' || event.key === 'Enter') { event.preventDefault(); chooseNoRework(); }
         else if (event.key === '*') { event.preventDefault(); show('quantity-defect'); focusQuantity('defect-qty'); }
         return;
       }
       if (state === 'finish-confirm') {
-        if (event.key === '#' || event.key === '1' || event.key === 'Enter') { event.preventDefault(); finish(); }
+        if (event.key === '1' || event.key === 'Enter') { event.preventDefault(); finish(); }
         else if (event.key === '*' || event.key === '2') { event.preventDefault(); backFromConfirmation(); }
         return;
       }
-      // Màn nhập số: # / Enter xác nhận, * quay lại -- đúng phím của ESP.
+      // Màn nhập số: Enter xác nhận, * quay lại.
       // Chữ số do chính ô <input type=number> nhận, không chặn ở đây.
-      if (event.key === '#' || event.key === 'Enter') {
+      if (event.key === 'Enter') {
         event.preventDefault();
         if (state === 'quantity-good') nextGood();
         else if (state === 'quantity-defect') nextDefect();

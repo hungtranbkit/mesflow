@@ -96,13 +96,16 @@ không phải nhớ lại quy tắc, chỉ cần gắn đúng slot.
 |---|---|---|---|
 | `0`–`9` | nhập chữ số | ô `<input type=number>` | ✅ |
 | `*` | xoá lùi một chữ số | quay lại màn trước | ⚠️ khác |
-| `#` | xác nhận giá trị đang nhập | xác nhận → màn kế tiếp | ✅ |
-| `Enter` | (bàn phím ESP không có) | như `#` | ➕ web thêm |
+| `#` | xác nhận giá trị đang nhập | **không gán** | ⚠️ khác |
+| `Enter` | (bàn phím ESP không có) | **xác nhận → màn kế tiếp** | ⚠️ khác |
 
 `*`: bàn phím vật lý của ESP không có phím xoá nào khác nên `*` phải là
 backspace. Bàn phím web có sẵn Backspace/Delete cho việc đó, nên `*` được dùng
 cho chức năng mà web thiếu hơn: quay lại màn trước. Ý nghĩa "huỷ bước hiện tại"
 vẫn giữ.
+
+**Phím xác nhận của web là `Enter`, của ESP là `#` (2026-09-12).** Xem §2.5 —
+đây là khác biệt phần cứng, không phải lựa chọn thẩm mỹ.
 
 ### 2.2 Màn "CÓ LỖI SỬA ĐƯỢC?" — **khác biệt lớn nhất**
 
@@ -110,8 +113,8 @@ vẫn giữ.
 |---|---|---|
 | `1` | **KHÔNG, XONG** → `rework=0`, sang xác nhận | **CÓ, NHẬP SỐ** → sang màn nhập |
 | `2` | **CÓ, NHẬP SỐ** → sang `INPUT_REWORK` | **TIẾP TỤC, KHÔNG CÓ** → `rework=0` |
-| `#` | không gán (chỉ ghi log nhắc) | tiếp tục, không nhập |
-| `Enter` | — | như `#` |
+| `#` | không gán (chỉ ghi log nhắc) | **không gán** |
+| `Enter` | — | tiếp tục, không nhập |
 | `*` | quay lại `INPUT_DEFECT` | quay lại `quantity-defect` ✅ |
 
 > **Hai phím 1 và 2 đang ĐẢO NHAU giữa hai thiết bị.**
@@ -119,7 +122,7 @@ vẫn giữ.
 > Firmware: `drawAskRework()` vẽ `1 KHÔNG, XONG` / `2 CÓ, NHẬP SỐ`, và
 > `handleKeypadKey` ghi log `"Chon 1 KHONG hoac 2 CO LOI SUA DUOC"`.
 >
-> Chủ sản phẩm đã chốt desired UX là `1 = Có`, `2/# = Tiếp tục`, và yêu cầu
+> Chủ sản phẩm đã chốt desired UX là `1 = Có`, `2/Enter = Tiếp tục`, và yêu cầu
 > **không copy mù firmware**. Web làm theo desired UX; firmware **chưa** đổi
 > trong lane này.
 >
@@ -138,15 +141,16 @@ vẫn giữ.
 
 | Phím | ESP v2 | Web Kiosk | Khớp |
 |---|---|---|---|
-| `1` hoặc `#` | gửi | gửi | ✅ |
+| `1` | gửi | gửi | ✅ |
+| `#` | gửi | **không gán** | ⚠️ khác |
+| `Enter` | — | **gửi** | ⚠️ khác |
 | `2` hoặc `*` | quay lại (`INPUT_REWORK` nếu `rework>0`, không thì `INPUT_DEFECT`) | như vậy | ✅ |
-| `Enter` | — | như `#` | ➕ web thêm |
 
 ### 2.4 Ô chưa gõ gì — web ĐÒI một chữ số, ESP thì không
 
 | | ESP v2 | Web Kiosk | Khớp |
 |---|---|---|---|
-| `#` trên màn nhập số khi bộ đệm rỗng | nhận, coi như `0`, đi tiếp | **ở lại màn**, hiện `Nhập số… — bấm 0 nếu không có` | ⚠️ web chặt hơn |
+| phím xác nhận trên màn nhập số khi bộ đệm rỗng (`#` ở ESP, `Enter` ở web) | nhận, coi như `0`, đi tiếp | **ở lại màn**, hiện `Nhập số… — bấm 0 nếu không có` | ⚠️ web chặt hơn |
 
 **Vì sao web phải khác.** Trên ESP, `#` là một phím **vật lý** cố định: ngón tay
 đặt lên nó thì nó vẫn là `#` ở mọi màn, không có cách nào để một cú bấm "rơi
@@ -184,6 +188,42 @@ Chốt bằng `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7), và
 REQ-KIOSK-013 trong master requirements.
 
 ---
+
+### 2.5 Phím xác nhận: `#` trên ESP, `Enter` trên web — vì PHẦN CỨNG khác nhau
+
+Đây là khác biệt cố ý và có một lý do vật lý duy nhất:
+
+| | Bàn phím ESP v2 (màng 4×4) | Bàn phím người dùng web |
+|---|---|---|
+| Thiết bị thật | `1`–`9`, `0`, `*`, `#` | **bàn phím số rời** (numeric keypad) |
+| Có `#`? | **có**, một phím vật lý cố định | **KHÔNG** — cụm số chỉ có `0`–`9`, `.`, `/`, `*`, `-`, `+`, Num Lock, Enter |
+| Có `*`? | có | **có** |
+| Có `Enter`? | không | **có** (và là phím to nhất cụm) |
+
+Trên bàn phím đầy đủ, `#` là **Shift+3** ở hàng số trên cùng. Người đứng máy gõ
+sản lượng bằng một tay ở cụm số rời thì không với tới được phím đó — trong khi
+màn hình vẫn in `#` như thể đó là một phím có thật trên thiết bị của họ. Đó là
+lỗi được báo, và nó không sửa được bằng cách đổi chữ: phím ấy không tồn tại.
+
+Vì vậy **web** đổi phím xác nhận sang `Enter` và **gỡ hẳn `#`** (nhãn và hành vi
+phải nói cùng một chuyện; để `#` chạy ngầm chỉ tạo ra một phím bí mật).
+**`*` giữ nguyên** ở cả hai bên, vì cụm số rời CÓ `*`. Thay đổi cố ý **không đối
+xứng**, đúng như phần cứng không đối xứng.
+
+**ESP KHÔNG ĐỔI.** Firmware vẫn dùng `#`; không có trường payload nào đổi, không
+có state nào đổi. Yêu cầu tách riêng hai ánh xạ ở REQ-KIOSK-015 (web) và
+REQ-KIOSK-002 (ESP, không đụng tới).
+
+**Một lần bấm = một hành động.** `event.key === 'Enter'` khớp CẢ Enter cụm chính
+lẫn Enter cụm số; hai phím chỉ khác `event.code` (`Enter` / `NumpadEnter`). Vì
+thế **không được** thêm một nhánh `event.code === 'NumpadEnter'` bên cạnh: nó sẽ
+khớp lần thứ hai trên cùng một lần bấm và gửi hai lần.
+Khoá ở `tests/e2e/kiosk-web-enter-key.spec.js`.
+
+**Num Lock.** Cụm số rời tắt Num Lock thì các phím số phát ra mũi tên/Home/End
+chứ không phát chữ số — người dùng thấy "bàn phím không gõ được số". Ba màn nhập
+số của web mang sẵn một dòng nhắc cố định về việc này; nó nằm SAU hàng nút trong
+DOM nên không đẩy nút "TIẾP TỤC" đi đâu, giữ nguyên luật đo được ở §2.4.
 
 ## 3. Khoảng hợp lệ của "lỗi sửa được"
 
@@ -256,11 +296,14 @@ một id và backend khử trùng qua `kiosk_idempotency`. Có bài test khoá �
 | # | Chỗ khác | Bên nào | Lý do |
 |---|---|---|---|
 | 1 | `1`/`2` ở màn hỏi lỗi sửa được đảo nhau | firmware khác desired | chủ sản phẩm chốt desired UX; firmware chưa đổi — xem đề xuất §2.2 |
-| 2 | `#`/`Enter` = tiếp tục ở màn hỏi | web thêm | ESP để trống phím này, nên thêm không đụng gì |
+| 2 | **phím xác nhận: ESP `#`, web `Enter`** (mọi màn, kể cả màn hỏi) | **hai bên khác hẳn** | bàn phím số rời của người dùng web KHÔNG có `#`; ESP có `#` vật lý — xem §2.5 |
 | 3 | `rework = 0` được chấp nhận | web rộng hơn | tránh kẹt màn hình; kết quả giống "tiếp tục" |
 | 4 | `*` = quay lại thay vì xoá lùi ở màn nhập số | web khác | bàn phím web đã có Backspace |
-| 5 | `Enter` ở mọi màn | web thêm | bàn phím web có, bàn phím ESP không |
+| 5 | dòng nhắc Num Lock ở màn nhập số | web thêm | cụm số tắt Num Lock thì không phát chữ số; ESP không có Num Lock — xem §2.5 |
 | 6 | `*` chưa gán ở màn `SẢN PHẨM ĐẠT` | web hẹp hơn | không có màn trước để quay lại; xem §2.0 |
 
-Khác biệt 2–5 là **web rộng hơn** ở chỗ ESP không dùng tới, không đổi ngữ nghĩa.
-Chỉ khác biệt **1** là hai thiết bị nói ngược nhau và cần quyết định về firmware.
+Khác biệt **3–6** là web rộng/hẹp hơn ở chỗ ESP không dùng tới, không đổi ngữ nghĩa.
+Khác biệt **1** là hai thiết bị nói ngược nhau và cần quyết định về firmware.
+Khác biệt **2** là hai thiết bị dùng hai phím khác nhau cho CÙNG một ý nghĩa, và
+đó là kết luận cố ý: phím ấy phải là phím CÓ THẬT trên bàn phím của từng bên.
+**Không có thay đổi firmware nào trong cả hai trường hợp.**

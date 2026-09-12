@@ -44,14 +44,21 @@ def test_confirm_screen_has_back_on_the_left_and_hash_on_the_right():
     assert SLOT_RE.findall(confirm_screen) == ['back', 'confirm', 'confirm'], (
         'Màn XÁC NHẬN phải là: * QUAY LẠI (back) rồi mới tới # XÁC NHẬN và # THỬ LẠI (confirm)'
     )
-    # Nhãn phải đi cùng slot: '#' ở ô confirm, '*' ở ô back -- không được lệch.
+    # Nhãn phải đi cùng slot: phím xác nhận ở ô confirm, '*' ở ô back.
+    #
+    # Nhãn ô confirm là `Enter`, KHÔNG còn là `#` (2026-09-12, P1 bàn phím số
+    # rời): bàn phím số rời không có phím `#` nào để bấm, nhưng CÓ `*` -- nên ô
+    # back giữ nguyên ký tự. Đây chỉ là nhãn của WEB; bàn phím màng của ESP vẫn
+    # có `#` vật lý và firmware không đổi (docs/KIOSK_ESP_PARITY.md §2).
+    # Luật VỊ TRÍ ở trên (* trái, xác nhận phải) không liên quan tới việc đổi
+    # nhãn và phải giữ nguyên.
     for slot, glyph, ident in [('back', '*', 'finish-confirm-edit'),
-                               ('confirm', '#', 'finish-confirm-ok'),
-                               ('confirm', '#', 'finish-submit-retry')]:
+                               ('confirm', 'Enter', 'finish-confirm-ok'),
+                               ('confirm', 'Enter', 'finish-submit-retry')]:
         tag = confirm_screen[confirm_screen.index(f'id="{ident}"'):]
         tag = tag[:tag.index('</button>')]
         assert f'data-action-slot="{slot}"' in tag
-        assert f'<strong>{glyph}</strong>' in tag
+        assert f'>{glyph}</strong>' in tag
 
 
 def test_every_action_row_lists_back_before_confirm():
