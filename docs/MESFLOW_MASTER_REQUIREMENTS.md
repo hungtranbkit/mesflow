@@ -1928,8 +1928,17 @@ are the test-entry-points into it.
 - **Audit**: same as REQ-SESS-001/002. `action_logs` records an empty actor
   for an anonymous kiosk call; the business record's actor is the scanned
   employee, which is the identity that matters for production.
+- **Scanner simulator panel**: `#demo-panel` on `/kiosk` runs EXACTLY this
+  flow, not a fake one — it feeds QR strings into the same `scan()` function a
+  scanner gun feeds, and writes real `work_sessions` rows. Its dropdown is
+  filled by `GET /api/kiosk-web/demo-data`, which stays signed-in only (it
+  carries every badge QR); the scan/start/finish it then performs are the same
+  anonymous public calls a real terminal makes. The full constraint — whatever
+  the panel offers must be visible on the control-room board once started — is
+  REQ-KIOSK-014.
 - **Related**: §7.1, REQ-SESS-001/002, REQ-KIOSK-010 (control-room board —
-  a DIFFERENT screen that stays signed-in only).
+  a DIFFERENT screen that stays signed-in only), REQ-KIOSK-014 (a successful
+  scan must become a visible task).
 - **Priority**: P0.
 - **Dimensions**: positive, negative, boundary.
 
@@ -2047,6 +2056,69 @@ are the test-entry-points into it.
 - **Related**: REQ-KIOSK-011 (the flow itself and the `*` left / `#` right rule, both unchanged), REQ-KIOSK-001.
 - **Priority**: P0.
 - **Dimensions**: positive (soft keyboard, hard keyboard, explicit 0), negative (repeated tap at one point; repeated `#`), computed layout (band non-intersection, desktop and Pixel 7), stale state (next worker's turn).
+
+### REQ-KIOSK-014 — Scannable means visible: the kiosk and the control-room board must agree
+
+> **Source of truth:** every Operation type the kiosk can open a session on must
+> also appear as a task row on the Kiosk control-room board, within that board's
+> own refresh cycle. A successful scan is never an invisible change.
+
+- **Module**: the boundary between the web/ESP Kiosk (REQ-KIOSK-001/002 — the
+  WRITE side) and the Kiosk control-room board (REQ-KIOSK-010 — the READ side).
+  This entry belongs to neither screen alone: it forces both to share one
+  definition of "work in progress".
+- **Purpose**: prevent the worst silent failure an MES can have — the terminal
+  says "Started", the data is written correctly, and the screen still says
+  nothing. The operator concludes the machine is broken; the supervisor
+  concludes the operator did not work.
+
+**The `/kiosk` simulator panel runs the REAL flow, not a fake one**
+
+The "scanner simulator" panel (`#demo-panel`) exists because a laptop has no
+scanner gun. It is NOT a demo mode and it must NEVER manufacture a fake success:
+its scan buttons feed the exact QR string into the same `scan()` function a
+scanner gun feeds, travel through the same `POST /api/kiosk-web/scan` then
+`POST /api/kiosk-web/start`, and write real `work_sessions` rows.
+`GET /api/kiosk-web/demo-data` only returns a LIST of QR values to pick from
+(signed-in only, because it carries every employee's badge QR) — it performs no
+action of its own. The binding consequence: every Operation that panel OFFERS
+must be an Operation whose start the user can then actually SEE.
+
+**Contract**
+
+| Item | Requirement |
+|---|---|
+| Type set | The set of Operations the control-room board renders as tasks must EQUAL `STARTABLE_TYPES` (`PRODUCTION` + `SETUP`) — the same set `lock_startable_operation()` admits, and the same set QR labels are printed for. These are ONE answer, not three. |
+| Appearance | A successful start on an Operation of the watched PO → that Operation's task row is present on the next `/api/kiosk-board` poll, with no page reload required. |
+| Honest counts | `open_session_count` and `active_worker_count` must equal the true `work_sessions` counts for that PO. Dropping a live session from a KPI is lying about capacity in use. |
+| No empty success | `/api/kiosk-web/start` may return `2xx` only once a session is persisted. A failed write returns an error code plus an action, and NO task row appears. |
+| Identity | Task rows key off the canonical `operation_id`. An Operation code must never decide which task appears; new labels carry `WF|OPID|<id>` precisely because a code is not a durable identifier. |
+| PO isolation | Widening the type set must NOT widen PO scope: another PO's tasks still never leak in (REQ-KIOSK-010). |
+
+- **How support work renders**: a support Operation records LABOUR, not output, so
+  it has no target to measure against. Its row replaces the `Good / Planned` cell
+  with a work-kind label (`Chuẩn bị máy`) and draws no progress meter. Rendering
+  `0 / 400` there would put a false number on a wall display: it reads as a step
+  falling behind, when this step has no progress to fall behind on.
+- **Deliberately unchanged boundary**: the day Dashboard's "Progress by Operation"
+  panel still counts PRODUCTION Operations only. The two panels answer different
+  questions — "progress against target" versus "who is doing what right now" — so
+  `DashboardRepository.daily_progress()` keeps its production-only default and the
+  widening is a parameter each caller must state. Widening the default would let
+  support-Operation output leak into PO progress, exactly the family of bug
+  `domain/policy.py` exists to prevent.
+- **Errors / special states**: a PO not started or paused → `409 PO-001` at the
+  scan step, no session and no task. An employee who already holds an open session
+  → the second start is refused and nothing further is written.
+- **Permission / audit**: unchanged. Both board endpoints stay `login_required` and
+  read-only; the write path stays `production_client_required`.
+- **Related**: REQ-KIOSK-001 (write path), REQ-KIOSK-010 (read path), REQ-QR-001
+  (a SETUP label must be printable to be scannable), REQ-DASH-003/006.
+- **Priority**: P0 — a real shift of work vanishing from the control-room screen.
+- **Dimensions**: positive (both a PRODUCTION and a SETUP start reach the board),
+  KPI reconciled against the database, negative (a refused start yields no task;
+  paused PO), PO isolation, identity (two Operations sharing a NAME never swap
+  places), time behaviour (arrives within the refresh cycle, no reload).
 
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 
@@ -2629,6 +2701,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-004 (wallboard) | `test_employee_productivity_wallboard.py` (23 cases), `tests/e2e/employee-productivity-wallboard.spec.js` | A |
 | REQ-KIOSK-011 (web Kiosk ↔ ESP v2 parity) | `tests/integration/test_kiosk_finish_repairable_contract.py`, `tests/e2e/kiosk-esp-parity.spec.js` (incl. the "Ô XÁC NHẬN nằm bên phải" group — real measured geometry, desktop and 390px), `tests/test_kiosk_confirm_slot_position.py`, `docs/KIOSK_ESP_PARITY.md` | A |
 | REQ-KIOSK-013 (web Kiosk touch safety — a repeated tap must not cross screens) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; measured band non-intersection, soft-keyboard/IME path, negative proof by mutation) | A |
+| REQ-KIOSK-014 (scannable means visible — kiosk ↔ control-room board) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 cases: both a PRODUCTION and a SETUP start reach the board, KPIs reconciled against the database, a refused start yields no task, paused PO, PO isolation, two same-named Operations never swap, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (locks `BOARD_TASK_TYPES == STARTABLE_TYPES` and keeps `daily_progress()`'s production-only default), `tests/e2e/daily-dashboard-kiosk.spec.js` (a new task arrives within the refresh cycle with no reload; a support row does not borrow the output cell) | A — negative proof: with the fix reverted 3 tests fail (`assert 1 == 2` on the KPI) and the 7 guard tests stay green |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |

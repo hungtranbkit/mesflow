@@ -5,7 +5,8 @@
 # PO vừa phát hành đơn giản là không xuất hiện trên dashboard mà không báo gì.
 # test_po_status_policy_is_single_sourced.py khoá hai bên lại với nhau.
 from __future__ import annotations
-from mesflow.domain.policy import production_only_sql, support_only_sql, type_value_sql
+from mesflow.domain.policy import (production_only_sql, support_only_sql, type_in_sql,
+                                   type_value_sql)
 import json
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
@@ -791,7 +792,34 @@ class DashboardRepository:
     def _po_scope(po_id):
         return (' AND po.id=%s', [int(po_id)]) if po_id else ('', [])
 
-    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,shift_code:str|None=None,calendar_day:bool=False,po_id:int|None=None):
+    #: Loại Operation mà daily_progress() liệt kê khi nơi gọi không nói gì.
+    #:
+    #: Mặc định là SẢN XUẤT: "Tiến độ theo Operation" là panel về các bước có
+    #: chỉ tiêu sản lượng, nên OP phụ (SETUP/SỬA HÀNG -- ghi nhận CÔNG chứ không
+    #: ghi nhận sản lượng) phải nằm ngoài, đúng như trước.
+    def daily_progress(self,shift_date:str|None=None,limit:int=500,shift_id:int|None=None,
+                       shift_code:str|None=None,calendar_day:bool=False,po_id:int|None=None,
+                       operation_types:frozenset[str]|None=None):
+        """`operation_types` MỞ RỘNG danh sách sang loại Operation khác sản xuất.
+
+        None (mặc định) giữ nguyên hành vi cũ cho mọi nơi gọi sẵn có: chỉ OP
+        SẢN XUẤT. Màn hình điều hành (kiosk_board) truyền STARTABLE_TYPES vì nó
+        trả lời một câu hỏi KHÁC -- "ai đang làm gì trên PO này NGAY BÂY GIỜ" --
+        chứ không phải "tiến độ so với chỉ tiêu".
+
+        Vì sao cần (P0 2026-09-12): kiosk MỞ ĐƯỢC session trên cả SETUP
+        (STARTABLE_TYPES = PRODUCTION + SETUP -- tem SETUP là cách DUY NHẤT ghi
+        nhận việc chuẩn bị máy), nhưng màn hình lớn lọc cứng PRODUCTION. Một
+        người quét tem SETUP thật, máy báo "Đã bắt đầu", DB có work_session
+        OPEN thật -- và bảng task không hiện gì, còn open_session_count/
+        active_worker_count đếm THIẾU đúng người đó. Đo được: DB 2 session OPEN,
+        KPI báo 1. Đó là lỗi mà REQ-KIOSK-010 gọi tên: "task biến mất làm mất
+        lòng tin vào số liệu".
+
+        Sản lượng KHÔNG bị ảnh hưởng khi mở rộng: OP phụ không ghi nhận sản
+        lượng (session SETUP kết thúc bằng 0/0, session SỬA HÀNG mang số 0 từ
+        c57f20b), nên day_good_qty/day_defect_qty cộng thêm đúng 0.
+        """
         ctx=self._calendar_day_context(shift_date) if calendar_day else resolve_shift_context(shift_date,shift_id,shift_code)
         shift_start,shift_end=ctx['range_start'],ctx['range_end']
         work_windows=[(x['start_at'],x['end_at']) for x in ctx['intervals'] if x.get('interval_type')=='WORK']
@@ -807,6 +835,9 @@ class DashboardRepository:
         # xuất hiện trong SQL, nên hai bộ đếm mới phải nằm ngay sau 4 tổng của
         # chính CTE đó (và recorded_session_count đứng TRƯỚC duration_sql).
         po_clause,po_params=self._po_scope(po_id)
+        # Hằng số của miền nghiệp vụ, không phải dữ liệu người dùng -- type_in_sql()
+        # kiểm tên loại trước khi nhúng (xem domain/policy.py).
+        type_clause=type_in_sql(operation_types,'o') if operation_types else PRODUCTION_ONLY_O
         params=[shift_end,shift_start]+[shift_start,shift_end]*10+[*duration_params,*po_params,min(max(limit,1),2000)]
         # shift_sessions feeds day_good_qty/day_defect_qty/day_rework_qty
         # (KPI) AND open_session_count/active_workers/day_state (health) --
@@ -894,6 +925,7 @@ class DashboardRepository:
           p.id part_id,p.code part_code,p.name part_name,o.id operation_id,o.code operation_code,o.name operation_name,
           CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
                ELSE p.code||'-'||o.code END operation_display_key,
+          {TYPE_VALUE_O} operation_type,
           o.status operation_status,o.done_qty total_good_qty,o.defect_qty total_defect_qty,COALESCE(o.rework_qty,0) total_rework_qty,COALESCE(o.scrap_qty,0) total_scrap_qty,po.planned_quantity,
           COALESCE(o.standard_seconds_per_unit,0) standard_seconds_per_unit,
           (COALESCE(po.planned_quantity,0)*COALESCE(o.standard_seconds_per_unit,0))::bigint planned_work_seconds,
@@ -912,7 +944,7 @@ class DashboardRepository:
             WHEN COALESCE(r.session_count,0)>0 THEN 'UPDATED' ELSE 'IDLE' END day_state
         FROM operations o JOIN parts p ON p.id=o.part_id JOIN production_orders po ON po.id=o.production_order_id
         LEFT JOIN rollup r ON r.operation_id=o.id
-        WHERE COALESCE(r.session_count,0)>0 AND {PRODUCTION_ONLY_O}{po_clause}
+        WHERE COALESCE(r.session_count,0)>0 AND {type_clause}{po_clause}
         ORDER BY CASE WHEN COALESCE(r.unconfirmed_count,0)>0 THEN 0 WHEN COALESCE(r.open_session_count,0)>0 THEN 1 ELSE 2 END,
           r.last_report_at DESC NULLS LAST LIMIT %s""",params)
         for row in rows:
@@ -1023,18 +1055,25 @@ class DashboardRepository:
           'items':self.daily_progress(shift_date,limit,shift_id),'sessions':self.daily_sessions(shift_date,min(limit*2,3000),shift_id),
           'activity':self.shift_activity(shift_date,100,shift_id)}
 
-    def daily_dashboard(self,shift_date:str|None=None,limit:int=1000,po_id:int|None=None):
+    def daily_dashboard(self,shift_date:str|None=None,limit:int=1000,po_id:int|None=None,
+                        operation_types:frozenset[str]|None=None):
         """Toàn bộ một ngày lịch, tuỳ chọn thu hẹp về MỘT Production Order.
 
         po_id=None nghĩa là "Tất cả PO" -- hành vi cũ, không đổi gì cho nơi gọi
         sẵn có. Khi có po_id, phạm vi được đẩy xuống tận WHERE của cả ba truy
         vấn (xem _po_scope) để LIMIT cắt SAU khi đã lọc.
+
+        `operation_types` chỉ đi tới `items` (daily_progress): `sessions` VỐN ĐÃ
+        liệt kê cả session của OP phụ, nên nó không cần -- và chính chỗ lệch
+        nhau đó là bug: cùng một màn hình, biểu đồ giờ đếm người làm SETUP còn
+        bảng task thì không.
         """
         ctx=self._calendar_day_context(shift_date)
         return {'context':{'date':ctx['shift_date'].isoformat(),'timezone':ctx['shift']['timezone'],
           'day_start':ctx['day_start'].isoformat(),'day_end':ctx['day_end'].isoformat(),
           'po_id':int(po_id) if po_id else None},
-          'items':self.daily_progress(shift_date,limit,calendar_day=True,po_id=po_id),
+          'items':self.daily_progress(shift_date,limit,calendar_day=True,po_id=po_id,
+                                      operation_types=operation_types),
           'sessions':self.daily_sessions(shift_date,min(limit*2,3000),calendar_day=True,po_id=po_id),
           'activity':self.shift_activity(shift_date,100,calendar_day=True,po_id=po_id)}
 

@@ -342,14 +342,28 @@
         ${Date.now()<S.pauseUntil?'<span class="kiosk-paused">Đang tạm dừng lật trang</span>':''}`;
     }
 
+    // OP phụ (SETUP) ghi nhận CÔNG chứ không ghi nhận sản lượng, nên nó KHÔNG
+    // có chỉ tiêu để so. Vẽ nó bằng đúng ô "Đạt / Kế hoạch" của OP sản xuất là
+    // nói dối hai lần trên một màn hình treo tường: "0 / 100" đọc ra như một OP
+    // đang tụt tiến độ, và thanh tiến độ 0% biến một ca chuẩn bị máy chạy tốt
+    // thành một việc có vẻ hỏng. Ô đó nhường chỗ cho nhãn nói đúng loại việc.
+    // Phân loại đi qua OpPolicy (static/op-policy.js) -- đây là nơi DUY NHẤT
+    // phía trình duyệt biết tên loại, xem test_operation_type_policy_has_no_second_home.py.
+    const SUPPORT_TASK_LABEL={[OpPolicy.SETUP]:'Chuẩn bị máy',[OpPolicy.REWORK]:'Sửa hàng'};
+
     function renderTask(t){
       const plan=Number(t.planned_quantity||0),done=Number(t.total_good_qty||0);
       const p=pct(done,plan);
+      const support=OpPolicy.isSupport(t);
       const workers=(t.active_workers||[]).map(w=>w&&w.name).filter(Boolean);
       const just=t.__justDone;
       const state=just?'justdone':String(t.day_state||'').toLowerCase();
       const stateText=just?'Vừa hoàn thành':({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý',UPDATED:'Đã cập nhật',IDLE:'Không có người'}[t.day_state]||'—');
-      return `<article class="kiosk-task state-${E(state)}" data-op="${E(t.operation_id)}">
+      const qtyCell=support
+        ? `<div class="kiosk-task-qty kiosk-task-qty-support"><span class="kiosk-task-kind">${E(SUPPORT_TASK_LABEL[OpPolicy.typeOf(t)]||'Việc hỗ trợ')}</span></div>`
+        : `<div class="kiosk-task-qty"><b>${N(done)}</b>${plan?` / ${N(plan)}`:''}
+          ${p===null?'':`<i class="kiosk-meter"><u style="width:${Math.min(100,p)}%"></u></i>`}</div>`;
+      return `<article class="kiosk-task state-${E(state)}${support?' kiosk-task-support':''}" data-op="${E(t.operation_id)}">
         <div class="kiosk-task-main">
           <b>${E(t.operation_name||'—')}</b>
           <small>${E(t.operation_code||'')}</small>
@@ -357,9 +371,8 @@
         <div class="kiosk-task-state"><em class="kiosk-state ${E(state)}">${E(stateText)}</em>
           ${just&&just.actor?`<small>${E(just.actor)}${just.delta?` · ${just.delta>0?'+':''}${N(just.delta)} SP`:''}</small>`:''}</div>
         <div class="kiosk-task-people">${workers.length?E(workers.slice(0,2).join(', ')):'—'}${workers.length>2?` <u>+${workers.length-2}</u>`:''}</div>
-        <div class="kiosk-task-qty"><b>${N(done)}</b>${plan?` / ${N(plan)}`:''}
-          ${p===null?'':`<i class="kiosk-meter"><u style="width:${Math.min(100,p)}%"></u></i>`}</div>
-        <div class="kiosk-task-ng ${Number(t.day_defect_qty)>0?'has':''}">${N(t.day_defect_qty)}</div>
+        ${qtyCell}
+        <div class="kiosk-task-ng ${support?'':(Number(t.day_defect_qty)>0?'has':'')}">${support?'—':N(t.day_defect_qty)}</div>
       </article>`;
     }
 
