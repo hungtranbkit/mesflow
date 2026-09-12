@@ -1514,7 +1514,152 @@ async function renderTemplates(selectId=null){
   try{const [td,ed]=await Promise.all([api('/api/templates?limit=500'),api('/api/equipment?limit=1000')]);templateUi.items=td.items||[];templateUi.equipment=ed.items||[];const chosen=templateUi.items.find(x=>Number(x.id)===Number(selectId))||templateUi.items[0];drawTemplateOldList('');if(chosen)await selectTemplateOld(chosen.id);else newTemplateOld()}catch(e){document.getElementById('tplEditor').innerHTML=`<div class="empty danger">${esc(e.message)}</div>`}
 }
 
-async function importTemplateExcel(){const input=document.getElementById('tplImportFile'),file=input.files[0];if(!file)return;const fd=new FormData();fd.append('file',file);const b=document.getElementById('tplImport');b.disabled=true;b.textContent='Đang nhập...';try{const r=await fetch('/api/templates/import-workbook',{method:'POST',body:fd});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.detail||d.message||`HTTP ${r.status}`);toast(d.message);await renderTemplates(d.template_id)}catch(e){alert(e.message)}finally{b.disabled=false;b.textContent='Nhập từ Excel';input.value=''}}
+// Nhập Template từ Excel: CHỌN FILE -> XEM TRƯỚC -> XÁC NHẬN.
+//
+// Trước đây chọn file là nhập luôn. Với file router thật (44 sheet, 112
+// Operation) người bấm nút không hề biết mình sắp tạo ra cái gì -- và từ khi
+// file mang theo thời gian setup, một lần bấm còn đẻ thêm hàng chục OP SETUP.
+// Bước xem trước không ghi gì vào CSDL; nó chỉ nói "file này sẽ tạo ra đây" và
+// cho bỏ bớt trước khi xác nhận.
+async function importTemplateExcel(){
+  const input=document.getElementById('tplImportFile'),file=input.files[0];
+  if(!file)return;
+  const b=document.getElementById('tplImport');
+  b.disabled=true;b.textContent='Đang đọc file...';
+  try{
+    const fd=new FormData();fd.append('file',file);
+    const r=await fetch('/api/templates/preview-workbook',{method:'POST',body:fd});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||d.ok===false)throw new Error(d.detail||d.message||`HTTP ${r.status}`);
+    showTemplateImportPreview(file,d);
+  }catch(e){alert(e.message)}
+  finally{b.disabled=false;b.textContent='Nhập từ Excel';input.value=''}
+}
+
+// Người dùng đã tự tay bật/tắt ô SETUP nào thì nhớ lại, để việc tick lại OP cha
+// không ghi đè ý muốn của họ (xem setupDefaultFor bên dưới).
+function showTemplateImportPreview(file,data){
+  const state=new Map();      // "PART|OP" -> {op:bool, setup:bool, hasSetup:bool}
+  const setupTouched=new Set();
+  for(const part of data.parts){
+    for(const op of part.operations){
+      state.set(`${part.code}|${op.code}`,
+        {op:true,setup:!!op.requires_setup,hasSetup:!!op.requires_setup});
+    }
+  }
+  const box=document.createElement('div');box.className='modal-backdrop';
+  const counts=data.counts||{};
+  box.innerHTML=`<div class="modal modal-wide tpl-preview">
+    <h2>Xem trước khi nhập</h2>
+    <p class="modal-note">${esc(file.name)} — Template <b>${esc(data.template.code)}</b>
+      · ${counts.parts||0} Part · ${counts.operations||0} Operation
+      · <b>${counts.setups||0}</b> OP Setup sẽ được tạo</p>
+    ${(data.warnings||[]).length?`<div class="tpl-preview-warn"><b>Cần biết trước khi nhập</b><ul>${
+      data.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></div>`:''}
+    <div class="tpl-preview-toolbar">
+      <label class="tpl-preview-all"><input type="checkbox" id="tplPvAll" checked> Chọn tất cả</label>
+      <span class="tpl-preview-count" id="tplPvCount"></span>
+    </div>
+    <div class="tpl-preview-list">${data.parts.map(part=>`
+      <section class="tpl-preview-part" data-part="${esc(part.code)}">
+        <header><b>${esc(part.name)}</b><small>${esc(part.code)}</small></header>
+        <div class="tpl-preview-ops">${part.operations.map(op=>`
+          <div class="tpl-preview-op" data-key="${esc(part.code)}|${esc(op.code)}">
+            <label class="tpl-preview-row">
+              <input type="checkbox" class="tpl-pv-op" checked
+                data-key="${esc(part.code)}|${esc(op.code)}">
+              <span class="tpl-preview-main">
+                <b>${esc(op.name)}</b>
+                <small>${esc(op.code)}${op.standard_seconds_per_unit?
+                  ` · ${op.standard_seconds_per_unit} s/sp`:''}</small>
+              </span>
+            </label>
+            ${op.requires_setup?`
+            <label class="tpl-preview-row tpl-preview-setup">
+              <input type="checkbox" class="tpl-pv-setup" checked
+                data-key="${esc(part.code)}|${esc(op.code)}">
+              <span class="tpl-preview-main">
+                <b><span class="tpl-tag-setup">SETUP</span> Tạo OP Setup</b>
+                <small>${esc(op.setup_code||'')} · Thời gian setup: ${
+                  op.expected_setup_minutes} phút</small>
+              </span>
+            </label>`:''}
+          </div>`).join('')}</div>
+      </section>`).join('')}</div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="tplPvCancel">Hủy</button>
+      <button type="button" class="btn primary" id="tplPvConfirm">Nhập vào MESFlow</button>
+    </div></div>`;
+  document.body.appendChild(box);
+
+  // OP SETUP không được phép đứng một mình. Bỏ tick OP cha thì ô setup vừa tắt
+  // vừa KHOÁ -- không có đường nào bấm ra một setup mồ côi, kể cả bấm nhầm.
+  const setupDefaultFor=key=>{
+    const st=state.get(key);
+    return setupTouched.has(key)?st.setup:st.hasSetup;
+  };
+  const sync=()=>{
+    let ops=0,setups=0;
+    for(const row of box.querySelectorAll('.tpl-preview-op')){
+      const key=row.dataset.key,st=state.get(key);
+      const opBox=row.querySelector('.tpl-pv-op'),setupBox=row.querySelector('.tpl-pv-setup');
+      opBox.checked=st.op;
+      row.classList.toggle('is-off',!st.op);
+      if(setupBox){
+        setupBox.disabled=!st.op;
+        setupBox.checked=st.op&&st.setup;
+      }
+      if(st.op){ops++;if(st.hasSetup&&st.setup)setups++}
+    }
+    box.querySelector('#tplPvCount').textContent=
+      `Đang chọn ${ops} Operation · ${setups} OP Setup`;
+    box.querySelector('#tplPvConfirm').disabled=ops===0;
+  };
+  box.addEventListener('change',e=>{
+    const key=e.target.dataset.key;
+    if(!key)return;
+    if(e.target.classList.contains('tpl-pv-op')){
+      const st=state.get(key);
+      st.op=e.target.checked;
+      // Tick lại OP cha thì setup quay về mặc định, TRỪ KHI người dùng đã tự
+      // tay đổi nó -- lúc đó ý muốn của họ thắng.
+      st.setup=st.op?setupDefaultFor(key):false;
+      sync();
+    }else if(e.target.classList.contains('tpl-pv-setup')){
+      setupTouched.add(key);
+      state.get(key).setup=e.target.checked;
+      sync();
+    }else if(e.target.id==='tplPvAll'){
+      const on=e.target.checked;
+      for(const [key,st] of state){st.op=on;st.setup=on?setupDefaultFor(key):false}
+      sync();
+    }
+  });
+  box.querySelector('#tplPvCancel').onclick=()=>box.remove();
+  box.querySelector('#tplPvConfirm').onclick=async()=>{
+    const button=box.querySelector('#tplPvConfirm');
+    button.disabled=true;button.textContent='Đang nhập...';
+    const selection=[];
+    for(const [key,st] of state){
+      if(!st.op)continue;
+      const [part_code,operation_code]=key.split('|');
+      selection.push({part_code,operation_code,include_setup:!!st.setup});
+    }
+    try{
+      const fd=new FormData();
+      fd.append('file',file);
+      fd.append('selection',JSON.stringify(selection));
+      const r=await fetch('/api/templates/import-workbook',{method:'POST',body:fd});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||d.ok===false)throw new Error(d.detail||d.message||`HTTP ${r.status}`);
+      box.remove();toast(d.message);await renderTemplates(d.template_id);
+    }catch(err){
+      alert(err.message);
+      button.disabled=false;button.textContent='Nhập vào MESFlow';
+    }
+  };
+  sync();
+}
 async function exportTemplateExcel(){if(!templateUi.current?.id)return alert('Hãy chọn và lưu Template trước khi xuất Excel.');window.location.href=`/api/templates/${templateUi.current.id}/export-workbook`}
 
 function drawTemplateOldList(q=''){

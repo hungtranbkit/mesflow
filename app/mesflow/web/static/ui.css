@@ -3560,3 +3560,33 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
     color:var(--text-secondary);font-size:11px;font-weight:650;
   }
 }
+
+/* Xem trước khi nhập Template từ Excel.
+   Card rời, bo góc, có khoảng cách -- cùng ngôn ngữ với các danh sách khác của
+   MESFlow. Tên Operation là dòng chính, mã là dòng phụ. */
+.modal-wide{width:min(880px,95vw)}
+.tpl-preview-warn{margin:12px 0;padding:12px 14px;border:1px solid #e3cba5;border-radius:var(--radius-panel);background:#fff8ed;color:#754408;font-size:13px}
+.tpl-preview-warn ul{margin:8px 0 0;padding-left:18px}
+.tpl-preview-warn li{margin:4px 0}
+.tpl-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 10px}
+.tpl-preview-all{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700}
+.tpl-preview-all input{width:auto;margin:0}
+.tpl-preview-count{color:var(--muted);font-size:12px}
+.tpl-preview-list{display:grid;gap:12px;max-height:52vh;overflow:auto;padding:2px}
+.tpl-preview-part{border:1px solid var(--line);border-radius:var(--radius-panel);background:#fff;overflow:hidden}
+.tpl-preview-part>header{display:flex;align-items:baseline;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);background:#f7f9fc}
+.tpl-preview-part>header b{font-size:14px;color:#18324a}
+.tpl-preview-part>header small{color:var(--muted);font-size:11px;font-family:ui-monospace,Consolas,monospace}
+.tpl-preview-ops{display:grid;gap:8px;padding:10px 12px}
+.tpl-preview-op{display:grid;gap:6px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-control);background:#fff}
+.tpl-preview-op.is-off{opacity:.5;background:#f4f6f9}
+.tpl-preview-row{display:flex;align-items:flex-start;gap:10px;font-weight:400;cursor:pointer}
+.tpl-preview-row input{width:auto;margin:2px 0 0;flex:none}
+.tpl-preview-main{display:grid;gap:2px;min-width:0}
+.tpl-preview-main b{font-size:13px;color:var(--text)}
+.tpl-preview-main small{color:var(--muted);font-size:11px}
+/* OP Setup thụt vào dưới OP cha: quan hệ cha-con đọc được bằng mắt, không phải
+   đoán từ tên. */
+.tpl-preview-setup{margin-left:24px;padding-top:6px;border-top:1px dashed var(--line)}
+.tpl-preview-setup input:disabled{cursor:not-allowed}
+.tpl-tag-setup{display:inline-block;margin-right:6px;padding:1px 7px;border-radius:999px;background:#eaf2f7;color:#1d4e77;font-size:10px;font-weight:800;letter-spacing:.04em}

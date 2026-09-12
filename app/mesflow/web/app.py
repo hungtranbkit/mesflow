@@ -20,6 +20,7 @@ from mesflow.web.exceptions import bp as exceptions_bp
 from mesflow.web.trace import bp as production_trace_bp
 from mesflow.web.system_health import bp as system_health_bp
 from mesflow.web.excel_io import bp as excel_io_bp, template_excel_bp
+from mesflow.web.router_export import bp as router_export_bp
 from mesflow.web.kiosk import bp as kiosk_bp
 from mesflow.web.kiosk_v2 import bp as kiosk_v2_bp
 from mesflow.web.internal_ota import bp as internal_ota_bp
@@ -134,6 +135,7 @@ def create_app():
     app.register_blueprint(system_health_bp)
     app.register_blueprint(excel_io_bp)
     app.register_blueprint(template_excel_bp)
+    app.register_blueprint(router_export_bp)
     app.register_blueprint(kiosk_bp)
     app.register_blueprint(kiosk_v2_bp)
     app.register_blueprint(internal_ota_bp)
