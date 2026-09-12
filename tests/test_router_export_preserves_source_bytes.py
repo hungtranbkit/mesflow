@@ -1,15 +1,17 @@
-"""Xuất router GIỮ NGUYÊN file gốc byte-for-byte, chỉ thêm ảnh QR.
+"""Xuất router GIỮ NGUYÊN file gốc, chỉ thêm ảnh QR và xoá chữ marker.
 
 BỐI CẢNH (bug EXCEL-EXPORT-ERR522). Cách xuất cũ mở workbook gốc bằng openpyxl
 rồi ``wb.save()``. openpyxl khi save XOÁ mọi cached value của ô công thức và bật
-``fullCalcOnLoad`` -> mở file phải recalc. Biểu mẫu NEWARK có sẵn những công
-thức tự tham chiếu (nhãn ``=$A$9`` nhắc lại giữa các block); chúng vô hại khi có
-cached value và không recalc, nhưng recalc lại với iterative calc tắt thì thành
-``Err:522`` (vòng tham chiếu) lan khắp tờ -- đúng "file có QR mà nội dung lỗi".
+``fullCalcOnLoad`` -> mở file phải recalc. Biểu mẫu NEWARK có sẵn công thức tự
+tham chiếu (nhãn ``=$A$9`` nhắc lại giữa các block); vô hại khi còn cached value
++ không recalc, nhưng recalc lại thì thành ``Err:522`` (vòng tham chiếu) lan khắp
+tờ -- đúng "file có QR mà nội dung lỗi".
 
-Cách xuất mới KHÔNG save qua openpyxl: chỉ vá OOXML thêm ảnh QR, giữ nguyên mọi
-worksheet/sharedStrings/styles/workbook. Bài này khoá đúng điều đó: nếu ai đó
-quay lại openpyxl full-save, các part mang nội dung sẽ đổi và bài này đỏ.
+Cách xuất mới KHÔNG save qua openpyxl: chỉ vá OOXML thêm ảnh QR và XOÁ ĐÚNG chữ
+'QRCODE' ở ô marker (chỉ value, giữ style/merge). Bài này khoá cả hai:
+  * calcPr + mọi công thức/cached value/sharedStrings/styles KHÔNG đổi -> hết 522;
+  * ô marker hết chữ QRCODE, ảnh QR neo đúng ô, style/merge còn nguyên.
+Nếu ai đó quay lại openpyxl full-save, các bài này đỏ.
 """
 import re
 import zipfile
@@ -20,7 +22,7 @@ import pytest
 from openpyxl import load_workbook
 
 from mesflow.web.router_export import (
-    _compute_qr_placements, _graft_qr_into_workbook)
+    _compute_qr_placements, _graft_qr_into_workbook, QR_MARKER_TEXT)
 from mesflow.web.excel_io import _parse_go_router_template
 from mesflow.db.repositories.master_data import operation_code_suffix
 from test_router_qrcode_form_export import _marked_form
@@ -31,12 +33,12 @@ REAL_FIXTURE = Path(__file__).resolve().parent / 'fixtures/router-newark-arm-cha
 PO = {'id': 1, 'code': 'PO-NEWARK', 'product': 'NEWARK', 'planned_quantity': 100,
       'source_template_id': 7}
 
-#: Part mang nội dung của một workbook: đổi một byte ở đây là đổi công thức /
-#: cached value / định dạng / nhãn -- đúng thứ phải giữ nguyên.
-def _content_parts(names):
+
+def _immutable_parts(names):
+    """Part KHÔNG bao giờ được đổi: sharedStrings/styles/workbook mang định dạng,
+    chuỗi và calcPr -- xoá chữ marker chỉ đụng ô trong worksheet, không đụng đây."""
     return [n for n in names
-            if n.startswith('xl/worksheets/sheet')
-            or n in ('xl/workbook.xml', 'xl/sharedStrings.xml', 'xl/styles.xml')]
+            if n in ('xl/workbook.xml', 'xl/sharedStrings.xml', 'xl/styles.xml')]
 
 
 def _rows_from_source(source_bytes):
@@ -57,9 +59,9 @@ def _rows_from_source(source_bytes):
 
 def _export(source_bytes):
     warnings = []
-    placed, matched, leftovers = _compute_qr_placements(
+    placed, matched, leftovers, clear_cells = _compute_qr_placements(
         source_bytes, PO, _rows_from_source(source_bytes), warnings)
-    output = _graft_qr_into_workbook(source_bytes, placed)
+    output = _graft_qr_into_workbook(source_bytes, placed, clear_cells)
     return output, placed, matched, leftovers, warnings
 
 
@@ -75,70 +77,104 @@ def marked_bytes(real_bytes):
     return _marked_form(real_bytes)[0]
 
 
-def test_moi_part_mang_noi_dung_giu_nguyen_tung_byte(marked_bytes):
-    """Mọi worksheet/sharedStrings/styles/workbook KHÔNG đổi một byte."""
-    output, placed, matched, _leftovers, _warnings = _export(marked_bytes)
-    assert placed, 'phải có ít nhất một tem để bài này kiểm được gì'
-    src = zipfile.ZipFile(BytesIO(marked_bytes))
-    out = zipfile.ZipFile(BytesIO(output))
-    changed = [n for n in _content_parts(src.namelist())
+def test_sharedstrings_styles_workbook_giu_nguyen_tung_byte(marked_bytes):
+    """calcPr/định dạng/chuỗi không đổi một byte -> gốc rễ chống Err:522."""
+    output, placed, _m, _l, _w = _export(marked_bytes)
+    assert placed, 'phải có tem để bài này kiểm được gì'
+    src = zipfile.ZipFile(BytesIO(marked_bytes)); out = zipfile.ZipFile(BytesIO(output))
+    changed = [n for n in _immutable_parts(src.namelist())
                if n in out.namelist() and src.read(n) != out.read(n)]
-    assert changed == [], f'part mang nội dung bị đổi: {changed}'
+    assert changed == [], f'part định dạng/chuỗi/workbook bị đổi: {changed}'
 
 
-def test_khong_bat_fullcalconload_va_khong_xoa_cached_value(marked_bytes):
-    """Không bật recalc-khi-mở và không xoá cached value -> không Err:522.
+def test_khong_bat_fullcalconload_va_moi_cong_thuc_cached_giu_nguyen(marked_bytes):
+    """Không bật recalc-khi-mở và giữ nguyên MỌI ô công thức + cached value.
 
-    Đây là hai thứ openpyxl-save làm và là nguyên nhân trực tiếp của bug. Bài
-    kiểm trên chính XML: calcPr của workbook.xml y hệt nguồn, và một ô công thức
-    có cached value trong nguồn vẫn còn nguyên cached value đó trong bản xuất.
+    Đây là nguyên nhân trực tiếp của bug: openpyxl-save xoá cached + bật
+    fullCalcOnLoad. Bài kiểm trên chính XML.
     """
     output, _placed, _m, _l, _w = _export(marked_bytes)
     src = zipfile.ZipFile(BytesIO(marked_bytes)); out = zipfile.ZipFile(BytesIO(output))
-    src_wb = src.read('xl/workbook.xml').decode('utf-8')
     out_wb = out.read('xl/workbook.xml').decode('utf-8')
-    src_calc = re.search(r'<calcPr[^>]*/>', src_wb)
-    out_calc = re.search(r'<calcPr[^>]*/>', out_wb)
-    assert (src_calc and src_calc.group(0)) == (out_calc and out_calc.group(0))
     assert 'fullCalcOnLoad="1"' not in out_wb
-    # Một ô công thức CÓ cached value trong nguồn -> còn nguyên trong bản xuất.
-    found = False
-    for name in _content_parts(src.namelist()):
+    # Mọi ô CÔNG THỨC-kèm-cached-value trong nguồn còn nguyên trong bản xuất.
+    checked = 0
+    for name in src.namelist():
         if not name.startswith('xl/worksheets/sheet'):
             continue
-        xml = src.read(name).decode('utf-8')
-        if re.search(r'<f\b[^>]*>[^<]+</f><v>[^<]+</v>', xml):
-            assert out.read(name) == src.read(name)
-            found = True
-            break
-    assert found, 'fixture không có ô công thức-kèm-cached-value để kiểm'
+        src_xml = src.read(name).decode('utf-8')
+        out_xml = out.read(name).decode('utf-8')
+        for m in re.finditer(r'<c r="([A-Z]+\d+)"[^>]*>(?:(?!</c>).)*?<f\b'
+                             r'(?:(?!</c>).)*?<v>[^<]+</v>(?:(?!</c>).)*?</c>',
+                             src_xml, flags=re.S):
+            cell = m.group(0)
+            assert cell in out_xml, f'{name}!{m.group(1)}: công thức/cached value đổi'
+            checked += 1
+    assert checked > 0, 'fixture không có ô công thức-kèm-cached-value để kiểm'
 
 
-def test_them_dung_so_anh_qr_va_khong_dong_khac(marked_bytes):
-    """Bản xuất chỉ khác nguồn ở: ảnh QR mới + drawing chứa chúng. Không hơn."""
+def test_o_marker_het_chu_qrcode_nhung_giu_style_va_merge(marked_bytes):
+    """Sau xuất: KHÔNG ô nào còn chữ QRCODE; ô marker giữ style; merge nguyên."""
+    output, placed, _m, _l, _w = _export(marked_bytes)
+    marker_items = [p for p in placed if p['placement'] == 'marker']
+    assert marker_items, 'phải có tem dán theo marker'
+
+    src = load_workbook(BytesIO(marked_bytes))
+    out = load_workbook(BytesIO(output))
+    # 1) Không còn chữ QRCODE ở bất kỳ ô nào của bản xuất.
+    left = [(ws.title, c.coordinate) for ws in out.worksheets
+            for row in ws.iter_rows() for c in row
+            if isinstance(c.value, str) and c.value.strip().upper() == QR_MARKER_TEXT]
+    assert left == [], f'vẫn còn chữ {QR_MARKER_TEXT}: {left[:5]}'
+    # 2) Từng ô marker: value bị xoá, nhưng STYLE giữ nguyên và MERGE không đổi.
+    for item in marker_items:
+        sheet = item['sheet']; coord = item['marker_cell']
+        assert out[sheet][coord].value is None, f'{sheet}!{coord} chưa xoá chữ'
+        assert out[sheet][coord].style == src[sheet][coord].style, \
+            f'{sheet}!{coord} đổi style'
+    for name in src.sheetnames:
+        assert {str(r) for r in out[name].merged_cells.ranges} == \
+            {str(r) for r in src[name].merged_cells.ranges}, f'{name}: merge đổi'
+
+
+def test_anh_qr_neo_dung_o_marker_tren_file_xuat(marked_bytes):
+    """Ảnh QR neo đúng ô marker (góc trên-trái vùng), đủ số tem."""
+    output, placed, _m, _l, _w = _export(marked_bytes)
+    marker_items = [p for p in placed if p['placement'] == 'marker']
+    out = load_workbook(BytesIO(output))
+    anchored = {(ws.title, im.anchor._from.col, im.anchor._from.row)
+                for ws in out.worksheets for im in ws._images
+                if im.anchor.__class__.__name__ == 'OneCellAnchor'}
+    for item in marker_items:
+        assert (item['sheet'], item['col0'], item['row0']) in anchored, \
+            f"thiếu tem neo ở {item['sheet']}!{item['marker_cell']}"
+
+
+def test_chi_doi_media_drawing_worksheet_khong_dong_khac(marked_bytes):
+    """Bản xuất chỉ khác nguồn ở: ảnh QR, drawing, và worksheet (xoá chữ marker)."""
     output, placed, _m, _l, _w = _export(marked_bytes)
     src = zipfile.ZipFile(BytesIO(marked_bytes)); out = zipfile.ZipFile(BytesIO(output))
     added = sorted(set(out.namelist()) - set(src.namelist()))
-    media_added = [n for n in added if n.startswith('xl/media/')]
-    assert len(media_added) == len(placed), 'số ảnh thêm phải bằng số tem'
-    # Mọi part mới hoặc đổi đều phải là media/drawing (không đụng part nội dung).
+    assert len([n for n in added if n.startswith('xl/media/')]) == len(placed)
     changed = [n for n in src.namelist()
                if n in out.namelist() and src.read(n) != out.read(n)]
     for n in added + changed:
         assert (n.startswith('xl/media/') or n.startswith('xl/drawings/')
-                or n == '[Content_Types].xml'), f'đổi part ngoài phạm vi ảnh: {n}'
-    # Ảnh QR mở được và là PNG thật.
+                or n.startswith('xl/worksheets/') or n == '[Content_Types].xml'), \
+            f'đổi part ngoài phạm vi: {n}'
     from PIL import Image
-    for n in media_added:
-        Image.open(BytesIO(out.read(n))).verify()
+    for n in added:
+        if n.startswith('xl/media/'):
+            Image.open(BytesIO(out.read(n))).verify()
 
 
-def test_khong_co_qrcode_van_xuat_duoc_khong_lam_hong_file(real_bytes):
-    """File thật CHƯA có ô QRCODE (marker_mode NONE): vẫn xuất, vẫn giữ nguyên
-    nội dung, tem đi làn trống -- không throw, không đổi part nội dung."""
+def test_khong_co_qrcode_van_xuat_duoc_giu_nguyen_noi_dung(real_bytes):
+    """File thật CHƯA có ô QRCODE (NONE mode): không có gì để xoá -> mọi
+    worksheet/sharedStrings/styles/workbook giữ nguyên byte, tem đi làn trống."""
     output, placed, matched, _l, _w = _export(real_bytes)
-    assert matched > 0 and placed, 'file thật phải khớp và đặt được tem'
+    assert matched > 0 and placed
     src = zipfile.ZipFile(BytesIO(real_bytes)); out = zipfile.ZipFile(BytesIO(output))
-    changed = [n for n in _content_parts(src.namelist())
-               if n in out.namelist() and src.read(n) != out.read(n)]
-    assert changed == [], f'part mang nội dung bị đổi: {changed}'
+    content = [n for n in src.namelist()
+               if n.startswith('xl/worksheets/sheet') or n in _immutable_parts(src.namelist())]
+    changed = [n for n in content if n in out.namelist() and src.read(n) != out.read(n)]
+    assert changed == [], f'NONE mode không được đổi part nội dung: {changed}'

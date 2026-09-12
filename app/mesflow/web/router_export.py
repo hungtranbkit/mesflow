@@ -947,8 +947,10 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
     vào đâu; việc chèn do :func:`_graft_qr_into_workbook` làm bằng vá OOXML tối
     thiểu, giữ nguyên mọi cell/công thức/cached value của file gốc.
 
-    Trả ``(placed, matched, leftovers)``. Mỗi placement mang sẵn ảnh PNG và toạ
-    độ neo (EMU) để dựng drawing. Giữ luật đã chốt: block thiếu ô QRCODE trong
+    Trả ``(placed, matched, leftovers, clear_cells)``. Mỗi placement mang sẵn
+    ảnh PNG và toạ độ neo (EMU) để dựng drawing; ``clear_cells`` là {sheet: {ô
+    marker}} để :func:`_graft_qr_into_workbook` XOÁ CHỮ 'QRCODE' (chỉ value, giữ
+    style/merge) trước khi dán ảnh. Giữ luật đã chốt: block thiếu ô QRCODE trong
     workbook đã có marker -> cảnh báo, vẫn xuất. KHÔNG dựng thêm block (clone) vì
     clone là sửa file; OP người dùng thêm sau khi nhập -> cảnh báo, không in tem.
     """
@@ -956,7 +958,7 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
 
     blocks, starts, sheet_of_part = _index_source_blocks(source_bytes, po['code'])
     if not blocks:
-        return None, 0, []
+        return None, 0, [], {}
     # Chỉ để đo bề rộng cột / chiều cao dòng / merge -- workbook này KHÔNG bao
     # giờ được save.
     wb = load_workbook(BytesIO(source_bytes))
@@ -968,6 +970,16 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
     markers = {name: _scan_markers(wb[name], starts.get(name, []), values_sheet(name))
                for name in wb.sheetnames}
     marker_mode = 'MARKER' if any(markers.values()) else 'NONE'
+    # Mọi ô có chữ QRCODE phải được XOÁ CHỮ trước khi dán ảnh: 'QRCODE' là chữ
+    # đặt chỗ, để nguyên thì tờ in ra có chữ đó nằm dưới/ló ra cạnh tem. Chỉ xoá
+    # VALUE của đúng ô marker (giữ style/merge/border/kích thước); ô nào không
+    # dán ảnh (slot SETUP thừa) cũng xoá để không còn chữ QRCODE lù lù giữa tờ.
+    clear_cells = {}
+    for sheet_name, blocks_slots in markers.items():
+        coords = {coord for slots in blocks_slots.values()
+                  for (_r, _c, coord) in slots.values()}
+        if coords:
+            clear_cells[sheet_name] = coords
     po_prefix = f"{str(po['code'] or '').upper()}-"
     placed = []
     leftovers = []
@@ -1065,7 +1077,7 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
                  lambda: lane_for(ws, sheet_name) + QR_COLUMN_GAP)
 
     matched = len(rows) - len(leftovers)
-    return placed, matched, leftovers
+    return placed, matched, leftovers, clear_cells
 
 
 def _public_labels(placed):
@@ -1140,24 +1152,54 @@ def _one_cell_anchor(placement, rel_id, cnvpr_id):
         '<xdr:clientData/></xdr:oneCellAnchor>')
 
 
-def _graft_qr_into_workbook(source_bytes, placed):
+def _clear_marker_value(sheet_xml, coord):
+    """Xoá VALUE của đúng ô ``coord`` trong XML sheet, GIỮ NGUYÊN mọi thứ khác.
+
+    Chỉ bỏ ``t=`` và nội dung (``<v>``/``<is>``/``<f>``) của một ô, giữ lại thuộc
+    tính style ``s=`` -> ô thành rỗng nhưng style/viền/định dạng còn nguyên. Merge
+    (``<mergeCell>``), bề rộng cột, chiều cao dòng nằm ở chỗ khác nên không đụng.
+    """
+    def repl(match):
+        attrs = match.group(1)
+        style = re.search(r'\ss="\d+"', attrs)
+        return f'<c r="{coord}"{style.group(0) if style else ""}/>'
+
+    pattern = re.compile(
+        r'<c r="%s"([^>]*?)(?:/>|>.*?</c>)' % re.escape(coord), re.S)
+    return pattern.sub(repl, sheet_xml, count=1)
+
+
+def _graft_qr_into_workbook(source_bytes, placed, clear_cells=None):
     """Chèn ảnh QR vào workbook gốc bằng vá OOXML tối thiểu, giữ nguyên mọi thứ
-    khác BYTE-FOR-BYTE.
+    khác BYTE-FOR-BYTE (trừ đúng ô marker được xoá chữ 'QRCODE').
 
     KHÔNG đi qua openpyxl load/save (việc đó ghi lại toàn bộ công thức, xoá cached
     value, bật fullCalcOnLoad -> Err:522). Chỉ thêm/đổi đúng các part cần cho ảnh:
     thêm ảnh vào ``xl/media``; nối ``<xdr:oneCellAnchor>`` vào drawing của từng
     sheet (dùng drawing sẵn có, hoặc tạo mới nếu sheet chưa có), thêm quan hệ ảnh,
-    và khai báo content-type khi cần. Mọi worksheet/sharedStrings/styles/workbook
-    của file gốc không đổi một byte.
+    khai báo content-type khi cần; và XOÁ CHỮ ở đúng ô marker QRCODE (chỉ value,
+    giữ style/merge) trước khi dán. Công thức/cached value/calcPr của mọi ô khác
+    không đổi một byte.
     """
     import zipfile
 
-    if not placed:
+    clear_cells = clear_cells or {}
+    if not placed and not clear_cells:
         return source_bytes
     zin = zipfile.ZipFile(BytesIO(source_bytes))
     parts = {name: zin.read(name) for name in zin.namelist()}
     name_to_file = _worksheet_file_map(parts)
+
+    # LƯỢT 0 -- xoá chữ 'QRCODE' ở đúng ô marker (chỉ value). Làm trước khi dán
+    # ảnh; ảnh sẽ neo đè lên chính ô đó.
+    for sheet_name, coords in clear_cells.items():
+        sheet_file = name_to_file.get(sheet_name)
+        if not sheet_file or sheet_file not in parts:
+            continue
+        sheet_xml = parts[sheet_file].decode('utf-8')
+        for coord in coords:
+            sheet_xml = _clear_marker_value(sheet_xml, coord)
+        parts[sheet_file] = sheet_xml.encode('utf-8')
 
     def _max_num(pattern):
         nums = [int(m.group(1)) for name in parts
@@ -1234,6 +1276,19 @@ def _graft_qr_into_workbook(source_bytes, placed):
         dbase = drawing_path.rsplit('/', 1)[-1]
         drawing_rels_path = f'xl/drawings/_rels/{dbase}.rels'
         drawing_xml = parts[drawing_path].decode('utf-8')
+        # Anchor QR dùng prefix r: (r:embed) và a: (a:blip/a:xfrm...). Một drawing
+        # sẵn có mà trước đó CHƯA có ảnh nào có thể chỉ khai báo xdr (+a) và
+        # THIẾU xmlns:r -> chèn r:embed vào sẽ thành "unbound prefix". Bổ sung
+        # khai báo còn thiếu trên thẻ <xdr:wsDr> trước khi nối anchor.
+        wsdr_start = drawing_xml.index('<xdr:wsDr')
+        head_end = drawing_xml.index('>', wsdr_start)
+        for prefix, uri in (
+                ('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'),
+                ('a', 'http://schemas.openxmlformats.org/drawingml/2006/main')):
+            if f'xmlns:{prefix}=' not in drawing_xml[wsdr_start:head_end]:
+                drawing_xml = drawing_xml.replace(
+                    '<xdr:wsDr', f'<xdr:wsDr xmlns:{prefix}="{uri}"', 1)
+                head_end = drawing_xml.index('>', drawing_xml.index('<xdr:wsDr'))
         drawing_rels = parts.get(drawing_rels_path, empty_rels.encode('utf-8')).decode('utf-8')
         rel_num = max([int(m.group(1)) for m in re.finditer(r'Id="rId(\d+)"', drawing_rels)]
                       or [0])
@@ -1292,7 +1347,7 @@ def build_router_workbook(po_id: int):
             'Template nguồn (Template → Công cụ → Nhập từ Excel), rồi xuất lại.',
             reason='NO_SOURCE_WORKBOOK')
     missing_markers = []
-    placed, matched, unmatched = _compute_qr_placements(
+    placed, matched, unmatched, clear_cells = _compute_qr_placements(
         source['data'], po, rows, warnings=missing_markers)
     if placed is None:
         raise RouterSourceUnavailable(
@@ -1325,8 +1380,9 @@ def build_router_workbook(po_id: int):
             f'{listed}{more}. Nhiều khả năng file đang lưu không phải file đã tạo ra PO '
             'này. Hãy nhập lại đúng file Lộ trình sản xuất của Template nguồn rồi xuất lại.',
             reason='UNMATCHED_OPERATIONS')
-    # Chèn tem bằng vá OOXML tối thiểu -> bytes cuối, GIỮ NGUYÊN file gốc.
-    output_bytes = _graft_qr_into_workbook(source['data'], placed)
+    # Chèn tem bằng vá OOXML tối thiểu -> bytes cuối, GIỮ NGUYÊN file gốc
+    # (trừ đúng ô marker được xoá chữ 'QRCODE').
+    output_bytes = _graft_qr_into_workbook(source['data'], placed, clear_cells)
     return po, output_bytes, placed, {**source, 'matched': matched, 'unmatched': [],
                                       'missing_markers': missing_markers}
 

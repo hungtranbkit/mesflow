@@ -135,9 +135,11 @@ def test_production_order_page_imports_through_the_shared_router_service():
     # Không được dựng lại một luồng nhập riêng ở đây.
     assert 'operationExcelImportModal' not in po
     assert 'preview-workbook' not in po, 'màn PO không tự gọi API, phải qua hàm chung'
-    # The two supported PO actions stay.
+    # Hành động chính của màn danh sách PO còn lại là tạo PO. Nút "Xuất Excel"
+    # (xuất bảng Operations) ĐÃ BỎ khỏi màn này theo yêu cầu -- xuất tờ router
+    # kèm QR vẫn nằm ở màn PO detail (Xuất Excel + QR), không ở danh sách.
     assert 'Tạo PO từ Template' in po
-    assert 'Xuất Excel' in po
+    assert 'exportExcel' not in po, 'đã bỏ nút Xuất Excel ở danh sách PO'
 
 
 def test_both_screens_share_one_import_function():
