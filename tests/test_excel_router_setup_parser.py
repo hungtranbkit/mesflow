@@ -183,24 +183,27 @@ def test_block_khong_co_nhan_setup_thi_khong_khai_bao_gi():
 
 # --- danh tính Operation ---------------------------------------------------
 
-def test_ma_op_trung_trong_cung_part_duoc_tach_va_bao_len():
-    """File thật đánh trùng số Operation; tách xác định thay vì từ chối cả file.
+def test_ma_op_trung_trong_cung_part_van_nhap_du_va_giu_so_goc():
+    """Hai công đoạn khác nhau cùng mang một số OP -- nhập đủ, giữ nguyên số.
 
-    Sheet 'Thanh la khung ngồi phía trước' của NEWARK có HAI block cùng
-    'OPERATION # 02'. Trước đây cả file 44 sheet bị từ chối vì đúng mười chỗ như
-    vậy (sự cố TPL-6126). Tách được, nhưng KHÔNG được im lặng.
+    Sheet 'Thanh la khung ngồi phía trước' của file NEWARK có HAI block cùng
+    'OPERATION # 02': CHAMFER LỖ và LÀM NGUỘI. Đó là hai công đoạn thật, không
+    phải lỗi đánh máy. Từ chối cả file là vứt dữ liệu lộ trình thật; đổi số của
+    khách là bịa ra một mã không có trên giấy. Nên: số gốc giữ verbatim, mã nội
+    bộ sinh duy nhất, danh tính canonical vẫn là operation.id.
     """
     parsed = _parse([('Thanh la khung ngồi', 'KM-317', [
         (1, 'CẮT LASER', 20, 100),
         (2, 'CHAMFER LỖ', 0, 40),
         (2, 'LÀM NGUỘI', 0, 50),
     ])])
+    assert len(parsed['operations']) == 3, 'không được mất Operation nào'
+    assert [op['source_op_no'] for op in parsed['operations']] == [1, 2, 2]
     codes = [op['code'] for op in parsed['operations']]
-    assert codes == ['KM-317-OP01', 'KM-317-OP02', 'KM-317-OP02-2']
-    assert len(codes) == len(set(codes))
-    assert len(parsed['warnings']) == 1
-    warning = parsed['warnings'][0]
-    assert 'KM-317-OP02-2' in warning and 'LÀM NGUỘI' in warning
+    assert len(codes) == len(set(codes)), 'mã nội bộ phải duy nhất'
+    duplicates = [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_SOURCE_OP_NO']
+    assert len(duplicates) == 1
+    assert 'LÀM NGUỘI' in duplicates[0]['raw']
 
 
 def test_ma_op_trung_giua_hai_part_khac_nhau_la_hop_le():
@@ -209,7 +212,7 @@ def test_ma_op_trung_giua_hai_part_khac_nhau_la_hop_le():
         ('Chân ghế A', 'KM-001', [(1, 'CẮT LASER', 20, 100)]),
         ('Chân ghế B', 'KM-002', [(1, 'CẮT LASER', 20, 100)]),
     ])
-    assert parsed['warnings'] == []
+    assert parsed['notes'] == []
     assert sorted(_by_code(parsed)) == ['KM-001-OP01', 'KM-002-OP01']
 
 
@@ -226,7 +229,7 @@ def test_nhap_lai_cung_file_cho_ket_qua_y_het():
               'standard_seconds_per_unit', 'sort_order')
     assert ([{k: op[k] for k in fields} for op in first['operations']]
             == [{k: op[k] for k in fields} for op in second['operations']])
-    assert first['warnings'] == second['warnings']
+    assert first['notes'] == second['notes']
 
 
 def test_file_khong_co_setup_van_nhap_duoc_nhu_cu():
@@ -241,4 +244,4 @@ def test_file_khong_co_setup_van_nhap_duoc_nhu_cu():
     parsed = _parse_go_router_template(load_workbook(buffer, data_only=True), 'x.xlsx')
     assert len(parsed['operations']) == 2
     assert all(op['requires_setup'] is False for op in parsed['operations'])
-    assert parsed['warnings'] == []
+    assert parsed['notes'] == []

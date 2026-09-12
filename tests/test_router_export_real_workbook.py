@@ -88,10 +88,12 @@ def test_file_that_shop_uses_parses_completely(parsed):
     assert len(parsed['parts']) == 44
     assert len(parsed['operations']) == 112
     assert sum(1 for op in parsed['operations'] if op['requires_setup']) == 47
-    # 10 chỗ đánh trùng số Operation trong cùng một Part -> tách được, có cảnh báo.
-    assert len(parsed['warnings']) == 10
+    # 10 chỗ đánh trùng SỐ OP gốc -- nhập đủ cả 112, số gốc giữ nguyên, mã nội
+    # bộ sinh duy nhất, và người dùng được báo từng chỗ.
+    duplicates = [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_SOURCE_OP_NO']
+    assert len(duplicates) == 10
     codes = [op['code'] for op in parsed['operations']]
-    assert len(codes) == len(set(codes)), 'không được còn mã trùng sau khi tách'
+    assert len(codes) == len(set(codes)), 'mã nội bộ phải duy nhất'
 
 
 def test_setup_values_from_the_real_sheets(parsed):
@@ -264,7 +266,13 @@ def _sheet_fingerprint(ws):
         'print_titles': ws.print_titles,
         'styles': {c.coordinate: (c.font.name, c.font.sz, c.font.b, c.font.i,
                                   c.alignment.horizontal, c.alignment.vertical,
-                                  c.number_format, c.fill.fgColor.rgb if c.fill else None)
+                                  c.number_format, c.fill.fgColor.rgb if c.fill else None,
+                                  # Viền ô: hôm nay KHÔNG thể đổi vì đường xuất chỉ
+                                  # add_image() và không chạm cell nào -- nhưng khung kẻ
+                                  # là thứ người ta nhìn thấy đầu tiên trên tờ giấy in,
+                                  # nên khoá luôn cho thay đổi về sau.
+                                  (c.border.left.style, c.border.right.style,
+                                   c.border.top.style, c.border.bottom.style))
                    for r in ws.iter_rows() for c in r if c.value not in (None, '')},
     }
 
