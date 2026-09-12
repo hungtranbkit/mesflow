@@ -927,6 +927,348 @@ class RouterSourceUnavailable(Exception):
         self.reason = reason
 
 
+# EMU (English Metric Units) trên mỗi pixel ở 96 DPI -- đơn vị neo drawing OOXML.
+QR_EMU_PER_PX = 9525
+
+_DRAWING_REL_TYPE = ('http://schemas.openxmlformats.org/officeDocument/2006/'
+                     'relationships/drawing')
+_IMAGE_REL_TYPE = ('http://schemas.openxmlformats.org/officeDocument/2006/'
+                   'relationships/image')
+
+
+def _compute_qr_placements(source_bytes, po, rows, warnings):
+    """Tính chỗ đặt tem QR trên workbook gốc mà KHÔNG sửa file.
+
+    ĐỌC-để-tính, KHÔNG BAO GIỜ save workbook. Load lại rồi save qua openpyxl sẽ
+    ghi lại toàn bộ công thức, XOÁ cached value và bật ``fullCalcOnLoad`` -> khi
+    mở file phải recalc, và những công thức tự tham chiếu vốn có sẵn trong biểu
+    mẫu (ví dụ nhãn ``=$A$9`` nhắc lại giữa các block) hoá thành ``Err:522``
+    (vòng tham chiếu) lan khắp tờ. Vì thế ở đây chỉ ĐO hình học để biết chèn tem
+    vào đâu; việc chèn do :func:`_graft_qr_into_workbook` làm bằng vá OOXML tối
+    thiểu, giữ nguyên mọi cell/công thức/cached value của file gốc.
+
+    Trả ``(placed, matched, leftovers)``. Mỗi placement mang sẵn ảnh PNG và toạ
+    độ neo (EMU) để dựng drawing. Giữ luật đã chốt: block thiếu ô QRCODE trong
+    workbook đã có marker -> cảnh báo, vẫn xuất. KHÔNG dựng thêm block (clone) vì
+    clone là sửa file; OP người dùng thêm sau khi nhập -> cảnh báo, không in tem.
+    """
+    from PIL import Image
+
+    blocks, starts, sheet_of_part = _index_source_blocks(source_bytes, po['code'])
+    if not blocks:
+        return None, 0, []
+    # Chỉ để đo bề rộng cột / chiều cao dòng / merge -- workbook này KHÔNG bao
+    # giờ được save.
+    wb = load_workbook(BytesIO(source_bytes))
+    values = load_workbook(BytesIO(source_bytes), data_only=True)
+
+    def values_sheet(name):
+        return values[name] if name in values.sheetnames else None
+
+    markers = {name: _scan_markers(wb[name], starts.get(name, []), values_sheet(name))
+               for name in wb.sheetnames}
+    marker_mode = 'MARKER' if any(markers.values()) else 'NONE'
+    po_prefix = f"{str(po['code'] or '').upper()}-"
+    placed = []
+    leftovers = []
+    lanes = {}
+
+    def lane_for(ws, sheet_name):
+        if sheet_name not in lanes:
+            lanes[sheet_name] = _qr_lane_column(ws)
+        return lanes[sheet_name]
+
+    assignments = []
+    for row in rows:
+        block = _match_block(blocks, row, po_prefix)
+        if not block or block[0] not in wb.sheetnames:
+            part_code = str(row['part_code'] or '').upper()
+            added_sheet = sheet_of_part.get(part_code)
+            if added_sheet:
+                # Part CÓ tờ trong template -> OP thêm sau khi nhập. Trước đây
+                # dựng thêm block; giữ nguyên file gốc thì không dựng được, nên
+                # nói rõ và vẫn xuất.
+                warnings.append({
+                    'reason': 'ADDED_OP_NO_BLOCK', 'sheet': added_sheet,
+                    'block_row': 0, 'operation': row['code'], 'kind': 'OP',
+                    'message': (
+                        f"Operation {row['code']} (Part {row['part_code']}) được thêm "
+                        'sau khi nhập, chưa có block trong file Excel gốc. Ở chế độ giữ '
+                        'nguyên file gốc, MESFlow không dựng thêm block nên KHÔNG in được '
+                        'tem cho công đoạn này. Bổ sung công đoạn vào Template nguồn rồi '
+                        'nhập lại nếu muốn in tem.')})
+                continue
+            leftovers.append(row)
+            continue
+        assignments.append((row, block))
+
+    for row, block in assignments:
+        sheet_name, excel_row = block
+        ws = wb[sheet_name]
+        slots = markers.get(sheet_name, {}).get(excel_row, {})
+
+        def emit(kind, payload, label, operation_id, fallback_column):
+            marker = slots.get(kind)
+            if marker:
+                marker_row, marker_col, coordinate = marker
+                region = _marker_region(ws, marker_row, marker_col)
+                region_w, region_h = _region_size_px(ws, region)
+                side = max(min(region_w, region_h) - 2 * QR_MARKER_MARGIN_PX, 1)
+                offset_x = max((region_w - side) // 2, 0)
+                offset_y = max((region_h - side) // 2, 0)
+                placed.append({
+                    'operation_id': operation_id, 'sheet': sheet_name, 'kind': kind,
+                    'payload': payload, 'placement': 'marker', 'marker_cell': coordinate,
+                    'anchor': f'{get_column_letter(region[1])}{region[0]}',
+                    'region': f'{get_column_letter(region[1])}{region[0]}:'
+                              f'{get_column_letter(region[3])}{region[2]}',
+                    'size_px': max(side, 1), 'too_small': side < QR_MIN_READABLE_PX,
+                    'png': _qr_png(payload, label).getvalue(),
+                    'col0': region[1] - 1, 'row0': region[0] - 1,
+                    'colOff': offset_x * QR_EMU_PER_PX, 'rowOff': offset_y * QR_EMU_PER_PX,
+                    'cx': side * QR_EMU_PER_PX, 'cy': side * QR_EMU_PER_PX})
+                return
+            if marker_mode == 'MARKER':
+                # Block thiếu ô QRCODE trong biểu mẫu đã có marker: chỉ CẢNH BÁO,
+                # bỏ qua tem của block này, KHÔNG rơi về làn tự đoán.
+                warnings.append({
+                    'reason': 'MISSING_MARKER', 'sheet': sheet_name,
+                    'block_row': excel_row, 'operation': row['code'], 'kind': kind,
+                    'message': (
+                        f"Sheet '{sheet_name}': block dòng {excel_row} "
+                        f"(Operation {row['code']}) chưa có ô {QR_MARKER_TEXT} cho tem "
+                        f'{kind}, trong khi các block khác của file này đã có. Tem {kind} '
+                        f'của block này được BỎ QUA; các block có ô {QR_MARKER_TEXT} vẫn '
+                        f'được dán bình thường. Thêm ô {QR_MARKER_TEXT} vào đúng block này '
+                        'rồi nhập lại Template nguồn nếu muốn in tem cho công đoạn này.')})
+                return
+            # Biểu mẫu CHƯA có ô QRCODE nào (marker_mode NONE): giữ cách cũ --
+            # làn trống bên phải, cỡ ảnh gốc.
+            column = fallback_column()
+            _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
+                                 sheet=sheet_name, operation=row['code'])
+            png = _qr_png(payload, label).getvalue()
+            image = Image.open(BytesIO(png))
+            width_px, height_px = image.width, image.height
+            placed.append({
+                'operation_id': operation_id, 'sheet': sheet_name, 'kind': kind,
+                'payload': payload, 'placement': 'lane', 'marker_cell': '',
+                'anchor': f'{get_column_letter(column)}{excel_row}',
+                'png': png, 'col0': column - 1, 'row0': excel_row - 1,
+                'colOff': 0, 'rowOff': 0,
+                'cx': width_px * QR_EMU_PER_PX, 'cy': height_px * QR_EMU_PER_PX})
+
+        emit('OP', row['op_qr'], QR_OP_LABEL, row['id'],
+             lambda: lane_for(ws, sheet_name))
+        if row['setup_id']:
+            emit('SETUP', row['setup_qr'], QR_SETUP_LABEL, row['setup_id'],
+                 lambda: lane_for(ws, sheet_name) + QR_COLUMN_GAP)
+
+    matched = len(rows) - len(leftovers)
+    return placed, matched, leftovers
+
+
+def _public_labels(placed):
+    """``placed`` nhưng bỏ dữ liệu chỉ dùng để dựng drawing (PNG bytes, toạ độ
+    EMU) -- phần còn lại là JSON được, đúng các trường màn xem trước vẫn dùng."""
+    drop = {'png', 'col0', 'row0', 'colOff', 'rowOff', 'cx', 'cy'}
+    return [{k: v for k, v in item.items() if k not in drop} for item in placed]
+
+
+def _worksheet_file_map(parts):
+    """{tên sheet -> đường dẫn part của sheet} đọc từ workbook.xml + rels."""
+    wb_xml = parts['xl/workbook.xml'].decode('utf-8')
+    rels_xml = parts['xl/_rels/workbook.xml.rels'].decode('utf-8')
+    rel_target = {}
+    for m in re.finditer(r'<Relationship\b[^>]*/>', rels_xml):
+        t = m.group(0)
+        rid = re.search(r'Id="([^"]+)"', t)
+        tgt = re.search(r'Target="([^"]+)"', t)
+        if rid and tgt:
+            rel_target[rid.group(1)] = _norm_target('xl/workbook.xml', tgt.group(1))
+    name_to_file = {}
+    for m in re.finditer(r'<sheet\b[^>]*/>', wb_xml):
+        t = m.group(0)
+        name = re.search(r'name="([^"]+)"', t)
+        rid = re.search(r'r:id="([^"]+)"', t)
+        if name and rid and rid.group(1) in rel_target:
+            name_to_file[name.group(1)] = rel_target[rid.group(1)]
+    return name_to_file
+
+
+def _norm_target(base_part, target):
+    """Giải đường dẫn Target (tương đối/tuyệt đối) của một Relationship về
+    đường dẫn part trong gói zip."""
+    target = target.lstrip('/')
+    if target.startswith('xl/'):
+        return target
+    segments = base_part.split('/')[:-1]
+    for seg in target.split('/'):
+        if seg == '..':
+            segments = segments[:-1]
+        elif seg not in ('', '.'):
+            segments.append(seg)
+    return '/'.join(segments)
+
+
+def _next_rid(rels_xml):
+    used = [int(m.group(1)) for m in re.finditer(r'Id="rId(\d+)"', rels_xml)]
+    return f'rId{(max(used) if used else 0) + 1}'
+
+
+def _one_cell_anchor(placement, rel_id, cnvpr_id):
+    """XML ``<xdr:oneCellAnchor>`` neo một ảnh QR vào một ô, cỡ cố định.
+
+    Neo góc trên-trái vào (col0,row0) + offset (EMU) và giãn đúng cx/cy -- khớp
+    cách openpyxl dựng cho marker placement, nhưng ở đây ta tự viết để KHÔNG phải
+    save lại workbook.
+    """
+    return (
+        '<xdr:oneCellAnchor>'
+        f'<xdr:from><xdr:col>{placement["col0"]}</xdr:col>'
+        f'<xdr:colOff>{placement["colOff"]}</xdr:colOff>'
+        f'<xdr:row>{placement["row0"]}</xdr:row>'
+        f'<xdr:rowOff>{placement["rowOff"]}</xdr:rowOff></xdr:from>'
+        f'<xdr:ext cx="{placement["cx"]}" cy="{placement["cy"]}"/>'
+        '<xdr:pic><xdr:nvPicPr>'
+        f'<xdr:cNvPr id="{cnvpr_id}" name="QR {cnvpr_id}"/><xdr:cNvPicPr/></xdr:nvPicPr>'
+        f'<xdr:blipFill><a:blip r:embed="{rel_id}"/>'
+        '<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>'
+        '<xdr:spPr><a:xfrm><a:off x="0" y="0"/>'
+        f'<a:ext cx="{placement["cx"]}" cy="{placement["cy"]}"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>'
+        '<xdr:clientData/></xdr:oneCellAnchor>')
+
+
+def _graft_qr_into_workbook(source_bytes, placed):
+    """Chèn ảnh QR vào workbook gốc bằng vá OOXML tối thiểu, giữ nguyên mọi thứ
+    khác BYTE-FOR-BYTE.
+
+    KHÔNG đi qua openpyxl load/save (việc đó ghi lại toàn bộ công thức, xoá cached
+    value, bật fullCalcOnLoad -> Err:522). Chỉ thêm/đổi đúng các part cần cho ảnh:
+    thêm ảnh vào ``xl/media``; nối ``<xdr:oneCellAnchor>`` vào drawing của từng
+    sheet (dùng drawing sẵn có, hoặc tạo mới nếu sheet chưa có), thêm quan hệ ảnh,
+    và khai báo content-type khi cần. Mọi worksheet/sharedStrings/styles/workbook
+    của file gốc không đổi một byte.
+    """
+    import zipfile
+
+    if not placed:
+        return source_bytes
+    zin = zipfile.ZipFile(BytesIO(source_bytes))
+    parts = {name: zin.read(name) for name in zin.namelist()}
+    name_to_file = _worksheet_file_map(parts)
+
+    def _max_num(pattern):
+        nums = [int(m.group(1)) for name in parts
+                for m in [re.match(pattern, name)] if m]
+        return max(nums) if nums else 0
+
+    next_media = _max_num(r'xl/media/image(\d+)\.\w+$') + 1
+    next_drawing = _max_num(r'xl/drawings/drawing(\d+)\.xml$') + 1
+    content_types = parts['[Content_Types].xml'].decode('utf-8')
+
+    empty_rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+                  '<Relationships xmlns="http://schemas.openxmlformats.org/'
+                  'package/2006/relationships"></Relationships>')
+
+    by_sheet = {}
+    for item in placed:
+        by_sheet.setdefault(item['sheet'], []).append(item)
+
+    for sheet_name, items in by_sheet.items():
+        sheet_file = name_to_file.get(sheet_name)
+        if not sheet_file or sheet_file not in parts:
+            continue
+        base = sheet_file.rsplit('/', 1)[-1]
+        sheet_rels_path = f'xl/worksheets/_rels/{base}.rels'
+        drawing_path = None
+        if sheet_rels_path in parts:
+            for m in re.finditer(r'<Relationship\b[^>]*/>',
+                                 parts[sheet_rels_path].decode('utf-8')):
+                if _DRAWING_REL_TYPE in m.group(0):
+                    tgt = re.search(r'Target="([^"]+)"', m.group(0)).group(1)
+                    drawing_path = _norm_target(sheet_file, tgt)
+                    break
+        if drawing_path is None:
+            # Sheet chưa có drawing -> dựng mới và nối vào sheet.
+            drawing_path = f'xl/drawings/drawing{next_drawing}.xml'
+            next_drawing += 1
+            parts[drawing_path] = (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+                '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/'
+                '2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/'
+                'drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/'
+                'officeDocument/2006/relationships"></xdr:wsDr>').encode('utf-8')
+            rels_xml = parts.get(sheet_rels_path, empty_rels.encode('utf-8')).decode('utf-8')
+            rid = _next_rid(rels_xml)
+            rel = (f'<Relationship Id="{rid}" Type="{_DRAWING_REL_TYPE}" '
+                   f'Target="../drawings/{drawing_path.rsplit("/", 1)[-1]}"/>')
+            parts[sheet_rels_path] = rels_xml.replace(
+                '</Relationships>', rel + '</Relationships>').encode('utf-8')
+            sheet_xml = parts[sheet_file].decode('utf-8')
+            if '<drawing ' not in sheet_xml:
+                # ``<drawing r:id=...>`` cần prefix r trên thẻ <worksheet>. Biểu
+                # mẫu thật đã có sẵn (chúng vốn có drawing); workbook dựng tay
+                # bằng openpyxl thì chưa, nên khai báo nếu thiếu.
+                if 'xmlns:r=' not in sheet_xml[:sheet_xml.index('>') + 1]:
+                    sheet_xml = sheet_xml.replace(
+                        '<worksheet ',
+                        '<worksheet xmlns:r="http://schemas.openxmlformats.org/'
+                        'officeDocument/2006/relationships" ', 1)
+                sheet_xml = sheet_xml.replace(
+                    '</worksheet>', f'<drawing r:id="{rid}"/></worksheet>')
+                parts[sheet_file] = sheet_xml.encode('utf-8')
+            if f'PartName="/{drawing_path}"' not in content_types:
+                content_types = content_types.replace(
+                    '</Types>',
+                    f'<Override PartName="/{drawing_path}" ContentType='
+                    '"application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>')
+        if 'Extension="png"' not in content_types:
+            # Chèn ngay sau thẻ mở <Types ...> để khai báo phần mở rộng png.
+            content_types = re.sub(
+                r'(<Types\b[^>]*>)',
+                r'\1<Default Extension="png" ContentType="image/png"/>',
+                content_types, count=1)
+
+        dbase = drawing_path.rsplit('/', 1)[-1]
+        drawing_rels_path = f'xl/drawings/_rels/{dbase}.rels'
+        drawing_xml = parts[drawing_path].decode('utf-8')
+        drawing_rels = parts.get(drawing_rels_path, empty_rels.encode('utf-8')).decode('utf-8')
+        rel_num = max([int(m.group(1)) for m in re.finditer(r'Id="rId(\d+)"', drawing_rels)]
+                      or [0])
+        cnvpr_num = max([int(m.group(1)) for m in re.finditer(r'<xdr:cNvPr id="(\d+)"', drawing_xml)]
+                        or [0])
+        new_rels = ''
+        for item in items:
+            media_name = f'image{next_media}.png'
+            next_media += 1
+            parts[f'xl/media/{media_name}'] = item['png']
+            rel_num += 1
+            cnvpr_num += 1
+            rid = f'rId{rel_num}'
+            new_rels += (f'<Relationship Id="{rid}" Type="{_IMAGE_REL_TYPE}" '
+                         f'Target="../media/{media_name}"/>')
+            drawing_xml = drawing_xml.replace(
+                '</xdr:wsDr>', _one_cell_anchor(item, rid, cnvpr_num) + '</xdr:wsDr>')
+        parts[drawing_rels_path] = drawing_rels.replace(
+            '</Relationships>', new_rels + '</Relationships>').encode('utf-8')
+        parts[drawing_path] = drawing_xml.encode('utf-8')
+
+    parts['[Content_Types].xml'] = content_types.encode('utf-8')
+
+    out = BytesIO()
+    with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zout:
+        written = set()
+        for item in zin.infolist():
+            zout.writestr(item, parts[item.filename])
+            written.add(item.filename)
+        for name, data in parts.items():
+            if name not in written:
+                zout.writestr(name, data)
+    return out.getvalue()
+
+
 def build_router_workbook(po_id: int):
     """(po, workbook, tem đã đóng, thông tin nguồn) cho một PO.
 
@@ -950,9 +1292,9 @@ def build_router_workbook(po_id: int):
             'Template nguồn (Template → Công cụ → Nhập từ Excel), rồi xuất lại.',
             reason='NO_SOURCE_WORKBOOK')
     missing_markers = []
-    wb, placed, matched, unmatched = _stamp_source_workbook(
+    placed, matched, unmatched = _compute_qr_placements(
         source['data'], po, rows, warnings=missing_markers)
-    if wb is None:
+    if placed is None:
         raise RouterSourceUnavailable(
             f"File Excel gốc đang lưu ({source['filename']}) không đọc được thành các "
             'block "OPERATION # ..." nên không biết chèn tem vào đâu. Hãy nhập lại '
@@ -983,8 +1325,10 @@ def build_router_workbook(po_id: int):
             f'{listed}{more}. Nhiều khả năng file đang lưu không phải file đã tạo ra PO '
             'này. Hãy nhập lại đúng file Lộ trình sản xuất của Template nguồn rồi xuất lại.',
             reason='UNMATCHED_OPERATIONS')
-    return po, wb, placed, {**source, 'matched': matched, 'unmatched': [],
-                            'missing_markers': missing_markers}
+    # Chèn tem bằng vá OOXML tối thiểu -> bytes cuối, GIỮ NGUYÊN file gốc.
+    output_bytes = _graft_qr_into_workbook(source['data'], placed)
+    return po, output_bytes, placed, {**source, 'matched': matched, 'unmatched': [],
+                                      'missing_markers': missing_markers}
 
 
 def _router_filename(po_code: str) -> str:
@@ -1037,11 +1381,10 @@ def _content_disposition(filename: str) -> str:
 @roles_required('admin', 'manager')
 def export_production_order_router(po_id: int):
     try:
-        po, wb, placed, source = build_router_workbook(po_id)
-        if wb is None:
+        po, output_bytes, placed, source = build_router_workbook(po_id)
+        if output_bytes is None:
             return jsonify(ok=False, message='Không tìm thấy Production Order.'), 404
-        out = BytesIO()
-        wb.save(out)
+        out = BytesIO(output_bytes)
         out.seek(0)
         filename = _router_filename(po['code'])
         response = send_file(
@@ -1082,11 +1425,12 @@ def export_production_order_router(po_id: int):
 def preview_router_labels(po_id: int):
     """Danh sách tem sẽ in ra — để kiểm tra mà không phải mở file Excel."""
     try:
-        po, wb, placed, source = build_router_workbook(po_id)
-        if wb is None:
+        po, output_bytes, placed, source = build_router_workbook(po_id)
+        if output_bytes is None:
             return jsonify(ok=False, message='Không tìm thấy Production Order.'), 404
         mode = _marker_mode(placed)
-        return jsonify(ok=True, source='workbook', labels=placed, count=len(placed),
+        return jsonify(ok=True, source='workbook', labels=_public_labels(placed),
+                       count=len(placed),
                        source_file={'filename': source['filename'],
                                     'sha256': source['sha256'],
                                     'import_id': source['import_id'],
