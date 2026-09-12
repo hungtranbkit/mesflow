@@ -84,6 +84,18 @@ class Settings:
     # shift end (a much shorter, purely-informational warning) -- separate
     # from the grace window above (which is when auto-close actually acts).
     session_past_shift_end_grace_minutes: int = int(os.environ.get("MESFLOW_SESSION_PAST_SHIFT_END_GRACE_MINUTES", "10"))
+    # Audit 2026-09-12: cấu hình ca thật để HỞ khe -- DAY 08:00-17:00 và
+    # NIGHT 18:00-00:00 không phủ 17:00-18:00 lẫn 00:00-08:00. Session bắt
+    # đầu trong một khe như vậy resolve ra NO_ACTIVE_SHIFT, và
+    # find_candidates() bỏ qua nó, nên nó ở OPEN VĨNH VIỄN kể cả khi hai
+    # công tắc trên đã bật đủ (đo được trong
+    # tests/integration/test_shift_auto_close_rollout_state.py). Fallback
+    # này đóng nó ở ranh giới XÁC ĐỊNH ĐƯỢC duy nhất còn lại: hết ngày làm
+    # việc mà nó bắt đầu (24:00 giờ địa phương). Mặc định BẬT vì nó chỉ có
+    # hiệu lực khi shift_auto_close_enabled/dry_run đã được bật -- một môi
+    # trường chưa chạy rollout không bị ảnh hưởng gì; còn môi trường đã
+    # chạy rollout thì không nên vẫn còn một lớp session không bao giờ đóng.
+    session_day_end_fallback_enabled: bool = _bool("MESFLOW_SESSION_DAY_END_FALLBACK_ENABLED", "1")
     # _legacy_kiosk_identity() (web/execution.py) used to
     # auto-bind ANY unknown device_uuid as ACTIVE with no token check, AND
     # silently flip an admin-DISABLED/PENDING identity back to ACTIVE on its

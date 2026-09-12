@@ -694,7 +694,15 @@ class WorkSessionRepository:
         FROM work_sessions s JOIN employees e ON e.id=s.employee_id JOIN operations o ON o.id=s.operation_id
         ORDER BY s.id DESC LIMIT %s""",(limit,))
 
-    def auto_close_for_shift_end(self,session_id:int,shift_end_at,correlation_id:str=''):
+    def auto_close_for_shift_end(self,session_id:int,shift_end_at,correlation_id:str='',close_reason:str='AUTO_SHIFT_END'):
+        # close_reason mặc định giữ nguyên 'AUTO_SHIFT_END' để mọi lời gọi
+        # cũ không đổi hành vi một bit nào. 'AUTO_DAY_END' là biến thể
+        # dành cho session bắt đầu trong khe NO_ACTIVE_SHIFT (không có ca
+        # để bám -- xem ShiftSessionReconciliationService._day_end_boundary).
+        # Hai giá trị này CHỈ để truy vấn/đọc: điều kiện của exception
+        # AUTO_CLOSED_UNCONFIRMED là (closed_by_system AND NOT
+        # quantity_confirmed), không phải close_reason, nên một phiên đóng
+        # theo ngày vẫn nổi lên đúng chỗ cho admin bổ sung số liệu.
         """A DEDICATED auto-close
         lifecycle -- deliberately NOT a thin wrapper around
         `finish(good_qty=0,...)`, since finish() conflates quantity entry/input-consumption
@@ -759,19 +767,20 @@ class WorkSessionRepository:
                 # an admin/supervisor correction (adjust()/edit_session())
                 # flips it back TRUE.
                 cur.execute("""UPDATE work_sessions SET status='CLOSED',ended_at=%s,good_qty=%s,defect_qty=%s,rework_qty=%s,
-                    close_reason='AUTO_SHIFT_END',closed_by_system=TRUE,shift_boundary_used_at=%s,
+                    close_reason=%s,closed_by_system=TRUE,shift_boundary_used_at=%s,
                     quantity_confirmed=FALSE,updated_at=CURRENT_TIMESTAMP
-                    WHERE id=%s RETURNING *""",(shift_end_at,good,defect,rework,shift_end_at,session_id))
+                    WHERE id=%s RETURNING *""",(shift_end_at,good,defect,rework,close_reason,shift_end_at,session_id))
                 closed=cur.fetchone()
                 reconcile_operation_and_po(cur,row['operation_id'])
                 response=_json_safe({'ok':True,'session':dict(closed),'auto_closed':True})
                 record_audit(cur,action='SESSION_AUTO_CLOSED',entity_type='work_session',entity_id=str(session_id),
                     actor_username='SYSTEM',actor_user_id=None,employee_id=row['employee_id'],correlation_id=correlation_id,
                     before=_json_safe(dict(row)),after=response['session'],source='shift-reconciliation',
-                    metadata={'shift_end_at':shift_end_at.isoformat() if hasattr(shift_end_at,'isoformat') else str(shift_end_at)})
+                    metadata={'shift_end_at':shift_end_at.isoformat() if hasattr(shift_end_at,'isoformat') else str(shift_end_at),
+                        'close_reason':close_reason})
                 record_event(cur,event_type='SESSION_AUTO_CLOSED',category='SESSION',title='Session tự động đóng ca',
                     operation_id=row['operation_id'],session_id=session_id,actor_name='SYSTEM',correlation_id=correlation_id,
-                    occurred_at=shift_end_at,metadata={'close_reason':'AUTO_SHIFT_END','good':good,'defect':defect,'rework':rework})
+                    occurred_at=shift_end_at,metadata={'close_reason':close_reason,'good':good,'defect':defect,'rework':rework})
                 return response
 
 class QCRepository:

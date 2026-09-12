@@ -1267,7 +1267,8 @@ class ReportRepository:
             FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at
           UNION ALL
           -- Session Management upgrade (spec section 2/4): a session the
-          -- shift-auto-close job closed (close_reason='AUTO_SHIFT_END')
+          -- shift-auto-close job closed (close_reason='AUTO_SHIFT_END',
+          -- hoặc 'AUTO_DAY_END' cho session bắt đầu trong khe NO_ACTIVE_SHIFT)
           -- without any human ever confirming the final numbers
           -- (quantity_confirmed=FALSE, set only by auto_close_for_shift_end()
           -- and cleared back TRUE the moment an admin/supervisor corrects it

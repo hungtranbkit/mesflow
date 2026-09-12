@@ -22,12 +22,39 @@ control explicitly, in `--dry-run` first, per this runbook.
 | `MESFLOW_SHIFT_AUTO_CLOSE_DRY_RUN` | `1` | Independent of the above — even with `ENABLED=1`, `DRY_RUN=1` logs what *would* close without closing it. Belt-and-suspenders: a first production deploy should have `ENABLED=1, DRY_RUN=1` before ever setting `DRY_RUN=0`. |
 | `MESFLOW_SHIFT_AUTO_CLOSE_GRACE_MINUTES` | `15` | How long past a shift's end boundary a session must sit before it's a candidate. |
 | `MESFLOW_SESSION_PAST_SHIFT_END_GRACE_MINUTES` | `10` | Separate grace window used only by the `SESSION_PAST_SHIFT_END` exception condition (Phase 5) — deliberately shorter than the auto-close grace, so the exception can surface to a human before auto-close would act. |
+| `MESFLOW_SESSION_DAY_END_FALLBACK_ENABLED` | `1` | REQ-SHIFT-003. A session whose `started_at` lands in a `NO_ACTIVE_SHIFT` gap (the real config leaves `17:00–18:00` and `00:00–08:00` uncovered) has no shift boundary, so the scan above skipped it **permanently**. With this on, such a session is closed at `24:00` local of the day it started, tagged `close_reason='AUTO_DAY_END'`. Default on because it only ever takes effect once the two switches above are on — set to `0` to restore the old skip-forever behaviour. |
 | `MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND` | `0` | Unrelated to shift auto-close directly, but same rollout discipline (Phase 10) — OFF by default in every real environment; only ever `1` in `compose.test.yml`'s test-server environment. |
 
 A command-line `--dry-run`/`--live` flag on `reconcile-shift-sessions`
 always overrides the environment defaults above, so you can force a
 one-off dry run (or a one-off live run) from a terminal without touching
 `.env`.
+
+## Before anything else: is the job even scheduled on this target?
+
+MESFlow has **no in-process scheduler** — no APScheduler, no celery, no
+background thread (check `requirements.txt`; `mesflow.cli.reconcile_shift_sessions`
+is the only caller of `ShiftSessionReconciliationService` in the whole app,
+and nothing auto-closes on an HTTP request either). The trigger is host cron
+calling the CLI. **No cron entry ⇒ auto-close never happens, on any flag
+setting.**
+
+Audit 2026-09-12 found exactly that gap: `scripts/deploy.sh` installs and
+verifies the cron for its `prodtest`/`production` targets, but
+`scripts/deploy-remote-test.sh` — the only deploy path to the real
+mesflow.net backend — had no scheduler step at all. It does now; on any host
+deployed before that change, check by hand:
+
+```
+crontab -l | grep reconcile-shift-sessions        # must print a line
+sh scripts/verify-scheduler-cron.sh               # must exit 0
+```
+
+The DB-side proof, independent of the host: `scheduled_job_health` where
+`job_name='shift_session_reconciliation'`. `last_started_at IS NULL` /
+`last_status='UNKNOWN'` means the job has **never run once** — that is a
+scheduler problem, not a flag problem, and flipping flags will change
+nothing until it is fixed.
 
 ## Rollout sequence (every environment, every time this is turned on)
 

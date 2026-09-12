@@ -504,7 +504,7 @@ truy cập được qua part), tùy chọn thuộc về một `sales_order`.
 | note | text | NN, def `''` |
 | start_request_id | text | NN, **unique** — khóa idempotency cho lệnh gọi start |
 | finish_request_id | text | unique, nullable — khóa idempotency cho lệnh gọi finish |
-| close_reason | text | NN, def `''` — `'AUTO_SHIFT_END'` khi auto-close, rỗng nếu finish thủ công |
+| close_reason | text | NN, def `''` — `'AUTO_SHIFT_END'` khi auto-close ở ranh giới ca, `'AUTO_DAY_END'` khi auto-close ở ranh giới fallback hết ngày (REQ-SHIFT-003), rỗng nếu finish thủ công |
 | closed_by_system | bool | NN, def false — chỉ `TRUE` khi auto-close |
 | shift_boundary_used_at | timestamptz | nullable — mốc giờ kết thúc ca đã dùng, nếu bị auto-close |
 | started_at_trusted / ended_at_trusted | bool | NN, def false — timestamp có đến từ đồng hồ thiết bị offline đã xác thực hay không |
@@ -2570,6 +2570,24 @@ Chi tiết đầy đủ ở §6.4 và schema `work_shifts`/`work_shift_intervals
 - **Độ ưu tiên**: P0.
 - **Khía cạnh kiểm thử**: positive, boundary, concurrency, chuyển trạng thái, audit. Đây là **kịch bản lỗi vận hành bắt buộc phải có trong video hướng dẫn**: "quên nhập sản lượng khi kết thúc" / "session vượt giờ kết thúc ca."
 
+### REQ-SHIFT-003 — Fallback hết ngày cho session không thuộc ca nào
+
+- **Module**: Session / Ca làm việc
+- **Mục đích**: Đóng đúng loại session bị bỏ quên mà REQ-SHIFT-002 về mặt cấu trúc KHÔNG với tới được — session có `started_at` rơi vào khe `NO_ACTIVE_SHIFT` — thay vì để nó `OPEN` vĩnh viễn.
+- **Tác nhân**: job hệ thống (`shift_session_reconciliation`), không do người dùng kích hoạt.
+- **Điều kiện tiên quyết**: hai công tắc của REQ-SHIFT-002 đã bật (`MESFLOW_SHIFT_AUTO_CLOSE_ENABLED=1`, `MESFLOW_SHIFT_AUTO_CLOSE_DRY_RUN=0`) **và** `MESFLOW_SESSION_DAY_END_FALLBACK_ENABLED=1` (mặc định `1`); session đang `OPEN` và `resolve_shift_window_for_datetime(started_at)` trả về `None`.
+- **Vì sao cần**: cấu hình ca thật KHÔNG phủ hết 24 giờ — `DAY 08:00–17:00` và `NIGHT 18:00–00:00` để hở `17:00–18:00` và `00:00–08:00`. Session bắt đầu trong khe đó không có ranh giới ca nào, nên vòng quét ứng viên của REQ-SHIFT-002 bỏ qua nó VĨNH VIỄN, kể cả khi đã bật đủ hai công tắc rollout.
+- **Quy tắc ranh giới**: `24:00 giờ địa phương của ngày làm việc mà session bắt đầu` (tương đương `00:00` ngày hôm sau theo `MESFLOW_TIMEZONE`), rồi áp cùng cửa sổ ân hạn như REQ-SHIFT-002. Ranh giới tính **chỉ** từ `started_at`, không bao giờ từ "lúc job tình cờ chạy" — nên một lần reconcile trễ hay chạy lại đều cho ra đúng cùng một `ended_at` (deterministic và idempotent).
+- **Kết quả kỳ vọng**: session `CLOSED`, số lượng giữ NGUYÊN như đang có, `close_reason='AUTO_DAY_END'`, `closed_by_system=TRUE`, `quantity_confirmed=FALSE`, `shift_boundary_used_at` = ranh giới hết ngày đã dùng.
+- **Không bao giờ bịa số liệu**: `good_qty`/`defect_qty`/`rework_qty` mang sang y nguyên; lần đóng này không sinh dòng `quantity_movements` nào. Session đóng kiểu này mà thiếu số liệu thì được **gắn cờ cho con người xử lý**, không suy đoán — nó nổi lên ở Trung tâm ngoại lệ dưới dạng `AUTO_CLOSED_UNCONFIRMED` theo đúng điều kiện chung của mọi lần auto-close (`closed_by_system AND NOT quantity_confirmed`), điều kiện đó cố ý bắt theo hai cột này chứ **không** theo `close_reason`, nên giá trị mới không thể làm session rơi khỏi hàng chờ xác nhận của admin.
+- **Chuyển trạng thái**: `OPEN → CLOSED` qua đúng vòng đời auto-close riêng biệt của REQ-SHIFT-002 (`auto_close_for_shift_end`), không bao giờ là finish thủ công ngụy trang.
+- **Báo cáo**: vì `ended_at` là ranh giới hết ngày chứ không phải "bây giờ", một session bỏ quên không bao giờ báo thời lượng kéo dài nhiều ngày (quy tắc thời lượng/báo cáo ở §7 không đổi).
+- **Nhật ký**: domain event `SESSION_AUTO_CLOSED` như REQ-SHIFT-002, kèm `close_reason='AUTO_DAY_END'` trong metadata để sau này phân biệt được hai loại ranh giới.
+- **Quay lui**: đặt `MESFLOW_SESSION_DAY_END_FALLBACK_ENABLED=0` là trở lại đúng hành vi cũ (session trong khe lại bị bỏ qua); session đã đóng không bao giờ được mở lại, cùng quy tắc với §6.4 bước 8.
+- **Liên quan**: REQ-SHIFT-002, REQ-SESS-004, REQ-EXC-002, `docs/operations/SHIFT_AUTO_CLOSE_ROLLOUT.md`.
+- **Ưu tiên**: P1.
+- **Chiều kiểm thử**: positive, boundary, idempotency, chuyển trạng thái, nhật ký.
+
 ## 15.10 Xử lý Ngoại lệ (`REQ-EXC-*`)
 
 Bảng điều kiện phát hiện đầy đủ ở §9.1; vòng đời ở §5.4/§5.5.
@@ -3118,6 +3136,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-001 (không nhảy layout vì loading trong luồng quét) | `tests/e2e/kiosk-scan-no-loading-layout-shift.spec.js` (đo bounding box vùng chính trước/trong/sau request bị làm chậm, ở 1280/820/390px; gồm cả lần tự làm mới nền 10 giây/lần bằng đồng hồ giả) | A — chỉ báo chờ phải không chiếm chỗ (`#demo-busy`, `position:absolute`), không chèn/xoá chữ chờ, không ẩn `#demo-content` giữa chừng |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
+| REQ-SHIFT-003 (fallback hết ngày) + trạng thái cờ rollout quyết định mọi lần auto-close | `tests/integration/test_shift_auto_close_rollout_state.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 case), `test_employee_productivity_wallboard.py` (23 case) | A |
 | REQ-TPL-005 (import/export) | chưa tìm thấy file pytest riêng | — |

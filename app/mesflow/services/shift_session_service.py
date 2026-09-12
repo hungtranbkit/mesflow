@@ -13,11 +13,11 @@ happened to come back up".
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import time, timedelta
 from typing import Any
 
 from mesflow.core.config import settings
-from mesflow.core.time_policy import utc_now
+from mesflow.core.time_policy import business_date, business_datetime_utc, utc_now
 from mesflow.core.working_calendar import get_work_shifts, resolve_shift_window_for_datetime
 from mesflow.db.connection import fetch_all
 from mesflow.db.repositories.execution import WorkSessionRepository
@@ -32,6 +32,10 @@ class StaleSessionCandidate:
     shift_code: str
     shift_end_at: Any
     minutes_past_end: float
+    # 'SHIFT'   -- ranh giới là shift_end thật của ca session thuộc về
+    # 'DAY_END' -- session bắt đầu trong khe NO_ACTIVE_SHIFT, không có ca
+    #              nào để bám; ranh giới là 24:00 của ngày làm việc đó.
+    boundary_kind: str = 'SHIFT'
 
 
 class ShiftSessionReconciliationService:
@@ -60,16 +64,36 @@ class ShiftSessionReconciliationService:
         for row in rows:
             window = resolve_shift_window_for_datetime(row['started_at'], shifts)
             if window is None:
-                continue
-            shift, _start, end = window
+                # Khe NO_ACTIVE_SHIFT. Trước đây `continue` ở đây, tức
+                # session loại này KHÔNG BAO GIỜ được đóng. Ranh giới xác
+                # định được duy nhất còn lại là hết ngày làm việc mà nó bắt
+                # đầu -- luôn > started_at, nên auto_close_for_shift_end()
+                # không bao giờ bị từ chối vì ranh giới nằm trước giờ bắt đầu.
+                if not settings.session_day_end_fallback_enabled:
+                    continue
+                end = self._day_end_boundary(row['started_at'])
+                shift_code, boundary_kind = 'NO_ACTIVE_SHIFT', 'DAY_END'
+            else:
+                shift, _start, end = window
+                shift_code, boundary_kind = shift['code'], 'SHIFT'
             if now < end + grace:
                 continue
             candidates.append(StaleSessionCandidate(
                 session_id=row['id'], employee_id=row['employee_id'], operation_id=row['operation_id'],
-                started_at=row['started_at'], shift_code=shift['code'], shift_end_at=end,
+                started_at=row['started_at'], shift_code=shift_code, shift_end_at=end,
                 minutes_past_end=(now - end).total_seconds() / 60,
+                boundary_kind=boundary_kind,
             ))
         return candidates
+
+    @staticmethod
+    def _day_end_boundary(started_at):
+        """24:00 của ngày làm việc (giờ địa phương) mà `started_at` rơi vào,
+        trả về UTC. Deterministic: cùng một session luôn cho cùng một ranh
+        giới, bất kể job chạy lúc nào -- điều kiện để cả vòng reconcile là
+        idempotent (chạy lại không đổi ended_at)."""
+        day = business_date(started_at, timezone_name=settings.timezone_name)
+        return business_datetime_utc(day + timedelta(days=1), time.min, settings.timezone_name)
 
     def reconcile(self, now=None, dry_run: bool | None = None, correlation_id: str = '') -> list[dict[str, Any]]:
         """Drives auto_close_for_shift_end() for every candidate. dry_run
@@ -94,13 +118,15 @@ class ShiftSessionReconciliationService:
                 'operation_id': candidate.operation_id, 'shift_code': candidate.shift_code,
                 'started_at': candidate.started_at, 'shift_end_at': candidate.shift_end_at,
                 'minutes_past_end': round(candidate.minutes_past_end, 1),
+                'boundary_kind': candidate.boundary_kind,
             }
             if dry_run:
                 results.append({**item, 'action': 'WOULD_CLOSE'})
                 continue
             try:
                 outcome = self.repository.auto_close_for_shift_end(
-                    candidate.session_id, candidate.shift_end_at, correlation_id=correlation_id)
+                    candidate.session_id, candidate.shift_end_at, correlation_id=correlation_id,
+                    close_reason=('AUTO_DAY_END' if candidate.boundary_kind == 'DAY_END' else 'AUTO_SHIFT_END'))
                 results.append({**item, 'action': 'CLOSED' if outcome else 'SKIPPED_ALREADY_CLOSED'})
             except Exception as exc:  # noqa: BLE001 -- one bad row must not abort the batch, see docstring
                 results.append({**item, 'action': 'FAILED', 'error': f'{type(exc).__name__}: {exc}'})

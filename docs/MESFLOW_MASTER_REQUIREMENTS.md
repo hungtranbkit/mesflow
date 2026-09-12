@@ -491,7 +491,7 @@ FK, also reachable via part), optionally belongs to one `sales_order`.
 | note | text | NN, def `''` |
 | start_request_id | text | NN, **unique** — idempotency key for the start call |
 | finish_request_id | text | unique, nullable — idempotency key for the finish call |
-| close_reason | text | NN, def `''` — `'AUTO_SHIFT_END'` when auto-closed, empty for a manual finish |
+| close_reason | text | NN, def `''` — `'AUTO_SHIFT_END'` when auto-closed at a shift boundary, `'AUTO_DAY_END'` when auto-closed at the day-end fallback boundary (REQ-SHIFT-003), empty for a manual finish |
 | closed_by_system | bool | NN, def false — `TRUE` only for auto-close |
 | shift_boundary_used_at | timestamptz | nullable — the shift-end timestamp used, if auto-closed |
 | started_at_trusted / ended_at_trusted | bool | NN, def false — whether the timestamp came from a verified offline-device clock |
@@ -2167,6 +2167,24 @@ schema — requirements below are the test-entry-points.
 - **Priority**: P0.
 - **Dimensions**: positive, boundary, concurrency, state transition, audit. This is a **required tutorial error-scenario**: "quên nhập sản lượng khi kết thúc" / "session vượt giờ kết thúc ca."
 
+### REQ-SHIFT-003 — Day-end fallback for a session with no resolvable shift
+
+- **Module**: Session / Shift
+- **Purpose**: Close the one class of abandoned session REQ-SHIFT-002 structurally cannot reach — a session whose `started_at` falls in a `NO_ACTIVE_SHIFT` gap — instead of leaving it `OPEN` forever.
+- **Actors**: system job (`shift_session_reconciliation`), not user-triggered.
+- **Preconditions**: the REQ-SHIFT-002 switches are on (`MESFLOW_SHIFT_AUTO_CLOSE_ENABLED=1`, `MESFLOW_SHIFT_AUTO_CLOSE_DRY_RUN=0`) **and** `MESFLOW_SESSION_DAY_END_FALLBACK_ENABLED=1` (default `1`); the session is `OPEN` and `resolve_shift_window_for_datetime(started_at)` returns `None`.
+- **Why this exists**: the real shift configuration does not cover the whole clock — `DAY 08:00–17:00` and `NIGHT 18:00–00:00` leave `17:00–18:00` and `00:00–08:00` uncovered. A session started inside such a gap has no shift-end boundary, so REQ-SHIFT-002's candidate scan skipped it permanently, even with both rollout switches on.
+- **Boundary rule**: `24:00 local time of the business day the session started` (equivalently `00:00` of the next day in `MESFLOW_TIMEZONE`), then the same grace window as REQ-SHIFT-002. The boundary is derived **only** from `started_at`, never from "when the job happened to run" — so a delayed or repeated reconciliation produces the identical `ended_at` (deterministic and idempotent).
+- **Expected output**: session `CLOSED`, quantities unchanged from whatever they were, `close_reason='AUTO_DAY_END'`, `closed_by_system=TRUE`, `quantity_confirmed=FALSE`, `shift_boundary_used_at` = the day-end boundary used.
+- **Never fabricates data**: `good_qty`/`defect_qty`/`rework_qty` carry forward exactly; no `quantity_movements` row is created for the close. A session closed this way with missing numbers is **flagged for a human**, never guessed — it surfaces in the Exception Center as `AUTO_CLOSED_UNCONFIRMED` on the same condition every auto-close does (`closed_by_system AND NOT quantity_confirmed`), which is deliberately keyed on those columns and **not** on `close_reason`, so the new reason cannot drop a session out of the admin's confirmation queue.
+- **State transition**: `OPEN → CLOSED` via the same dedicated auto-close lifecycle as REQ-SHIFT-002 (`auto_close_for_shift_end`), never a disguised manual finish.
+- **Reporting**: because `ended_at` is the day-end boundary and not "now", an abandoned session never reports a multi-day duration (§7 report/duration rules are unchanged).
+- **Audit**: `SESSION_AUTO_CLOSED` domain event, same as REQ-SHIFT-002, with `close_reason='AUTO_DAY_END'` in its metadata so the two boundary kinds are distinguishable after the fact.
+- **Rollback**: setting `MESFLOW_SESSION_DAY_END_FALLBACK_ENABLED=0` restores the previous behaviour exactly (gap sessions are skipped again); already-closed sessions are never reopened, same rule as §6.4 step 8.
+- **Related**: REQ-SHIFT-002, REQ-SESS-004, REQ-EXC-002, `docs/operations/SHIFT_AUTO_CLOSE_ROLLOUT.md`.
+- **Priority**: P1.
+- **Dimensions**: positive, boundary, idempotency, state transition, audit.
+
 ## 15.10 Exception Handling (`REQ-EXC-*`)
 
 Full detection-condition table is §9.1; lifecycle is §5.4/§5.5.
@@ -2703,6 +2721,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-013 (web Kiosk touch safety — a repeated tap must not cross screens) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; measured band non-intersection, soft-keyboard/IME path, negative proof by mutation) | A |
 | REQ-KIOSK-014 (scannable means visible — kiosk ↔ control-room board) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 cases: both a PRODUCTION and a SETUP start reach the board, KPIs reconciled against the database, a refused start yields no task, paused PO, PO isolation, two same-named Operations never swap, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (locks `BOARD_TASK_TYPES == STARTABLE_TYPES` and keeps `daily_progress()`'s production-only default), `tests/e2e/daily-dashboard-kiosk.spec.js` (a new task arrives within the refresh cycle with no reload; a support row does not borrow the output cell) | A — negative proof: with the fix reverted 3 tests fail (`assert 1 == 2` on the KPI) and the 7 guard tests stay green |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
+| REQ-SHIFT-003 (day-end fallback) + the rollout-flag state that gates every auto-close | `tests/integration/test_shift_auto_close_rollout_state.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
 | REQ-TPL-005 (import/export) | not found as a dedicated pytest file | — |

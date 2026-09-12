@@ -139,6 +139,40 @@ echo "-- recreate app only (db/nginx untouched) --"
 rssh "sudo sed -i \"s#^MESFLOW_IMAGE=.*#MESFLOW_IMAGE=${REMOTE_IMAGE_REF}#\" ${REMOTE_DIR}/.env"
 rssh "cd ${REMOTE_DIR} && sudo docker compose --env-file .env up -d --no-deps ${APP_SERVICE}"
 
+echo "-- scheduler (host cron: exception/shift reconciliation, log retention) --"
+# Audit 2026-09-12 (session auto-close P0): this script -- the ONLY deploy
+# path to the real mesflow.net backend -- had NO scheduler step at all,
+# while scripts/deploy.sh has had one for its prodtest/production targets
+# since the Codex audit. MESFlow has no in-process scheduler (no
+# APScheduler/celery anywhere; `mesflow.cli.reconcile_shift_sessions` is
+# the ONLY caller of ShiftSessionReconciliationService), so with no host
+# cron entry the shift auto-close job NEVER RUNS on this host -- code
+# present, CLI present, sessions stay OPEN forever. That is exactly the
+# "code present, cron missing, scheduler never runs" state
+# scripts/verify-scheduler-cron.sh was written to make impossible, and it
+# was simply never wired into this path.
+#
+# Installing the cron does NOT start auto-closing anything by itself:
+# MESFLOW_SHIFT_AUTO_CLOSE_ENABLED still defaults to 0 and _DRY_RUN to 1
+# (docs/operations/SHIFT_AUTO_CLOSE_ROLLOUT.md). It makes the job RUN, so
+# scheduled_job_health stops reporting NEVER_RUN and a dry-run cycle
+# becomes inspectable -- steps 3-5 of that runbook. Flipping the flags
+# stays a separate, deliberate operator action.
+#
+# Non-fatal on purpose: this host's account model differs from deploy.sh's
+# targets (see header). A scheduler that fails to install must be loud,
+# but must not strand a successful application deploy half-done.
+SCHEDULER_INSTALL_OK=1
+rssh "cd ${REMOTE_DIR} && sudo MESFLOW_ROOT=${REMOTE_DIR} MESFLOW_APP_SERVICE=${APP_SERVICE} sh scripts/install-reconcile-cron.sh" || SCHEDULER_INSTALL_OK=0
+rssh "cd ${REMOTE_DIR} && sudo MESFLOW_ROOT=${REMOTE_DIR} MESFLOW_APP_SERVICE=${APP_SERVICE} sh scripts/install-log-retention-cron.sh" || SCHEDULER_INSTALL_OK=0
+SCHEDULER_OK=0
+if rssh "sudo sh ${REMOTE_DIR}/scripts/verify-scheduler-cron.sh"; then SCHEDULER_OK=1; fi
+echo "scheduler cron installed: ${SCHEDULER_INSTALL_OK} | verified present: ${SCHEDULER_OK}"
+if [[ "$SCHEDULER_OK" != "1" ]]; then
+  echo "WARNING: reconcile/log-retention cron is NOT present on this host -- shift auto-close will never run." >&2
+  echo "         Fix before relying on end-of-shift session auto-close; see docs/operations/SHIFT_AUTO_CLOSE_ROLLOUT.md." >&2
+fi
+
 echo "-- health check --"
 HEALTHY=""
 for i in $(seq 1 30); do
