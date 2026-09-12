@@ -687,6 +687,24 @@ def _block_labeled_time(block_rows, labels, *, where, label_vi):
     return dict(empty)
 
 
+#: Cột giữ NGUYÊN VĂN dữ liệu nguồn. Không bao giờ suy lại từ thứ khác.
+SOURCE_COLUMNS=('source_op_no','source_title','expected_total_seconds','setup_source_raw')
+
+
+def _preserved_key(part_code_by_key, opitem):
+    """Khoá nối cấu hình cũ với dòng mới khi cập nhật Template.
+
+    KHÔNG dùng mã nội bộ: mã đó được sinh ra, và khi file đánh trùng số OP thì
+    hậu tố phụ thuộc THỨ TỰ đọc -- chèn thêm một block ở giữa là mọi hậu tố phía
+    sau dịch một nấc, và cấu hình (requires_setup, ghi chú setup...) nhảy sang
+    nhầm công đoạn. Cặp (số OP gốc, tiêu đề gốc) là thứ ổn định vì nó là cái ghi
+    trên giấy.
+    """
+    return (int(opitem.get('source_op_no') or 0),
+            str(opitem.get('source_title') or '').strip().upper(),
+            str(part_code_by_key.get(opitem['part_key']) or '').upper())
+
+
 def _parse_go_router_template(workbook, filename):
     """Parse the workshop GO ROUTER workbook used by the SQLite version.
 
@@ -1055,12 +1073,19 @@ def preview_template_workbook():
     if not upload.filename.lower().endswith('.xlsx'):
         return jsonify(ok=False, message='Chỉ hỗ trợ file .xlsx.'), 400
     try:
-        _, parsed = _parse_uploaded_router(upload)
+        raw, parsed = _parse_uploaded_router(upload)
         if not parsed:
             return jsonify(ok=False, message=(
                 'File này không phải Lộ trình sản xuất (GO ROUTER). Xem trước chỉ hỗ trợ '
                 'workbook có các block "OPERATION # ..." theo từng sheet Part.')), 400
-        return jsonify(ok=True, filename=upload.filename, **_preview_payload(parsed))
+        from mesflow.web.router_import import (
+            plan_import, unused_field_sections, workbook_digest)
+        digest = workbook_digest(raw)
+        # Ba mục hợp đồng yêu cầu: sẽ import / Excel có mà chưa dùng / cảnh báo.
+        sections = unused_field_sections(parsed)
+        return jsonify(ok=True, filename=upload.filename, digest=digest,
+                       plan=plan_import(parsed, digest), sections=sections,
+                       **_preview_payload(parsed))
     except Exception as exc:
         return api_error_response(exc, logger_name=__name__)
 
@@ -1202,11 +1227,13 @@ def import_template_workbook():
             keep_drawings={}
             if existing:
                 t={'id':existing['id']}
-                for row in conn.execute(f'''SELECT p.code part_code,o.code,{','.join('o.'+c for c in PRESERVED)}
+                for row in conn.execute(f'''SELECT p.code part_code,o.code,o.source_op_no,
+                        o.source_title,{','.join('o.'+c for c in PRESERVED)}
                     FROM template_operations o JOIN template_parts p ON p.id=o.part_id
                     WHERE o.template_id=%s''',(t['id'],)).fetchall():
-                    keep[(str(row['part_code'] or '').upper(),str(row['code'] or '').upper())]={
-                        c:row[c] for c in PRESERVED}
+                    keep[(int(row['source_op_no'] or 0),
+                          str(row['source_title'] or '').strip().upper(),
+                          str(row['part_code'] or '').upper())]={c:row[c] for c in PRESERVED}
                 for row in conn.execute('SELECT code,drawing_path FROM template_parts WHERE template_id=%s',
                                         (t['id'],)).fetchall():
                     if row.get('drawing_path'):
@@ -1219,26 +1246,34 @@ def import_template_workbook():
                 t=conn.execute('INSERT INTO templates(code,name,product,version,active,source_workbook) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',(code,name,product,version,active,upload.filename)).fetchone()
             ids={}
             for pitem in parts:
-                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order,drawing_path) VALUES(%s,%s,%s,%s,%s) RETURNING id',
+                # planned_quantity là SỐ LƯỢNG của chính sheet đó, độc lập với
+                # QTY cấp PO. None (không phải 0) khi file không khai báo: 0 là
+                # một lời khai báo, thiếu là thiếu.
+                r=conn.execute('INSERT INTO template_parts(template_id,code,name,sort_order,drawing_path,planned_quantity) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',
                     (t['id'],pitem['code'],pitem['name'],pitem['sort_order'],
-                     keep_drawings.get(str(pitem['code'] or '').upper(),''))).fetchone()
+                     keep_drawings.get(str(pitem['code'] or '').upper(),''),
+                     pitem.get('planned_quantity') or None)).fetchone()
                 ids[pitem['key']]=r['id']
             for opitem in operations:
                 # Khớp lại theo (mã Part, mã OP) -- cùng cặp mà editor Template
                 # dùng làm danh tính. Đổi mã OP trong file = OP khác, mất cấu
                 # hình cũ là đúng; giữ nguyên mã thì phải giữ nguyên cấu hình.
                 cfg=dict(PRESERVED_DEFAULTS)
-                cfg.update(keep.get((
-                    str(part_code_by_key.get(opitem['part_key']) or '').upper(),
-                    str(opitem['code'] or '').upper()),{}))
+                cfg.update(keep.get(_preserved_key(part_code_by_key,opitem),{}))
                 if opitem.get('_setup_declared'):
                     cfg['requires_setup']=bool(opitem.get('requires_setup'))
                     cfg['expected_setup_minutes']=(
                         opitem.get('expected_setup_minutes') if opitem.get('requires_setup') else None)
+                # SOURCE_COLUMNS giữ nguyên văn thứ trên giấy; chúng không bao
+                # giờ được suy lại từ thứ khác.
                 conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit,'
-                    +','.join(PRESERVED)+') VALUES('+','.join(['%s']*(7+len(PRESERVED)))+')',
+                    +','.join(SOURCE_COLUMNS)+','+','.join(PRESERVED)
+                    +') VALUES('+','.join(['%s']*(7+len(SOURCE_COLUMNS)+len(PRESERVED)))+')',
                     (t['id'],ids[opitem['part_key']],opitem['code'],opitem['name'],opitem['sort_order'],
                      opitem['equipment_code'],float(opitem.get('standard_seconds_per_unit') or 0))
+                    +(opitem.get('source_op_no'),opitem.get('source_title') or '',
+                      opitem.get('total_expected_seconds'),
+                      _text(opitem.get('setup_raw')) if opitem.get('setup_raw') is not None else None)
                     +tuple(cfg[c] for c in PRESERVED))
         verb='cập nhật' if replaced else 'tạo'
         archive.record(data=raw_bytes,filename=upload.filename,
