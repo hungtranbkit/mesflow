@@ -80,7 +80,16 @@ PUBLIC_URL="${REMOTE_TEST_PUBLIC_URL:-}"
 SERVER_ROLE=PRODUCTION_TEST  # the mapping fix this whole script exists for --
                              # this host is TEST, not deploy.sh's PRODUCTION.
 
-rssh() { ssh -o BatchMode=yes -o ConnectTimeout=10 "${REMOTE_TEST_SSH_USER}@${REMOTE_TEST_SSH_HOST}" "$@"; }
+# Optional per-environment ssh config. Some sandboxes/containers expose
+# /etc/ssh/ssh_config.d/* owned by an unmapped uid, and OpenSSH then refuses to
+# start at all ("Bad owner or permissions on ..."). Pointing -F at a known-good
+# user config makes ssh skip the system-wide file entirely.
+SSH_BASE_OPTS=( -o BatchMode=yes -o ConnectTimeout=10 )
+if [[ -n "${REMOTE_TEST_SSH_CONFIG:-}" ]]; then
+  [[ -r "$REMOTE_TEST_SSH_CONFIG" ]] || { echo "REMOTE_TEST_SSH_CONFIG=$REMOTE_TEST_SSH_CONFIG is not readable" >&2; exit 1; }
+  SSH_BASE_OPTS+=( -F "$REMOTE_TEST_SSH_CONFIG" )
+fi
+rssh() { ssh "${SSH_BASE_OPTS[@]}" "${REMOTE_TEST_SSH_USER}@${REMOTE_TEST_SSH_HOST}" "$@"; }
 
 IMAGE_TAG="$VER_OR_DIGEST"
 if [[ "$IMAGE_TAG" == *"@sha256:"* ]]; then
@@ -118,7 +127,7 @@ BUNDLE="/tmp/mesflow-remote-test-${IMAGE_TAG}.tar"
 docker save "$LOCAL_IMAGE_REF" -o "$BUNDLE"
 LOCAL_SHA="$(sha256sum "$BUNDLE" | awk '{print $1}')"
 REMOTE_BUNDLE_PATH="/tmp/mesflow-remote-test-${IMAGE_TAG}.tar"
-scp -o BatchMode=yes -o ConnectTimeout=10 "$BUNDLE" "${REMOTE_TEST_SSH_USER}@${REMOTE_TEST_SSH_HOST}:${REMOTE_BUNDLE_PATH}"
+scp "${SSH_BASE_OPTS[@]}" "$BUNDLE" "${REMOTE_TEST_SSH_USER}@${REMOTE_TEST_SSH_HOST}:${REMOTE_BUNDLE_PATH}"
 REMOTE_SHA="$(rssh "sha256sum ${REMOTE_BUNDLE_PATH}" | awk '{print $1}')"
 rm -f "$BUNDLE"
 if [[ "$LOCAL_SHA" != "$REMOTE_SHA" ]]; then
