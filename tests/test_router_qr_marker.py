@@ -303,3 +303,140 @@ def test_mot_block_co_marker_op_nhung_khong_co_marker_setup():
     items = _by_operation(placed)
     assert items[101]['placement'] == 'marker'
     assert items[201]['placement'] == 'lane'
+
+
+# --- P0: tem phải NẰM TRONG ô marker, không chỉ neo vào nó ----------------
+#
+# Lỗi thật user gặp trên file export: tem được tạo và neo ĐÚNG ô QRCODE, nhưng
+# giữ nguyên cỡ gốc ~75x89 px trong khi một ô mặc định chỉ 64x20 px. Nhìn trên
+# file thì tem tràn qua bốn dòng và nằm lệch hẳn ra ngoài ô -- "QR không nằm
+# trong ô QRCODE". Đếm số ảnh không bắt được lỗi này; phải đo VÙNG.
+
+def _region_of(image):
+    """(col, row, width_px, height_px) của một ảnh đã neo kiểu OneCellAnchor."""
+    anchor = image.anchor
+    marker = anchor._from
+    return marker.col, marker.row, image.width, image.height
+
+
+def test_tem_nam_gon_trong_o_marker_thuong():
+    """Ô marker thường: tem phải vừa trong ô, không tràn ra ngoài."""
+    from openpyxl.utils.units import EMU_to_pixels
+    wb = Workbook(); wb.remove(wb.active)
+    ws = _sheet(wb, 'Chân ghế A', 'KM-001', [('CẮT LASER', 0, 14, None)])
+    # Ô marker rộng rãi để tem có chỗ: 120px x 120px.
+    ws.column_dimensions['N'].width = 16
+    ws.row_dimensions[14].height = 90
+    buffer = BytesIO(); wb.save(buffer)
+    rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
+                 part_name='Chân ghế A')]
+    wb2, placed, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
+
+    item = placed[0]
+    assert item['placement'] == 'marker' and item['marker_cell'] == 'N14'
+    image = wb2['Chân ghế A']._images[-1]
+    col, row, width, height = _region_of(image)
+    # Neo đúng ô marker (0-based trong anchor).
+    assert (col, row) == (13, 13), f'neo sai ô: {(col, row)}'
+    # Và VỪA trong ô -- đây là phần trước đây sai.
+    from mesflow.web.router_export import _column_width_px, _row_height_px
+    cell_w = _column_width_px(wb2['Chân ghế A'], 14)
+    cell_h = _row_height_px(wb2['Chân ghế A'], 14)
+    assert width <= cell_w and height <= cell_h, (
+        f'tem {width}x{height} tràn ra ngoài ô {cell_w}x{cell_h}')
+    assert width == height, 'QR méo là QR không quét được'
+
+
+def test_tem_can_giua_trong_merged_range():
+    wb = Workbook(); wb.remove(wb.active)
+    ws = _sheet(wb, 'Chân ghế A', 'KM-001', [('CẮT LASER', 0, None, None)])
+    ws.merge_cells('N14:P17')
+    ws['N14'] = QR_MARKER_TEXT
+    buffer = BytesIO(); wb.save(buffer)
+    rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
+                 part_name='Chân ghế A')]
+    wb2, placed, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
+
+    item = placed[0]
+    assert item['region'] == 'N14:P17'
+    from mesflow.web.router_export import _region_size_px
+    sheet = wb2['Chân ghế A']
+    region_w, region_h = _region_size_px(sheet, (14, 14, 17, 16))
+    image = sheet._images[-1]
+    col, row, width, height = _region_of(image)
+    assert (col, row) == (13, 13), 'phải neo ở góc trên-trái của merged range'
+    assert width <= region_w and height <= region_h
+    assert width == height
+    # Căn giữa: lề hai bên chênh nhau không quá 1px.
+    from openpyxl.utils.units import EMU_to_pixels
+    offset_x = EMU_to_pixels(image.anchor._from.colOff)
+    offset_y = EMU_to_pixels(image.anchor._from.rowOff)
+    assert abs((region_w - width) / 2 - offset_x) <= 1, 'chưa căn giữa ngang'
+    assert abs((region_h - height) / 2 - offset_y) <= 1, 'chưa căn giữa dọc'
+    # Merge không bị đụng.
+    assert 'N14:P17' in {str(r) for r in sheet.merged_cells.ranges}
+
+
+def test_chu_marker_bi_xoa_ca_khi_nam_trong_merged_range():
+    wb = Workbook(); wb.remove(wb.active)
+    ws = _sheet(wb, 'Chân ghế A', 'KM-001', [('CẮT LASER', 0, None, None)])
+    ws.merge_cells('N14:P17')
+    ws['N14'] = QR_MARKER_TEXT
+    buffer = BytesIO(); wb.save(buffer)
+    rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
+                 part_name='Chân ghế A')]
+    wb2, _, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
+    values = {c.value for r in wb2['Chân ghế A'].iter_rows() for c in r}
+    assert QR_MARKER_TEXT not in values
+
+
+def test_khong_doi_kich_thuoc_o_de_nhet_tem():
+    """Tem phải vừa theo ô, không phải ô nới ra theo tem."""
+    wb = Workbook(); wb.remove(wb.active)
+    ws = _sheet(wb, 'Chân ghế A', 'KM-001', [('CẮT LASER', 0, 14, None)])
+    ws.column_dimensions['N'].width = 16
+    ws.row_dimensions[14].height = 90
+    buffer = BytesIO(); wb.save(buffer)
+    source = load_workbook(BytesIO(buffer.getvalue()))
+    rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
+                 part_name='Chân ghế A')]
+    wb2, _, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
+    before, after = source['Chân ghế A'], wb2['Chân ghế A']
+    assert {k: v.width for k, v in before.column_dimensions.items()} == {
+        k: v.width for k, v in after.column_dimensions.items()}
+    assert {k: v.height for k, v in before.row_dimensions.items()} == {
+        k: v.height for k, v in after.row_dimensions.items()}
+
+
+def test_nhieu_op_moi_tem_vao_dung_marker_cua_no():
+    """Hai block, hai marker -- không được hoán đổi."""
+    wb = Workbook(); wb.remove(wb.active)
+    _sheet(wb, 'Chân ghế A', 'KM-001',
+           [('CẮT LASER', 0, 14, None), ('LÀM NGUỘI', 0, 14, None)])
+    buffer = BytesIO(); wb.save(buffer)
+    rows = [
+        _row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
+             part_name='Chân ghế A'),
+        _row(102, 'PO-6126-KM-001-OP02', 'LÀM NGUỘI', part_code='KM-001',
+             part_name='Chân ghế A', sort_order=1),
+    ]
+    _, placed, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
+    by_operation = {p['operation_id']: p['marker_cell'] for p in placed}
+    assert by_operation[101] == 'N14'
+    assert by_operation[102] == 'N26'
+
+
+def test_tem_qua_nho_duoc_bao_lai_chu_khong_im_lang():
+    """Ô marker bé thì tem bé -- và điều đó phải nói ra, không in ra tem mù.
+
+    Không nới ô để lấy chỗ (cấu trúc file là của khách), nhưng cũng không lặng
+    lẽ xuất một tem 14px mà máy quét không đọc nổi.
+    """
+    wb = Workbook(); wb.remove(wb.active)
+    _sheet(wb, 'Chân ghế A', 'KM-001', [('CẮT LASER', 0, 14, None)])
+    buffer = BytesIO(); wb.save(buffer)
+    rows = [_row(101, 'PO-6126-KM-001-OP01', 'CẮT LASER', part_code='KM-001',
+                 part_name='Chân ghế A')]
+    _, placed, _, _ = _stamp_source_workbook(buffer.getvalue(), PO, rows)
+    assert placed[0]['too_small'] is True
+    assert placed[0]['size_px'] < 48

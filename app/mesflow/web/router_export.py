@@ -83,6 +83,50 @@ QR_LABEL_STRIP = 14
 QR_COLUMN_GAP = 2
 
 
+#: Lề chừa quanh tem bên trong ô marker, tính bằng pixel.
+QR_MARKER_MARGIN_PX = 3
+#: Dưới cỡ này thì tem in ra bắt đầu phụ thuộc máy in (~1,3 cm ở 96 DPI).
+QR_MIN_READABLE_PX = 48
+
+#: Bề rộng cột mặc định của Excel quy ra pixel, và hệ số đổi "số ký tự" -> px.
+#: Excel lưu bề rộng cột theo số ký tự của phông mặc định, chiều cao dòng theo
+#: point. Muốn biết một ô rộng bao nhiêu pixel thì phải đổi cả hai.
+DEFAULT_COLUMN_WIDTH_CHARS = 8.43
+DEFAULT_ROW_HEIGHT_POINTS = 15.0
+
+
+def _column_width_px(ws, column):
+    dimension = ws.column_dimensions.get(get_column_letter(column))
+    width = getattr(dimension, 'width', None) or DEFAULT_COLUMN_WIDTH_CHARS
+    # Công thức Excel dùng cho phông mặc định: 7 px mỗi ký tự + 5 px đệm.
+    return int(round(width * 7)) + 5
+
+
+def _row_height_px(ws, row):
+    dimension = ws.row_dimensions.get(row)
+    points = getattr(dimension, 'height', None) or DEFAULT_ROW_HEIGHT_POINTS
+    return int(round(points * 96.0 / 72.0))
+
+
+def _marker_region(ws, row, column):
+    """Vùng ô mà marker chiếm: chính nó, hoặc cả merged range chứa nó.
+
+    Trả (min_row, min_col, max_row, max_col). Chỉ ĐỌC merge, không tạo, không gỡ.
+    """
+    for merged in ws.merged_cells.ranges:
+        if (merged.min_row <= row <= merged.max_row
+                and merged.min_col <= column <= merged.max_col):
+            return merged.min_row, merged.min_col, merged.max_row, merged.max_col
+    return row, column, row, column
+
+
+def _region_size_px(ws, region):
+    min_row, min_col, max_row, max_col = region
+    width = sum(_column_width_px(ws, c) for c in range(min_col, max_col + 1))
+    height = sum(_row_height_px(ws, r) for r in range(min_row, max_row + 1))
+    return width, height
+
+
 def _qr_png(payload: str, label: str = '') -> BytesIO:
     """Ảnh PNG của một payload, có sẵn nhãn in bên dưới.
 
@@ -124,19 +168,46 @@ def _qr_png(payload: str, label: str = '') -> BytesIO:
     return out
 
 
-def _place_qr(ws, payload: str, label: str, *, row: int, column: int):
-    """Neo một tem vào ô (row, column). KHÔNG chạm vào bất cứ thứ gì khác.
+def _place_qr(ws, payload: str, label: str, *, row: int, column: int, fit_region=None):
+    """Neo một tem. KHÔNG chạm vào bất cứ thứ gì khác của sheet.
 
     Không ghi cell, không đổi bề rộng cột, không đổi chiều cao dòng, không sửa
-    khổ in. Sau lời gọi này, khác biệt duy nhất của sheet so với file gốc là
-    một drawing mới -- đó chính là hợp đồng "giữ nguyên cấu trúc file nguồn".
+    khổ in. Khác biệt duy nhất so với file gốc là một drawing mới.
+
+    ``fit_region`` là vùng ô của marker. Có nó thì tem được THU VỪA và CĂN GIỮA
+    trong đúng vùng đó. Đây chính là chỗ đã hỏng: trước đây ảnh được neo đúng ô
+    marker nhưng giữ nguyên cỡ gốc ~75x89 px, trong khi một ô mặc định chỉ
+    64x20 px -- tem tràn qua bốn dòng và nằm lệch hẳn ra ngoài ô, nên nhìn trên
+    file thì "QR không nằm trong ô QRCODE" dù anchor đúng.
+
+    Không có ``fit_region`` (đường làn trống cho file chưa có marker) thì giữ
+    nguyên cỡ gốc như cũ.
     """
     letter = get_column_letter(column)
     anchor = f'{letter}{row}'
-    # GIỮ NGUYÊN cỡ pixel gốc của ảnh. Ép width/height về một con số khác là
-    # bắt Excel nội suy lại một ảnh 1-bit theo tỉ lệ không nguyên: cạnh module
-    # nhoè ra và tem in xong quét chập chờn.
-    ws.add_image(XlsxImage(_qr_png(payload, label)), anchor)
+    image = XlsxImage(_qr_png(payload, label))
+    if fit_region is None:
+        # Đường cũ: cỡ pixel gốc, không nội suy.
+        ws.add_image(image, anchor)
+        return anchor
+
+    from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+    from openpyxl.drawing.xdr import XDRPositiveSize2D
+    from openpyxl.utils.units import pixels_to_EMU
+
+    region_width, region_height = _region_size_px(ws, fit_region)
+    side = min(region_width, region_height) - 2 * QR_MARKER_MARGIN_PX
+    side = max(side, 1)
+    # Vuông: QR méo là QR không quét được.
+    offset_x = max((region_width - side) // 2, 0)
+    offset_y = max((region_height - side) // 2, 0)
+    marker = AnchorMarker(col=fit_region[1] - 1, colOff=pixels_to_EMU(offset_x),
+                          row=fit_region[0] - 1, rowOff=pixels_to_EMU(offset_y))
+    image.anchor = OneCellAnchor(
+        _from=marker,
+        ext=XDRPositiveSize2D(pixels_to_EMU(side), pixels_to_EMU(side)))
+    image.width = image.height = side
+    ws.add_image(image, image.anchor)
     return anchor
 
 
@@ -703,15 +774,27 @@ def _stamp_source_workbook(source_bytes, po, rows):
             marker = slots.get(kind)
             if marker:
                 marker_row, marker_col, coordinate = marker
-                anchor_row, anchor_col = _merged_anchor(ws, marker_row, marker_col)
+                # Vùng của marker: chính ô đó, hoặc cả merged range chứa nó. Tem
+                # được thu vừa và căn giữa TRONG vùng này -- xem _place_qr.
+                region = _marker_region(ws, marker_row, marker_col)
                 # Ô marker là chỗ DUY NHẤT được phép đổi nội dung: nó là chỗ đặt
                 # sẵn, và để nguyên chữ 'QRCODE' thì tờ giấy in ra có chữ đó nằm
-                # dưới tem. Merge/định dạng/kích thước của ô không bị đụng.
-                ws.cell(row=marker_row, column=marker_col).value = None
-                anchor = _place_qr(ws, payload, label, row=anchor_row, column=anchor_col)
+                # dưới tem. openpyxl chỉ cho ghi ô góc trên-trái của merged
+                # range; ô marker trong merge luôn CHÍNH LÀ ô đó.
+                ws.cell(row=region[0], column=region[1]).value = None
+                if (marker_row, marker_col) != (region[0], region[1]):
+                    ws.cell(row=marker_row, column=marker_col).value = None
+                anchor = _place_qr(ws, payload, label, row=region[0], column=region[1],
+                                   fit_region=region)
+                width, height = _region_size_px(ws, region)
+                side = min(width, height) - 2 * QR_MARKER_MARGIN_PX
                 placed.append({'operation_id': operation_id, 'sheet': sheet_name,
                                'anchor': anchor, 'payload': payload, 'kind': kind,
-                               'placement': 'marker', 'marker_cell': coordinate})
+                               'placement': 'marker', 'marker_cell': coordinate,
+                               'region': f'{get_column_letter(region[1])}{region[0]}:'
+                                         f'{get_column_letter(region[3])}{region[2]}',
+                               'size_px': max(side, 1),
+                               'too_small': side < QR_MIN_READABLE_PX})
                 return
             column = fallback_column()
             _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
