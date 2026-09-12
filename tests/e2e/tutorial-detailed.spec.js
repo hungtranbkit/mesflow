@@ -230,7 +230,10 @@ async function openKioskDemo(page){
     page.locator('#demo-content'),
     'Mô phỏng QR phải tải được dữ liệu thật hoặc dữ liệu hướng dẫn dự phòng'
   ).toBeVisible({timeout:15000});
-  await expect(page.locator('#demo-loading'),'Dữ liệu mô phỏng phải tải xong trước khi chọn mã').toBeHidden({timeout:15000});
+  // #demo-loading đã bị gỡ (nó là khối chữ chờ gây nhảy layout). Trạng thái
+  // sẵn sàng giờ đọc từ data-demo-state trên chính bảng.
+  await expect(page.locator('#demo-panel'),'Dữ liệu mô phỏng phải tải xong trước khi chọn mã')
+    .toHaveAttribute('data-demo-state','ready',{timeout:15000});
 }
 
 async function closeKioskDemo(page){
