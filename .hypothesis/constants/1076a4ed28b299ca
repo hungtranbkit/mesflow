@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/repositories/exceptions.py
+# hypothesis_version: 6.140.2
+
+[' AND ', ' WHERE ', 'ACKNOWLEDGED', 'AUTO_IGNORED', 'CRITICAL', 'DETECTED', 'EXCEPTION_', 'HIGH', 'IGNORED', 'LONG_OPEN_SESSION', 'LOW', 'MANUAL_IGNORED', 'MEDIUM', 'OPEN', 'RESOLVED', 'condition_active', 'employee_id', 'exception', 'exception-center', 'exception_type', 'fingerprint', 'id', 'items', 'longest', 'message', 'newest', 'occurrence_no', 'oldest', 'operation_id', 'page', 'page_size', 'part_id', 'production_order_id', 'reason', 'recommended_action', 'row_version', 'session_id', 'severity', 'started_at', 'status', 'title', 'total', 'x.detected_at ASC', 'x.detected_at DESC', 'x.exception_type=%s', 'x.severity=%s', 'x.status=ANY(%s)']

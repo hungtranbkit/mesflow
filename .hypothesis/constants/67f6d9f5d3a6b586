@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/core/upload_policy.py
+# hypothesis_version: 6.140.2
+
+[b'%PDF-', b'PK\x03\x04', b'PK\x05\x06', b'PK\x07\x08', b'RIFF', b'WEBP', b'\x89PNG\r\n\x1a\n', b'\xff\xd8\xff', 255, 1024, '.', '..', '.dwg', '.dxf', '.htm', '.html', '.iges', '.igs', '.jpeg', '.jpg', '.js', '.pdf', '.png', '.step', '.stp', '.svg', '.webp', '.xlsx', '.zip', '/', '[Content_Types].xml', '\\', 'empty file', 'invalid XLSX archive', 'invalid filename', 'xl/']

@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/exception_service.py
+# hypothesis_version: 6.140.2
+
+[0.05, 'ACKNOWLEDGED', 'IGNORED', 'MANUAL_IGNORED', 'OPEN', 'RESOLVED', 'condition_active', 'exception_type', 'id', 'severity', 'status']

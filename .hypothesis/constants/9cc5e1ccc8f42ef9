@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/domain/trace.py
+# hypothesis_version: 6.140.2
+
+['DEFECT', 'GOOD', 'NATIVE', 'REPAIRABLE', 'REWORK_RECOVERED', 'defect_qty', 'good_qty', 'id', 'operation_id', 'part_id', 'production_order_id', 'repaired_qty', 'rework_qty']

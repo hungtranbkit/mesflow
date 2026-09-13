@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/ai_incident_service.py
+# hypothesis_version: 6.140.2
+
+[300, 500, 1024, 3000, '2023-06-01', 'AI_DISABLED', 'AI_NOT_CONFIGURED', 'Content-Type', 'DISABLED', 'Diagnostics: ', 'FAILED', 'HIGH_RISK_ACTION', 'INVALID_OUTPUT', 'LOW_RISK_ACTION', 'SAFE_CHECK', 'SUCCESS', 'TIMEOUT', '`', '```', 'action', 'alert_fingerprint', 'anthropic', 'anthropic-version', 'application/json', 'content', 'context_hash', 'disabled', 'error', 'evidence', 'fingerprint', 'incident_stage', 'json', 'likely_causes', 'max_tokens', 'messages', 'model', 'opened_at', 'provider', 'reason', 'requested_by_user_id', 'resolved_at', 'result_json', 'risk', 'role', 'status', 'suggested_checks', 'summary', 'text', 'timeout', 'type', 'uncertainties', 'user', 'x-api-key']

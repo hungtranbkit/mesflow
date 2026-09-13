@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/domain/errors.py
+# hypothesis_version: 6.140.2
+
+['CONFLICT', 'ConflictError', 'DOMAIN_ERROR', 'DomainError', 'INFRASTRUCTURE_ERROR', 'INVALID_STATE', 'InfrastructureError', 'InvalidStateError', 'NOT_FOUND', 'NotFoundError', 'PERMISSION_DENIED', 'RepositoryError', 'VALIDATION_ERROR', 'ValidationError']

@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/domain/predictive.py
+# hypothesis_version: 6.140.2
+
+[0.0, 0.5, 1.0, 1.4826, 'HIGH', 'INFO', 'INSUFFICIENT_DATA', 'LOW', 'MEDIUM']

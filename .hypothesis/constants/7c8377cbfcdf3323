@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/domain/policy.py
+# hypothesis_version: 6.140.2
+
+['(', ')', ',', 'CANCELLED', 'COMPLETED', 'DRAFT', 'IN_PROGRESS', 'PAUSED', 'PLANNED', 'PRODUCTION', 'RELEASED', 'REWORK', 'SETUP', 'o']

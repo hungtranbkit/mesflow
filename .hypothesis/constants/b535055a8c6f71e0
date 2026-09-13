@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/predictive_service.py
+# hypothesis_version: 6.140.2
+
+[0.05, 1024, '80%', '90%', 'ANOMALY', 'CAPACITY', 'CPU_PERCENT', 'DB_LATENCY_MS', 'HIGH', 'Host CPU', 'LOW', 'MEDIUM', 'PostgreSQL latency', 'RECURRENCE', 'about 1 day', 'actual', 'count', 'current', 'current_bytes', 'days_to_critical', 'days_to_warning', 'deviation', 'expected_high', 'expected_low', 'growth_per_day', 'growth_per_day_bytes', 'less than 1 day', 'r_squared', 'risk', 'sample_count', 'time_pattern']

@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/anomaly_service.py
+# hypothesis_version: 6.140.2
+
+[0.0, 1e-09, 24.0, 86400.0, 1024, 'DB_GROWTH_RATE', 'DB_SIZE_BYTES', 'inf', 'primary', 'sampled_at', 'value']

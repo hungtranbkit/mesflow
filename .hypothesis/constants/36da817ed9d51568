@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/web/users.py
+# hypothesis_version: 6.140.2
+
+[201, 400, 403, 404, 409, ' AND id!=%s', '/api', '/roles', '/users', '/users/<int:user_id>', 'FORBIDDEN', 'LAST_SUPER_ADMIN', 'SUCCESS', 'SUPER_ADMIN_GRANTED', 'SUPER_ADMIN_REVOKED', 'USER_CREATED', 'USER_PASSWORD_RESET', 'USER_UPDATED', 'Vai trò không hợp lệ', 'active', 'admin', 'code', 'current_password', 'display_name', 'duplicate', 'id', 'manager', 'must_change_password', 'n', 'new_password', 'operator', 'password', 'password_hash', 'permissions', 'reason', 'role', 'roles.manage', 'super_admin', 'supervisor', 'unique', 'user_id', 'username', 'users', 'users.manage', 'users.view', 'viewer']

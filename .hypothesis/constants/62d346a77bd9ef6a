@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/core/ota_readiness.py
+# hypothesis_version: 6.140.2
+
+['DEVICE_BUSY', 'DEVICE_NOT_HEALTHY', 'HEALTHY', 'OFFLINE', 'OK', 'READY', 'WAITING_SYNC', 'health_ok', 'health_state', 'idle', 'offline_queue_count', 'online', 'ota_ready', 'reason', 'ui_state']

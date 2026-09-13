@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/session_audit_service.py
+# hypothesis_version: 6.140.2
+
+['CROSS_DAY', 'EMPLOYEE_OVERLAP', 'IMPOSSIBLE_DURATION', 'OPEN', 'OPEN_OVER_12H', 'ORPHAN_EMPLOYEE', 'ORPHAN_OPERATION', 'PAST_SHIFT_END', 'code', 'open_hours', 'shift_code', 'shift_end_at', 'started_at']

@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/domain/health.py
+# hypothesis_version: 6.140.2
+
+['DEGRADED', 'DOWN', 'HEALTHY', 'UNKNOWN']

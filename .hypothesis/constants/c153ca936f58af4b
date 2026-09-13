@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/forecast_service.py
+# hypothesis_version: 6.140.2
+
+[0.0, 0.0001, 0.4, 0.7, 3600.0, 86400.0, 'DB_SIZE_BYTES', 'DB_TOP_TABLES', 'DISK_USAGE_PERCENT', 'metadata_json', 'primary', 'sampled_at', 'tables', 'value']

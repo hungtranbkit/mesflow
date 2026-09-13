@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/web/auth.py
+# hypothesis_version: 6.140.2
+
+[401, 403, '/api/action-logs', '/api/employees', '/api/equipment', '/api/error-traces', '/api/kiosks', '/api/material-flow', '/api/rework', '/api/roles', '/api/templates', '/api/templates/demo', '/api/users', '/force', 'AUTH_REQUIRED', 'FORBIDDEN', 'GET', 'HEAD', 'NOT_LOGGED_IN', 'OPTIONS', 'SESSION_EXPIRED', 'X-Kiosk-Token', 'admin', 'calendar.edit', 'calendar.view', 'employees.edit', 'employees.view', 'equipment.edit', 'equipment.view', 'exceptions.resolve', 'exceptions.view', 'kiosk.manage', 'kiosk.view', 'logs.manage', 'logs.view', 'material_flow.edit', 'material_flow.view', 'po.edit', 'po.view', 'rework.resolve', 'rework.view', 'role', 'roles.manage', 'session.edit', 'session.view', 'super_admin', 'template.edit', 'template.view', 'user_id', 'users.manage', 'users.view']

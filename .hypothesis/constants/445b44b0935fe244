@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/core/log_retention.py
+# hypothesis_version: 6.140.2
+
+['action_deleted', 'action_logs', 'count', 'details', 'dry_run', 'error_deleted', 'error_traces', 'finished_at', 'id', "outcome='SLOW'", "outcome='SUCCESS'", 'preview', 'resolved', 'resolved_error', 'run_id', 'security', 'slow', 'success', 'total', 'unresolved', 'unresolved_error']

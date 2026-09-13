@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/session_service.py
+# hypothesis_version: 6.140.2
+
+['defect_qty', 'device_uuid', 'employee_id', 'good_qty', 'id', 'idempotent_replay', 'note', 'operation_id', 'request_id', 'request_id required', 'rework_qty', 'session', 'station_id']

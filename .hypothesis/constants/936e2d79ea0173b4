@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/diagnostic_service.py
+# hypothesis_version: 6.140.2
+
+[-200000, 200, 1000, 256000, 500000, '/api/ops/docker', '/api/ops/summary', '/api/status', '/health', 'DEPLOY_AGENT', 'DETAIL', 'DOCKER', 'Database (Docker)', 'FAILED', 'KIOSK_FLEET', 'MESFLOW', 'NOT_CONFIGURED', 'OK', 'POSTGRESQL', 'QA Center (systemd)', 'QA_CENTER', 'SERVER', 'SUMMARY', 'UNKNOWN_COMPONENT', 'UNKNOWN_SOURCE', '\\1=***', 'agent', 'agent_reachable', 'alert_fingerprint', 'api_key', 'apikey', 'authorization', 'component', 'connection', 'cookie', 'correlation_id', 'data_json', 'docker_containers', 'docker_error', 'error', 'health', 'items', 'label', 'last_run', 'latency_ms', 'latest', 'level', 'lines', 'mesflow', 'note', 'ok', 'ops', 'ops_error', 'partial', 'password', 'postgres', 'qa', 'reachable', 'recent_errors', 'recent_events', 'recent_locks', 'secret', 'source', 'state', 'stdout', 'text', 'token', 'version']

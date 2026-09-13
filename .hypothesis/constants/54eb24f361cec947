@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/recurrence_service.py
+# hypothesis_version: 6.140.2
+
+[0.5, 0.7, 1.3, 'HIGH', 'LOW', 'MEDIUM', 'avg_duration_seconds', 'component', 'count', 'decreasing', 'duration_seconds', 'fingerprint', 'first_seen', 'increasing', 'last_seen', 'opened_at', 'risk', 'severity', 'stable', 'time_pattern', 'title', 'trend', 'window_days']

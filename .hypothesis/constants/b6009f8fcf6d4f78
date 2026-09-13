@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/connection.py
+# hypothesis_version: 6.140.2
+
+["SET TIME ZONE 'UTC'"]

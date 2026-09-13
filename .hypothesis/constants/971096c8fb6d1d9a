@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/repositories/template_imports.py
+# hypothesis_version: 6.140.2
+
+[120, 200, 1000, 2000, ' AND ', '-_. ', 'CREATED', 'FAILED', 'REPLACED', 'WHERE ', '_', 'code', 'e.template_id=%s', 'id', 'import_id', 'sha256', 'storage_path', 'stored_path', 'workbook.xlsx']

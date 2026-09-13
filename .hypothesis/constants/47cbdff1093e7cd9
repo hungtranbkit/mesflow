@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/integrity_audit_service.py
+# hypothesis_version: 6.140.2
+
+['ENDED_BEFORE_STARTED', 'NEGATIVE_QUANTITY', 'OFFLINE_EVENTS_STUCK', 'ORPHAN_EMPLOYEE', 'ORPHAN_OPERATION', 'ORPHAN_PART_OR_PO', 'o']

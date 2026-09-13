@@ -230,7 +230,17 @@ def create_app():
         response.headers.setdefault('X-Content-Type-Options','nosniff')
         response.headers.setdefault('X-Frame-Options','SAMEORIGIN')
         response.headers.setdefault('Referrer-Policy','strict-origin-when-cross-origin')
-        response.headers.setdefault('Permissions-Policy','camera=(), microphone=(), geolocation=()')
+        # Camera: CHỈ mở cho chính trang kiosk, và chỉ cho chính origin này.
+        #
+        # `camera=()` chặn camera cho MỌI origin, kể cả chính mình -- nên
+        # getUserMedia trên /kiosk hỏng ngay cả khi người dùng đã bấm Cho phép,
+        # và trình duyệt không nói vì sao. Mobile Kiosk (REQ-KIOSK-016) đọc QR
+        # bằng camera ngay trên trang này, nên trang này -- và chỉ trang này --
+        # cần `camera=(self)`. Mọi đường dẫn khác giữ nguyên `camera=()`.
+        # micro và định vị vẫn chặn ở mọi nơi: không tính năng nào cần chúng.
+        camera = 'camera=(self)' if request.path.startswith('/kiosk') else 'camera=()'
+        response.headers.setdefault(
+            'Permissions-Policy', f'{camera}, microphone=(), geolocation=()')
         response.headers.setdefault('Cache-Control','no-store' if request.path.startswith('/api/auth/') else 'no-cache')
         return response
 

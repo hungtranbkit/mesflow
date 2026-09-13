@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/domain/qr_identity.py
+# hypothesis_version: 6.140.2
+
+[' AND ', ' LIMIT 5', ', ', 'OP', 'OPID', 'WF|EMP|', 'WF|OPID|', 'WF|OP|', 'id', 'o', 'o.part_id=%s']

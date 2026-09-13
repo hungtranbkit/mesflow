@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/web/errors.py
+# hypothesis_version: 6.140.2
+
+[400, 403, 404, 409, 413, 500, 'BUSINESS_CONFLICT', 'CheckViolation', 'FORBIDDEN', 'ForeignKeyViolation', 'INTERNAL_ERROR', 'INVALID_REQUEST', 'Mã Part đã tồn tại.', 'NOT_FOUND', 'NotNullViolation', 'PAYLOAD_TOO_LARGE', 'UniqueViolation', 'constraint_name', 'diag', 'equipment_code_key', 'operations_code_key', 'parts_code_key', 'stations_code_key', 'templates_code_key']

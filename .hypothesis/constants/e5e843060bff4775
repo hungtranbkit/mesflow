@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/web/internal_ota.py
+# hypothesis_version: 6.140.2
+
+[200, 401, 403, 404, '/api/internal/kiosks', 'AUTH_REQUIRED', 'FORBIDDEN', 'NOT_FOUND', 'X-Kiosk-Token', 'device_uuid', 'internal_ota']

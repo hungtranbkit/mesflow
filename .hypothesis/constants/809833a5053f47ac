@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/notification_service.py
+# hypothesis_version: 6.140.2
+
+[4000, ',', 'ALREADY_NOTIFIED', 'CRITICAL', 'Content-Type', 'DISABLED', 'EMAIL', 'FAILED', 'From', 'HIGH', 'LOW', 'MEDIUM', 'NOT_CONFIGURED', 'OPENED', 'RESOLVED', 'SENT', 'SKIPPED', 'Subject', 'TELEGRAM', 'TELEGRAM_NOT_OK', 'TEST', 'To', 'UNKNOWN_CHANNEL', 'WEB', 'application/json', 'chat_id', 'error', 'fingerprint', 'message', 'ok', 'severity', 'status', 'text', 'title']

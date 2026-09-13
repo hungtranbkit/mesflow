@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/core/config.py
+# hypothesis_version: 6.140.2
+
+[200, 1024, '/', '0', '1', '10', '120', '12000', '14', '15', '1500', '180', '2.5', '20', '2000', '24', '250', '3', '30', '300', '365', '5', '587', '6', '60', '7', '75', '80', '8000', '90', 'Asia/Ho_Chi_Minh', 'CHANGE_ME', 'DATABASE_URL', 'HIGH', 'MESFLOW_AI_API_KEY', 'MESFLOW_AI_ENABLED', 'MESFLOW_AI_MODEL', 'MESFLOW_AI_PROVIDER', 'MESFLOW_BUILD_COMMIT', 'MESFLOW_ENV', 'MESFLOW_SECRET_KEY', 'MESFLOW_SMTP_FROM', 'MESFLOW_SMTP_HOST', 'MESFLOW_SMTP_PORT', 'MESFLOW_SMTP_TO', 'MESFLOW_SMTP_USER', 'MESFLOW_SMTP_USE_TLS', 'MESFLOW_TIMEZONE', 'SERVER_ROLE', 'WORKSHOP_SECRET_KEY', 'admin', 'claude-haiku-4-5', 'dev-only', 'on', 'postgresql://', 'production', 'true', 'unknown', 'yes']

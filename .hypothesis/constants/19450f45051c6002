@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/repositories/system_repository.py
+# hypothesis_version: 6.140.2
+
+['action_logs', 'audit_logs', 'employees', 'equipment', 'kiosk_events', 'kiosk_identities', 'n', 'notifications', 'operations', 'parts', 'penalty_tickets', 'production_orders', 'qc_inspections', 'rework_ledger', 'sales_orders', 'stations', 'templates', 'tz', 'users', 'value', 'version_num', 'work_sessions']

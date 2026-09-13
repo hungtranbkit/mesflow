@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/metrics_service.py
+# hypothesis_version: 6.140.2
+
+[1000, '%', 'CPU_PERCENT', 'DB_LATENCY_MS', 'DB_SIZE_BYTES', 'DB_TOP_TABLES', 'DISK_USAGE_PERCENT', 'DISK_USED_BYTES', 'RAM_PERCENT', 'bytes', 'cpu_percent', 'disk', 'free_bytes', 'ms', 'name', 'percent', 'primary', 'ram', 'relname', 'tables', 'total_bytes', 'used_bytes']

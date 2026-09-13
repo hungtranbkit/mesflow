@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/core/session_policy.py
+# hypothesis_version: 6.140.2
+
+['NOT_LOGGED_IN', 'SESSION_EXPIRED_IDLE', 'SESSION_REVOKED', 'SESSION_USER_GONE', 'absolute_expires_at', 'active', 'auth_epoch', 'idle_expires_at', 'kiosk_mode', 'last_activity_at', 'login_at', 'password_hash', 'role', 'session_epoch', 'user_id', 'username']

@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/web/kiosk_board.py
+# hypothesis_version: 6.140.2
+
+[200, 2000, '/api', '/kiosk-board', 'NATIVE', 'OPERATION_COMPLETED', 'OPERATION_STARTED', 'PERSON', 'PO_COMPLETED', 'PO_STARTED', 'PO_STATUS_CHANGED', 'REWORK_RESOLVED', 'SESSION_AUTO_CLOSED', 'SESSION_FINISHED', 'SESSION_STARTED', 'SETUP_COMPLETED', 'SYSTEM', 'VALUE_CHANGED', 'active_worker_count', 'active_workers', 'actor_kind', 'actor_name', 'category', 'context', 'date', 'day_defect_qty', 'day_good_qty', 'day_rework_qty', 'description', 'employee_id', 'event_type', 'id', 'include_id', 'items', 'kiosk_board', 'limit', 'n', 'o', 'occurred_at', 'open_session_count', 'operation_code', 'operation_count', 'operation_done_qty', 'operation_id', 'operation_name', 'operation_plan_qty', 'planned_quantity', 'po_code', 'po_id', 'po_id là bắt buộc', 'production_order_id', 'q', 'quantity_delta', 'session_id', 'sessions', 'since_id', 'source', 't.id>%s', 'title']

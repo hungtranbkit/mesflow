@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/core/working_calendar.py
+# hypothesis_version: 6.140.2
+
+[0.0, 300, 480, 720, 780, 1020, 1080, 1320, 1380, 1440, '%H:%M', '00:00', '08:00', '17:00', '18:00', ':', 'Asia/Ho_Chi_Minh', 'BREAK', 'Ca chiều', 'Ca ngày', 'Ca sáng', 'Ca tối', 'Cuối ca tối', 'DAY', 'NIGHT', 'Nghỉ giữa ca', 'Nghỉ trưa', 'UTC', 'WHERE s.active=true', 'WORK', 'anchor_end', 'anchor_start', 'code', 'cross_midnight', 'day_end', 'day_start', 'end_at', 'end_minute', 'id', 'interval_type', 'intervals', 'label', 'lunch_end', 'lunch_start', 'name', 'range_end', 'range_start', 'shift', 'shift_code', 'shift_date', 'start_at', 'start_minute', 'strftime', 'target_minutes', 'timezone', 'work_end', 'work_start', 'working_weekdays', 'Đầu ca tối']

@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/services/shift_session_service.py
+# hypothesis_version: 6.140.2
+
+['CLOSED', 'FAILED', 'WOULD_CLOSE', 'action', 'code', 'employee_id', 'error', 'id', 'minutes_past_end', 'operation_id', 'session_id', 'shift_code', 'shift_end_at', 'started_at']

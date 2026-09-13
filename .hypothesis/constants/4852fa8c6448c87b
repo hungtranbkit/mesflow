@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/core/time_policy.py
+# hypothesis_version: 6.140.2
+
+[999999, '+00:00', 'Z', 'synced']

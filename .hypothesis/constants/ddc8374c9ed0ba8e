@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/repositories/production_state.py
+# hypothesis_version: 6.140.2
+
+['CANCELLED', 'COMPLETED', 'DRAFT', 'IN_PROGRESS', 'NATIVE', 'OPERATION', 'OPERATION_COMPLETED', 'OPERATION_STARTED', 'Operation bắt đầu', 'Operation hoàn tất', 'PAUSED', 'PLANNED', 'PO', 'PO_COMPLETED', 'PO_STATUS_CHANGED', 'READY', 'RELEASED', 'cancelled_count', 'completed_count', 'defect_qty', 'good_qty', 'has_history', 'has_open_session', 'id', 'open_session_count', 'operation', 'operation not found', 'operation_count', 'operation_id', 'operation_type', 'operations', 'planned_quantity', 'po_status', 'previous_status', 'production_order', 'production_order_id', 'reconciled', 'repaired_qty', 'rework_qty', 'running_count', 'scrap_qty', 'session_count', 'status']

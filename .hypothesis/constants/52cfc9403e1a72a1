@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/repositories/rework.py
+# hypothesis_version: 6.140.2
+
+[1000, 5000, 'CLOSED', 'REWORK', 'REWORK-QUEUE', 'REWORK_RESOLUTION', 'REWORK_RESOLVE', 'REWORK_RESOLVED', 'SỬA HÀNG', 'active', 'defect_qty', 'device_uuid', 'employee_id', 'employee_id required', 'good_qty', 'id', 'idempotent_replay', 'ledger', 'ledger_id', 'note', 'o', 'ok', 'operation_id', 'operation_type', 'part not found', 'part_id', 'pending_qty', 'production_order_id', 'qty_reworked', 'qty_scrapped', 'repaired_qty', 'request_id', 'request_id required', 'response_json', 'rework-queue', 'rework_qty', 'rework_session', 'rework_session_id', 'scrap_qty', 'scrapped_qty', 'source_session', 'station_id', 'status', 'work_session', 'ws']

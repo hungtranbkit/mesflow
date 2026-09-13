@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/web/exceptions.py
+# hypothesis_version: 6.140.2
+
+[200, 403, 409, 100000, ',', '/api', '/exceptions', 'ACKNOWLEDGED', 'AUTO_IGNORED', 'FORBIDDEN', 'INVALID_DURATION', 'LONG_OPEN_SESSION', 'MANUAL_IGNORED', 'MISSING_STATION', 'OPEN', 'RESOLVED', 'SESSION_CHANGED', 'ZERO_QUANTITY_LONG', 'acknowledge', 'action', 'activity', 'admin', 'center_exceptions', 'condition_active', 'defect_qty', 'employee_id', 'ended_at', 'exception', 'exception_type', 'exceptions', 'expected_updated_at', 'expected_version', 'fields', 'from', 'good_qty', 'ignore', 'ignored', 'item', 'manager', 'new', 'old', 'operation_id', 'page', 'page_size', 'po_id', 'reason', 'request_id', 'resolve', 'resolved', 'rework_qty', 'role', 'session', 'session_id', 'severity', 'sort', 'started_at', 'station_id', 'status', 'supervisor', 'to', 'trace_id', 'user_id', 'username', 'view']

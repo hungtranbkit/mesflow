@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/repositories/setup_ops.py
+# hypothesis_version: 6.140.2
+
+[2147483646, '-SU', 'DONE', 'Hoàn tất setup máy', 'NEVER', 'NONE', 'None', 'OPEN', 'RUNNING', 'WF|OPID|', 'defect_qty', 'ever_completed', 'good_qty', 'has_setup', 'id', 'last_session', 'note', 'o', 'ok', 'operation', 'operation_id', 'operation_type', 'p', 'parent_operation_id', 'part_id', 'production_order_id', 'request_id', 'requires_setup', 'rework_qty', 's', 'session', 'session_id', 'setup', 'setup_completed', 'setup_id', 'setup_note', 'setup_operation_id', 'state', 'status']

@@ -1,0 +1,4 @@
+# file: /w/app/mesflow/db/repositories/dependency_graph.py
+# hypothesis_version: 6.140.2
+
+[' -> ', ' FOR UPDATE', 'Dependency cycle: ', 'code', 'id']

@@ -217,3 +217,25 @@ def test_ban_phim_so_chi_dung_state_san_luong_co_san():
     assert 'setQty(' in block
     assert 'markQtyTouched(' in block
     assert '.value =' not in block, 'phải ghi vào state, không ghi thẳng vào DOM'
+
+
+# --- Permissions-Policy: camera phải mở cho ĐÚNG trang kiosk --------------
+
+def test_permissions_policy_mo_camera_cho_rieng_trang_kiosk():
+    """Đã hỏng thật trên bản deploy đầu tiên.
+
+    Header cũ là `camera=()` -- chặn camera cho MỌI origin, kể cả chính mình.
+    Người dùng bấm "Cho phép" trên iPhone xong camera vẫn không mở, và trình
+    duyệt không nói vì sao: quyền của người dùng có, nhưng chính trang đã tự
+    cấm mình từ đầu. Phát hiện được vì kiểm header trên bản đã deploy chứ
+    không chỉ tin vào bài test dựng sẵn.
+
+    Chỉ mở cho `/kiosk`, chỉ cho `self`, và chỉ camera. Micro/định vị vẫn chặn
+    ở mọi nơi -- không tính năng nào cần chúng.
+    """
+    source = _read(ROOT / 'app/mesflow/web/app.py')
+    assert "camera=(self)" in source
+    assert "request.path.startswith('/kiosk')" in source
+    assert "microphone=()" in source and "geolocation=()" in source
+    # Và KHÔNG được mở camera cho cả site.
+    assert "'Permissions-Policy','camera=(self)" not in source.replace(' ', '')
