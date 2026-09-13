@@ -712,6 +712,37 @@ def _preserved_key(part_code_by_key, opitem):
     return (part_code, int(source_no or 0), source_title)
 
 
+#: Câu báo lỗi khi một Part có hai công đoạn cùng số. Cố định, vì nó là hợp
+#: đồng với người dùng chứ không phải chuỗi tuỳ hứng.
+DUPLICATE_OP_IN_PART_MESSAGE = 'Lỗi: OP trùng mã trong cùng một Part. Vui lòng sửa lại file Excel.'
+
+
+def _duplicate_op_in_part_error(notes):
+    """Gộp các note trùng số OP thành MỘT câu lỗi chỉ đúng chỗ phải sửa.
+
+    Người đọc câu này đang mở file Excel, nên nó phải nói: tờ nào, Part nào, số
+    nào, và TẤT CẢ các dòng đang đụng nhau -- kể cả dòng xuất hiện đầu tiên.
+    Chỉ nêu dòng thứ hai thì họ vẫn phải tự dò ngược.
+    """
+    grouped = {}
+    for note in notes:
+        if note.get('kind') != 'DUPLICATE_OP_IN_PART':
+            continue
+        key = (note.get('sheet') or '', note.get('part') or '', note.get('op_code') or '')
+        rows = grouped.setdefault(key, set())
+        rows.add(int(note.get('first_row') or 0))
+        rows.add(int(note.get('row') or 0))
+    if not grouped:
+        return None, []
+    lines, detail = [], []
+    for (sheet, part, op_code), rows in sorted(grouped.items()):
+        ordered = sorted(r for r in rows if r)
+        lines.append(f"Sheet '{sheet}' · Part {part} · {op_code} — dòng "
+                     + ', '.join(str(r) for r in ordered))
+        detail.append({'sheet': sheet, 'part': part, 'op_code': op_code, 'rows': ordered})
+    return DUPLICATE_OP_IN_PART_MESSAGE + '\n- ' + '\n- '.join(lines), detail
+
+
 def _parse_go_router_template(workbook, filename):
     """Parse the workshop GO ROUTER workbook used by the SQLite version.
 
@@ -760,13 +791,33 @@ def _parse_go_router_template(workbook, filename):
         # số BOM. Gộp về QTY của PO là xoá mất định mức.
         sheet_qty=_find_labeled_value_below(rows, {'SỐ LƯỢNG','SO LUONG','QUANTITY'})
         sheet_meta=_text(rows[0][9] if len(rows[0])>9 else '')
-        has_drawing_identity=bool(_text(drawing_code) or _text(drawing_name))
-        if not has_drawing_identity:
+        # PHÂN LOẠI TỜ, và chỉ cảnh báo khi thật sự có thứ để lo.
+        #
+        # Một tờ không khai TÊN lẫn MÃ BẢN VẼ không phải tờ thiếu dữ liệu -- nó
+        # là tờ MỨC QUY TRÌNH. File thật có bốn tờ như vậy (SƠN TĨNH ĐIỆN, Kiểm
+        # tra sau khi sơn, Đóng gói, LÀM NGUỘI VÀ SỬ LÝ HOÀN THIỆN): công đoạn ở
+        # đó làm trên cả cụm, không gắn vào một bản vẽ nào. Bắt chúng khai mã bản
+        # vẽ là bắt xưởng bịa ra một con số.
+        #
+        # Chỉ khi tờ khai MỘT nửa -- có tên mà thiếu mã, hoặc ngược lại -- thì
+        # mới đáng nói: khi đó nó rõ ràng định là tờ bản vẽ, và phần thiếu sẽ làm
+        # việc khớp dữ liệu thành mơ hồ.
+        drawing_code_text=_text(drawing_code); drawing_name_text=_text(drawing_name)
+        has_drawing_identity=bool(drawing_code_text or drawing_name_text)
+        sheet_kind=('DRAWING_PART_SHEET' if has_drawing_identity
+                    else 'PROCESS_LEVEL_SHEET')
+        # Chỉ MỘT trường hợp thật sự mơ hồ: tờ khai TÊN bản vẽ nhưng không khai
+        # MÃ. Khi đó nó tự nhận là tờ bản vẽ, mà lại không có khoá nào để khớp
+        # dữ liệu về đúng Part -- và mã sinh ra sẽ là một số thứ tự tạm.
+        #
+        # Ngược lại, thiếu TÊN mà có MÃ thì không mơ hồ chút nào: mã chính là
+        # danh tính, còn tên hiển thị đã có tên sheet. Không nói gì cả.
+        if drawing_name_text and not drawing_code_text:
             notes.append({
-                'kind':'SHEET_WITHOUT_DRAWING_IDENTITY','sheet':sheet.title,'row':0,
-                'raw':'','message':(
-                    f"Sheet '{sheet.title}' không có TÊN/MÃ BẢN VẼ nên đây là tờ mức quy "
-                    f"trình; Part được đặt mã tạm {part_code}.")})
+                'kind':'DRAWING_SHEET_MISSING_CODE','sheet':sheet.title,'row':0,
+                'raw':drawing_name_text,
+                'message':(f"Sheet '{sheet.title}' khai TÊN BẢN VẼ nhưng không có MÃ BẢN "
+                           'VẼ, nên không có khoá chắc chắn để khớp dữ liệu về đúng Part.')})
         parts.append({'key':part_code,'code':part_code,'name':part_name,
                       'sort_order':part_order,
                       'planned_quantity':_integer(sheet_qty,f"SỐ LƯỢNG của sheet '{sheet.title}'",
@@ -777,10 +828,11 @@ def _parse_go_router_template(workbook, filename):
                       'source_sheet':sheet.title,
                       'source_document_meta':sheet_meta,
                       'has_drawing_identity':has_drawing_identity,
+                      'sheet_kind':sheet_kind,
                       'image_count':len(getattr(sheet,'_images',()) or ())})
         # Mã NỘI BỘ chỉ cần duy nhất TRONG một Part -- OP01 của Part khác là
         # hợp lệ và rất phổ biến, nên tập này reset ở mỗi sheet.
-        seen_op_codes=set()
+        seen_op_codes={}
         # Vị trí mọi block trong sheet, lấy TRƯỚC: một block chạy từ dòng tiêu
         # đề của nó tới ngay trước dòng tiêu đề kế tiếp. Biết biên rồi mới đọc
         # được số của ĐÚNG block đó -- nhãn 'Thời gian Setup' lặp ở mọi block,
@@ -797,32 +849,29 @@ def _parse_go_router_template(workbook, filename):
             source_title=next((_text(v) for v in rows[excel_row-1] if _text(v)), '')
             if not op_name:
                 op_name=f'Operation {seq:02d}'
-            # SỐ OP GỐC LÀ DỮ LIỆU CỦA KHÁCH, KHÔNG ĐƯỢC SỬA.
+            # MÃ OP DUY NHẤT TRONG PHẠM VI MỘT PART.
             #
-            # Xưởng đánh trùng số một cách có chủ đích: sheet 'Thanh la khung
-            # ngồi phía trước' có HAI block cùng 'OPERATION # 02' -- CHAMFER LỖ
-            # và LÀM NGUỘI -- và đó là hai công đoạn thật, khác nhau. Mười chỗ
-            # như vậy trong file NEWARK.
+            # Trùng giữa hai Part KHÁC NHAU là hợp lệ và rất phổ biến -- mỗi tờ
+            # bản vẽ đánh số lại từ OP01. Mã sinh ra đã gập mã Part vào nên hai
+            # Part cùng có OP01 ra hai mã khác nhau.
             #
-            # Nên: giữ NGUYÊN source_op_no và source_title đúng như trên giấy,
-            # còn mã NỘI BỘ thì sinh duy nhất để hai dòng không đụng nhau trong
-            # CSDL. Danh tính canonical vẫn là operation.id. Đây là khác biệt
-            # then chốt so với bản trước: bản trước ghi đè số của khách thành
-            # 'OP02-2' và làm mất thông tin gốc.
-            base_op_code=f'{part_code}-OP{seq:02d}'
-            op_code=base_op_code
-            collision=2
-            while op_code in seen_op_codes:
-                op_code=f'{base_op_code}-{collision}'; collision+=1
-            if op_code!=base_op_code:
+            # Trùng trong CÙNG một Part thì KHÔNG hợp lệ: một Part không thể có
+            # hai công đoạn số 02. Ở đây chỉ GHI NHẬN, không tự sửa -- sinh ra
+            # một mã thứ hai ('OP02-2') là hợp thức hoá lỗi và đưa vào sản xuất
+            # một mã không có trong tài liệu của khách. Việc từ chối thuộc về
+            # _validate_template_operation_codes, và câu lỗi nêu đúng sheet +
+            # dòng để người ta sửa trên file.
+            op_code=f'{part_code}-OP{seq:02d}'
+            if op_code in seen_op_codes:
+                first_row=seen_op_codes[op_code]
                 notes.append({
-                    'kind':'DUPLICATE_SOURCE_OP_NO','sheet':sheet.title,'row':excel_row,
-                    'raw':source_title,
-                    'message':(f"Sheet '{sheet.title}' dòng {excel_row}: Part này đã có "
-                               f"Operation số {seq:02d}. Giữ nguyên số gốc trên giấy; "
-                               f"mã nội bộ dùng {op_code} để hai công đoạn không đụng "
-                               'danh tính.')})
-            seen_op_codes.add(op_code)
+                    'kind':'DUPLICATE_OP_IN_PART','sheet':sheet.title,'row':excel_row,
+                    'first_row':first_row,'raw':source_title,'part':part_code,
+                    'op_no':seq,'op_code':f'OP{seq:02d}',
+                    'message':(f"Sheet '{sheet.title}' · Part {part_code} · OP{seq:02d} "
+                               f'— dòng {first_row} và dòng {excel_row}')})
+            else:
+                seen_op_codes[op_code]=excel_row
             end=starts[position+1][0]-1 if position+1<len(starts) else len(rows)
             block=rows[excel_row-1:end]
             where=(f"Sheet '{sheet.title}' dòng {excel_row} "
@@ -877,10 +926,64 @@ def _parse_go_router_template(workbook, filename):
             })
             op_order+=1
         if not starts:
-            notes.append({
-                'kind':'SHEET_WITHOUT_OPERATION_BLOCK','sheet':sheet.title,'row':0,'raw':'',
-                'message':(f"Sheet '{sheet.title}' không có block OPERATION nào. Không tạo "
-                           'công đoạn nào cho tờ này -- hệ thống không tự suy ra công đoạn.')})
+            if sheet_kind=='PROCESS_LEVEL_SHEET':
+                # TỜ QUY TRÌNH KHÔNG CÓ BLOCK -> SUY RA ĐÚNG MỘT CÔNG ĐOẠN.
+                #
+                # Sơn, kiểm tra, đóng gói là công đoạn thật của lộ trình; chúng
+                # chỉ không được viết theo khuôn 'OPERATION # nn' vì làm trên cả
+                # cụm chứ không trên một bản vẽ. Bỏ qua tờ là đánh rơi một bước
+                # sản xuất -- nên tạo một công đoạn mang đúng tên tờ, và NÓI cho
+                # người dùng biết là hệ thống đã suy ra nó.
+                #
+                # Chỉ suy cho tờ đã được phân loại CHẮC CHẮN là mức quy trình
+                # (không khai cả TÊN lẫn MÃ BẢN VẼ). Tờ bản vẽ mà trống thì
+                # không suy -- xem nhánh dưới.
+                process_name=sheet.title.strip()
+                # Thời gian nếu tờ có khai; không có thì để trống, không bịa số.
+                whole=rows
+                where=f"Sheet '{sheet.title}' (công đoạn quy trình)"
+                setup=_block_labeled_time(whole,SETUP_TIME_LABELS,where=where,
+                                          label_vi='Thời gian Setup')
+                cycle=_block_labeled_time(whole,CYCLE_TIME_LABELS,where=where,
+                                          label_vi='Thời gian gia công / sản phẩm')
+                total=_block_labeled_time(whole,TOTAL_TIME_LABELS,where=where,
+                                          label_vi='Tổng thời gian gia công dự kiến')
+                setup_seconds=setup['seconds'] or 0.0
+                requires_setup=bool(setup['declared'] and setup_seconds>0)
+                operations.append({
+                    'part_key':part_code,'code':f'{part_code}-PROC01','name':process_name,
+                    'equipment_code':'','sort_order':0,
+                    'standard_seconds_per_unit':cycle['seconds'] or 0.0,
+                    'requires_setup':requires_setup,
+                    'expected_setup_minutes':(int(round(setup_seconds/60.0))
+                                              if requires_setup else None),
+                    '_setup_declared':setup['declared'],
+                    # KHÔNG bịa số OP: Excel không có số nào cho công đoạn này.
+                    'source_op_no':None,'source_title':'','source_part_number':'',
+                    'inferred_from_sheet':True,
+                    'setup_raw':setup['raw'],'setup_unit':setup['unit'],
+                    'setup_label':setup['label'],'setup_seconds':setup_seconds,
+                    'cycle_raw':cycle['raw'],'cycle_unit':cycle['unit'],
+                    'cycle_label':cycle['label'],
+                    'total_expected_seconds':total['seconds'],
+                    'total_expected_raw':total['raw'],
+                    'total_expected_unit':total['unit'],
+                    'total_expected_label':total['label'],
+                    '_excel_sheet':sheet.title,'_excel_row':0,
+                })
+                notes.append({
+                    'kind':'PROCESS_OP_INFERRED','sheet':sheet.title,'row':0,
+                    'raw':process_name,
+                    'message':(f"Sheet '{sheet.title}' không có block OPERATION; MESFlow sẽ "
+                               'tạo 1 Operation quy trình từ tên sheet.')})
+            else:
+                # Tờ BẢN VẼ mà không có block: không suy ra gì -- một tờ bản vẽ
+                # trống là chuyện khác hẳn, và đoán ở đó là bịa công đoạn.
+                notes.append({
+                    'kind':'DRAWING_SHEET_WITHOUT_OPERATION','sheet':sheet.title,'row':0,
+                    'raw':'','message':(f"Sheet '{sheet.title}' là tờ bản vẽ nhưng không có "
+                                        'block OPERATION nào nên không nhập công đoạn nào '
+                                        'từ tờ này.')})
     if not parts or not operations:
         return None
     return {
@@ -1090,6 +1193,11 @@ def preview_template_workbook():
         digest = workbook_digest(raw)
         # Ba mục hợp đồng yêu cầu: sẽ import / Excel có mà chưa dùng / cảnh báo.
         sections = unused_field_sections(parsed)
+        duplicate_message, duplicate_detail = _duplicate_op_in_part_error(
+            parsed.get('notes') or [])
+        if duplicate_message:
+            sections['error'] = duplicate_message
+            sections['conflicts'] = duplicate_detail
         return jsonify(ok=True, filename=upload.filename, digest=digest,
                        plan=plan_import(parsed, digest), sections=sections,
                        **_preview_payload(parsed))
@@ -1175,6 +1283,15 @@ def import_template_workbook():
             if not parsed:
                 return jsonify(ok=False,message='Không nhận diện được dữ liệu Template. File cần có 3 sheet chuẩn hoặc các dòng OPERATION # trong từng sheet.'),400
             source_format='go_router'
+            # Trùng số OP trong CÙNG một Part là lỗi dữ liệu, và nó chặn TẠI ĐÂY
+            # -- trước khi lưu bytes, trước transaction, trước mọi lệnh ghi. Nhờ
+            # vậy "không tạo/cập nhật gì" đúng theo cấu trúc chứ không nhờ một
+            # lần rollback. Trùng giữa hai Part KHÁC nhau không rơi vào đây.
+            duplicate_message,duplicate_detail=_duplicate_op_in_part_error(parsed.get('notes') or [])
+            if duplicate_message:
+                return jsonify(ok=False,message=duplicate_message,
+                               reason='DUPLICATE_OP_IN_PART',
+                               detail={'conflicts':duplicate_detail}),400
             # QUYẾT ĐỊNH TRƯỚC, GHI SAU. Cả ba hàng rào -- nhập lại đúng file,
             # quyền, và xác nhận ghi đè Template -- phải chặn TRƯỚC lệnh ghi đầu
             # tiên, nếu không một lần từ chối vẫn để lại Template dở dang.

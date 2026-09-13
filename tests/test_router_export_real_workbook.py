@@ -86,14 +86,31 @@ def exported(source_bytes, rows):
 
 def test_file_that_shop_uses_parses_completely(parsed):
     assert len(parsed['parts']) == 44
-    assert len(parsed['operations']) == 112
+    # 112 block 'OPERATION # ...' trên 43 tờ, CỘNG một công đoạn quy trình suy
+    # ra từ tờ 'SƠN TĨNH ĐIỆN' -- tờ đó không viết theo khuôn block vì sơn làm
+    # trên cả cụm, nhưng nó vẫn là một bước sản xuất thật.
+    assert len(parsed['operations']) == 113
+    inferred = [op for op in parsed['operations'] if op.get('inferred_from_sheet')]
+    assert [op['_excel_sheet'] for op in inferred] == ['SƠN TĨNH ĐIỆN']
+    assert inferred[0]['source_op_no'] is None, 'trên giấy không có số nào để giữ'
     assert sum(1 for op in parsed['operations'] if op['requires_setup']) == 47
-    # 10 chỗ đánh trùng SỐ OP gốc -- nhập đủ cả 112, số gốc giữ nguyên, mã nội
-    # bộ sinh duy nhất, và người dùng được báo từng chỗ.
-    duplicates = [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_SOURCE_OP_NO']
+    # 10 chỗ hai công đoạn cùng số TRONG CÙNG một Part -- lỗi dữ liệu theo quy
+    # tắc nghiệp vụ, nên chính file này bị TỪ CHỐI khi nhập cho tới khi xưởng
+    # đánh lại số. Parser vẫn đọc hết để dựng được câu lỗi chỉ đúng chỗ.
+    duplicates = [n for n in parsed['notes'] if n['kind'] == 'DUPLICATE_OP_IN_PART']
     assert len(duplicates) == 10
-    codes = [op['code'] for op in parsed['operations']]
-    assert len(codes) == len(set(codes)), 'mã nội bộ phải duy nhất'
+    # Mã Part thật có thể chứa '-2' (KM-504539877-B4-2), nên kiểm đúng thứ cần
+    # kiểm: không mã nào mang hậu tố va chạm gắn SAU phần OP.
+    assert not [op['code'] for op in parsed['operations']
+                if re.search(r'-OP\d+-\d+$', op['code'])], (
+        'không được đẻ ra mã thứ hai để cho qua')
+    # Bốn tờ mức quy trình KHÔNG được coi là thiếu dữ liệu.
+    assert not [n for n in parsed['notes'] if n['kind'] == 'DRAWING_SHEET_MISSING_IDENTITY']
+    process_sheets = [p['source_sheet'] for p in parsed['parts']
+                      if p['sheet_kind'] == 'PROCESS_LEVEL_SHEET']
+    assert sorted(process_sheets) == sorted([
+        'LÀM NGUỘI VÀ SỬ LÝ HOÀN THIỆN', 'SƠN TĨNH ĐIỆN',
+        'Kiểm tra  sau khi sơn ', 'Đóng gói'])
 
 
 def test_setup_values_from_the_real_sheets(parsed):
@@ -149,7 +166,8 @@ def test_qr_lane_never_covers_data_on_any_sheet(source_bytes, exported, parsed):
     for item in placed:
         per_sheet[item['sheet']] = per_sheet.get(item['sheet'], 0) + 1
     sheets_with_operations = {op['_excel_sheet'] for op in parsed['operations']}
-    assert len(sheets_with_operations) == 43
+    # 43 tờ có block + tờ quy trình 'SƠN TĨNH ĐIỆN' được suy ra một công đoạn.
+    assert len(sheets_with_operations) == 44
 
     def columns(ws):
         found = []
@@ -173,19 +191,26 @@ def test_qr_lane_never_covers_data_on_any_sheet(source_bytes, exported, parsed):
             c for c in columns(ws) if c <= rightmost_data)
 
 
-def test_sheet_without_any_operation_block_is_left_untouched(source_bytes, exported, parsed):
-    """Sheet không có block nào ('SƠN TĨNH ĐIỆN') phải được giữ y nguyên.
+def test_process_sheet_without_a_block_gets_exactly_one_label(source_bytes, exported, parsed):
+    """Tờ quy trình không có block ('SƠN TĨNH ĐIỆN') vẫn phải in được tem.
 
-    Nó vẫn là một tờ trong biểu mẫu của khách, chỉ là không có công đoạn nào để
-    gắn tem. Sửa nó -- kể cả chỉ đặt lại khổ in -- là đụng vào thứ không cần.
+    Trước đây tờ này bị bỏ qua: không công đoạn, không tem, nên bước sơn biến
+    mất khỏi PO -- không lên lịch được và thợ cũng không có gì để quét. Nay nó
+    được suy ra ĐÚNG MỘT công đoạn mang tên tờ, nên phải có ĐÚNG MỘT tem, và
+    không có tem SETUP (tờ không khai thời gian set máy).
     """
     original = load_workbook(BytesIO(source_bytes))
     workbook, placed, _, _ = exported
-    untouched = set(original.sheetnames) - {op['_excel_sheet'] for op in parsed['operations']}
-    assert untouched == {'SƠN TĨNH ĐIỆN'}
-    for name in untouched:
-        assert not any(item['sheet'] == name for item in placed)
-        assert len(workbook[name]._images) == len(original[name]._images)
+    name = 'SƠN TĨNH ĐIỆN'
+    labels = [item for item in placed if item['sheet'] == name]
+    assert len(labels) == 1, labels
+    assert labels[0]['kind'] == 'OP'
+    # Ảnh gốc của khách còn nguyên, chỉ thêm đúng một drawing.
+    assert len(workbook[name]._images) == len(original[name]._images) + 1
+    # Và mọi ô của tờ vẫn y nguyên -- tem là drawing, không ghi vào cell.
+    for row in original[name].iter_rows():
+        for cell in row:
+            assert workbook[name][cell.coordinate].value == cell.value, cell.coordinate
 
 
 def test_labels_land_on_the_block_of_their_own_operation(parsed, rows, exported):
@@ -216,7 +241,7 @@ def test_setup_label_only_where_a_setup_operation_exists(rows, exported):
     assert {i['operation_id'] for i in placed if i['kind'] == 'SETUP'} == setup_ids
     assert {i['operation_id'] for i in placed if i['kind'] == 'OP'} == {
         row['id'] for row in rows}
-    assert len(placed) == 112 + 47
+    assert len(placed) == 113 + 47
 
 
 def test_every_payload_is_the_canonical_operation_id(rows, exported):
@@ -298,7 +323,7 @@ def test_export_differs_from_source_ONLY_by_added_qr_drawings(source_bytes, expo
     # Khác biệt DUY NHẤT: số drawing tăng đúng bằng số tem đã đóng.
     added = sum(len(workbook[n]._images) - len(original[n]._images)
                 for n in original.sheetnames)
-    assert added == len(placed) == 112 + 47
+    assert added == len(placed) == 113 + 47
     for name in original.sheetnames:
         assert len(workbook[name]._images) >= len(original[name]._images), (
             f'{name}: mất ảnh gốc')
