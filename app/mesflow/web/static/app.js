@@ -981,7 +981,7 @@ async function renderProductionOrders(){
   subtitle.textContent='Tạo lệnh từ Template, lên lịch và theo dõi trạng thái sản xuất';
   content.innerHTML=`<div class="page-shell">
     <div class="page-header"><div class="stats-row" id="poSummary" aria-live="polite"></div><div class="page-header-actions"><button class="btn primary" id="addPO">+ Tạo PO từ Template</button></div></div>
-    ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="poSearch" placeholder="Mã PO hoặc tên sản phẩm"></label><label><span>Trạng thái</span><select id="poStatus"><option value="">Tất cả trạng thái</option><option value="DRAFT">Bản nháp</option><option value="PLANNED">Đang lập kế hoạch</option><option value="RELEASED">Sẵn sàng sản xuất</option><option value="IN_PROGRESS">Đang sản xuất</option><option value="PAUSED">Tạm dừng</option><option value="COMPLETED">Đã hoàn thành</option><option value="CANCELLED">Đã hủy</option></select></label>',clearId:'poReset',clearLabel:'Đặt lại',actions:'<button class="btn" id="poImportRouter">Nhập Excel Router</button><input id="poImportRouterFile" type="file" accept=".xlsx" hidden><button class="btn po-reload" id="reloadPO"><i aria-hidden="true"></i>Làm mới</button>'})}
+    ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="poSearch" placeholder="Mã PO hoặc tên sản phẩm"></label><label><span>Trạng thái</span><select id="poStatus"><option value="">Tất cả trạng thái</option><option value="DRAFT">Bản nháp</option><option value="PLANNED">Đang lập kế hoạch</option><option value="RELEASED">Sẵn sàng sản xuất</option><option value="IN_PROGRESS">Đang sản xuất</option><option value="PAUSED">Tạm dừng</option><option value="COMPLETED">Đã hoàn thành</option><option value="CANCELLED">Đã hủy</option></select></label>',actions:'<button class="btn" id="poImportRouter">Nhập Excel Router</button><input id="poImportRouterFile" type="file" accept=".xlsx" hidden><button class="btn po-reload" id="reloadPO"><i aria-hidden="true"></i>Làm mới</button>'})}
     <section class="content-panel"><div class="content-panel-head"><div><h3>Danh sách Production Order</h3></div></div><div class="content-panel-body" id="poList">Đang tải...</div></section>
   </div>`;
   const statusText=value=>({DRAFT:'Bản nháp',PLANNED:'Đang lập kế hoạch',RELEASED:'Sẵn sàng sản xuất',IN_PROGRESS:'Đang sản xuất',PAUSED:'Tạm dừng',COMPLETED:'Đã hoàn thành',CANCELLED:'Đã hủy'}[String(value||'').toUpperCase()]||value||'Chưa xác định');
@@ -1053,7 +1053,6 @@ async function renderProductionOrders(){
       {onDone:()=>renderProductionOrders()});
   }
   document.getElementById('reloadPO').onclick=load;
-  document.getElementById('poReset').onclick=()=>{document.getElementById('poSearch').value='';document.getElementById('poStatus').value='';draw(window.poItems||[])};
   const applyFilters=()=>{const q=document.getElementById('poSearch').value.trim().toLowerCase(),status=document.getElementById('poStatus').value;draw((window.poItems||[]).filter(x=>(!status||String(x.status||'').toUpperCase()===status)&&(!q||`${x.code||''} ${x.product||''}`.toLowerCase().includes(q))))};
   document.getElementById('poSearch').oninput=applyFilters;document.getElementById('poStatus').onchange=applyFilters;
   await load();
