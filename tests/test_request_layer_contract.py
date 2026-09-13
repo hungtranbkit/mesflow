@@ -92,7 +92,13 @@ def test_idempotent_optin_is_limited_to_endpoints_that_carry_a_request_id():
     assert len(optins) == 2, optins
     for rel, line in optins:
         assert rel == 'kiosk.js'
-        assert '/api/kiosk-web/start' in line or '/api/kiosk-web/finish/' in line
+        # Tiền tố API nay do máy chủ ghi vào trang (`${API_BASE}` =
+        # /api/kiosk-web cho trạm cố định, /api/kiosk-mobile cho điện thoại --
+        # xem web/kiosk.py). Điều bài này khoá không đổi: chỉ đúng hai mutation
+        # start/finish được bật `idempotent`, và cả hai đều mang request_id.
+        # Cả hai cửa gọi đúng một hàm backend (_start_response/_finish_response)
+        # nên lời cam kết dedupe là một, không phải hai.
+        assert '${API_BASE}/start' in line or '${API_BASE}/finish/' in line
         assert 'request_id' in line
 
     backend = (ROOT / 'app/mesflow/web/kiosk.py').read_text(encoding='utf-8')

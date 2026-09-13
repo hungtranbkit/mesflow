@@ -1,4 +1,14 @@
 (() => {
+  // MỘT LUỒNG NGHIỆP VỤ, HAI CỬA VÀO.
+  //
+  // /kiosk (trạm cố định, công khai) gọi /api/kiosk-web/*; /kiosk-mobile (điện
+  // thoại, BẮT BUỘC đăng nhập) gọi /api/kiosk-mobile/*. Máy chủ quyết định cửa
+  // nào khoá bằng gì -- trang chỉ đọc tiền tố mà chính máy chủ đã ghi ra khi
+  // dựng trang. Không đoán theo User-Agent, không đoán theo location.pathname:
+  // cả hai đều là thứ trình duyệt tự khai, và một quyết định BẢO MẬT không bao
+  // giờ được lấy từ phía trình duyệt. Ở đây nó chỉ là ĐỊA CHỈ để gọi; cái khoá
+  // nằm ở server (xem web/auth.py, kiosk_mobile_required).
+  const API_BASE = document.body.dataset.kioskApi || '/api/kiosk-web';
   const input = document.getElementById('scanner-input');
   const screens = [...document.querySelectorAll('.screen')];
   // randomUUID is restricted to secure contexts in Chromium. LOCAL Docker
@@ -269,7 +279,7 @@
   }
   async function sendHeartbeat() {
     try {
-      const response = await fetch('/api/kiosk-web/heartbeat', {
+      const response = await fetch(`${API_BASE}/heartbeat`, {
         method:'POST',
         headers:{'Content-Type':'application/json', ...authHeaders()},
         body:JSON.stringify({
@@ -318,15 +328,24 @@
       const friendly = workerError(data, status), error = new Error(friendly.message);
       error.code = data.error_code || data.error || (status >= 500 ? 'SYS-500' : `HTTP-${status}`);
       error.action = friendly.action;
+      // Máy chủ có thể ĐÃ nhận ra tem này là ai/việc gì rồi mới từ chối vì
+      // luật nghiệp vụ (rõ nhất: PO-001 "PO chưa Start"). Phần đã nhận ra đó
+      // phải sống sót qua lớp lỗi này, nếu không màn hình chỉ còn mỗi câu từ
+      // chối và người quét không biết mình vừa quét trúng cái gì.
+      if (data.scanned) error.scanned = data.scanned;
       throw error;
     }
   }
   async function scan(qr) {
-    qr = String(qr || '').trim(); if (!qr) return;
+    // CHUỖI THÔ, đúng như nguồn quét đưa vào -- không trim, không chuẩn hoá.
+    // Bản gửi đi (`qr`) vẫn được trim như cũ; bản thô này tồn tại vì nó là thứ
+    // duy nhất trả lời được câu "tem in ra có đúng không, hay máy đọc sai".
+    const rawQr = String(qr == null ? '' : qr);
+    qr = rawQr.trim(); if (!qr) return;
     document.getElementById('scan-status').textContent = 'Đã nhận mã · đang xử lý…';
     document.body.classList.add('kiosk-busy');
     try {
-      const result = await api('/api/kiosk-web/scan', {method:'POST', body:JSON.stringify({qr})});
+      const result = await api(`${API_BASE}/scan`, {method:'POST', body:JSON.stringify({qr})});
       if (state === 'ready') {
         if (result.type !== 'employee') { const e=new Error('Hãy quét thẻ nhân viên trước'); e.code='SCN-003'; e.action='Quét thẻ nhân viên trước, sau đó mới quét Operation.'; throw e; }
         employee = result.employee;
@@ -337,7 +356,7 @@
           document.getElementById('finish-operation').textContent = openOp;
           announceScan({ok:true, kind:'employee', label:'Thẻ nhân viên', title:employee.name,
             sub:`${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`,
-            next:`Đang làm: ${openOp} — nhập sản lượng để KẾT THÚC`});
+            raw:rawQr, next:`Đang làm: ${openOp} — nhập sản lượng để KẾT THÚC`});
           pendingFinish.requestId = `${deviceUuid}-FINISH-${Date.now()}`;
           // Bắt đầu một lượt kết thúc là bắt đầu từ trắng: số của lượt trước
           // (và dấu "đã nhập" của nó) không được chảy sang người kế tiếp.
@@ -359,7 +378,7 @@
           document.getElementById('employee-code').textContent = `${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`;
           announceScan({ok:true, kind:'employee', label:'Thẻ nhân viên', title:employee.name,
             sub:`${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`,
-            next:'Tiếp theo: quét QR CÔNG ĐOẠN'});
+            raw:rawQr, next:'Tiếp theo: quét QR CÔNG ĐOẠN'});
           show('operation');
         }
       } else if (state === 'operation') {
@@ -368,7 +387,7 @@
         const opText = `${op.display_key || op.code} · ${op.name}`;
         document.getElementById('starting-operation').textContent = opText;
         announceScan({ok:true, kind:'operation', label:'QR công đoạn', title:op.name,
-          sub:op.display_key || op.code, next:'Đang bắt đầu công đoạn…'});
+          sub:op.display_key || op.code, raw:rawQr, next:'Đang bắt đầu công đoạn…'});
         show('starting');
         if (tutorialMode) await new Promise(resolve => setTimeout(resolve, 9000));
         // `request_id` sinh MỘT LẦN ở đây rồi nằm trong body, nên mọi lần gửi
@@ -377,19 +396,40 @@
         // chính session đã tạo thay vì tạo cái thứ hai. Đó là lý do — và là
         // điều kiện duy nhất — để bật `idempotent` cho một POST.
         const startRequestId = `${deviceUuid}-START-${Date.now()}`;
-        const started = await api('/api/kiosk-web/start', {idempotent:true, method:'POST', body:JSON.stringify({employee_id:employee.id, operation_id:op.id, device_uuid:deviceUuid, request_id:startRequestId})});
+        const started = await api(`${API_BASE}/start`, {idempotent:true, method:'POST', body:JSON.stringify({employee_id:employee.id, operation_id:op.id, device_uuid:deviceUuid, request_id:startRequestId})});
         document.getElementById('started-operation').textContent = opText;
         announceScan({ok:true, kind:'operation', label:'QR công đoạn', title:op.name,
-          sub:op.display_key || op.code, next:'ĐÃ BẮT ĐẦU — quét lại thẻ nhân viên khi xong'});
+          sub:op.display_key || op.code, raw:rawQr, next:'ĐÃ BẮT ĐẦU — quét lại thẻ nhân viên khi xong'});
         show('started'); scheduleReset(3500);
       } else if (state === 'started' || state === 'finished' || state === 'error') {
         reset(); setTimeout(() => scan(qr), 50);
       }
     } catch (error) {
       setError(error.message, error.code, error.action);
-      announceScan({ok:false, kind:'error', label:'Không nhận được mã',
-        title:error.message || 'Không xử lý được', sub:String(error.code || 'SCN-000').toUpperCase(),
-        next:error.action || ''});
+      // GỐC CỦA LỖI P0: cả thân hàm nằm trong một `try`, nên BẤT KỲ lời từ
+      // chối nghiệp vụ nào cũng nhảy thẳng xuống đây và lần quét bị công bố
+      // như "không nhận được mã" -- kể cả khi máy chủ đã đọc ra chính xác đó
+      // là công đoạn nào. Người cầm điện thoại không bao giờ thấy tên, không
+      // bao giờ thấy chuỗi QR, nên không có cách nào biết tem in đúng hay sai.
+      //
+      // Nay tách làm hai lớp: cái ĐÃ NHẬN RA (tên + mã + chuỗi thô) và cái
+      // ĐÃ TỪ CHỐI (mã lỗi + câu giải thích). Lỗi không còn chiếm chỗ của tên.
+      // Không có nhánh nào ở đây gọi start/finish, nên một PO chưa Start vẫn
+      // dừng đúng ở lần quét: không session nào được tạo.
+      const named = error.scanned && error.scanned.title ? error.scanned : null;
+      const code = String(error.code || 'SCN-000').toUpperCase();
+      announceScan(named
+        ? {ok:false, kind:named.kind || 'operation',
+           label:named.kind === 'employee' ? 'Thẻ nhân viên' : 'QR công đoạn',
+           title:named.title, sub:named.sub || '', raw:rawQr,
+           error:`${code} · ${error.message || 'Không xử lý được'}`,
+           next:error.action || ''}
+        // Không nhận ra được gì thì thứ chắc chắn đúng chỉ còn chuỗi vừa đọc.
+        // Nó vẫn phải hiện: đó là bằng chứng phân biệt "tem in sai" với "máy
+        // đọc sai", và không có nó thì cả hai trông giống hệt nhau.
+        : {ok:false, kind:'error', label:'Không nhận được mã',
+           title:error.message || 'Không xử lý được', sub:code, raw:rawQr,
+           next:error.action || ''});
     }
     finally { document.body.classList.remove('kiosk-busy'); }
   }
@@ -530,7 +570,7 @@
       // thể bị ghi hai lần — kể cả khi mạng rớt đúng lúc đã gửi xong mà chưa
       // kịp nhận phản hồi, tình huống mà trước đây công nhân buộc phải tự
       // bấm "Gửi lại" và không ai biết lần đầu đã vào hay chưa.
-      await api(`/api/kiosk-web/finish/${openSession.id}`, {idempotent:true, method:'POST', body:JSON.stringify({good_qty:good, defect_qty:defect, rework_qty:rework, note:pendingFinish.note, request_id:pendingFinish.requestId})});
+      await api(`${API_BASE}/finish/${openSession.id}`, {idempotent:true, method:'POST', body:JSON.stringify({good_qty:good, defect_qty:defect, rework_qty:rework, note:pendingFinish.note, request_id:pendingFinish.requestId})});
       const scrap = defect - rework;
       document.getElementById('finished-summary').textContent = rework > 0
         ? `Đạt ${good} · NG ${defect} · Sửa được ${rework} · Phế ${scrap}`
@@ -807,7 +847,7 @@
     // sách đang cầm trên tay.
     if (!silent) setDemoBusy(true);
     try {
-      const request=api('/api/kiosk-web/demo-data');
+      const request=api(`${API_BASE}/demo-data`);
       const data=tutorialMode
         ? await Promise.race([
             request,
@@ -879,7 +919,7 @@
 
   // Camera điện thoại đọc được mã -> đi vào ĐÚNG scan() mà máy quét USB dùng.
   // Không có đường tắt nào khác: mọi kiểm tra và mọi luật nghiệp vụ nằm sau
-  // /api/kiosk-web/scan, và cả hai nguồn quét đều phải đi qua đó.
+  // <API_BASE>/scan, và cả hai nguồn quét đều phải đi qua đó.
   document.addEventListener('kiosk:camera-scan', event => {
     const payload = event.detail && event.detail.payload;
     if (payload) scan(payload);
@@ -917,6 +957,6 @@
   updateClock(); setInterval(updateClock, 1000);
   sendHeartbeat(); setInterval(sendHeartbeat, 30000);
   window.addEventListener('online', sendHeartbeat);
-  window.addEventListener('beforeunload', () => navigator.sendBeacon?.('/api/kiosk-web/heartbeat', new Blob([JSON.stringify({device_uuid:deviceUuid,device_name:'Web Kiosk Demo',ui_state:'CLOSING',health_state:'OK',queue_size:0})], {type:'application/json'})));
+  window.addEventListener('beforeunload', () => navigator.sendBeacon?.(`${API_BASE}/heartbeat`, new Blob([JSON.stringify({device_uuid:deviceUuid,device_name:'Web Kiosk Demo',ui_state:'CLOSING',health_state:'OK',queue_size:0})], {type:'application/json'})));
   reset();
 })();

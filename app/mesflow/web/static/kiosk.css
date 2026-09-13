@@ -105,9 +105,26 @@ button{min-height:48px;padding:11px 20px;border:1px solid var(--action);border-r
 .camera-result-sub{margin-top:2px;font-size:14px;color:#b8c7d2;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
 .camera-result-sub:empty{display:none}
+/* CHUỖI QR THÔ. Monospace và ngắt được ở BẤT KỲ ký tự nào: payload là một
+   chuỗi liền không có dấu cách (`WF|OPID|1234`), nên `word-break:break-all`
+   là thứ duy nhất giữ nó nằm trong thẻ thay vì tràn ngang. Hai dòng là đủ
+   cho mọi payload đang in ở xưởng, và trần đó giữ cho khung quét không bị
+   đẩy đi khi ai đó dán một chuỗi dài bất thường vào tem. */
+.camera-result-raw{margin-top:4px;font-size:13px;line-height:1.35;color:#d7e6f0;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  word-break:break-all;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.camera-result-raw:empty{display:none}
 .camera-result-next{margin-top:6px;font-size:15px;font-weight:700;line-height:1.3;color:#ffd479;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .camera-result-next:empty{display:none}
+/* Lời TỪ CHỐI nghiệp vụ, nằm dưới cái tên chứ không thay chỗ nó. Có gạch trên
+   để mắt đọc được ngay đây là một lớp khác: phần trên là "máy đọc được gì",
+   phần này là "vì sao vẫn không làm được". */
+.camera-result-error{margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,180,180,.35);
+  font-size:14px;font-weight:700;line-height:1.3;color:#ffb4b4;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.camera-result-error:empty{display:none}
 /* Lỗi phải khác màu ở khoảng cách một sải tay, không chỉ khác chữ. */
 .camera-result[data-kind="error"]{border-left-color:#ff6b6b;background:rgba(86,18,18,.94)}
 .camera-result[data-kind="error"] .camera-result-kind{color:#ffb4b4}
@@ -172,7 +189,9 @@ body.kiosk-touch .qty-keypad:not([hidden]){display:grid;grid-template-columns:re
      để cả hai cùng nằm lọt, thay vì để thẻ đè vào vùng quét. */
   .camera-result{max-height:30vh;padding:8px 12px}
   .camera-result-title{font-size:clamp(17px,3.4vh,22px)}
+  .camera-result-raw{margin-top:2px;font-size:12px;-webkit-line-clamp:1}
   .camera-result-next{margin-top:4px;font-size:13px}
+  .camera-result-error{margin-top:4px;padding-top:4px;font-size:13px;-webkit-line-clamp:2}
   .camera-layer.on.has-result{gap:6px}
   .camera-layer.on.has-result .camera-frame{width:min(44vh,44vw)}
   .camera-layer.on.has-result .camera-hint{display:none}

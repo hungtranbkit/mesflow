@@ -7,7 +7,8 @@ from mesflow import __version__
 from mesflow.domain.qr_identity import (AmbiguousEmployeeQR, AmbiguousOperationQR,
                                         is_operation_qr, resolve_employee_id, resolve_operation_id)
 from mesflow.domain.policy import STARTABLE_TYPES, type_in_sql
-from mesflow.web.auth import kiosk_public, login_required
+from mesflow.web.auth import (KIOSK_MOBILE_PERMISSION, kiosk_mobile_page_required,
+                              kiosk_mobile_required, kiosk_public, login_required)
 from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
@@ -61,7 +62,36 @@ def _normalize_qr(value: object) -> str:
 
 @bp.get('/kiosk')
 def kiosk_page():
-    return render_template('kiosk.html', version=__version__)
+    return render_template('kiosk.html', version=__version__,
+                           api_base='/api/kiosk-web',
+                           manifest_url='/kiosk.webmanifest',
+                           mobile=False)
+
+
+# --------------------------------------------------------------------------
+# MOBILE KIOSK -- SAME BUSINESS FLOW, ITS OWN URL AND ITS OWN AUTH POLICY
+# --------------------------------------------------------------------------
+# Why a second URL instead of a flag on /kiosk: /kiosk must stay open (a
+# workshop machine has no account and no cookie -- see the module header), and
+# a phone must not. Those are two different policies, and a policy that
+# depends on which mode a page happens to be in is not a policy. Two routes
+# make the difference something you can read off the URL map, test in
+# isolation, and put in an nginx rule if it ever needs one.
+#
+# Why NOT User-Agent sniffing: a User-Agent is free text the caller chooses.
+# It is a hint for LAYOUT, never a gate. Nothing here reads it, and
+# tests/test_kiosk_mobile_route_boundary.py fails the build if that changes.
+#
+# The template, the JS, the CSS and every business rule are the SAME files as
+# /kiosk. Only two things differ, both passed in as template variables: the
+# API prefix the page calls, and the manifest it installs from.
+@bp.get('/kiosk-mobile')
+@kiosk_mobile_page_required
+def kiosk_mobile_page():
+    return render_template('kiosk.html', version=__version__,
+                           api_base='/api/kiosk-mobile',
+                           manifest_url='/kiosk-mobile.webmanifest',
+                           mobile=True)
 
 
 # P1 fix (2026-08-28 business-logic audit): this route never existed --
@@ -99,9 +129,28 @@ KIOSK_MANIFEST = {
 }
 
 
+# Riêng cho điện thoại: cùng biểu tượng, nhưng start_url/scope phải trỏ về
+# /kiosk-mobile. Dùng chung một manifest thì cú "Thêm vào màn hình chính" trên
+# iPhone mở ra /kiosk -- tức trang CÔNG KHAI, không phải trang đã đăng nhập.
+KIOSK_MOBILE_MANIFEST = dict(
+    KIOSK_MANIFEST,
+    name='KIMEX Kiosk — Điện thoại',
+    short_name='Kiosk ĐT',
+    start_url='/kiosk-mobile',
+    scope='/kiosk-mobile',
+)
+
+
 @bp.get('/kiosk.webmanifest')
 def kiosk_manifest():
     response = jsonify(KIOSK_MANIFEST)
+    response.headers['Content-Type'] = 'application/manifest+json'
+    return response
+
+
+@bp.get('/kiosk-mobile.webmanifest')
+def kiosk_mobile_manifest():
+    response = jsonify(KIOSK_MOBILE_MANIFEST)
     response.headers['Content-Type'] = 'application/manifest+json'
     return response
 
@@ -118,6 +167,10 @@ def kiosk_health():
 
 @bp.post('/api/kiosk-web/heartbeat')
 def kiosk_web_heartbeat():
+    return _heartbeat_response()
+
+
+def _heartbeat_response():
     body = request.get_json(silent=True) or {}
     try:
         device_uuid = str(body.get('device_uuid') or '').strip()
@@ -147,6 +200,10 @@ def kiosk_demo_data():
     real scanner types into the input field. It was reachable unauthenticated
     from the public internet until 2026-09-09.
     """
+    return _demo_data_response()
+
+
+def _demo_data_response():
     try:
         employees = fetch_all(
             """SELECT id, employee_no, name, department, position, qr
@@ -179,6 +236,10 @@ def kiosk_demo_data():
 @bp.post('/api/kiosk-web/scan')
 @kiosk_public
 def kiosk_scan():
+    return _scan_response()
+
+
+def _scan_response():
     body = request.get_json(silent=True) or {}
     qr = _normalize_qr(body.get('qr'))
     if not qr:
@@ -202,7 +263,17 @@ def kiosk_scan():
             (employee_id,),
         ) if employee_id else None
         if not employee or not employee['active']:
-            return jsonify(ok=False, error='EMPLOYEE_NOT_FOUND', error_code='EMP-001', message='Không tìm thấy nhân viên đang hoạt động', action='Quét đúng thẻ nhân viên hoặc nhờ quản đốc kiểm tra trạng thái nhân viên.'), 404
+            # Cùng lý do như PO-001 bên dưới: thẻ đã đọc ra ĐÚNG một người thì
+            # nói tên người đó ra, kể cả khi họ đã nghỉ. "Không tìm thấy nhân
+            # viên đang hoạt động" mà không kèm tên buộc quản đốc phải đi tra
+            # tay xem tấm thẻ trên tay công nhân là của ai.
+            return jsonify(
+                ok=False, error='EMPLOYEE_NOT_FOUND', error_code='EMP-001',
+                message='Không tìm thấy nhân viên đang hoạt động',
+                action='Quét đúng thẻ nhân viên hoặc nhờ quản đốc kiểm tra trạng thái nhân viên.',
+                **({'scanned': {'kind': 'employee', 'title': employee['name'] or '',
+                                'sub': employee['employee_no'] or ''}} if employee else {}),
+            ), 404
         opened = fetch_one(
             """SELECT s.id,s.employee_id,s.operation_id,s.started_at,s.station_id,
                       o.code operation_code,o.name operation_name,o.operation_type,
@@ -255,7 +326,29 @@ def kiosk_scan():
         if not operation:
             return jsonify(ok=False, error='OPERATION_NOT_FOUND', error_code='OP-001', message='Không tìm thấy Operation', action='Kiểm tra QR Operation hoặc tạo lại QR từ PO.'), 404
         if str(operation.get('po_status') or '').upper() != 'IN_PROGRESS':
-            return jsonify(ok=False, error='PO_NOT_STARTED', error_code='PO-001', message=f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng", action='Nhờ quản đốc bấm Start/Tiếp tục PO trên màn hình quản lý.'), 409
+            # LUẬT NGHIỆP VỤ TỪ CHỐI KHÔNG ĐƯỢC XOÁ KẾT QUẢ ĐỌC MÃ.
+            #
+            # Máy ĐÃ đọc ra tem này là Operation nào -- `operation` ngay trên
+            # đây là bằng chứng. Trả về mỗi câu "PO chưa Start" là vứt đi đúng
+            # thứ người cầm điện thoại cần để biết mình quét trúng tem nào, và
+            # để đối chiếu tem in có đúng không. `scanned` mang lại đúng phần
+            # đã nhận diện được, KHÔNG mở thêm dữ liệu nào: tên + mã hiển thị
+            # của chính Operation vừa quét, ba trường, không có id, không có
+            # sản lượng, không có gì mà một lần quét thành công không trả về.
+            #
+            # Bổ sung THÊM trường, không đổi trường cũ: ok/error/error_code/
+            # message/action giữ nguyên từng chữ, nên mọi client cũ (ESP v2,
+            # trạm cố định, bài kiểm cũ) không thấy khác biệt nào.
+            return jsonify(
+                ok=False, error='PO_NOT_STARTED', error_code='PO-001',
+                message=f"PO {operation.get('po_code') or ''} chưa Start hoặc đang tạm dừng",
+                action='Nhờ quản đốc bấm Start/Tiếp tục PO trên màn hình quản lý.',
+                scanned={
+                    'kind': 'operation',
+                    'title': operation.get('name') or '',
+                    'sub': operation.get('display_key') or operation.get('code') or '',
+                },
+            ), 409
         payload = dict(operation)
         # A linked SETUP row is informational, never a gate: it says this
         # Operation has related setup work, not that setup must happen first.
@@ -270,6 +363,10 @@ def kiosk_scan():
 @bp.post('/api/kiosk-web/start')
 @kiosk_public
 def kiosk_start():
+    return _start_response()
+
+
+def _start_response():
     body = request.get_json(silent=True) or {}
     try:
         payload = {
@@ -287,6 +384,10 @@ def kiosk_start():
 @bp.post('/api/kiosk-web/finish/<int:session_id>')
 @kiosk_public
 def kiosk_finish(session_id: int):
+    return _finish_response(session_id)
+
+
+def _finish_response(session_id: int):
     body = request.get_json(silent=True) or {}
     try:
         payload = {
@@ -299,3 +400,55 @@ def kiosk_finish(session_id: int):
         return jsonify(WorkSessionRepository().finish(session_id, payload))
     except Exception as exc:
         return _error(exc)
+
+
+# --------------------------------------------------------------------------
+# /api/kiosk-mobile/* -- the phone's own front door
+# --------------------------------------------------------------------------
+# ONE implementation, TWO doors with different locks. Each route below is a
+# two-line wrapper around the exact same _*_response() function the public
+# /api/kiosk-web/* routes call, so there is no second copy of a business rule,
+# a validation, an error code or an idempotency key to drift out of sync --
+# only the decorator differs, which is the entire point.
+#
+# The gate is @kiosk_mobile_required (signed-in session + kiosk.view), on the
+# SERVER. Hiding a button in the phone's JavaScript protects nothing: an
+# unauthenticated POST straight at this URL is the case that has to fail, and
+# these decorators are what makes it fail.
+@bp.get('/api/kiosk-mobile/health')
+def kiosk_mobile_health():
+    # Deliberately open, exactly like /api/kiosk-web/health: it returns a
+    # version string and nothing else, and a health probe that needs a login
+    # is not a health probe.
+    return jsonify(ok=True, version=__version__, module='mobile-kiosk',
+                   permission=KIOSK_MOBILE_PERMISSION)
+
+
+@bp.post('/api/kiosk-mobile/heartbeat')
+@kiosk_mobile_required
+def kiosk_mobile_heartbeat():
+    return _heartbeat_response()
+
+
+@bp.get('/api/kiosk-mobile/demo-data')
+@kiosk_mobile_required
+def kiosk_mobile_demo_data():
+    return _demo_data_response()
+
+
+@bp.post('/api/kiosk-mobile/scan')
+@kiosk_mobile_required
+def kiosk_mobile_scan():
+    return _scan_response()
+
+
+@bp.post('/api/kiosk-mobile/start')
+@kiosk_mobile_required
+def kiosk_mobile_start():
+    return _start_response()
+
+
+@bp.post('/api/kiosk-mobile/finish/<int:session_id>')
+@kiosk_mobile_required
+def kiosk_mobile_finish(session_id: int):
+    return _finish_response(session_id)

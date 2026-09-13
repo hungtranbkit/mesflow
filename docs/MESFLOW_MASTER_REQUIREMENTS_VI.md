@@ -2680,8 +2680,34 @@ Nên: **phím xác nhận đổi sang `Enter`**, **phím quay lại `*` giữ ng
 > thoại trong túi mọi người. Camera thay cho máy quét USB -- và không thay cho
 > bất cứ thứ gì khác.
 
-- **Phạm vi**: trang kiosk web (`/kiosk`) mở trên điện thoại. Đích chính là
-  **Safari trên iPhone**; Chrome trên Android là đích phụ.
+- **Phạm vi**: giao diện kiosk mở trên điện thoại, ở địa chỉ RIÊNG
+  **`/kiosk-mobile`** (71.0.0.309). Đích chính là **Safari trên iPhone**; Chrome
+  trên Android là đích phụ.
+- **Hai cửa, hai chính sách xác thực, MỘT bản cài đặt** (71.0.0.309). `/kiosk`
+  giữ nguyên CÔNG KHAI -- máy ở xưởng không có tài khoản (xem ranh giới
+  kiosk_public). `/kiosk-mobile` BẮT BUỘC đã đăng nhập và có quyền `kiosk.view`
+  (đã cấp sẵn cho admin/manager/supervisor/operator, không cấp cho viewer);
+  chưa đăng nhập thì chuyển sang `/login?next=/kiosk-mobile` rồi quay lại đúng
+  chỗ. Tiền tố API riêng của điện thoại `/api/kiosk-mobile/*` mang
+  `@kiosk_mobile_required` ở MỌI route, nên một POST thẳng vào URL khi chưa
+  đăng nhập bị chặn ở MÁY CHỦ -- giao diện không bao giờ là cái khoá. Token
+  thiết bị `X-Kiosk-Token` của trạm cố định KHÔNG mở được cửa điện thoại.
+  **Không quyết định truy cập nào đọc User-Agent** (chuỗi do người gọi tự khai);
+  có một bài kiểm báo đỏ nếu ai đó thêm. Mỗi route điện thoại là hai dòng gọi
+  lại đúng hàm `_*_response()` mà route công khai gọi; template/JS/CSS dùng
+  chung -- chỉ khác tiền tố API và manifest, cả hai do máy chủ ghi vào trang
+  (`<body data-kiosk-api=…>`). Camera vẫn được phép vì
+  `Permissions-Policy: camera=(self)` bám theo tiền tố đường dẫn `/kiosk`.
+- **Lỗi nghiệp vụ KHÔNG được xoá kết quả quét** (71.0.0.309, P0). Khi máy chủ đã
+  nhận ra tem là gì rồi mới từ chối (PO-001 "PO chưa Start", EMP-001 thẻ đã
+  nghỉ), phản hồi 409/404 mang THÊM trường `scanned {kind,title,sub}` -- mọi
+  trường cũ giữ nguyên từng byte, nên ESP v2 và trạm cố định không thấy khác
+  biệt. Thẻ trên lớp camera khi đó dựng hai lớp: phần ĐÃ NHẬN RA (tên, mã hiển
+  thị, và CHUỖI QR THÔ đúng như đã quét -- không trim, monospace, đổ bằng
+  `textContent` chứ không bao giờ `innerHTML`), và ngay dưới là dòng riêng cho
+  phần ĐÃ TỪ CHỐI (mã lỗi + lý do). Chuỗi thô là thứ DUY NHẤT phân biệt được
+  "quét nhầm tem" với "tem in sai". Lần quét bị từ chối vẫn KHÔNG tạo session.
+- **Tương thích ngược**: mở `/kiosk` trên điện thoại vẫn chạy y như trước.
 - **Ranh giới làm cho việc này an toàn**: `static/kiosk-camera.js` giải mã QR rồi
   phát sự kiện `kiosk:camera-scan` mang đúng chuỗi đọc được. `kiosk.js` đưa chuỗi
   đó vào CHÍNH hàm `scan()` mà máy quét USB/GM65 đang dùng, và hàm đó POST tới
@@ -3474,7 +3500,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-013 (Kiosk web an toàn khi chạm — chạm lặp không đi xuyên màn) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; đo vùng không giao nhau, đường bàn phím mềm/IME, negative proof bằng mutation) | A |
 | REQ-KIOSK-014 (quét được thì phải nhìn thấy được — kiosk ↔ màn hình điều hành) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 case: start PRODUCTION và start SETUP đều lên bảng, KPI đối chiếu DB, start bị từ chối không sinh task, PO tạm dừng, cô lập PO, hai OP trùng tên không tráo chỗ, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (khoá `BOARD_TASK_TYPES == STARTABLE_TYPES` và giữ mặc định chỉ-sản-xuất của `daily_progress()`), `tests/e2e/daily-dashboard-kiosk.spec.js` (task mới lên màn trong nhịp làm mới, không reload; dòng việc hỗ trợ không mượn ô sản lượng) | A — negative proof: gỡ bản vá thì 3 bài đỏ (`assert 1 == 2` ở KPI), 7 bài canh vẫn xanh |
 | REQ-KIOSK-015 (Kiosk web: phím xác nhận `Enter` + nhắc Num Lock; ESP KHÔNG đổi) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 case: Enter và NumpadEnter đi hết luồng, một-bấm-một-hành-động, giữ/bấm liên tiếp lúc đang gửi vẫn đúng MỘT lượt, `#` không làm gì và không xuất hiện trong chữ, `*` vẫn quay lại, dòng nhắc nằm dưới hàng nút / không dịch khi lỗi hiện / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (luật bố cục đo được vẫn đúng), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (nhãn + ánh xạ phím tĩnh), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
-| REQ-KIOSK-016 (Mobile Kiosk: camera điện thoại là nguồn quét; kết quả hiện realtime trên camera + tiếng bíp iOS) | `tests/test_mobile_kiosk_camera_contract.py` (24 case: ranh giới không gọi API, cửa sổ chống trùng, dừng track, không gửi khung hình đi đâu, jsQR nạp động kèm SHA-256 ghim sẵn, manifest, không service worker, safe-area, bàn phím số ghi qua state sản lượng có sẵn, và 8 case mới: kết quả đi qua SỰ KIỆN chứ không phá ranh giới, thẻ là phần tử flex nên không che vùng quét, thẻ nói đủ loại/tên/bước tiếp, dọn thẻ khi về màn chờ, mở khoá audio trong cử chỉ chạm, cao độ tiếng thành công vs lỗi, bíp chỉ dành cho người đang dùng camera, đọc-được-mã khác quét-thành-công), `tests/e2e/kiosk-mobile-camera.spec.js` (21 case trên WebKit THẬT + iPhone 13, gồm ảnh QR PNG THẬT qua camera giả) | A — negative proof: chạy 9 bài e2e mới + 8 bài tĩnh mới trên cây mã trước bản vá (71.0.0.307) thì 8/9 e2e và 8/8 tĩnh ĐỎ; bài canh "trạm cố định không phát tiếng nào" xanh ở cả hai bên đúng như thiết kế |
+| REQ-KIOSK-016 (Mobile Kiosk: camera điện thoại là nguồn quét; kết quả hiện realtime trên camera + tiếng bíp iOS) | `tests/test_mobile_kiosk_camera_contract.py` (24 case: ranh giới không gọi API, cửa sổ chống trùng, dừng track, không gửi khung hình đi đâu, jsQR nạp động kèm SHA-256 ghim sẵn, manifest, không service worker, safe-area, bàn phím số ghi qua state sản lượng có sẵn, và 8 case mới: kết quả đi qua SỰ KIỆN chứ không phá ranh giới, thẻ là phần tử flex nên không che vùng quét, thẻ nói đủ loại/tên/bước tiếp, dọn thẻ khi về màn chờ, mở khoá audio trong cử chỉ chạm, cao độ tiếng thành công vs lỗi, bíp chỉ dành cho người đang dùng camera, đọc-được-mã khác quét-thành-công), `tests/e2e/kiosk-mobile-camera.spec.js` (25 case trên WebKit THẬT + iPhone 13, gồm ảnh QR PNG THẬT qua camera giả, và 4 case mới: PO chưa Start vẫn hiện tên + chuỗi thô, lỗi nằm bên cạnh, không gửi lệnh start; quét trúng thì có chuỗi thô và không có dòng lỗi; `/kiosk-mobile` chưa đăng nhập bị đẩy về login; API điện thoại trả 401 trong khi `/api/kiosk-web/scan` vẫn trả 400), `tests/test_kiosk_mobile_route_boundary.py` (14 case: chuyển hướng kèm ?next, 401 ở cả năm route điện thoại, User-Agent iPhone và kiosk token đều vô dụng, camera=(self) ở cả hai đường, manifest riêng, /kiosk vẫn công khai, uỷ quyền chứ không chép bản thứ hai, viewer không có kiosk.view), `tests/test_scan_result_survives_a_business_error.py` (13 case: trường `scanned` bổ sung ở PO-001/EMP-001, vắng mặt khi không nhận ra gì, không chạm WorkSessionRepository khi từ chối, chuỗi thô giữ nguyên và có mặt ở mọi lần công bố, textContent chứ không innerHTML) | A — negative proof: chạy 9 bài e2e mới + 8 bài tĩnh mới trên cây mã trước bản vá (71.0.0.307) thì 8/9 e2e và 8/8 tĩnh ĐỎ; bài canh "trạm cố định không phát tiếng nào" xanh ở cả hai bên đúng như thiết kế |
 | REQ-KIOSK-001 (không nhảy layout vì loading trong luồng quét) | `tests/e2e/kiosk-scan-no-loading-layout-shift.spec.js` (đo bounding box vùng chính trước/trong/sau request bị làm chậm, ở 1280/820/390px; gồm cả lần tự làm mới nền 10 giây/lần bằng đồng hồ giả) | A — chỉ báo chờ phải không chiếm chỗ (`#demo-busy`, `position:absolute`), không chèn/xoá chữ chờ, không ẩn `#demo-content` giữa chừng |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |

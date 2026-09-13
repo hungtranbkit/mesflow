@@ -612,3 +612,116 @@ test('ảnh QR THẬT qua camera: đọc được, hiện thẻ kết quả, và
   expect(await page.evaluate(() => window.__audio.freqs)).toContain(1180);
   await context.close();
 });
+
+// --- P0: LUẬT NGHIỆP VỤ TỪ CHỐI THÌ VẪN PHẢI NÓI ĐÃ QUÉT TRÚNG CÁI GÌ ------
+//
+// Cảnh thật ở xưởng: quét tem một công đoạn thuộc PO chưa Start. Trước bản vá,
+// lớp camera chỉ hiện "PO chưa Start" -- không tên, không mã, không payload --
+// nên người cầm điện thoại không phân biệt được ba chuyện có ba cách sửa khác
+// hẳn nhau: quét nhầm tem, tem in sai, hay máy đọc sai.
+
+/** Trạm đang ở màn CHỜ QUÉT CÔNG ĐOẠN: đã có nhân viên, chưa có OP. */
+async function armOperationScan(page, onOperationScan) {
+  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await page.route(/\/api\/kiosk-web\/scan/, r => {
+    const qr = String((r.request().postDataJSON() || {}).qr || '');
+    if (qr.startsWith('WF|EMP|'))
+      return r.fulfill({ json: { ok: true, type: 'employee', employee: EMPLOYEE, open_session: null } });
+    return onOperationScan(r, qr);
+  });
+  await page.goto('/kiosk');
+  await page.waitForFunction(() => !!window.KioskCamera);
+  await turnCameraOn(page);
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|EMP|NV-009'));
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Thợ Chín');
+}
+
+test('PO chưa Start: thẻ hiện TÊN công đoạn + chuỗi QR thô TRƯỚC, lỗi nằm bên cạnh', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+
+  // Đúng thân phản hồi máy chủ trả về (tests/test_scan_result_survives_a_
+  // business_error.py khoá hình dạng này ở phía máy chủ).
+  const starts = [];
+  await page.route(/\/api\/kiosk-web\/start/, r => { starts.push(1); return r.fulfill({ json: {} }); });
+  await armOperationScan(page, r => r.fulfill({
+    status: 409,
+    json: { ok: false, error: 'PO_NOT_STARTED', error_code: 'PO-001',
+            message: 'PO PO-2026-031 chưa Start hoặc đang tạm dừng',
+            action: 'Nhờ quản đốc bấm Start/Tiếp tục PO trên màn hình quản lý.',
+            scanned: { kind: 'operation', title: 'Tiện tinh mặt bích', sub: 'P-114-OP20' } },
+  }));
+
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|OPID|4242'));
+
+  const card = page.getByTestId('kiosk-camera-result');
+  await expect(card).toBeVisible();
+  // ĐỎ, nhưng không câm: tên đứng ở vị trí tiêu đề, không bị câu lỗi chiếm chỗ.
+  await expect(card).toHaveAttribute('data-kind', 'error');
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Tiện tinh mặt bích');
+  await expect(page.getByTestId('kiosk-camera-result-sub')).toHaveText('P-114-OP20');
+  // Chuỗi thô: thứ duy nhất trả lời được "tem in ra có đúng không".
+  await expect(page.getByTestId('kiosk-camera-result-raw')).toHaveText('WF|OPID|4242');
+  // Lời từ chối là DÒNG RIÊNG, hiện cùng lúc chứ không thay chỗ.
+  await expect(page.getByTestId('kiosk-camera-result-error')).toContainText('PO-001');
+  await expect(page.getByTestId('kiosk-camera-result-error')).toContainText('chưa Start');
+  // Và luật nghiệp vụ vẫn nguyên: KHÔNG có session nào được mở.
+  expect(starts, 'một PO chưa Start không được sinh ra lệnh start nào').toEqual([]);
+  // Camera vẫn mở để quét tem tiếp theo, và có tiếng báo lỗi.
+  await expect(page.getByTestId('kiosk-camera-layer')).toHaveClass(/on/);
+  expect(await page.evaluate(() => window.__audio?.freqs || [])).toContain(300);
+  await context.close();
+});
+
+test('quét trúng: thẻ mang cả tên lẫn chuỗi QR thô, không có dòng lỗi', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+  await page.route(/\/api\/kiosk-web\/start/, r => r.fulfill({ json: { ok: true, session: { id: 555 } } }));
+  await armOperationScan(page, r => r.fulfill({ json: { ok: true, type: 'operation', operation: OPERATION } }));
+
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|OPID|77'));
+
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Chấn');
+  await expect(page.getByTestId('kiosk-camera-result-raw')).toHaveText('WF|OPID|77');
+  await expect(page.getByTestId('kiosk-camera-result-error')).toBeHidden();
+  await context.close();
+});
+
+// --- /kiosk-mobile: cùng giao diện, khác chính sách xác thực --------------
+
+test('/kiosk-mobile chưa đăng nhập thì về trang đăng nhập, mang theo đường quay lại', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  const response = await page.goto('/kiosk-mobile');
+  expect(response.status()).toBe(200);          // sau khi đã đi theo redirect
+  expect(page.url()).toContain('/login');
+  expect(decodeURIComponent(page.url())).toContain('next=/kiosk-mobile');
+  await expect(page.locator('#loginForm')).toBeVisible();
+  await context.close();
+});
+
+test('API điện thoại từ chối người chưa đăng nhập, kể cả khi khai là iPhone', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.goto('/kiosk');            // chỉ để có origin
+  for (const [path, body] of [['/api/kiosk-mobile/scan', { qr: 'WF|EMP|NV-009' }],
+                              ['/api/kiosk-mobile/start', { employee_id: 9, operation_id: 77 }]]) {
+    const status = await page.evaluate(async ([url, payload]) => {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                   body: JSON.stringify(payload) });
+      return r.status;
+    }, [path, body]);
+    expect(status, `${path} phải từ chối người chưa đăng nhập`).toBe(401);
+  }
+  // Còn cửa trạm cố định thì KHÔNG được đóng lại: 400 nghĩa là đã qua xác thực
+  // và dừng ở kiểm tra dữ liệu -- đúng hành vi công khai như trước.
+  const stationStatus = await page.evaluate(async () => {
+    const r = await fetch('/api/kiosk-web/scan', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    return r.status;
+  });
+  expect(stationStatus).toBe(400);
+  await context.close();
+});

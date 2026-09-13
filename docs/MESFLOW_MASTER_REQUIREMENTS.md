@@ -2277,8 +2277,36 @@ The change is deliberately **asymmetric**, because the hardware is asymmetric.
 > phone in every pocket. The camera replaces the USB scanner — it replaces
 > nothing else.
 
-- **Module**: the web Kiosk (`/kiosk`) on a phone. Primary target **iPhone
-  Safari**; Chrome on Android is the secondary target.
+- **Module**: the Kiosk UI on a phone, served at its own URL **`/kiosk-mobile`**
+  (71.0.0.309). Primary target **iPhone Safari**; Chrome on Android is the
+  secondary target.
+- **Two doors, two auth policies, one implementation** (71.0.0.309). `/kiosk`
+  stays PUBLIC — a workshop machine has no account (see the kiosk_public
+  boundary). `/kiosk-mobile` REQUIRES a signed-in session with `kiosk.view`
+  (already seeded to admin/manager/supervisor/operator, never to viewer);
+  anonymous browsers are redirected to `/login?next=/kiosk-mobile` and come
+  back. The phone's own API prefix `/api/kiosk-mobile/*` carries
+  `@kiosk_mobile_required` on **every** route, so an unauthenticated POST
+  straight at the URL fails on the SERVER — the front end is never the gate.
+  The station's optional `X-Kiosk-Token` does not open the phone surface.
+  **No access decision reads the User-Agent** (free text the caller picks); a
+  contract test fails the build if one ever does. Each mobile route is a
+  two-line delegation to the same `_*_response()` the public route calls, and
+  the page/JS/CSS files are the same ones — the API prefix and the manifest are
+  the only differences, both written into the page by the server
+  (`<body data-kiosk-api=…>`). Camera stays permitted because
+  `Permissions-Policy: camera=(self)` keys off the `/kiosk` path prefix.
+- **A business refusal may not erase the scan result** (71.0.0.309, P0). When
+  the server resolved WHAT was scanned and then refuses (PO-001 "PO not
+  started", EMP-001 inactive badge), the 409/404 carries an ADDITIVE
+  `scanned {kind,title,sub}` — every pre-existing field byte-for-byte unchanged,
+  so ESP v2 and the fixed station cannot notice. The camera card then renders
+  two layers: what was RECOGNISED (name, display key, and the RAW QR payload
+  exactly as scanned, untrimmed, monospace, via `textContent` never `innerHTML`)
+  and, on its own line beneath it, what was REFUSED (error code + reason). The
+  raw payload is the only thing that distinguishes "scanned the wrong label"
+  from "the label was printed wrong". A refused scan still creates NO session.
+- **Legacy**: `/kiosk` on a phone keeps working exactly as before.
 - **The boundary that makes this safe**: `static/kiosk-camera.js` decodes a QR
   and emits a `kiosk:camera-scan` event carrying the raw string. `kiosk.js`
   hands that string to the SAME `scan()` the USB/GM65 scanner feeds, which POSTs
@@ -3064,7 +3092,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-013 (web Kiosk touch safety — a repeated tap must not cross screens) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; measured band non-intersection, soft-keyboard/IME path, negative proof by mutation) | A |
 | REQ-KIOSK-014 (scannable means visible — kiosk ↔ control-room board) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 cases: both a PRODUCTION and a SETUP start reach the board, KPIs reconciled against the database, a refused start yields no task, paused PO, PO isolation, two same-named Operations never swap, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (locks `BOARD_TASK_TYPES == STARTABLE_TYPES` and keeps `daily_progress()`'s production-only default), `tests/e2e/daily-dashboard-kiosk.spec.js` (a new task arrives within the refresh cycle with no reload; a support row does not borrow the output cell) | A — negative proof: with the fix reverted 3 tests fail (`assert 1 == 2` on the KPI) and the 7 guard tests stay green |
 | REQ-KIOSK-015 (web Kiosk: `Enter` confirm key + Num Lock hint; ESP unchanged) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 cases: Enter and NumpadEnter drive the whole flow, one press = one action, repeated presses mid-submit still yield exactly ONE submit, `#` does nothing and appears in no text, `*` still goes back, hint sits below the button row / does not move when validation appears / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (measured layout rule still holds), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (static labels + key mapping), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
-| REQ-KIOSK-016 (Mobile Kiosk: phone camera as a scan source; realtime result on the camera + iOS beep) | `tests/test_mobile_kiosk_camera_contract.py` (24 cases: the no-API boundary, duplicate window, tracks stopped, no frame leaves the device, lazy jsQR with pinned SHA-256, manifest, no service worker, safe-area, keypad writes through the existing quantity state, plus 8 new: result travels by EVENT rather than breaking the boundary, the card is a flex item so it cannot cover the aiming frame, the card states kind/name/next-step, the card is cleared on return to idle, audio unlocked inside the tap gesture, success vs error pitch, beeps only for camera users, decode-is-not-success), `tests/e2e/kiosk-mobile-camera.spec.js` (21 cases on REAL WebKit + iPhone 13, including a REAL QR PNG through a fake camera) | A — negative proof: running the 9 new e2e + 8 new static cases against the pre-fix tree (71.0.0.307) turns 8/9 e2e and 8/8 static RED; the "fixed station makes no sound" guard is green on both sides by design |
+| REQ-KIOSK-016 (Mobile Kiosk: phone camera as a scan source; realtime result on the camera + iOS beep) | `tests/test_mobile_kiosk_camera_contract.py` (24 cases: the no-API boundary, duplicate window, tracks stopped, no frame leaves the device, lazy jsQR with pinned SHA-256, manifest, no service worker, safe-area, keypad writes through the existing quantity state, plus 8 new: result travels by EVENT rather than breaking the boundary, the card is a flex item so it cannot cover the aiming frame, the card states kind/name/next-step, the card is cleared on return to idle, audio unlocked inside the tap gesture, success vs error pitch, beeps only for camera users, decode-is-not-success), `tests/e2e/kiosk-mobile-camera.spec.js` (25 cases on REAL WebKit + iPhone 13, including a REAL QR PNG through a fake camera, plus 4 new: PO-not-started shows name + raw payload with the refusal beside it and sends no start, a good scan carries the raw payload with no error line, /kiosk-mobile redirects an anonymous phone to login, the mobile API answers 401 while /api/kiosk-web/scan still answers 400), `tests/test_kiosk_mobile_route_boundary.py` (14 cases: anonymous redirect with ?next, 401 on all five mobile routes, an iPhone User-Agent and a kiosk token both buy nothing, camera=(self) on both paths, separate manifest, /kiosk still public, delegation instead of a second implementation, kiosk.view not granted to viewer), `tests/test_scan_result_survives_a_business_error.py` (13 cases: the additive `scanned` field on PO-001/EMP-001, absent when nothing resolved, no WorkSessionRepository touch on a refusal, raw payload kept untrimmed and attached to every announcement, textContent not innerHTML) | A — negative proof: running the 9 new e2e + 8 new static cases against the pre-fix tree (71.0.0.307) turns 8/9 e2e and 8/8 static RED; the "fixed station makes no sound" guard is green on both sides by design |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |

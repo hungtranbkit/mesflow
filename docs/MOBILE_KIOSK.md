@@ -1,8 +1,36 @@
 # Mobile Kiosk — quét QR bằng camera điện thoại
 
-Trang kiosk quen thuộc (`/kiosk`), mở trên điện thoại, dùng camera thay cho máy
-quét USB. **Luồng nghiệp vụ không đổi**: quét thẻ nhân viên → quét công đoạn →
-Bắt đầu / Kết thúc → nhập sản lượng. Cùng API, cùng session, cùng luật.
+## 👉 Địa chỉ dùng trên điện thoại: **https://mesflow.net/kiosk-mobile**
+
+Mở bằng **Safari** (iPhone) hoặc **Chrome** (Android), **đăng nhập bằng tài khoản
+MESFlow của bạn**, rồi bấm **“Camera điện thoại”**. Chưa đăng nhập thì trang tự
+đưa sang màn đăng nhập và **quay lại đúng `/kiosk-mobile`** sau khi xong.
+
+Giao diện, luồng nghiệp vụ và camera **y hệt** trang kiosk quen thuộc: quét thẻ
+nhân viên → quét công đoạn → Bắt đầu / Kết thúc → nhập sản lượng. Cùng API, cùng
+session, cùng luật.
+
+### Hai địa chỉ, hai chính sách — đừng dùng lẫn
+
+| | `/kiosk` | `/kiosk-mobile` |
+|---|---|---|
+| Dành cho | Trạm CỐ ĐỊNH ở xưởng (máy quét USB/GM65) | Điện thoại cá nhân |
+| Đăng nhập | **Không cần** — máy xưởng không có tài khoản | **Bắt buộc**, cần quyền `kiosk.view` |
+| API | `/api/kiosk-web/*` (công khai) | `/api/kiosk-mobile/*` (chặn người chưa đăng nhập) |
+| Nhận diện người làm | Thẻ QR nhân viên đã quét | Thẻ QR nhân viên đã quét (tài khoản chỉ để **mở cửa**, không phải để ghi công) |
+
+Vì sao tách: một chiếc điện thoại rời khỏi xưởng, và đường link của nó bị chuyển
+tiếp trong nhóm chat. Một cái máy bắt vít trên tường thì không. Hai hoàn cảnh
+khác nhau nên có hai chính sách khác nhau, và chính sách phải đọc được ngay trên
+địa chỉ.
+
+Quyền `kiosk.view` đã có sẵn từ trước và đã cấp cho **admin / manager /
+supervisor / operator**; **viewer** (tài khoản chỉ xem) thì không — mở
+`/kiosk-mobile` sẽ báo không có quyền.
+
+> **Không chặn bằng User-Agent.** Máy chủ không hề đọc chuỗi User-Agent để quyết
+> định cho hay không cho: đó là chuỗi do người gọi tự khai, giả một dòng lệnh là
+> xong. Cửa khoá nằm ở phiên đăng nhập, kiểm ở máy chủ, trên từng lần gọi API.
 
 Máy kiosk cố định với máy quét USB/GM65 và thiết bị ESP v2 **không bị đụng tới**.
 
@@ -16,7 +44,8 @@ Cần hai màn hình: điện thoại để quét, và một máy tính đã đ�
 1. **Máy tính** — đăng nhập MESFlow, mở `https://mesflow.net/app?page=qr-print`.
    Chọn loại **Nhân viên**, tìm một nhân viên đang hoạt động → màn hình hiện mã
    QR của thẻ. Để nguyên đó.
-2. **iPhone** — mở **Safari**, vào `https://mesflow.net/kiosk`.
+2. **iPhone** — mở **Safari**, vào `https://mesflow.net/kiosk-mobile`, đăng nhập
+   nếu được hỏi (đăng nhập xong tự quay lại đúng trang này).
    Phải là `https://`; camera không chạy trên `http://`.
 3. Bấm **“Camera điện thoại”** ở góc trên bên phải → Safari hỏi quyền → chọn
    **Cho phép**. Camera sau của máy sẽ mở ra, có khung vuông ở giữa.
@@ -48,6 +77,9 @@ chính*. Mở từ biểu tượng đó sẽ chạy toàn màn hình, không có
 | Quét một lần mà chạy hai lần | Không xảy ra: cùng một mã bị chặn trong 1,8 giây. Mã **khác** thì được nhận ngay. |
 | “Mất kết nối mạng — chưa gửi được mã” | Điện thoại rớt Wi-Fi. Hệ thống **không** tự gửi lại và **không** xếp hàng chờ (xem mục 4). Có mạng lại thì quét lại. |
 | Quét xong không thấy tên, phải tắt camera mới thấy | **Đã sửa từ 71.0.0.308.** Kể từ bản đó, ngay sau mỗi lần quét một thẻ kết quả hiện lên chính lớp camera (`Đã quét: …`, tên, bước tiếp theo) và camera vẫn mở. Nếu vẫn phải tắt camera mới thấy thì tab đang chạy bản cũ — chờ ~30 giây để kiosk tự nạp lại, hoặc kéo xuống để tải lại trang. |
+| Mở `/kiosk-mobile` thì bị đẩy sang màn đăng nhập | Đúng như thiết kế: trang điện thoại bắt buộc đăng nhập. Đăng nhập xong sẽ tự quay lại đúng `/kiosk-mobile`. |
+| “Tài khoản này không có quyền dùng Kiosk trên điện thoại” | Tài khoản đang là **viewer**. Nhờ quản trị viên đổi sang vai trò có quyền `kiosk.view` (operator/supervisor/manager). |
+| Quét trúng tem nhưng chỉ thấy câu báo lỗi, không thấy tên | **Đã sửa từ 71.0.0.309.** Từ bản đó, thẻ kết quả luôn hiện **tên** + **chuỗi QR thô** trước, rồi mới tới dòng lỗi bên dưới (ví dụ `PO-001 · PO … chưa Start`). Nhờ chuỗi thô mà phân biệt được **quét nhầm tem** với **tem in sai**. |
 | Quét thành công mà không nghe tiếng nào | Kiểm tra công tắc gạt Chuông/Im lặng ở cạnh iPhone và mức âm lượng. iOS chỉ cho phát tiếng sau khi người dùng **chạm**, nên tiếng bíp chỉ hoạt động từ lần bấm “Camera điện thoại” trở đi — nếu chưa từng bấm nút đó trong lần mở trang này thì chưa có tiếng. |
 
 ---
@@ -115,4 +147,17 @@ và máy chủ chấp nhận giờ đó — đó là việc riêng, không phả
   phiên bản của kiosk.
 - **Thư viện nhúng kèm**: `static/vendor/jsqr-1.4.0.js` (Apache-2.0) — nguồn gốc
   và SHA-256 ở `static/vendor/README.md`.
+- **Hai cửa, một bản cài đặt.** `/kiosk-mobile` render đúng `templates/kiosk.html`
+  và chạy đúng `kiosk.js` + `kiosk-camera.js`. Chỉ hai thứ khác: tiền tố API và
+  manifest, cả hai do máy chủ ghi vào trang (`<body data-kiosk-api=…>`). Mỗi
+  route `/api/kiosk-mobile/*` là hai dòng gọi lại đúng hàm `_*_response()` mà
+  route công khai gọi — không có bản chép thứ hai của bất kỳ luật nghiệp vụ nào,
+  chỉ khác đúng cái decorator (`@kiosk_mobile_required`, xem `web/auth.py`).
+- **Kết quả quét không bị lỗi nghiệp vụ xoá đi.** Máy chủ đã nhận ra tem là gì
+  rồi mới từ chối thì trả kèm `scanned {kind,title,sub}` (thêm trường, không đổi
+  trường cũ — ESP v2 và trạm cố định không thấy khác biệt). Trình duyệt dựng thẻ
+  làm hai lớp: **đã nhận ra** (tên + mã + chuỗi thô) và **đã từ chối** (mã lỗi +
+  lý do). Chuỗi thô luôn đổ bằng `textContent`, không bao giờ `innerHTML`.
+- **HTTPS + `Permissions-Policy: camera=(self)`** áp cho mọi đường bắt đầu bằng
+  `/kiosk`, nên `/kiosk-mobile` dùng chung đúng nhánh đó (`web/app.py`).
 - Hợp đồng đầy đủ: **REQ-KIOSK-016** trong `docs/MESFLOW_MASTER_REQUIREMENTS_VI.md`.

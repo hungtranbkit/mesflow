@@ -1,6 +1,6 @@
 import re
 from functools import wraps
-from flask import jsonify, request, session
+from flask import jsonify, redirect, request, session, url_for
 
 from mesflow.core.session_policy import validate_and_touch
 
@@ -231,5 +231,79 @@ def production_client_required(fn):
             KioskRepository().verify_token_any(token)
         except Exception:
             return jsonify(ok=False,error='FORBIDDEN',message='Kiosk token is invalid or disabled'),403
+        return fn(*args, **kwargs)
+    return wrapped
+
+
+# --------------------------------------------------------------------------
+# MOBILE KIOSK BOUNDARY (/kiosk-mobile)
+# --------------------------------------------------------------------------
+# The FIXED station keeps its public surface above, untouched. A phone is a
+# different thing entirely: it leaves the workshop, it sits in a pocket on the
+# bus home, and its URL gets forwarded in a chat group. So the phone surface is
+# a SIGNED-IN surface, and it is a SEPARATE URL rather than a mode of /kiosk --
+# a mode toggled in the browser is not a boundary, it is a suggestion.
+#
+# WHAT IS NOT THE BOUNDARY: the User-Agent string. It is attacker-controlled
+# free text; `curl -H 'User-Agent: iPhone'` defeats it in one line. It is not
+# read anywhere in this codebase for an access decision, and a contract test
+# (tests/test_kiosk_mobile_route_boundary.py) fails if it ever is.
+#
+# THE PERMISSION: 'kiosk.view' already exists and already means exactly this
+# ("Trạm kiosk", seeded to admin/manager/supervisor/operator and deliberately
+# NOT to 'viewer' -- see db/repositories/rbac.py). Reusing it means the phone
+# surface follows the SAME role model an admin already administers in
+# /admin roles, instead of inventing a second, parallel notion of who may
+# operate a station.
+KIOSK_MOBILE_PERMISSION = 'kiosk.view'
+
+_KIOSK_MOBILE_DENIED = (
+    'Tài khoản này không có quyền dùng Kiosk trên điện thoại '
+    f'(cần quyền {KIOSK_MOBILE_PERMISSION}). Liên hệ quản trị viên.'
+)
+
+
+def kiosk_mobile_required(fn):
+    """API gate for /api/kiosk-mobile/* -- a real signed-in session, every call.
+
+    Deliberately NOT @kiosk_public with a front-end check bolted on: the guard
+    that matters is the one on the server, because the phone's HTML/JS is
+    entirely under the caller's control and every one of these routes writes
+    (start/finish) or reads worker identity (scan).
+    """
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        expired = _require_valid_session()
+        if expired is not None:
+            return expired
+        if not _has_permission(KIOSK_MOBILE_PERMISSION):
+            return jsonify(ok=False, error='FORBIDDEN', permission=KIOSK_MOBILE_PERMISSION,
+                           message=_KIOSK_MOBILE_DENIED), 403
+        return fn(*args, **kwargs)
+    return wrapped
+
+
+def kiosk_mobile_page_required(fn):
+    """Page gate for /kiosk-mobile -- redirect a browser, do not JSON at it.
+
+    Same policy as kiosk_mobile_required, different failure shape: a person
+    holding a phone must land on the login form and come BACK here afterwards
+    (?next=/kiosk-mobile), not read a 401 JSON body.
+    """
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        if validate_and_touch() is not None:
+            return redirect(url_for('login_page', next=request.path))
+        if not _has_permission(KIOSK_MOBILE_PERMISSION):
+            return (
+                '<!doctype html><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<title>Không có quyền</title>'
+                '<body style="font:16px/1.5 system-ui;padding:24px;max-width:34em">'
+                f'<h1 style="font-size:1.3rem">Không có quyền</h1><p>{_KIOSK_MOBILE_DENIED}</p>'
+                '<p><a href="/app">Về màn hình chính</a></p>',
+                403,
+                {'Content-Type': 'text/html; charset=utf-8'},
+            )
         return fn(*args, **kwargs)
     return wrapped

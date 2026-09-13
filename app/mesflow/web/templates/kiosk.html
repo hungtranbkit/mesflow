@@ -11,17 +11,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="KIMEX Kiosk">
   <meta name="theme-color" content="#102b3f">
-  <title>KIMEX Kiosk</title>
-  <link rel="manifest" href="/kiosk.webmanifest?v={{ version }}">
+  <title>{{ 'KIMEX Kiosk — Điện thoại' if mobile else 'KIMEX Kiosk' }}</title>
+  <link rel="manifest" href="{{ manifest_url|default('/kiosk.webmanifest') }}?v={{ version }}">
   <link rel="apple-touch-icon" href="/static/kiosk-icon.svg">
   <link rel="icon" href="/static/kiosk-icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/kiosk.css?v={{ version }}">
 </head>
-<body>
+<body data-kiosk-api="{{ api_base|default('/api/kiosk-web') }}" data-kiosk-surface="{{ 'mobile' if mobile else 'station' }}">
   <!-- THESIS: a high-clarity shop-floor station, not a consumer kiosk. OWN-WORLD: command navy frame, neutral field, large task typography, semantic confirmation states. STORY: scan identity, scan operation, record output, recover clearly. FIRST VIEWPORT: persistent station header, one dominant instruction, scanner status anchored below. FORM: single-task industrial terminal; seed mesflow-industrial-console. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md. -->
   <main class="kiosk-shell">
     <header class="kiosk-header">
-      <div><strong>KIMEX · Trạm thao tác</strong><small id="version">v{{ version }}</small></div>
+      <div><strong>KIMEX · {{ 'Kiosk điện thoại' if mobile else 'Trạm thao tác' }}</strong><small id="version">v{{ version }}</small></div>
       <div class="header-actions"><button id="camera-toggle" data-testid="kiosk-camera-toggle" class="camera-toggle" type="button" aria-pressed="false" hidden>Camera điện thoại</button><button id="demo-toggle" data-testid="kiosk-demo-toggle" class="demo-toggle" type="button" aria-controls="demo-panel" aria-expanded="false">Mô phỏng quét QR</button><div id="clock"></div></div>
     </header>
 
@@ -169,7 +169,16 @@
         <p id="camera-result-kind" data-testid="kiosk-camera-result-kind" class="camera-result-kind"></p>
         <p id="camera-result-title" data-testid="kiosk-camera-result-title" class="camera-result-title"></p>
         <p id="camera-result-sub" data-testid="kiosk-camera-result-sub" class="camera-result-sub"></p>
+        <!-- CHUỖI QR THÔ, ĐÚNG NHƯ CAMERA ĐỌC ĐƯỢC. Không cắt, không chuẩn hoá:
+             đây là thứ duy nhất trả lời được câu "tem in ra có đúng không".
+             Đổ bằng textContent trong kiosk-camera.js -- payload là dữ liệu do
+             người ngoài in ra, không bao giờ đi vào innerHTML. -->
+        <p id="camera-result-raw" data-testid="kiosk-camera-result-raw" class="camera-result-raw" hidden></p>
         <p id="camera-result-next" data-testid="kiosk-camera-result-next" class="camera-result-next"></p>
+        <!-- Lỗi nghiệp vụ là một LỚP PHỤ nằm dưới kết quả, không phải màn thay
+             thế nó: "PO chưa Start" không xoá được sự thật là đã quét trúng
+             công đoạn nào. -->
+        <p id="camera-result-error" data-testid="kiosk-camera-result-error" class="camera-result-error" hidden></p>
       </div>
       <p id="camera-hint" data-testid="kiosk-camera-hint" class="camera-hint"></p>
       <p id="camera-status" data-testid="kiosk-camera-status" class="camera-status" role="alert" aria-live="polite"></p>

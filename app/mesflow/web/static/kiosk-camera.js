@@ -40,6 +40,8 @@
   const resultTitle = layer.querySelector('#camera-result-title');
   const resultSub = layer.querySelector('#camera-result-sub');
   const resultNext = layer.querySelector('#camera-result-next');
+  const resultRaw = layer.querySelector('#camera-result-raw');
+  const resultError = layer.querySelector('#camera-result-error');
 
   //: Cùng một mã không được gửi lại trong khoảng này. Người cầm điện thoại giữ
   //: máy trước tem vài giây là chuyện bình thường, và camera đọc được 10 lần
@@ -186,6 +188,20 @@
     if (resultKind) resultKind.textContent = ok ? `Đã quét: ${data.label || 'QR'}` : (data.label || 'Không nhận được mã');
     if (resultTitle) resultTitle.textContent = data.title || '';
     if (resultSub) resultSub.textContent = data.sub || '';
+    // CHUỖI QR THÔ. `textContent`, không bao giờ innerHTML: nội dung này do
+    // người in tem quyết định, tức là dữ liệu từ bên ngoài. Một tem chứa
+    // `<img onerror=…>` phải hiện ra đúng như thế trên màn hình chứ không
+    // được chạy. Ẩn hẳn dòng khi rỗng, để thẻ không có một khoảng trống câm.
+    if (resultRaw) {
+      resultRaw.textContent = data.raw || '';
+      resultRaw.hidden = !data.raw;
+    }
+    // LỖI NGHIỆP VỤ LÀ LỚP PHỤ, không phải màn thay thế. "PO chưa Start" nằm
+    // BÊN CẠNH tên công đoạn vừa đọc được, không đứng thay chỗ nó.
+    if (resultError) {
+      resultError.textContent = data.error || '';
+      resultError.hidden = !data.error;
+    }
     if (resultNext) resultNext.textContent = data.next || '';
     resultEl.hidden = false;
     layer.classList.add('has-result');
@@ -220,7 +236,7 @@
       // báo lỗi phải phát ngay tại đây, nếu không lần quét này im lặng hoàn toàn.
       beepError();
       renderResult({ok:false, label:'Mất kết nối mạng', title:'Chưa gửi được mã',
-        sub:value, next:'Giữ nguyên màn này, quét lại khi có mạng.'});
+        raw:value, next:'Giữ nguyên màn này, quét lại khi có mạng.'});
       setStatus('Mất kết nối mạng — chưa gửi được mã. Giữ nguyên màn này, quét lại khi có mạng.', 'error');
       return;
     }
