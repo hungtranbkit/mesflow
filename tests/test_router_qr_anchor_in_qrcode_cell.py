@@ -97,11 +97,19 @@ def test_form_that_moi_tem_neo_dung_o_qrcode_cua_no(stamped):
     wb, placed = stamped[0], stamped[1]
     drawings = _sheet_drawings(_saved(wb))
     assert placed, 'form thật phải có tem'
+    # Chỉ tem ĐI THEO MARKER mới có ô QRCODE để so. Tờ mức quy trình (sơn,
+    # kiểm tra, đóng gói) không có block OPERATION nào nên không thể có ô
+    # QRCODE -- tem của nó đi làn trống và mang marker_cell rỗng. Lọc theo
+    # placement thay vì theo chuỗi rỗng: 'lane' là một cách đặt hợp lệ, không
+    # phải dữ liệu thiếu.
+    marker_items = [item for item in placed if item['placement'] == 'marker']
+    assert marker_items, 'form thật phải có tem theo marker'
     lech = []
-    for item in placed:
+    for item in marker_items:
         sheet, mc = item['sheet'], item['marker_cell']
         if _cell0(mc) not in drawings.get(sheet, set()):
             lech.append((sheet, mc, item.get('operation_id'), item.get('kind')))
     assert not lech, f'{len(lech)} tem không neo đúng ô QRCODE trên file xuất: {lech[:8]}'
-    # đủ số tem = đủ marker (không thiếu, không thừa lệch)
-    assert len(placed) >= 1
+    # Và tem đi làn phải là NGOẠI LỆ có lý do, không phải cách thoát mặc định.
+    lane = [item for item in placed if item['placement'] == 'lane']
+    assert len(lane) <= 1, f'chỉ tờ quy trình được đi làn, đang có: {lane}'

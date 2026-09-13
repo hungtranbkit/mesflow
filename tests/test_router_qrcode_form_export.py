@@ -82,6 +82,60 @@ def _write_marker(sheet_xml, coordinate):
     return sheet_xml[:match.start()] + marker + sheet_xml[match.end():]
 
 
+OPERATION_NUMBER = re.compile(r'(OPERATION\s*#\s*)(\d+)', re.IGNORECASE)
+
+
+def _retitle(sheet_xml, row, title):
+    """Ghi đè tiêu đề block ở ô A<row> bằng inline string, giữ nguyên style.
+
+    Tiêu đề gốc là shared string dùng chung giữa nhiều tờ; sửa chuỗi ấy sẽ đổi
+    cả những tờ khác. Ghi inline chỉ đổi ĐÚNG một ô.
+    """
+    pattern = re.compile(r'<c r="A%d"([^>]*)>(.*?)</c>' % row, re.DOTALL)
+    match = pattern.search(sheet_xml)
+    assert match, f'không thấy ô A{row} trong XML'
+    attributes = re.sub(r'\s+t="[^"]*"', '', match.group(1))
+    escaped = title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    cell = f'<c r="A{row}"{attributes} t="inlineStr"><is><t>{escaped}</t></is></c>'
+    return sheet_xml[:match.start()] + cell + sheet_xml[match.end():]
+
+
+def _renumber_duplicates(ws, starts):
+    """Đánh lại số OP bị trùng TRONG CÙNG một tờ. Trả [(dòng, tiêu đề mới)].
+
+    VÌ SAO FIXTURE PHẢI LÀM VIỆC NÀY. Hai công đoạn cùng số trong cùng một Part
+    là LỖI CHẶN khi nhập (REQ-TPL-007): một workbook như vậy không bao giờ tới
+    được bước xuất trong thực tế. Nhưng bài này dựng `rows` THẲNG TỪ PARSER,
+    không đi qua cửa nhập, nên nó lách mất hàng rào đó -- và biểu mẫu thật có
+    10 chỗ trùng, trong đó tờ 'Chốt tay ghế' có hai `OPERATION # 01`. Hai công
+    đoạn cùng mã thì cùng khớp vào MỘT block, nên hai tem rơi trùng một ô
+    marker: 4 ảnh nhưng chỉ 3 vị trí.
+
+    Đó không phải lỗi của đường xuất, mà là fixture đang mô tả một file mà hệ
+    thống đã từ chối từ cửa trước. Nên fixture phải hợp lệ: đánh lại số cho
+    duy nhất, y như xưởng buộc phải sửa file trước khi nhập được.
+    """
+    titles = sorted((cell.row, cell.value) for row in ws.iter_rows() for cell in row
+                    if isinstance(cell.value, str)
+                    and cell.value.strip().upper().startswith('OPERATION #'))
+    highest = 0
+    for _row, value in titles:
+        match = OPERATION_NUMBER.search(value)
+        highest = max(highest, int(match.group(2)) if match else 0)
+    seen, changes = set(), []
+    for row, value in titles:
+        match = OPERATION_NUMBER.search(value)
+        number = int(match.group(2)) if match else None
+        if number is None or number not in seen:
+            seen.add(number)
+            continue
+        highest += 1
+        changes.append((row, OPERATION_NUMBER.sub(
+            lambda m, n=highest: f'{m.group(1)}{n:02d}', value, count=1)))
+        seen.add(highest)
+    return changes
+
+
 def _marker_cell(ws, row, column):
     """Ô thật để ghi marker: nếu (row, column) nằm trong merge thì là góc trên-trái.
 
@@ -119,6 +173,10 @@ def _marked_form(real_bytes, sheets=None):
             # Tờ không có block thì không có Operation nào để dán tem.
             continue
         xml = source.read(parts[name]).decode('utf-8')
+        # Hợp lệ hoá TRƯỚC khi đánh dấu: file có hai công đoạn cùng số trong
+        # một Part vốn không nhập được, nên cũng không được dùng làm mẫu xuất.
+        for row, title in _renumber_duplicates(ws, starts):
+            xml = _retitle(xml, row, title)
         placed = []
         for start in starts:
             setup_cell = _marker_cell(ws, start + SETUP_MARKER_OFFSET, MARKER_COLUMN)
@@ -263,12 +321,26 @@ def test_marker_trong_vung_setup_ra_tem_setup_du_nhan_la_cong_thuc(stamped, rows
 
 # --- tem đi đúng đường marker --------------------------------------------
 
-def test_moi_tem_deu_theo_marker_khong_cai_nao_roi_vao_lan_doan(stamped, rows):
+def test_moi_op_deu_co_tem_va_chi_to_quy_trinh_moi_di_lan(stamped, rows):
+    """Mọi Operation phải có tem. Chỉ tờ QUY TRÌNH mới được đi làn.
+
+    Tờ quy trình (sơn, kiểm tra, đóng gói) không có block OPERATION nào, nên
+    người vẽ biểu mẫu không thể đặt ô QRCODE cho nó -- không có block để đặt
+    vào. Trước đây tem của nó bị BỎ QUA im lặng và lần xuất vẫn báo thành công:
+    tờ sơn có Operation thật trong PO nhưng tờ giấy in ra không có gì để quét.
+    """
     _, placed = stamped
     assert placed, 'phải có tem'
-    assert {item['placement'] for item in placed} == {'marker'}
     expected = {row['id'] for row in rows} | {row['setup_id'] for row in rows if row['setup_id']}
-    assert {item['operation_id'] for item in placed} == expected
+    assert {item['operation_id'] for item in placed} == expected, 'có Operation không có tem'
+
+    lane = [item for item in placed if item['placement'] == 'lane']
+    process_rows = [row for row in rows if row['_block_row'] < 1]
+    assert len(process_rows) == 1, 'biểu mẫu thật có đúng một tờ quy trình không block'
+    assert len(lane) == 1, f'chỉ tờ quy trình được đi làn, đang có: {lane}'
+    assert lane[0]['sheet'] == process_rows[0]['_sheet']
+    # Mọi tem còn lại đều theo marker.
+    assert {item['placement'] for item in placed if item is not lane[0]} == {'marker'}
 
 
 def test_tem_dan_vao_dung_o_qrcode_cua_block_minh(stamped, rows, marked):
@@ -279,6 +351,8 @@ def test_tem_dan_vao_dung_o_qrcode_cua_block_minh(stamped, rows, marked):
     _, placed = stamped
     by_operation = {item['operation_id']: item for item in placed}
     for row in rows:
+        if row['_block_row'] < 1:
+            continue        # tờ quy trình: không có block, nên không có marker
         setup_cell, op_cell = cells[(row['_sheet'], row['_block_row'])]
         op_item = by_operation[row['id']]
         assert op_item['sheet'] == row['_sheet']
@@ -319,7 +393,8 @@ def test_anh_trong_file_xuat_ra_nam_gon_trong_vung_marker(source_bytes, exported
     source = load_workbook(BytesIO(source_bytes))
     _, placed = stamped
     regions = {}
-    for item in placed:
+    marker_items = [item for item in placed if item['placement'] == 'marker']
+    for item in marker_items:
         min_cell, max_cell = item['region'].split(':')
         regions.setdefault(item['sheet'], []).append((min_cell, max_cell, item))
 
@@ -352,13 +427,14 @@ def test_anh_trong_file_xuat_ra_nam_gon_trong_vung_marker(source_bytes, exported
             assert abs((width - side_x) - 2 * offset_x) <= 1
             assert abs((height - side_y) - 2 * offset_y) <= 1
             checked += 1
-    assert checked == len(placed), 'phải kiểm hết mọi tem'
+    assert checked == len(marker_items), 'phải kiểm hết mọi tem theo marker'
 
 
 def test_tem_trong_merged_range_cua_bieu_mau_that(stamped):
     """Marker OP rơi vào vùng J:K đã merge SẴN của biểu mẫu, không phải merge do test tạo."""
     _, placed = stamped
-    op_items = [item for item in placed if item['kind'] == 'OP']
+    op_items = [item for item in placed
+                if item['kind'] == 'OP' and item['placement'] == 'marker']
     assert op_items
     merged = [item for item in op_items if item['region'].split(':')[0] != item['region'].split(':')[1]]
     assert merged, 'không có tem nào rơi vào merged range -> bài này không kiểm được gì'
@@ -376,8 +452,8 @@ def test_o_marker_cao_mot_dong_bi_bao_la_qua_nho_chu_khong_im_lang(stamped):
     người vẽ biểu mẫu gộp ô cao hơn.
     """
     _, placed = stamped
-    one_row = [item for item in placed
-               if item['region'].split(':')[0][1:] == item['region'].split(':')[1][1:]]
+    one_row = [item for item in placed if item['placement'] == 'marker'
+               and item['region'].split(':')[0][1:] == item['region'].split(':')[1][1:]]
     assert one_row, 'biểu mẫu này toàn ô marker cao một dòng'
     assert all(item['too_small'] for item in one_row)
     assert all(item['size_px'] < QR_MIN_READABLE_PX for item in one_row)

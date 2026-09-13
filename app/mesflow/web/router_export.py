@@ -880,6 +880,24 @@ def _stamp_source_workbook(source_bytes, po, rows, warnings=None):
 
         def stamp(kind, payload, label, operation_id, fallback_column):
             marker = slots.get(kind)
+            # TỜ QUY TRÌNH KHÔNG CÓ BLOCK -> LUÔN ĐI LÀN, kể cả ở file có marker.
+            #
+            # Công đoạn suy ra từ tờ quy trình (REQ-TPL-007: sơn, kiểm tra, đóng
+            # gói) không có block nào, nên `excel_row` là 0 và người vẽ biểu mẫu
+            # KHÔNG THỂ đặt ô QRCODE cho nó -- không có block để đặt vào. Coi nó
+            # như "vẽ sót marker" rồi bỏ qua tem là đánh rơi đúng bước sản xuất
+            # mà việc suy ra công đoạn sinh ra để cứu: tờ sơn có Operation thật
+            # trong PO nhưng tờ giấy in ra không có gì để quét, và lần xuất vẫn
+            # báo thành công. Đã xảy ra thật trên file NEWARK.
+            if not marker and excel_row < 1:
+                column = fallback_column()
+                _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
+                                     sheet=sheet_name, operation=row['code'])
+                anchor = _place_qr(ws, payload, label, row=1, column=column)
+                placed.append({'operation_id': operation_id, 'sheet': sheet_name,
+                               'anchor': anchor, 'payload': payload, 'kind': kind,
+                               'placement': 'lane', 'marker_cell': ''})
+                return
             if marker:
                 marker_row, marker_col, coordinate = marker
                 # Vùng của marker: chính ô đó, hoặc cả merged range chứa nó. Tem
