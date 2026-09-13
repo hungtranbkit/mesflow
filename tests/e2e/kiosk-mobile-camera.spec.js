@@ -52,18 +52,23 @@ const FAKE_CAMERA = () => {
   canvas.width = 320; canvas.height = 240;
   canvas.getContext('2d').fillRect(0, 0, 320, 240);
   window.__cameraStops = 0;
-  navigator.mediaDevices = navigator.mediaDevices || {};
-  navigator.mediaDevices.getUserMedia = async () => {
-    const stream = canvas.captureStream(5);
-    stream.getTracks().forEach(track => {
-      const stop = track.stop.bind(track);
-      track.stop = () => { window.__cameraStops += 1; stop(); };
-    });
-    return stream;
-  };
-  navigator.mediaDevices.enumerateDevices = async () => ([
-    { kind: 'videoinput', deviceId: 'back', label: 'Back' },
-  ]);
+  // Trên origin http thì navigator.mediaDevices KHÔNG tồn tại; trên origin
+  // https nó tồn tại và CHỈ ĐỌC. Gán thẳng chỉ ăn ở trường hợp đầu, nên phải
+  // defineProperty để bài chạy được cả khi trỏ vào bản đã deploy.
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      getUserMedia: async () => {
+        const stream = canvas.captureStream(5);
+        stream.getTracks().forEach(track => {
+          const stop = track.stop.bind(track);
+          track.stop = () => { window.__cameraStops += 1; stop(); };
+        });
+        return stream;
+      },
+      enumerateDevices: async () => ([{ kind: 'videoinput', deviceId: 'back', label: 'Back' }]),
+    },
+  });
 };
 
 async function openKiosk(page, state) {
@@ -92,13 +97,20 @@ test('WebKit không có BarcodeDetector — nên bộ giải mã JS là đườn
   await context.close();
 });
 
-test('trên http:// thường, nút camera KHÔNG hiện — một nút bấm vào là lỗi thì thà đừng có', async () => {
+test('nút camera hiện hay ẩn ĐÚNG THEO việc origin có bảo mật hay không', async () => {
   const context = await phone();
   const page = await context.newPage();
   await openKiosk(page, { scans: [] });
-  // Không stub gì: đây đúng là điều kiện của một trang http.
-  expect(await page.evaluate(() => !!navigator.mediaDevices)).toBe(false);
-  await expect(page.getByTestId('kiosk-camera-toggle')).toBeHidden();
+  // Không stub gì: đây là điều kiện THẬT của origin đang chạy bài. Máy chủ
+  // test nội bộ là http (không có mediaDevices); bản đã deploy là https (có).
+  // Một bài chỉ đúng ở một trong hai thì khi trỏ vào bản deploy sẽ đỏ vì lý do
+  // không liên quan -- nên khoá đúng LUẬT: có camera thì hiện nút, không có
+  // thì ẩn, không bao giờ hiện một nút bấm vào là báo lỗi.
+  const secure = await page.evaluate(() => window.isSecureContext);
+  const hasMedia = await page.evaluate(() => !!navigator.mediaDevices);
+  expect(hasMedia, 'mediaDevices chỉ tồn tại ở secure context').toBe(secure);
+  if (hasMedia) await expect(page.getByTestId('kiosk-camera-toggle')).toBeVisible();
+  else await expect(page.getByTestId('kiosk-camera-toggle')).toBeHidden();
   await context.close();
 });
 
@@ -163,7 +175,10 @@ test('bật rồi tắt camera thì track bị DỪNG, không chỉ ẩn thẻ v
   await openKiosk(page, { scans: [] });
   await page.getByTestId('kiosk-camera-toggle').click();
   await expect(page.getByTestId('kiosk-camera-layer')).toHaveClass(/on/);
-  expect(await page.evaluate(() => window.KioskCamera.isRunning())).toBe(true);
+  // CHỜ chứ không đọc ngay: lớp camera hiện ra TRƯỚC khi bộ giải mã sẵn sàng
+  // (cố ý -- xem chú thích trong kiosk-camera.js), và khi bài chạy với bản đã
+  // deploy thì jsQR còn phải tải 250 KB qua mạng.
+  await page.waitForFunction(() => window.KioskCamera.isRunning(), null, { timeout: 25000 });
 
   await page.getByTestId('kiosk-camera-close').click();
   await expect(page.getByTestId('kiosk-camera-layer')).not.toHaveClass(/on/);
@@ -294,7 +309,7 @@ test('jsQR đọc được một ảnh QR THẬT từ khung hình camera trên W
   await page.getByTestId('kiosk-camera-toggle').click();
 
   // Không bơm chuỗi vào: chuỗi phải ĐI RA TỪ ẢNH.
-  await expect(page.locator('#screen-operation')).toHaveClass(/active/, { timeout: 25000 });
+  await expect(page.locator('#screen-operation')).toHaveClass(/active/, { timeout: 45000 });
   expect(state.scans).toEqual(['WF|EMP|NV-009']);
   // Và thư viện dự phòng đúng là thứ đã làm việc đó.
   expect(await page.evaluate(() => typeof window.jsQR)).toBe('function');
