@@ -2,8 +2,19 @@
 <html lang="vi" data-version="{{ version }}">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <!-- viewport-fit=cover: iPhone có tai thỏ/Dynamic Island, không khai báo thì
+       trình duyệt tự chừa lề đen hai bên ở ngang màn. Chừa chỗ rồi thì phần
+       tránh vùng che do CSS lo bằng env(safe-area-inset-*). -->
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KIMEX Kiosk">
+  <meta name="theme-color" content="#102b3f">
   <title>KIMEX Kiosk</title>
+  <link rel="manifest" href="/kiosk.webmanifest?v={{ version }}">
+  <link rel="apple-touch-icon" href="/static/kiosk-icon.svg">
+  <link rel="icon" href="/static/kiosk-icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/kiosk.css?v={{ version }}">
 </head>
 <body>
@@ -11,7 +22,7 @@
   <main class="kiosk-shell">
     <header class="kiosk-header">
       <div><strong>KIMEX · Trạm thao tác</strong><small id="version">v{{ version }}</small></div>
-      <div class="header-actions"><button id="demo-toggle" data-testid="kiosk-demo-toggle" class="demo-toggle" type="button" aria-controls="demo-panel" aria-expanded="false">Mô phỏng quét QR</button><div id="clock"></div></div>
+      <div class="header-actions"><button id="camera-toggle" data-testid="kiosk-camera-toggle" class="camera-toggle" type="button" aria-pressed="false" hidden>Camera điện thoại</button><button id="demo-toggle" data-testid="kiosk-demo-toggle" class="demo-toggle" type="button" aria-controls="demo-panel" aria-expanded="false">Mô phỏng quét QR</button><div id="clock"></div></div>
     </header>
 
     <section id="screen-ready" class="screen active">
@@ -148,6 +159,24 @@
       </div>
     </aside>
 
+    <div id="camera-layer" data-testid="kiosk-camera-layer" class="camera-layer" aria-hidden="false">
+      <video id="camera-video" data-testid="kiosk-camera-video" playsinline muted autoplay></video>
+      <div class="camera-frame" aria-hidden="true"></div>
+      <p id="camera-hint" data-testid="kiosk-camera-hint" class="camera-hint"></p>
+      <p id="camera-status" data-testid="kiosk-camera-status" class="camera-status" role="alert" aria-live="polite"></p>
+      <div class="camera-actions">
+        <button id="camera-switch" class="secondary" type="button" hidden>Đổi camera</button>
+        <button id="camera-close" data-testid="kiosk-camera-close" class="secondary" type="button">Tắt camera</button>
+      </div>
+    </div>
+
+    <div id="qty-keypad" data-testid="kiosk-qty-keypad" class="qty-keypad">
+      <button type="button" data-key="1">1</button><button type="button" data-key="2">2</button><button type="button" data-key="3">3</button>
+      <button type="button" data-key="4">4</button><button type="button" data-key="5">5</button><button type="button" data-key="6">6</button>
+      <button type="button" data-key="7">7</button><button type="button" data-key="8">8</button><button type="button" data-key="9">9</button>
+      <button type="button" data-key="clear" class="secondary">C</button><button type="button" data-key="0">0</button><button type="button" data-key="back" class="secondary" aria-label="Xóa một chữ số">⌫</button>
+    </div>
+
     <input id="scanner-input" class="scanner-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Scanner input">
     <footer><span id="scan-status">Máy quét sẵn sàng</span><span><span id="timezone-label">GMT+7 · HCM</span> · <span id="device-label"></span></span></footer>
   </main>
@@ -156,5 +185,8 @@
   <script src="/static/core/net.js?v={{ version }}"></script>
   <script src="/static/op-policy.js?v={{ version }}"></script>
   <script src="/static/kiosk.js?v={{ version }}"></script>
+  <!-- Nguồn quét bằng camera. Nạp SAU kiosk.js và hoàn toàn tuỳ chọn: bỏ thẻ
+       này ra thì kiosk quay về đúng hành vi máy quét USB như trước. -->
+  <script src="/static/kiosk-camera.js?v={{ version }}"></script>
 </body>
 </html>

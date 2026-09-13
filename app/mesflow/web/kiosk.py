@@ -74,6 +74,38 @@ def kiosk_page():
 # public employee-productivity wallboard was 100% unreachable in
 # production, not merely broken. PUBLIC (no login) -- same posture as
 # /kiosk above: the TV/kiosk display has no one signed in.
+#: PWA ở mức tối thiểu, CỐ Ý.
+#:
+#: Đủ để iPhone "Thêm vào màn hình chính" mở ra toàn màn hình, không hơn. KHÔNG
+#: có service worker: kiosk đã có cơ chế tự nạp lại khi máy chủ lên phiên bản
+#: mới (heartbeat so `data-version` của tab với phiên bản máy chủ -- xem
+#: kiosk.js). Một service worker phục vụ trang từ cache sẽ đánh nhau với đúng
+#: cơ chế đó và có thể giữ một máy ở phiên bản cũ mà không ai biết. Trang
+#: kiosk phải luôn là bản máy chủ đang chạy.
+KIOSK_MANIFEST = {
+    'name': 'KIMEX Kiosk — Trạm thao tác',
+    'short_name': 'KIMEX Kiosk',
+    'description': 'Quét QR nhân viên và công đoạn bằng camera điện thoại.',
+    'start_url': '/kiosk',
+    'scope': '/kiosk',
+    'display': 'standalone',
+    'orientation': 'any',
+    'background_color': '#f3f5f7',
+    'theme_color': '#102b3f',
+    'lang': 'vi',
+    'icons': [
+        {'src': '/static/kiosk-icon.svg', 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any'},
+    ],
+}
+
+
+@bp.get('/kiosk.webmanifest')
+def kiosk_manifest():
+    response = jsonify(KIOSK_MANIFEST)
+    response.headers['Content-Type'] = 'application/manifest+json'
+    return response
+
+
 @bp.get('/kiosk/employee-productivity')
 def employee_productivity_wallboard_page():
     return render_template('wallboard_employee_productivity.html', version=__version__)
