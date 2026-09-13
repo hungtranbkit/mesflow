@@ -22,7 +22,14 @@
   <main class="kiosk-shell">
     <header class="kiosk-header">
       <div><strong>KIMEX · {{ 'Kiosk điện thoại' if mobile else 'Trạm thao tác' }}</strong><small id="version">v{{ version }}</small></div>
-      <div class="header-actions"><button id="camera-toggle" data-testid="kiosk-camera-toggle" class="camera-toggle" type="button" aria-pressed="false" hidden>Camera điện thoại</button><button id="demo-toggle" data-testid="kiosk-demo-toggle" class="demo-toggle" type="button" aria-controls="demo-panel" aria-expanded="false">Mô phỏng quét QR</button><div id="clock"></div></div>
+      <!-- NÚT CAMERA CHỈ CÓ Ở TRANG ĐIỆN THOẠI.
+           Trạm cố định quét bằng máy quét USB/GM65 cắm sẵn; một nút "Camera
+           điện thoại" ở đó là một lối rẽ không ai dùng nhưng ai cũng bấm thử,
+           và trên máy tính để bàn không có camera thì bấm vào chỉ ra thông báo
+           lỗi. Ẩn bằng CSS/JS thì nút vẫn nằm trong DOM và vẫn bấm được bằng
+           bàn phím hay DevTools -- nên nó KHÔNG ĐƯỢC DỰNG RA, chứ không phải
+           được giấu đi. Máy điện thoại vào /kiosk-mobile. -->
+      <div class="header-actions">{% if mobile %}<button id="camera-toggle" data-testid="kiosk-camera-toggle" class="camera-toggle" type="button" aria-pressed="false" hidden>Camera điện thoại</button>{% endif %}<button id="demo-toggle" data-testid="kiosk-demo-toggle" class="demo-toggle" type="button" aria-controls="demo-panel" aria-expanded="false">Mô phỏng quét QR</button><div id="clock"></div></div>
     </header>
 
     <section id="screen-ready" class="screen active">
@@ -159,6 +166,7 @@
       </div>
     </aside>
 
+{% if mobile %}
     <div id="camera-layer" data-testid="kiosk-camera-layer" class="camera-layer" aria-hidden="false">
       <video id="camera-video" data-testid="kiosk-camera-video" playsinline muted autoplay></video>
       <div class="camera-frame" aria-hidden="true"></div>
@@ -187,6 +195,7 @@
         <button id="camera-close" data-testid="kiosk-camera-close" class="secondary" type="button">Tắt camera</button>
       </div>
     </div>
+{% endif %}
 
     <div id="qty-keypad" data-testid="kiosk-qty-keypad" class="qty-keypad">
       <button type="button" data-key="1">1</button><button type="button" data-key="2">2</button><button type="button" data-key="3">3</button>
@@ -203,8 +212,9 @@
   <script src="/static/core/net.js?v={{ version }}"></script>
   <script src="/static/op-policy.js?v={{ version }}"></script>
   <script src="/static/kiosk.js?v={{ version }}"></script>
-  <!-- Nguồn quét bằng camera. Nạp SAU kiosk.js và hoàn toàn tuỳ chọn: bỏ thẻ
-       này ra thì kiosk quay về đúng hành vi máy quét USB như trước. -->
-  <script src="/static/kiosk-camera.js?v={{ version }}"></script>
+  <!-- Nguồn quét bằng camera -- CHỈ nạp ở trang điện thoại. Nạp SAU kiosk.js và
+       hoàn toàn tuỳ chọn: không có thẻ này thì kiosk là đúng hành vi máy quét
+       USB như trước, không thêm một byte JavaScript nào. -->
+  {% if mobile %}<script src="/static/kiosk-camera.js?v={{ version }}"></script>{% endif %}
 </body>
 </html>

@@ -15,6 +15,7 @@ session, cùng luật.
 | | `/kiosk` | `/kiosk-mobile` |
 |---|---|---|
 | Dành cho | Trạm CỐ ĐỊNH ở xưởng (máy quét USB/GM65) | Điện thoại cá nhân |
+| Camera | **Không có** — từ 71.0.0.310 nút “Camera điện thoại” không còn được dựng ra ở trang này | Có |
 | Đăng nhập | **Không cần** — máy xưởng không có tài khoản | **Bắt buộc**, cần quyền `kiosk.view` |
 | API | `/api/kiosk-web/*` (công khai) | `/api/kiosk-mobile/*` (chặn người chưa đăng nhập) |
 | Nhận diện người làm | Thẻ QR nhân viên đã quét | Thẻ QR nhân viên đã quét (tài khoản chỉ để **mở cửa**, không phải để ghi công) |
@@ -70,7 +71,7 @@ chính*. Mở từ biểu tượng đó sẽ chạy toàn màn hình, không có
 
 | Hiện tượng | Nguyên nhân và cách xử lý |
 |---|---|
-| Không thấy nút “Camera điện thoại” | Trang đang mở bằng `http://`, hoặc trình duyệt không hỗ trợ camera. Mở lại bằng `https://`. Nút được ẩn có chủ đích: một nút bấm vào là báo lỗi thì thà đừng có. |
+| Không thấy nút “Camera điện thoại” | Kiểm tra địa chỉ trước: từ **71.0.0.310** nút này **chỉ có ở `/kiosk-mobile`**, không còn ở `/kiosk`. Đang đúng `/kiosk-mobile` mà vẫn không thấy thì trang đang mở bằng `http://`, hoặc trình duyệt không hỗ trợ camera — mở lại bằng `https://`. Nút được ẩn có chủ đích: một nút bấm vào là báo lỗi thì thà đừng có. |
 | “Bạn đã từ chối quyền camera…” | iPhone: **Cài đặt › Safari › Camera › Hỏi** (hoặc Cho phép), rồi tải lại trang. |
 | “Camera đang được ứng dụng khác sử dụng” | Đóng app đang giữ camera (Camera, Zoom, FaceTime…) rồi bật lại. |
 | Camera mở nhưng không đọc được mã | Đưa gần hơn cho mã chiếm khoảng nửa khung; tránh chói và bóng màn hình; lau ống kính. Mã in mờ hoặc nhàu thì in lại. |
@@ -124,6 +125,13 @@ và máy chủ chấp nhận giờ đó — đó là việc riêng, không phả
 
 ## 5. Ghi chú kỹ thuật
 
+- **Trạm cố định KHÔNG dựng khối camera (71.0.0.310).** Nút, lớp camera và cả
+  thẻ `<script>` của `kiosk-camera.js` nằm trong `{% if mobile %}`, nên `/kiosk`
+  không có chúng trong DOM và không tải module về. Ẩn bằng CSS thì nút vẫn
+  focus được bằng bàn phím và vẫn bấm được từ DevTools — nên nó không được
+  dựng ra, chứ không phải được giấu đi. Ranh giới sự kiện có sẵn (`kiosk.js`
+  chỉ phát/nghe sự kiện, không chạm DOM camera) là thứ khiến việc gỡ này gọn
+  trong đúng một tệp template.
 - **Camera là NGUỒN QUÉT, không phải kiosk thứ hai.** `static/kiosk-camera.js`
   giải mã rồi phát sự kiện `kiosk:camera-scan`; `kiosk.js` đưa chuỗi đó vào đúng
   `scan()` mà máy quét USB dùng, tức vẫn đi qua `/api/kiosk-web/scan`. Module
@@ -148,8 +156,9 @@ và máy chủ chấp nhận giờ đó — đó là việc riêng, không phả
 - **Thư viện nhúng kèm**: `static/vendor/jsqr-1.4.0.js` (Apache-2.0) — nguồn gốc
   và SHA-256 ở `static/vendor/README.md`.
 - **Hai cửa, một bản cài đặt.** `/kiosk-mobile` render đúng `templates/kiosk.html`
-  và chạy đúng `kiosk.js` + `kiosk-camera.js`. Chỉ hai thứ khác: tiền tố API và
-  manifest, cả hai do máy chủ ghi vào trang (`<body data-kiosk-api=…>`). Mỗi
+  và chạy đúng `kiosk.js` + `kiosk-camera.js`. Chỉ ba thứ khác: tiền tố API,
+  manifest, và **khối camera** — cả ba do máy chủ quyết khi dựng trang
+  (`<body data-kiosk-api=…>`, `{% if mobile %}`). Mỗi
   route `/api/kiosk-mobile/*` là hai dòng gọi lại đúng hàm `_*_response()` mà
   route công khai gọi — không có bản chép thứ hai của bất kỳ luật nghiệp vụ nào,
   chỉ khác đúng cái decorator (`@kiosk_mobile_required`, xem `web/auth.py`).

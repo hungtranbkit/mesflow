@@ -157,6 +157,45 @@ def test_the_fixed_station_is_still_open_and_still_calls_its_own_api(client):
     assert 'data-kiosk-surface="station"' in body
 
 
+def test_the_station_page_has_no_phone_camera_entry_point_at_all(client):
+    """Not hidden -- ABSENT.
+
+    The fixed station scans with a USB/GM65 gun wired to it. A "Camera điện
+    thoại" button there is a road nobody needs and everybody presses once, and
+    on a desktop with no camera pressing it only produces an error message.
+
+    `hidden`, `display:none` or a JS guard would all leave the button in the
+    DOM: still focusable by keyboard, still clickable from DevTools, still
+    something a future reader has to reason about. So the markup is not
+    RENDERED for this surface, and kiosk-camera.js is not even fetched.
+    """
+    body = client.get('/kiosk').get_data(as_text=True)
+    for absent in ('camera-toggle', 'kiosk-camera-toggle', 'Camera điện thoại',
+                   'camera-layer', 'camera-result', 'kiosk-camera.js'):
+        assert absent not in body, f'/kiosk still ships {absent!r}'
+
+
+def test_the_phone_page_still_has_every_one_of_them(client):
+    """The other half of the pair: this removal is about WHERE the camera
+    lives, not about dropping it. A test that only proves absence would stay
+    green if the camera disappeared from both surfaces."""
+    _sign_in(client)
+    body = client.get('/kiosk-mobile').get_data(as_text=True)
+    for present in ('camera-toggle', 'kiosk-camera-toggle', 'Camera điện thoại',
+                    'camera-layer', 'camera-result', 'kiosk-camera.js'):
+        assert present in body, f'/kiosk-mobile lost {present!r}'
+
+
+def test_the_station_page_still_carries_the_scanner_path_untouched(client):
+    """What must NOT change while the camera goes away: the USB/GM65 path.
+    scanner-input is where a scanner gun types, and the demo panel and the
+    numeric keypad are the station's own affordances."""
+    body = client.get('/kiosk').get_data(as_text=True)
+    for present in ('id="scanner-input"', 'kiosk-demo-toggle', 'qty-keypad',
+                    '/static/kiosk.js', '/static/op-policy.js', '/static/core/net.js'):
+        assert present in body, f'/kiosk lost {present!r}'
+
+
 def test_the_station_scan_endpoint_still_answers_an_anonymous_caller(client):
     """400 (not 401): it got PAST auth and into validation, which is the proof.
     An empty qr is rejected before any DB query, so this needs no Postgres."""

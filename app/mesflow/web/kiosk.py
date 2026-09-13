@@ -115,7 +115,7 @@ def kiosk_mobile_page():
 KIOSK_MANIFEST = {
     'name': 'KIMEX Kiosk — Trạm thao tác',
     'short_name': 'KIMEX Kiosk',
-    'description': 'Quét QR nhân viên và công đoạn bằng camera điện thoại.',
+    'description': 'Trạm thao tác: quét thẻ nhân viên và công đoạn bằng máy quét.',
     'start_url': '/kiosk',
     'scope': '/kiosk',
     'display': 'standalone',
@@ -136,6 +136,7 @@ KIOSK_MOBILE_MANIFEST = dict(
     KIOSK_MANIFEST,
     name='KIMEX Kiosk — Điện thoại',
     short_name='Kiosk ĐT',
+    description='Quét QR nhân viên và công đoạn bằng camera điện thoại.',
     start_url='/kiosk-mobile',
     scope='/kiosk-mobile',
 )

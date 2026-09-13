@@ -2707,7 +2707,14 @@ Nên: **phím xác nhận đổi sang `Enter`**, **phím quay lại `*` giữ ng
   `textContent` chứ không bao giờ `innerHTML`), và ngay dưới là dòng riêng cho
   phần ĐÃ TỪ CHỐI (mã lỗi + lý do). Chuỗi thô là thứ DUY NHẤT phân biệt được
   "quét nhầm tem" với "tem in sai". Lần quét bị từ chối vẫn KHÔNG tạo session.
-- **Tương thích ngược**: mở `/kiosk` trên điện thoại vẫn chạy y như trước.
+- **Trạm cố định không còn lối vào camera nào** (71.0.0.310). Nút, lớp camera
+  và thẻ `<script>` của `kiosk-camera.js` đều nằm trong `{% if mobile %}`, nên
+  `/kiosk` không dựng chúng và cũng không tải module về. Ẩn nút thì nó vẫn nằm
+  trong DOM -- vẫn focus được bằng bàn phím, vẫn bấm được từ DevTools -- nên
+  KHÔNG DỰNG RA chứ không phải giấu đi. Đường USB/GM65 (`scanner-input`, bộ
+  đệm `keydown`, `focusScanner`) và ESP v2 không bị đụng; `kiosk.js` xưa nay
+  chỉ phát/nghe sự kiện chứ không chạm DOM camera, và chính điều đó khiến việc
+  gỡ này gọn trong đúng một tệp template.
 - **Ranh giới làm cho việc này an toàn**: `static/kiosk-camera.js` giải mã QR rồi
   phát sự kiện `kiosk:camera-scan` mang đúng chuỗi đọc được. `kiosk.js` đưa chuỗi
   đó vào CHÍNH hàm `scan()` mà máy quét USB/GM65 đang dùng, và hàm đó POST tới

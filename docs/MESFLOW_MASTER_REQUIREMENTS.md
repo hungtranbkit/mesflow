@@ -2306,7 +2306,14 @@ The change is deliberately **asymmetric**, because the hardware is asymmetric.
   and, on its own line beneath it, what was REFUSED (error code + reason). The
   raw payload is the only thing that distinguishes "scanned the wrong label"
   from "the label was printed wrong". A refused scan still creates NO session.
-- **Legacy**: `/kiosk` on a phone keeps working exactly as before.
+- **The station has no camera entry point at all** (71.0.0.310). The toggle,
+  the camera layer and the `kiosk-camera.js` `<script>` tag all sit inside
+  `{% if mobile %}`, so `/kiosk` neither renders them nor fetches the module.
+  Hiding the button would leave it in the DOM -- keyboard-focusable and
+  clickable from DevTools -- so it is not rendered rather than hidden. The
+  USB/GM65 path (`scanner-input`, the `keydown` buffer, `focusScanner`) and
+  ESP v2 are untouched; `kiosk.js` only ever emitted/listened for events and
+  never touched camera DOM, which is what keeps this a one-template change.
 - **The boundary that makes this safe**: `static/kiosk-camera.js` decodes a QR
   and emits a `kiosk:camera-scan` event carrying the raw string. `kiosk.js`
   hands that string to the SAME `scan()` the USB/GM65 scanner feeds, which POSTs

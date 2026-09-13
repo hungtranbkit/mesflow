@@ -72,20 +72,42 @@ const FAKE_CAMERA = () => {
 };
 
 async function openKiosk(page, state) {
-  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
-  await page.route(/\/api\/kiosk-web\/scan/, r => {
+  await page.route(/\/api\/kiosk-(web|mobile)\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => {
     const qr = String((r.request().postDataJSON() || {}).qr || '');
     state.scans.push(qr);
     if (qr.startsWith('WF|EMP|'))
       return r.fulfill({ json: { ok: true, type: 'employee', employee: EMPLOYEE, open_session: null } });
     return r.fulfill({ json: { ok: true, type: 'operation', operation: OPERATION } });
   });
-  await page.route(/\/api\/kiosk-web\/start/, r => r.fulfill({ json: { ok: true, session: { id: 555 } } }));
-  await page.goto('/kiosk');
+  await page.route(/\/api\/kiosk-(web|mobile)\/start/, r => r.fulfill({ json: { ok: true, session: { id: 555 } } }));
+  await gotoMobileKiosk(page);
   await page.waitForFunction(() => !!window.MESFlowKioskDemo && !!window.KioskCamera);
 }
 
 const phone = () => browser.newContext({ ...IPHONE, baseURL: BASE });
+
+// Camera đã RỜI KHỎI /kiosk (71.0.0.310): trạm cố định quét bằng máy quét
+// USB/GM65, nên nút "Camera điện thoại" không còn được dựng ra ở đó. Mọi bài
+// camera vì vậy chạy trên /kiosk-mobile, và trang đó BẮT BUỘC đăng nhập --
+// đúng cùng một cơ chế mọi spec khác trong thư mục này đang dùng.
+const KIOSK_URL = '/kiosk-mobile';
+
+async function signIn(page) {
+  const response = await page.request.post('/api/auth/test-auto-login');
+  if (!response.ok()) {
+    throw new Error(
+      `test-auto-login trả ${response.status()} -- /kiosk-mobile cần một phiên đăng nhập. ` +
+      'Bộ e2e cần MESFLOW_TEST_AUTO_LOGIN=1 (compose.test.yml đã bật); khi trỏ vào ' +
+      'một bản deploy production thì cờ này tắt và bài camera không chạy được ở đó.');
+  }
+}
+
+/** Mở trang kiosk điện thoại đã đăng nhập. */
+async function gotoMobileKiosk(page) {
+  await signIn(page);
+  await page.goto(KIOSK_URL);
+}
 
 // --- iPhone thật sự cần đường giải mã bằng JavaScript --------------------
 
@@ -191,10 +213,10 @@ test('camera tự tắt khi luồng sang màn nhập sản lượng, và tự b�
   const context = await phone();
   const page = await context.newPage();
   await page.addInitScript(FAKE_CAMERA);
-  await page.route(/\/api\/kiosk-web\/scan/, r => r.fulfill({
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => r.fulfill({
     json: { ok: true, type: 'employee', employee: EMPLOYEE, open_session: OPEN_SESSION } }));
-  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
-  await page.goto('/kiosk');
+  await page.route(/\/api\/kiosk-(web|mobile)\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await gotoMobileKiosk(page);
   await page.waitForFunction(() => !!window.KioskCamera);
 
   await page.getByTestId('kiosk-camera-toggle').click();
@@ -216,10 +238,10 @@ test('camera tự tắt khi luồng sang màn nhập sản lượng, và tự b�
 test('màn nhập sản lượng trên điện thoại có bàn phím số lớn và nó ghi đúng số', async () => {
   const context = await phone();
   const page = await context.newPage();
-  await page.route(/\/api\/kiosk-web\/scan/, r => r.fulfill({
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => r.fulfill({
     json: { ok: true, type: 'employee', employee: EMPLOYEE, open_session: OPEN_SESSION } }));
-  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
-  await page.goto('/kiosk');
+  await page.route(/\/api\/kiosk-(web|mobile)\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await gotoMobileKiosk(page);
   await page.waitForFunction(() => !!window.MESFlowKioskDemo);
   await page.evaluate(() => document.dispatchEvent(
     new CustomEvent('kiosk:camera-scan', { detail: { payload: 'WF|EMP|NV-009' } })));
@@ -261,10 +283,10 @@ test('không tràn ngang ở khổ iPhone, dọc lẫn ngang', async () => {
 test('ô nhập sản lượng đủ lớn để iOS không tự phóng to trang', async () => {
   const context = await phone();
   const page = await context.newPage();
-  await page.route(/\/api\/kiosk-web\/scan/, r => r.fulfill({
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => r.fulfill({
     json: { ok: true, type: 'employee', employee: EMPLOYEE, open_session: OPEN_SESSION } }));
-  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
-  await page.goto('/kiosk');
+  await page.route(/\/api\/kiosk-(web|mobile)\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await gotoMobileKiosk(page);
   await page.waitForFunction(() => !!window.MESFlowKioskDemo);
   await page.evaluate(() => document.dispatchEvent(
     new CustomEvent('kiosk:camera-scan', { detail: { payload: 'WF|EMP|NV-009' } })));
@@ -454,10 +476,10 @@ test('quét lỗi thì thẻ chuyển ĐỎ và nói lý do, không im lặng', 
   const context = await phone();
   const page = await context.newPage();
   await page.addInitScript(FAKE_CAMERA);
-  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
-  await page.route(/\/api\/kiosk-web\/scan/, r => r.fulfill({
+  await page.route(/\/api\/kiosk-(web|mobile)\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => r.fulfill({
     status: 400, json: { ok: false, error_code: 'SCN-002', message: 'QR không hợp lệ' } }));
-  await page.goto('/kiosk');
+  await gotoMobileKiosk(page);
   await page.waitForFunction(() => !!window.KioskCamera);
   await turnCameraOn(page);
 
@@ -529,8 +551,8 @@ test('quét THÀNH CÔNG phát tiếng tít, quét LỖI phát tiếng khác h�
   expect(ok, 'quét thành công phải kêu một tiếng cao, ngắn').toContain(1180);
 
   // Đổi máy chủ sang trả lỗi rồi quét một mã KHÁC (mã cũ còn trong cửa sổ chống trùng).
-  await page.unroute(/\/api\/kiosk-web\/scan/);
-  await page.route(/\/api\/kiosk-web\/scan/, r => r.fulfill({
+  await page.unroute(/\/api\/kiosk-(web|mobile)\/scan/);
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => r.fulfill({
     status: 400, json: { ok: false, error_code: 'SCN-002', message: 'QR không hợp lệ' } }));
   await page.evaluate(() => { window.__audio.freqs.length = 0; });
   await page.evaluate(() => window.KioskCamera.emitForTest('MA-SAI-HOAN-TOAN'));
@@ -622,14 +644,14 @@ test('ảnh QR THẬT qua camera: đọc được, hiện thẻ kết quả, và
 
 /** Trạm đang ở màn CHỜ QUÉT CÔNG ĐOẠN: đã có nhân viên, chưa có OP. */
 async function armOperationScan(page, onOperationScan) {
-  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
-  await page.route(/\/api\/kiosk-web\/scan/, r => {
+  await page.route(/\/api\/kiosk-(web|mobile)\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => {
     const qr = String((r.request().postDataJSON() || {}).qr || '');
     if (qr.startsWith('WF|EMP|'))
       return r.fulfill({ json: { ok: true, type: 'employee', employee: EMPLOYEE, open_session: null } });
     return onOperationScan(r, qr);
   });
-  await page.goto('/kiosk');
+  await gotoMobileKiosk(page);
   await page.waitForFunction(() => !!window.KioskCamera);
   await turnCameraOn(page);
   await page.evaluate(() => window.KioskCamera.emitForTest('WF|EMP|NV-009'));
@@ -644,7 +666,7 @@ test('PO chưa Start: thẻ hiện TÊN công đoạn + chuỗi QR thô TRƯỚC
   // Đúng thân phản hồi máy chủ trả về (tests/test_scan_result_survives_a_
   // business_error.py khoá hình dạng này ở phía máy chủ).
   const starts = [];
-  await page.route(/\/api\/kiosk-web\/start/, r => { starts.push(1); return r.fulfill({ json: {} }); });
+  await page.route(/\/api\/kiosk-(web|mobile)\/start/, r => { starts.push(1); return r.fulfill({ json: {} }); });
   await armOperationScan(page, r => r.fulfill({
     status: 409,
     json: { ok: false, error: 'PO_NOT_STARTED', error_code: 'PO-001',
@@ -678,7 +700,7 @@ test('quét trúng: thẻ mang cả tên lẫn chuỗi QR thô, không có dòng
   const context = await phone();
   const page = await context.newPage();
   await page.addInitScript(FAKE_CAMERA);
-  await page.route(/\/api\/kiosk-web\/start/, r => r.fulfill({ json: { ok: true, session: { id: 555 } } }));
+  await page.route(/\/api\/kiosk-(web|mobile)\/start/, r => r.fulfill({ json: { ok: true, session: { id: 555 } } }));
   await armOperationScan(page, r => r.fulfill({ json: { ok: true, type: 'operation', operation: OPERATION } }));
 
   await page.evaluate(() => window.KioskCamera.emitForTest('WF|OPID|77'));
@@ -723,5 +745,52 @@ test('API điện thoại từ chối người chưa đăng nhập, kể cả kh
     return r.status;
   });
   expect(stationStatus).toBe(400);
+  await context.close();
+});
+
+// --- CAMERA ĐÃ RỜI KHỎI TRẠM CỐ ĐỊNH -------------------------------------
+
+test('/kiosk KHÔNG còn lối vào camera nào, mà máy quét USB thì nguyên vẹn', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  // Giả lập máy CÓ camera: nếu nút chỉ biến mất vì origin không bảo mật thì
+  // bài này xanh một cách vô nghĩa. Có camera mà vẫn không có nút mới là điều
+  // cần chứng minh.
+  await page.addInitScript(FAKE_CAMERA);
+  await page.goto('/kiosk');
+  await page.waitForFunction(() => !!window.MESFlowKioskDemo);
+
+  expect(await page.evaluate(() => !!navigator.mediaDevices), 'camera giả chưa cài').toBe(true);
+  // KHÔNG có trong DOM -- khác hẳn "có nhưng ẩn": một nút ẩn vẫn focus được
+  // bằng bàn phím và vẫn bấm được từ DevTools.
+  await expect(page.getByTestId('kiosk-camera-toggle')).toHaveCount(0);
+  await expect(page.getByTestId('kiosk-camera-layer')).toHaveCount(0);
+  // Và module camera không được tải về máy trạm chút nào.
+  expect(await page.evaluate(() => 'KioskCamera' in window)).toBe(false);
+  expect(await page.evaluate(
+    () => performance.getEntriesByType('resource').some(r => r.name.includes('kiosk-camera.js'))
+  ), 'trạm cố định vẫn tải kiosk-camera.js').toBe(false);
+
+  // Đường máy quét USB/GM65 phải còn nguyên: ô nhận phím của súng quét, và
+  // luồng nghiệp vụ vẫn chạy khi gõ chuỗi vào đúng ô đó.
+  await expect(page.locator('#scanner-input')).toHaveCount(1);
+  await page.route(/\/api\/kiosk-(web|mobile)\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await page.route(/\/api\/kiosk-(web|mobile)\/scan/, r => r.fulfill({
+    json: { ok: true, type: 'employee', employee: EMPLOYEE, open_session: null } }));
+  await page.locator('#scanner-input').fill('WF|EMP|NV-009');
+  await page.locator('#scanner-input').press('Enter');
+  await expect(page.locator('#screen-operation')).toHaveClass(/active/);
+  await expect(page.locator('#employee-name')).toHaveText('Thợ Chín');
+  await context.close();
+});
+
+test('/kiosk-mobile vẫn có đủ lối vào camera — việc này là DỜI CHỖ, không phải bỏ', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+  await gotoMobileKiosk(page);
+  await expect(page.getByTestId('kiosk-camera-toggle')).toHaveCount(1);
+  await expect(page.getByTestId('kiosk-camera-layer')).toHaveCount(1);
+  expect(await page.evaluate(() => 'KioskCamera' in window)).toBe(true);
   await context.close();
 });
