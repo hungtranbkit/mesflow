@@ -12,7 +12,7 @@ from mesflow.db.repositories.master_data import (
 from mesflow.db.repositories.production_state import reconcile_production_order, lock_production_order_for_operation_first
 from mesflow.db.repositories.setup_ops import display_key_sql
 from mesflow.db.repositories.analytics import AuditRepository
-from mesflow.db.repositories.scheduling import RUNNABLE_STATUSES,RUNNABLE_PO_STATUSES
+from mesflow.db.repositories.scheduling import RUNNABLE_STATUSES
 from mesflow.domain.policy import (LABELLED_TYPES,SETUP_TYPE,production_only_sql,
                                    type_in_sql,type_is_sql,type_value_sql)
 from mesflow.core.upload_policy import validate_drawing_upload
@@ -755,23 +755,17 @@ def qr_labels():
             if active_only: sql+=' AND COALESCE(e.active,true)=true'
             sql+=' ORDER BY e.employee_no LIMIT %s'; params.append(limit)
         elif kind=='OPERATION':
-            # An operation is only actually scannable/startable at the kiosk
-            # when BOTH its own status and its parent PO's status are in the
-            # "runnable" sets kiosk_v2.py/execution.py enforce at scan time
-            # (see scheduling.py's operation_wip()/dispatch_state_from_db()
-            # -- the single source of truth reused here, not duplicated, so
-            # this list can never silently drift out of sync with what the
-            # kiosk actually accepts). Real bug reported live: a COMPLETED/
-            # CANCELLED operation, or one whose PO hasn't been Started yet,
-            # still had a printed/printable QR code here -- scanning it at
-            # the kiosk then failed with OPERATION_NOT_WORKABLE, an error
-            # that was entirely avoidable by just not listing it in the
-            # first place. Gated behind active_only (default true, same
-            # flag EMPLOYEE/PART already use) so the full, unfiltered
-            # catalogue is still available on request (e.g. for auditing
-            # already-printed labels), not permanently hidden.
+            # Danh sách QR để XEM/IN, kể cả TRƯỚC khi Start PO: người dùng cần
+            # in tem sẵn cho PO/Part/OP đã tồn tại. Vì thế KHÔNG lọc theo trạng
+            # thái started/running của PO nữa (bỏ gate po.status theo yêu cầu).
+            # Vẫn lọc theo TRẠNG THÁI OPERATION (RUNNABLE_STATUSES gồm cả PLANNED
+            # -- nên OP của PO chưa Start vẫn hiện; loại COMPLETED/CANCELLED) và
+            # theo LABELLED_TYPES (loại REWORK/không quét được) để không in nhầm
+            # tem mà kiosk từ chối. RUNNABLE_STATUSES lấy từ scheduling.py (một
+            # nguồn sự thật, không nhân bản). Gate sau active_only (mặc định
+            # true) như EMPLOYEE/PART -- muốn xem toàn bộ (kể cả đã đóng) thì gọi
+            # với active_only=0.
             runnable_status_ph=','.join(['%s']*len(RUNNABLE_STATUSES))
-            runnable_po_ph=','.join(['%s']*len(RUNNABLE_PO_STATUSES))
             # The printed code is the DISPLAY KEY, never the bare one: an
             # Operation code is only unique within its Part, so two labels
             # could otherwise carry the same text and nobody could tell the
@@ -797,7 +791,7 @@ def qr_labels():
                 parent.name AS parent_name,
                 p.code||' · '||COALESCE(p.name,'')||
                   CASE WHEN {IS_SETUP_O} THEN ' · Setup máy' ELSE '' END AS detail,
-                (o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})
+                (o.status IN ({runnable_status_ph})
                  AND {LABELLED_ONLY_O}) AS active,
                 po.id AS production_order_id,po.code AS po_code
                 FROM operations o JOIN production_orders po ON po.id=o.production_order_id
@@ -805,7 +799,7 @@ def qr_labels():
                 LEFT JOIN operations parent ON parent.id=o.parent_operation_id
                 WHERE (%s='' OR o.code ILIKE %s OR o.name ILIKE %s OR po.code ILIKE %s
                        OR p.code ILIKE %s OR p.name ILIKE %s OR parent.name ILIKE %s)"""
-            params=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)+[q,like,like,like,like,like,like]
+            params=list(RUNNABLE_STATUSES)+[q,like,like,like,like,like,like]
             if active_only:
                 # SỬA HÀNG (REWORK) is excluded for exactly the reason stated
                 # above: lock_startable_operation() refuses to start a session
@@ -814,9 +808,14 @@ def qr_labels():
                 # (active=false) so an already-printed label can still be
                 # audited. SETUP is the opposite case and MUST be listed:
                 # scanning that label is the only way setup gets done.
-                sql+=f' AND o.status IN ({runnable_status_ph}) AND po.status IN ({runnable_po_ph})'
+                # KHÔNG gate theo trạng thái started/running của PO nữa: người
+                # dùng cần XEM/IN tem QR TRƯỚC khi Start PO (chỉ cần PO/Part/OP
+                # đã tồn tại). Vẫn loại OP đã COMPLETED/CANCELLED (o.status) và
+                # loại QR không quét được (REWORK/không thuộc LABELLED_TYPES) để
+                # không in nhầm tem kiosk từ chối; OP + SETUP hiện đầy đủ.
+                sql+=f' AND o.status IN ({runnable_status_ph})'
                 sql+=f' AND {LABELLED_ONLY_O}'
-                params+=list(RUNNABLE_STATUSES)+list(RUNNABLE_PO_STATUSES)
+                params+=list(RUNNABLE_STATUSES)
             if po_id: sql+=' AND po.id=%s'; params.append(int(po_id))
             sql+=' ORDER BY po.code,p.sort_order,p.code,o.sort_order,o.id LIMIT %s'; params.append(limit)
         elif kind=='PART':

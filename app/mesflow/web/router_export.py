@@ -127,6 +127,58 @@ def _region_size_px(ws, region):
     return width, height
 
 
+def _fit_text_block(text, target_w, target_h):
+    """Ảnh 1-bit của ``text`` co/giãn VỪA KHUNG (target_w x target_h).
+
+    Tự xuống tối đa 2 dòng (cắt tại dấu phân cách gần giữa) để tận dụng khung mà
+    vẫn ĐỌC TRỌN chuỗi -- không bao giờ cắt chữ ra ngoài khung. Chọn cách bày
+    (1 dòng hay 2 dòng) cho cỡ chữ lớn nhất. Dùng cho nhãn payload dưới tem QR.
+    """
+    from PIL import Image, ImageDraw
+
+    resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS')
+    no_dither = getattr(getattr(Image, 'Dither', Image), 'NONE', 0)
+    measure = ImageDraw.Draw(Image.new('L', (8, 8)))
+
+    def width_of(s):
+        try:
+            return max(int(measure.textlength(s)), 1)
+        except AttributeError:  # Pillow rất cũ
+            return max(len(s) * 6, 1)
+
+    def block(lines):
+        widths = [width_of(s) for s in lines]
+        w, h = max(widths), 11 * len(lines)
+        img = Image.new('L', (w, h), 255)
+        draw = ImageDraw.Draw(img)
+        for i, line in enumerate(lines):
+            draw.text((max((w - widths[i]) // 2, 0), i * 11), line, fill=0)
+        return img, w, h
+
+    candidates = [[text]]
+    if len(text) > 3:
+        mid = len(text) // 2
+        cut = mid
+        best = None
+        for i in range(1, len(text)):
+            if text[i] in '|-_ /' and (best is None or abs(i - mid) < abs(best - mid)):
+                best = i
+        if best is not None:
+            cut = best + 1
+        candidates.append([text[:cut], text[cut:]])
+
+    best_img, best_scale = None, -1.0
+    for lines in candidates:
+        img, w, h = block(lines)
+        scale = min(target_w / w, target_h / h)   # lấp đầy khung, cho phép phóng to
+        if scale > best_scale:
+            new_w, new_h = max(int(w * scale), 1), max(int(h * scale), 1)
+            best_img = (img.resize((new_w, new_h), resample)
+                        if (new_w, new_h) != (w, h) else img)
+            best_scale = scale
+    return best_img.convert('1', dither=no_dither)
+
+
 def _qr_png(payload: str, label: str = '') -> BytesIO:
     """Ảnh PNG của một payload, có sẵn nhãn in bên dưới.
 
@@ -154,33 +206,19 @@ def _qr_png(payload: str, label: str = '') -> BytesIO:
     if not label:
         out = BytesIO(); code.save(out, format='PNG'); out.seek(0)
         return out
-    # Nhãn dưới tem giờ là CHÍNH chuỗi payload đang mã hoá trong QR (OP hiện
-    # payload OP, Setup hiện payload Setup). Chuỗi có thể dài, nên render bằng
-    # font mặc định của Pillow rồi THU NHỎ vừa đúng bề ngang tem và chiều cao
-    # dải nhãn -- "font nhỏ để vừa tem". Giữ tổng chiều cao = QR + QR_LABEL_STRIP
-    # để không đổi hình học/anchor của tem.
-    resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS')
-    no_dither = getattr(getattr(Image, 'Dither', Image), 'NONE', 0)
-    measure = ImageDraw.Draw(Image.new('L', (8, 8)))
-    try:
-        text_w = max(int(measure.textlength(label)), 1)
-    except AttributeError:  # Pillow rất cũ
-        text_w = max(len(label) * 6, 1)
-    source_h = 11
-    text_img = Image.new('L', (text_w, source_h), 255)
-    ImageDraw.Draw(text_img).text((0, 0), label, fill=0)
-    max_w, max_h = code.width, max(QR_LABEL_STRIP - 2, 1)
-    scale = min(max_w / text_w, max_h / source_h, 1.0)
-    new_w, new_h = max(int(text_w * scale), 1), max(int(source_h * scale), 1)
-    if (new_w, new_h) != (text_w, source_h):
-        text_img = text_img.resize((new_w, new_h), resample)
-    # Ngưỡng về đen/trắng (không dither) -> chữ có mực thật (pixel 0), sắc nét
-    # sau khi thu, và ảnh giữ mode '1' như tem trần.
-    text_img = text_img.convert('1', dither=no_dither)
-    canvas = Image.new('1', (code.width, code.height + QR_LABEL_STRIP), 1)
+    # Nhãn dưới tem là CHÍNH chuỗi payload của QR (OP hiện payload OP, Setup hiện
+    # payload Setup) và phải ĐỌC ĐƯỢC TRỌN VẸN, không bị cắt. Dành một DẢI NHÃN
+    # rộng bằng QR và cao ~nửa QR; chuỗi dài tự xuống 2 dòng và co vừa dải đó
+    # (xem _fit_text_block). Dải nhãn đủ lớn để vẫn đọc được kể cả sau khi tem
+    # thu vào ô marker -- anchor giữ ĐÚNG TỈ LỆ ảnh nên nhãn không bị bóp dẹt
+    # (xem _compute_qr_placements).
+    side = code.width
+    band_h = max(int(side * 0.5), 16)
+    text_img = _fit_text_block(label, side, max(band_h - 2, 1))
+    canvas = Image.new('1', (side, code.height + band_h), 1)
     canvas.paste(code, (0, 0))
-    canvas.paste(text_img, (max((code.width - new_w) // 2, 0),
-                            code.height + max((QR_LABEL_STRIP - new_h) // 2, 0)))
+    canvas.paste(text_img, (max((side - text_img.width) // 2, 0),
+                            code.height + max((band_h - text_img.height) // 2, 0)))
     out = BytesIO(); canvas.save(out, format='PNG'); out.seek(0)
     return out
 
@@ -1045,6 +1083,14 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
                 side = max(min(region_w, region_h) - 2 * QR_MARKER_MARGIN_PX, 1)
                 offset_x = max((region_w - side) // 2, 0)
                 offset_y = max((region_h - side) // 2, 0)
+                # QR VUÔNG side x side lấp vùng marker; ảnh cao thêm dải nhãn phía
+                # dưới. Giữ ĐÚNG TỈ LỆ ảnh khi neo (ext cao theo pw:ph) để phần QR
+                # vẫn vuông và nhãn KHÔNG bị bóp dẹt/cắt -- nhãn tràn xuống dưới ô
+                # marker, đổi lại đọc được trọn payload.
+                from PIL import Image as _Image
+                png = _qr_png(payload, label).getvalue()
+                _im = _Image.open(BytesIO(png))
+                ext_h = max(int(round(side * _im.height / _im.width)), side)
                 placed.append({
                     'operation_id': operation_id, 'sheet': sheet_name, 'kind': kind,
                     'payload': payload, 'placement': 'marker', 'marker_cell': coordinate,
@@ -1052,10 +1098,10 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
                     'region': f'{get_column_letter(region[1])}{region[0]}:'
                               f'{get_column_letter(region[3])}{region[2]}',
                     'size_px': max(side, 1), 'too_small': side < QR_MIN_READABLE_PX,
-                    'png': _qr_png(payload, label).getvalue(),
+                    'png': png,
                     'col0': region[1] - 1, 'row0': region[0] - 1,
                     'colOff': offset_x * QR_EMU_PER_PX, 'rowOff': offset_y * QR_EMU_PER_PX,
-                    'cx': side * QR_EMU_PER_PX, 'cy': side * QR_EMU_PER_PX})
+                    'cx': side * QR_EMU_PER_PX, 'cy': ext_h * QR_EMU_PER_PX})
                 return
             if marker_mode == 'MARKER':
                 # Block thiếu ô QRCODE trong biểu mẫu đã có marker: chỉ CẢNH BÁO,

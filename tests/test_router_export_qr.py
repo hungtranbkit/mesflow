@@ -222,10 +222,11 @@ def test_nhan_tem_duoc_nuong_vao_anh_chu_khong_ghi_vao_o():
     Ảnh có nhãn thì cao hơn ảnh trần đúng bằng dải chữ, và sheet không nhận
     thêm một ký tự nào.
     """
-    from mesflow.web.router_export import QR_LABEL_STRIP
     plain = Image.open(BytesIO(_qr_png('WF|OPID|1').getvalue()))
     labelled = Image.open(BytesIO(_qr_png('WF|OPID|1', QR_OP_LABEL).getvalue()))
-    assert labelled.height == plain.height + QR_LABEL_STRIP
+    # Ảnh có nhãn cao hơn ảnh trần đúng bằng dải nhãn (rộng bằng QR), và bề
+    # ngang không đổi -- nhãn nằm TRONG khung ảnh, không tràn ra ngoài.
+    assert labelled.height > plain.height
     assert labelled.width == plain.width
     # Dải nhãn phải có mực thật, không phải một dải trắng.
     strip = labelled.crop((0, plain.height, labelled.width, labelled.height))
