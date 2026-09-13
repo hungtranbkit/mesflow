@@ -47,6 +47,8 @@ chính*. Mở từ biểu tượng đó sẽ chạy toàn màn hình, không có
 | Camera mở nhưng không đọc được mã | Đưa gần hơn cho mã chiếm khoảng nửa khung; tránh chói và bóng màn hình; lau ống kính. Mã in mờ hoặc nhàu thì in lại. |
 | Quét một lần mà chạy hai lần | Không xảy ra: cùng một mã bị chặn trong 1,8 giây. Mã **khác** thì được nhận ngay. |
 | “Mất kết nối mạng — chưa gửi được mã” | Điện thoại rớt Wi-Fi. Hệ thống **không** tự gửi lại và **không** xếp hàng chờ (xem mục 4). Có mạng lại thì quét lại. |
+| Quét xong không thấy tên, phải tắt camera mới thấy | **Đã sửa từ 71.0.0.308.** Kể từ bản đó, ngay sau mỗi lần quét một thẻ kết quả hiện lên chính lớp camera (`Đã quét: …`, tên, bước tiếp theo) và camera vẫn mở. Nếu vẫn phải tắt camera mới thấy thì tab đang chạy bản cũ — chờ ~30 giây để kiosk tự nạp lại, hoặc kéo xuống để tải lại trang. |
+| Quét thành công mà không nghe tiếng nào | Kiểm tra công tắc gạt Chuông/Im lặng ở cạnh iPhone và mức âm lượng. iOS chỉ cho phát tiếng sau khi người dùng **chạm**, nên tiếng bíp chỉ hoạt động từ lần bấm “Camera điện thoại” trở đi — nếu chưa từng bấm nút đó trong lần mở trang này thì chưa có tiếng. |
 
 ---
 
@@ -94,6 +96,20 @@ và máy chủ chấp nhận giờ đó — đó là việc riêng, không phả
   giải mã rồi phát sự kiện `kiosk:camera-scan`; `kiosk.js` đưa chuỗi đó vào đúng
   `scan()` mà máy quét USB dùng, tức vẫn đi qua `/api/kiosk-web/scan`. Module
   camera không gọi API nào và không biết luật nghiệp vụ nào.
+- **Kết quả quét đi NGƯỢC lại cũng bằng sự kiện.** `kiosk.js` phát
+  `kiosk:scan-result` mang đúng nội dung màn bên dưới đang hiện (loại mã, tên,
+  bước tiếp theo); lớp camera nghe và vẽ thẻ kết quả. Ranh giới giữ nguyên cả
+  hai chiều: camera không hỏi máy chủ, `kiosk.js` không biết có lớp camera.
+- **Thẻ kết quả không thể che vùng ngắm QR.** Nó là một phần tử flex
+  (`order:-1`) chứ không phải lớp phủ tuyệt đối — flex không cho hai phần tử
+  chiếm cùng một chỗ. Bài kiểm đo diện tích giao nhau = 0 ở cả 390×844 và
+  844×390.
+- **Tiếng bíp trên iOS.** `AudioContext` được tạo VÀ phát một đoạn đệm 1 mẫu im
+  lặng ngay trong cú chạm nút camera — `resume()` một mình không đủ để WebKit mở
+  khoá. Tiếng thành công cao (1180 Hz, ~0,12 s), tiếng lỗi thấp và đôi (300 và
+  220 Hz): khác CAO ĐỘ chứ không khác to/nhỏ, vì tai đeo chống ồn chỉ phân biệt
+  được cao/thấp. Tiếng chỉ kêu sau khi máy chủ đã trả lời, không kêu lúc vừa
+  giải mã.
 - **Không có khung hình nào rời khỏi máy.** Chỉ chuỗi đã giải mã được gửi đi.
 - **Không có service worker**, để không đánh nhau với cơ chế tự nạp lại theo
   phiên bản của kiosk.

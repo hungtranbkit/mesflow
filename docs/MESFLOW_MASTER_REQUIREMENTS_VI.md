@@ -2706,9 +2706,43 @@ Nên: **phím xác nhận đổi sang `Enter`**, **phím quay lại `*` giữ ng
   đoạn là hai mã liền nhau, chặn theo thời gian sẽ nuốt mất cái thứ hai và người
   dùng tưởng máy treo.
 - **Báo đã đọc được mã**: ba kênh cùng lúc, vì kênh nào cũng hỏng với một ai đó
-  -- khung nhấp nháy xanh (cho xưởng ồn), một tiếng bíp ngắn (cho người đang nhìn
-  chỗ khác), và `navigator.vibrate` ở nơi có. **iOS không có `navigator.vibrate`**
+  -- khung nhấp nháy xanh (cho xưởng ồn), âm thanh (cho người đang nhìn chỗ
+  khác), và `navigator.vibrate` ở nơi có. **iOS không có `navigator.vibrate`**
   nên rung là thứ tốt-thì-có, không bao giờ là tín hiệu duy nhất.
+- **ĐỌC ĐƯỢC MÃ khác với QUÉT THÀNH CÔNG**: lúc vừa giải mã xong mới chỉ có một
+  chuỗi ký tự -- máy chủ chưa nói mã đó có dùng được không. Nên lúc đó chỉ nhấp
+  nháy khung và rung; **tiếng "tít" dành riêng cho lúc `/api/kiosk-web/scan` đã
+  trả lời ĐƯỢC**. Kêu tiếng thành công ngay khi giải mã là nói dối: người đứng
+  máy nghe xong bỏ đi trong khi màn hình đang báo lỗi.
+- **KẾT QUẢ QUÉT PHẢI HIỆN NGAY TRÊN CAMERA, CAMERA VẪN MỞ**: lớp camera là
+  `position:fixed; inset:0` nên nó che kín màn kiosk bên dưới. Nếu không làm gì
+  thêm thì máy chủ trả về đúng tên nhân viên, `kiosk.js` vẽ đúng tên đó, và
+  người cầm điện thoại **vẫn không thấy gì cho tới khi tắt camera đi** (lỗi thật
+  gặp trên iPhone, 2026-09-13). Ở xưởng, "tắt để xem rồi bật lại để quét tiếp"
+  là bỏ hẳn lý do dùng điện thoại. Vì vậy ngay sau mỗi lần quét, một thẻ kết quả
+  hiện lên chính lớp camera, nói đủ **ba thứ**: `Đã quét: <loại mã>` (thẻ nhân
+  viên / QR công đoạn), **tên** nhân viên hoặc công đoạn, và **bước tiếp theo**.
+  Thẻ tự đổi theo lần quét mới và được **dọn** khi trạm trở về màn chờ, để tên
+  người vừa làm không nằm lại cho người kế tiếp đọc.
+- **Cách làm, và vì sao không làm cách khác**: `kiosk.js` phát sự kiện
+  `kiosk:scan-result` mang đúng nội dung màn bên dưới đang hiện; lớp camera
+  NGHE và vẽ. Không cho camera tự gọi API để lấy tên (phá ranh giới ở trên), và
+  không cho `kiosk.js` vẽ thẳng vào lớp camera (trạm cố định chạy khi không có
+  tệp đó). Thẻ là một **phần tử flex** (`order:-1`), không phải lớp phủ tuyệt
+  đối: flex không cho hai phần tử chiếm cùng một chỗ, nên thẻ **không thể** che
+  vùng ngắm QR -- đo được bằng diện tích giao nhau = 0 ở cả 390×844 và 844×390.
+- **Âm thanh trên iOS, và vì sao `resume()` một mình chưa đủ**: `AudioContext`
+  phải được **tạo và thật sự chạy** trong một cử chỉ của người dùng. WebKit chỉ
+  mở khoá hẳn khi đã có một node CHẠY trong chính cử chỉ ấy, nên lúc bấm nút mở
+  camera phải phát một đoạn đệm 1 mẫu (im lặng) ngay tại đó -- đó là thứ biến
+  mọi tiếng bíp về sau từ im lặng thành nghe được. Tiếng **thành công** và tiếng
+  **lỗi** phải khác nhau về CAO ĐỘ chứ không về to/nhỏ (tai đeo chống ồn phân
+  biệt được cao/thấp, không phân biệt được to/nhỏ). Mất mạng cũng phải kêu tiếng
+  lỗi, vì lúc đó không có lần gọi máy chủ nào để sinh ra `kiosk:scan-result`.
+- **Không thêm âm thanh cho trạm cố định**: thẻ kết quả và tiếng bíp chỉ chạy khi
+  người dùng ĐÃ bật camera. Trạm cố định với máy quét USB chưa bao giờ kêu tiếng
+  nào, và một bản vá cho điện thoại không được tự thêm âm thanh vào một cái máy
+  đang chạy tốt ở xưởng.
 - **Riêng tư**: camera chỉ chạy khi người dùng đã bật và đang ở màn quét. Track
   bị **DỪNG HẲN** -- không phải chỉ ẩn thẻ video -- khi tắt, khi luồng sang màn
   nhập sản lượng, khi rời tab, và khi `pagehide`. Không khung hình, ảnh hay video
@@ -3440,7 +3474,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-013 (Kiosk web an toàn khi chạm — chạm lặp không đi xuyên màn) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; đo vùng không giao nhau, đường bàn phím mềm/IME, negative proof bằng mutation) | A |
 | REQ-KIOSK-014 (quét được thì phải nhìn thấy được — kiosk ↔ màn hình điều hành) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 case: start PRODUCTION và start SETUP đều lên bảng, KPI đối chiếu DB, start bị từ chối không sinh task, PO tạm dừng, cô lập PO, hai OP trùng tên không tráo chỗ, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (khoá `BOARD_TASK_TYPES == STARTABLE_TYPES` và giữ mặc định chỉ-sản-xuất của `daily_progress()`), `tests/e2e/daily-dashboard-kiosk.spec.js` (task mới lên màn trong nhịp làm mới, không reload; dòng việc hỗ trợ không mượn ô sản lượng) | A — negative proof: gỡ bản vá thì 3 bài đỏ (`assert 1 == 2` ở KPI), 7 bài canh vẫn xanh |
 | REQ-KIOSK-015 (Kiosk web: phím xác nhận `Enter` + nhắc Num Lock; ESP KHÔNG đổi) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 case: Enter và NumpadEnter đi hết luồng, một-bấm-một-hành-động, giữ/bấm liên tiếp lúc đang gửi vẫn đúng MỘT lượt, `#` không làm gì và không xuất hiện trong chữ, `*` vẫn quay lại, dòng nhắc nằm dưới hàng nút / không dịch khi lỗi hiện / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (luật bố cục đo được vẫn đúng), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (nhãn + ánh xạ phím tĩnh), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
-| REQ-KIOSK-016 (Mobile Kiosk: camera điện thoại là nguồn quét) | `tests/test_mobile_kiosk_camera_contract.py` (15 case: ranh giới không gọi API, cửa sổ chống trùng, dừng track, không gửi khung hình đi đâu, jsQR nạp động kèm SHA-256 ghim sẵn, manifest, không service worker, safe-area, bàn phím số ghi qua state sản lượng có sẵn), `tests/e2e/kiosk-mobile-camera.spec.js` (10 case trên WebKit THẬT + iPhone 13) | A |
+| REQ-KIOSK-016 (Mobile Kiosk: camera điện thoại là nguồn quét; kết quả hiện realtime trên camera + tiếng bíp iOS) | `tests/test_mobile_kiosk_camera_contract.py` (24 case: ranh giới không gọi API, cửa sổ chống trùng, dừng track, không gửi khung hình đi đâu, jsQR nạp động kèm SHA-256 ghim sẵn, manifest, không service worker, safe-area, bàn phím số ghi qua state sản lượng có sẵn, và 8 case mới: kết quả đi qua SỰ KIỆN chứ không phá ranh giới, thẻ là phần tử flex nên không che vùng quét, thẻ nói đủ loại/tên/bước tiếp, dọn thẻ khi về màn chờ, mở khoá audio trong cử chỉ chạm, cao độ tiếng thành công vs lỗi, bíp chỉ dành cho người đang dùng camera, đọc-được-mã khác quét-thành-công), `tests/e2e/kiosk-mobile-camera.spec.js` (21 case trên WebKit THẬT + iPhone 13, gồm ảnh QR PNG THẬT qua camera giả) | A — negative proof: chạy 9 bài e2e mới + 8 bài tĩnh mới trên cây mã trước bản vá (71.0.0.307) thì 8/9 e2e và 8/8 tĩnh ĐỎ; bài canh "trạm cố định không phát tiếng nào" xanh ở cả hai bên đúng như thiết kế |
 | REQ-KIOSK-001 (không nhảy layout vì loading trong luồng quét) | `tests/e2e/kiosk-scan-no-loading-layout-shift.spec.js` (đo bounding box vùng chính trước/trong/sau request bị làm chậm, ở 1280/820/390px; gồm cả lần tự làm mới nền 10 giây/lần bằng đồng hồ giả) | A — chỉ báo chờ phải không chiếm chỗ (`#demo-busy`, `position:absolute`), không chèn/xoá chữ chờ, không ẩn `#demo-content` giữa chừng |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |

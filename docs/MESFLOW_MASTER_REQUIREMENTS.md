@@ -2303,9 +2303,45 @@ The change is deliberately **asymmetric**, because the hardware is asymmetric.
   and then an operation are two payloads back to back, and a pure time gate
   would swallow the second and read as a frozen machine.
 - **Feedback on a decode**: three channels at once, because each one fails for
-  someone — a green frame flash (for a noisy shop), a short beep (for someone
+  someone — a green frame flash (for a noisy shop), sound (for someone
   looking away), and `navigator.vibrate` where it exists. **iOS has no
   `navigator.vibrate`**, so vibration is a bonus and never the only signal.
+- **A DECODE is not a SUCCESSFUL SCAN**: the moment jsQR returns, all that
+  exists is a string — the server has not yet said whether that code is usable.
+  So a decode only flashes the frame and vibrates; the **beep is reserved for
+  the moment `/api/kiosk-web/scan` answers OK**. Beeping success at decode time
+  is a lie: the operator hears it and walks away while the screen shows an error.
+- **THE SCAN RESULT MUST APPEAR ON THE CAMERA ITSELF, CAMERA STILL OPEN**: the
+  camera layer is `position:fixed; inset:0`, so it covers the kiosk screen
+  underneath. Without anything further the server returns the right employee
+  name, `kiosk.js` renders that name, and the person holding the phone **sees
+  nothing until they switch the camera off** (real iPhone bug, 2026-09-13). On a
+  shop floor, "turn it off to read, turn it back on to scan" removes the whole
+  reason to use a phone. So after every scan a result card appears on the camera
+  layer stating **three things**: `Đã quét: <code kind>` (employee badge / operation
+  QR), the **name** of the employee or operation, and the **next step**. The card
+  updates on each new scan and is **cleared** when the station returns to the
+  idle screen, so one worker's name is never left on screen for the next.
+- **How, and why not otherwise**: `kiosk.js` emits a `kiosk:scan-result` event
+  carrying exactly what the screen underneath already shows; the camera layer
+  listens and draws. The camera must not call an API to fetch the name (that
+  breaks the boundary above), and `kiosk.js` must not draw into the camera layer
+  directly (the fixed station runs without that file). The card is a **flex
+  item** (`order:-1`), not an absolute overlay: flex cannot place two items in
+  the same space, so the card **cannot** cover the QR aiming frame — measured as
+  intersection area = 0 at both 390×844 and 844×390.
+- **Audio on iOS, and why `resume()` alone is not enough**: an `AudioContext`
+  must be **created and actually running** inside a user gesture. WebKit only
+  fully unlocks once a node has RUN within that same gesture, so tapping the
+  camera button must start a 1-sample (silent) buffer right there — that is what
+  turns every later beep from silence into sound. The **success** and **error**
+  tones must differ in PITCH, not in volume (ear defenders pass high/low, not
+  loud/quiet). Going offline must also sound the error tone, because there is no
+  server round trip to produce a `kiosk:scan-result`.
+- **No new sound for the fixed station**: the result card and the beeps run only
+  once the operator has switched the camera on. A fixed station with a USB
+  scanner has never made a sound, and a phone fix must not add audio to a
+  machine that is working fine on the shop floor.
 - **Privacy**: the camera runs only while the operator has switched it on and is
   on a scanning screen. Tracks are **stopped** — not merely hidden — when it is
   switched off, when the flow reaches a quantity screen, when the tab is hidden
@@ -3028,7 +3064,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-013 (web Kiosk touch safety — a repeated tap must not cross screens) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; measured band non-intersection, soft-keyboard/IME path, negative proof by mutation) | A |
 | REQ-KIOSK-014 (scannable means visible — kiosk ↔ control-room board) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 cases: both a PRODUCTION and a SETUP start reach the board, KPIs reconciled against the database, a refused start yields no task, paused PO, PO isolation, two same-named Operations never swap, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (locks `BOARD_TASK_TYPES == STARTABLE_TYPES` and keeps `daily_progress()`'s production-only default), `tests/e2e/daily-dashboard-kiosk.spec.js` (a new task arrives within the refresh cycle with no reload; a support row does not borrow the output cell) | A — negative proof: with the fix reverted 3 tests fail (`assert 1 == 2` on the KPI) and the 7 guard tests stay green |
 | REQ-KIOSK-015 (web Kiosk: `Enter` confirm key + Num Lock hint; ESP unchanged) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 cases: Enter and NumpadEnter drive the whole flow, one press = one action, repeated presses mid-submit still yield exactly ONE submit, `#` does nothing and appears in no text, `*` still goes back, hint sits below the button row / does not move when validation appears / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (measured layout rule still holds), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (static labels + key mapping), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
-| REQ-KIOSK-016 (Mobile Kiosk: phone camera as a scan source) | `tests/test_mobile_kiosk_camera_contract.py` (15 cases: the no-API boundary, duplicate window, tracks stopped, no frame leaves the device, lazy jsQR with pinned SHA-256, manifest, no service worker, safe-area, keypad writes through the existing quantity state), `tests/e2e/kiosk-mobile-camera.spec.js` (10 cases on REAL WebKit + iPhone 13) | A |
+| REQ-KIOSK-016 (Mobile Kiosk: phone camera as a scan source; realtime result on the camera + iOS beep) | `tests/test_mobile_kiosk_camera_contract.py` (24 cases: the no-API boundary, duplicate window, tracks stopped, no frame leaves the device, lazy jsQR with pinned SHA-256, manifest, no service worker, safe-area, keypad writes through the existing quantity state, plus 8 new: result travels by EVENT rather than breaking the boundary, the card is a flex item so it cannot cover the aiming frame, the card states kind/name/next-step, the card is cleared on return to idle, audio unlocked inside the tap gesture, success vs error pitch, beeps only for camera users, decode-is-not-success), `tests/e2e/kiosk-mobile-camera.spec.js` (21 cases on REAL WebKit + iPhone 13, including a REAL QR PNG through a fake camera) | A — negative proof: running the 9 new e2e + 8 new static cases against the pre-fix tree (71.0.0.307) turns 8/9 e2e and 8/8 static RED; the "fixed station makes no sound" guard is green on both sides by design |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |

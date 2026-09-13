@@ -239,3 +239,110 @@ def test_permissions_policy_mo_camera_cho_rieng_trang_kiosk():
     assert "microphone=()" in source and "geolocation=()" in source
     # Và KHÔNG được mở camera cho cả site.
     assert "'Permissions-Policy','camera=(self)" not in source.replace(' ', '')
+
+
+# --- kết quả quét phải hiện NGAY TRÊN camera ------------------------------
+#
+# Lỗi thật trên iPhone: lớp camera là `position:fixed; inset:0` nên nó phủ kín
+# màn kiosk; máy chủ trả về đúng tên nhân viên, kiosk.js vẽ đúng tên đó, và
+# người cầm điện thoại phải TẮT camera đi mới đọc được. Ba bài dưới khoá đúng
+# CÁCH sửa, vì có nhiều cách sửa sai: cho camera tự gọi API để lấy tên (phá
+# ranh giới), hoặc cho kiosk.js vẽ thẳng vào lớp camera (trạm cố định không có
+# tệp đó), hoặc dựng lớp phủ tuyệt đối đè lên vùng quét.
+
+
+def test_ket_qua_quet_di_qua_SU_KIEN_chu_khong_pha_ranh_gioi():
+    kiosk = _read(KIOSK_JS)
+    camera = _read(CAMERA_JS)
+    assert "dispatchEvent(new CustomEvent('kiosk:scan-result'" in kiosk, \
+        'kiosk.js phải NÓI kết quả ra thành sự kiện'
+    assert "addEventListener('kiosk:scan-result'" in camera, \
+        'lớp camera phải NGHE, không tự đi hỏi máy chủ'
+    # Và camera vẫn không được chạm vào nghiệp vụ để lấy nội dung thẻ.
+    source = _code_only(camera)
+    for forbidden in ('fetch(', '/api/', 'MFNet'):
+        assert forbidden not in source, f'kiosk-camera.js không được tự {forbidden}'
+
+
+def test_the_ket_qua_la_phan_tu_FLEX_nen_khong_the_che_vung_quet():
+    """Lớp phủ tuyệt đối sẽ đè lên khung ngắm và camera hết đọc nổi tem."""
+    css = _read(STATIC / 'kiosk.css')
+    block = css[css.index('.camera-result{'):]
+    block = block[:block.index('}') + 1]
+    assert 'position:absolute' not in block, 'thẻ kết quả không được là lớp phủ tuyệt đối'
+    assert 'position:fixed' not in block
+    assert 'order:-1' in block, 'phải xếp TRÊN khung quét bằng order, không bằng toạ độ'
+    html = _read(KIOSK_HTML)
+    # Nằm SAU khung trong DOM để vẽ đè được bóng đổ 100vmax của khung.
+    assert html.index('camera-frame') < html.index('id="camera-result"')
+
+
+def test_the_ket_qua_noi_du_ba_thu_nguoi_dung_can():
+    """Tên, loại mã, và bước tiếp theo -- thiếu cái nào cũng phải hỏi lại người khác."""
+    html = _read(KIOSK_HTML)
+    for testid in ('kiosk-camera-result', 'kiosk-camera-result-kind',
+                   'kiosk-camera-result-title', 'kiosk-camera-result-next'):
+        assert f'data-testid="{testid}"' in html, testid
+    camera = _read(CAMERA_JS)
+    assert 'Đã quét:' in camera, 'thẻ phải nói thẳng "Đã quét: ..."'
+    kiosk = _read(KIOSK_JS)
+    assert 'Thẻ nhân viên' in kiosk and 'QR công đoạn' in kiosk, 'phải nói LOẠI mã vừa quét'
+
+
+def test_the_ket_qua_duoc_don_khi_ve_man_cho():
+    """Tên người vừa làm không được nằm lại cho người kế tiếp đọc."""
+    camera = _code_only(_read(CAMERA_JS))
+    assert "name === 'ready'" in camera and 'clearResult()' in camera
+
+
+# --- tiếng "tít" trên iOS -------------------------------------------------
+
+
+def test_audio_duoc_mo_khoa_TRONG_cu_chi_cham():
+    """`resume()` một mình không đủ trên iOS -- phải có node CHẠY trong cử chỉ."""
+    camera = _code_only(_read(CAMERA_JS))
+    assert 'primeAudio' in camera
+    prime = camera[camera.index('function primeAudio'):]
+    prime = prime[:800]
+    assert 'createBuffer(' in prime and 'createBufferSource(' in prime and 'source.start(' in prime, \
+        'iOS chỉ mở khoá hẳn khi một node đã chạy trong cử chỉ; resume() một mình là chưa đủ'
+    assert 'resume()' in prime
+    # Và cử chỉ đó phải là lúc người dùng bấm mở camera.
+    click = camera[camera.index("toggle.addEventListener('click'"):]
+    assert 'primeAudio()' in click[:400], 'primeAudio phải nằm TRONG handler của nút camera'
+
+
+def test_tieng_thanh_cong_va_tieng_loi_khac_han_nhau():
+    camera = _read(CAMERA_JS)
+    assert 'function beepSuccess' in camera and 'function beepError' in camera
+    ok = re.search(r'function beepSuccess\(\)\s*\{([^}]*)\}', camera)
+    bad = re.search(r'function beepError\(\)\s*\{([^}]*)\}', camera)
+    assert ok and bad
+    ok_freqs = [int(x) for x in re.findall(r'tone\((\d+)', ok.group(1))]
+    bad_freqs = [int(x) for x in re.findall(r'tone\((\d+)', bad.group(1))]
+    assert ok_freqs and bad_freqs
+    # To/nhỏ thì tai đeo chống ồn không phân biệt được; cao/thấp thì có.
+    assert min(ok_freqs) > max(bad_freqs) + 200, \
+        f'tiếng thành công {ok_freqs} phải cao hơn hẳn tiếng lỗi {bad_freqs}'
+
+
+def test_tieng_bip_chi_danh_cho_nguoi_DANG_dung_camera():
+    """Trạm cố định với máy quét USB chưa bao giờ kêu -- bản vá điện thoại
+    không được tự thêm âm thanh vào một cái máy đang chạy tốt ở xưởng."""
+    camera = _code_only(_read(CAMERA_JS))
+    handler = camera[camera.index("addEventListener('kiosk:scan-result'"):]
+    handler = handler[:400]
+    assert 'wanted' in handler, 'phải kiểm tra người dùng đã bật camera chưa'
+    assert 'beepSuccess' in handler and 'beepError' in handler
+
+
+def test_doc_duoc_ma_KHAC_voi_quet_thanh_cong():
+    """Kêu tiếng thành công ngay lúc giải mã xong là nói dối: máy chủ chưa trả lời."""
+    camera = _code_only(_read(CAMERA_JS))
+    feedback = camera[camera.index('function feedback()'):]
+    feedback = feedback[:feedback.index('\n  }')]
+    # KHÔNG một tiếng nào ở đây: lúc này mới chỉ có một chuỗi ký tự, máy chủ
+    # chưa nói mã đó có dùng được không. Kêu tiếng thành công ở đây thì người
+    # đứng máy nghe xong bỏ đi, trong khi màn hình đang báo lỗi.
+    assert not re.search(r'\b(beep\w*|tone)\s*\(', feedback), \
+        f'feedback() không được phát tiếng nào -- đợi kiosk:scan-result:\n{feedback}'

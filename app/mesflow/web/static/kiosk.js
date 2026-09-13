@@ -112,6 +112,22 @@
     renderQty(id);
   }
   function resetQty() { QTY_IDS.forEach(id => { setQty(id, '0'); clearQtyTouched(id); }); }
+  // KẾT QUẢ MỘT LẦN QUÉT, NÓI RA THÀNH SỰ KIỆN.
+  //
+  // Màn kiosk vẽ kết quả vào các <section class="screen"> như cũ. Nhưng camera
+  // điện thoại là một lớp `position:fixed; inset:0` nằm ĐÈ lên tất cả: máy chủ
+  // trả về đúng tên nhân viên, kiosk.js vẽ đúng tên đó, và người cầm điện
+  // thoại vẫn không thấy gì cho tới khi tắt camera đi. Đó là lỗi đã gặp trên
+  // iPhone thật, và nó là lỗi HIỂN THỊ, không phải lỗi nghiệp vụ.
+  //
+  // Sửa bằng một sự kiện chứ không bằng cách cho kiosk.js vẽ lên lớp camera:
+  // kiosk.js không được biết có module camera hay không (trạm cố định chạy
+  // không có tệp đó), và lớp camera không được biết luật nghiệp vụ. Sự kiện
+  // này chỉ mang thứ đã hiển thị ở màn bên dưới -- không có dữ liệu mới, không
+  // có đường gọi API thứ hai.
+  function announceScan(detail) {
+    document.dispatchEvent(new CustomEvent('kiosk:scan-result', {detail}));
+  }
   function show(name) {
     // Mỗi lần chuyển màn là một bước mới của luồng. Lần trả-về đang chờ thuộc
     // về màn sắp rời, không được phép nổ vào màn sắp tới -- một lần quét mới
@@ -316,9 +332,12 @@
         employee = result.employee;
         if (result.open_session) {
           openSession = result.open_session;
+          const openOp = `${openSession.operation_display_key || openSession.operation_code} · ${openSession.operation_name}`;
           document.getElementById('finish-employee').textContent = `${employee.employee_no} · ${employee.name}`;
-          document.getElementById('finish-operation').textContent =
-            `${openSession.operation_display_key || openSession.operation_code} · ${openSession.operation_name}`;
+          document.getElementById('finish-operation').textContent = openOp;
+          announceScan({ok:true, kind:'employee', label:'Thẻ nhân viên', title:employee.name,
+            sub:`${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`,
+            next:`Đang làm: ${openOp} — nhập sản lượng để KẾT THÚC`});
           pendingFinish.requestId = `${deviceUuid}-FINISH-${Date.now()}`;
           // Bắt đầu một lượt kết thúc là bắt đầu từ trắng: số của lượt trước
           // (và dấu "đã nhập" của nó) không được chảy sang người kế tiếp.
@@ -338,13 +357,18 @@
         } else {
           document.getElementById('employee-name').textContent = employee.name;
           document.getElementById('employee-code').textContent = `${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`;
+          announceScan({ok:true, kind:'employee', label:'Thẻ nhân viên', title:employee.name,
+            sub:`${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`,
+            next:'Tiếp theo: quét QR CÔNG ĐOẠN'});
           show('operation');
         }
       } else if (state === 'operation') {
         if (result.type !== 'operation') { const e=new Error('Hãy quét QR Operation'); e.code='SCN-004'; e.action='Sau khi nhận diện nhân viên, quét QR Operation.'; throw e; }
         const op = result.operation;
-        document.getElementById('starting-operation').textContent =
-          `${op.display_key || op.code} · ${op.name}`;
+        const opText = `${op.display_key || op.code} · ${op.name}`;
+        document.getElementById('starting-operation').textContent = opText;
+        announceScan({ok:true, kind:'operation', label:'QR công đoạn', title:op.name,
+          sub:op.display_key || op.code, next:'Đang bắt đầu công đoạn…'});
         show('starting');
         if (tutorialMode) await new Promise(resolve => setTimeout(resolve, 9000));
         // `request_id` sinh MỘT LẦN ở đây rồi nằm trong body, nên mọi lần gửi
@@ -354,13 +378,19 @@
         // điều kiện duy nhất — để bật `idempotent` cho một POST.
         const startRequestId = `${deviceUuid}-START-${Date.now()}`;
         const started = await api('/api/kiosk-web/start', {idempotent:true, method:'POST', body:JSON.stringify({employee_id:employee.id, operation_id:op.id, device_uuid:deviceUuid, request_id:startRequestId})});
-        document.getElementById('started-operation').textContent =
-          `${op.display_key || op.code} · ${op.name}`;
+        document.getElementById('started-operation').textContent = opText;
+        announceScan({ok:true, kind:'operation', label:'QR công đoạn', title:op.name,
+          sub:op.display_key || op.code, next:'ĐÃ BẮT ĐẦU — quét lại thẻ nhân viên khi xong'});
         show('started'); scheduleReset(3500);
       } else if (state === 'started' || state === 'finished' || state === 'error') {
         reset(); setTimeout(() => scan(qr), 50);
       }
-    } catch (error) { setError(error.message, error.code, error.action); }
+    } catch (error) {
+      setError(error.message, error.code, error.action);
+      announceScan({ok:false, kind:'error', label:'Không nhận được mã',
+        title:error.message || 'Không xử lý được', sub:String(error.code || 'SCN-000').toUpperCase(),
+        next:error.action || ''});
+    }
     finally { document.body.classList.remove('kiosk-busy'); }
   }
 

@@ -82,6 +82,42 @@ button{min-height:48px;padding:11px 20px;border:1px solid var(--action);border-r
 .camera-frame.hit{animation:camera-hit .42s ease-out}
 @keyframes camera-hit{0%{border-color:#2fd08a;box-shadow:0 0 0 100vmax rgba(9,18,26,.55),0 0 0 6px rgba(47,208,138,.65)}
   100%{border-color:rgba(255,255,255,.9);box-shadow:0 0 0 100vmax rgba(9,18,26,.55),0 0 0 22px rgba(47,208,138,0)}}
+/* THẺ KẾT QUẢ QUÉT — hiện NGAY khi camera còn đang mở.
+   Lý do tồn tại: lớp camera là `position:fixed; inset:0`, nên nó che toàn bộ
+   màn kiosk bên dưới. Trước đây người quét bằng điện thoại phải TẮT camera đi
+   mới đọc được tên nhân viên/công đoạn vừa quét -- máy chủ đã nhận đúng, chỉ
+   có mắt người là không thấy. Thẻ này đưa đúng kết quả đó lên trên camera.
+
+   Là PHẦN TỬ FLEX (không phải lớp phủ tuyệt đối) nên nó không thể chồng vào
+   khung quét: flex không cho hai phần tử cùng chiếm một chỗ. `order:-1` xếp nó
+   lên trên khung, còn vị trí SAU khung trong DOM giữ cho nó vẽ đè lên bóng đổ
+   100vmax của khung. */
+.camera-result{order:-1;position:relative;z-index:1;box-sizing:border-box;
+  width:min(92vw,520px);max-height:38vh;overflow:hidden;margin:0;
+  padding:10px 14px;border-radius:var(--radius-panel);
+  border-left:6px solid #2fd08a;background:rgba(9,18,26,.9);
+  color:#eaf3f8;text-align:left}
+.camera-result p{margin:0}
+.camera-result-kind{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8fd8b6}
+.camera-result-title{margin-top:2px;font-size:clamp(19px,5.4vw,26px);font-weight:800;line-height:1.2;
+  /* Tên dài không được đẩy khung quét đi: cắt ở 2 dòng, đủ để đọc tên người. */
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.camera-result-sub{margin-top:2px;font-size:14px;color:#b8c7d2;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
+.camera-result-sub:empty{display:none}
+.camera-result-next{margin-top:6px;font-size:15px;font-weight:700;line-height:1.3;color:#ffd479;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.camera-result-next:empty{display:none}
+/* Lỗi phải khác màu ở khoảng cách một sải tay, không chỉ khác chữ. */
+.camera-result[data-kind="error"]{border-left-color:#ff6b6b;background:rgba(86,18,18,.94)}
+.camera-result[data-kind="error"] .camera-result-kind{color:#ffb4b4}
+.camera-result[data-kind="error"] .camera-result-next{color:#ffd9d9}
+/* Nhấp nháy một nhịp mỗi lần thẻ đổi nội dung: mắt đang nhìn tem, không nhìn
+   màn hình, nên cái thay đổi phải tự gọi. */
+.camera-result.flash{animation:camera-result-flash .5s ease-out}
+@keyframes camera-result-flash{0%{transform:scale(1.035);box-shadow:0 0 0 3px rgba(47,208,138,.55)}
+  100%{transform:scale(1);box-shadow:0 0 0 3px rgba(47,208,138,0)}}
+
 .camera-hint{position:relative;margin:0;padding:8px 14px;border-radius:999px;background:rgba(9,18,26,.72);
   color:#fff;font-size:16px;font-weight:700;text-align:center}
 .camera-status{position:relative;max-width:min(92vw,520px);margin:0;padding:10px 14px;border-radius:var(--radius-panel);
@@ -131,5 +167,14 @@ body.kiosk-touch .qty-keypad:not([hidden]){display:grid;grid-template-columns:re
   .screen h1{margin:4px 0;font-size:clamp(20px,5vw,28px)}
   .icon,.arrow{display:none}
   .camera-frame{width:min(52vh,52vw)}
+  /* Ngang màn: chiều cao là thứ hiếm. Khi có kết quả thì thẻ kết quả NÓI luôn
+     bước tiếp theo, nên gợi ý ở dưới là thừa -- bỏ nó và thu khung lại vừa đủ
+     để cả hai cùng nằm lọt, thay vì để thẻ đè vào vùng quét. */
+  .camera-result{max-height:30vh;padding:8px 12px}
+  .camera-result-title{font-size:clamp(17px,3.4vh,22px)}
+  .camera-result-next{margin-top:4px;font-size:13px}
+  .camera-layer.on.has-result{gap:6px}
+  .camera-layer.on.has-result .camera-frame{width:min(44vh,44vw)}
+  .camera-layer.on.has-result .camera-hint{display:none}
   body.kiosk-touch .qty-keypad button{min-height:46px;font-size:20px}
 }

@@ -162,6 +162,15 @@
     <div id="camera-layer" data-testid="kiosk-camera-layer" class="camera-layer" aria-hidden="false">
       <video id="camera-video" data-testid="kiosk-camera-video" playsinline muted autoplay></video>
       <div class="camera-frame" aria-hidden="true"></div>
+      <!-- KẾT QUẢ QUÉT NGAY TRÊN CAMERA. Nằm SAU .camera-frame trong DOM để vẽ
+           đè lên bóng đổ 100vmax của khung, nhưng `order:-1` xếp nó LÊN TRÊN
+           khung: là một phần tử flex nên nó không bao giờ chồng vào vùng quét. -->
+      <div id="camera-result" data-testid="kiosk-camera-result" class="camera-result" role="status" aria-live="polite" hidden>
+        <p id="camera-result-kind" data-testid="kiosk-camera-result-kind" class="camera-result-kind"></p>
+        <p id="camera-result-title" data-testid="kiosk-camera-result-title" class="camera-result-title"></p>
+        <p id="camera-result-sub" data-testid="kiosk-camera-result-sub" class="camera-result-sub"></p>
+        <p id="camera-result-next" data-testid="kiosk-camera-result-next" class="camera-result-next"></p>
+      </div>
       <p id="camera-hint" data-testid="kiosk-camera-hint" class="camera-hint"></p>
       <p id="camera-status" data-testid="kiosk-camera-status" class="camera-status" role="alert" aria-live="polite"></p>
       <div class="camera-actions">

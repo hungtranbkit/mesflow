@@ -35,6 +35,11 @@
   const switchButton = layer.querySelector('#camera-switch');
   const closeButton = layer.querySelector('#camera-close');
   const frame = layer.querySelector('.camera-frame');
+  const resultEl = layer.querySelector('#camera-result');
+  const resultKind = layer.querySelector('#camera-result-kind');
+  const resultTitle = layer.querySelector('#camera-result-title');
+  const resultSub = layer.querySelector('#camera-result-sub');
+  const resultNext = layer.querySelector('#camera-result-next');
 
   //: Cùng một mã không được gửi lại trong khoảng này. Người cầm điện thoại giữ
   //: máy trước tem vài giây là chuyện bình thường, và camera đọc được 10 lần
@@ -68,6 +73,8 @@
   let devices = [];
   let deviceIndex = 0;
   let audio = null;
+  let audioUnlocked = false;
+  let lastResult = null;
   let canvas = null;
   let canvasCtx = null;
 
@@ -87,39 +94,104 @@
   // Ba kênh cùng lúc, cố ý: người đứng máy có thể đang đeo găng (không cảm
   // được rung), ở xưởng ồn (không nghe được tiếng bíp), hoặc đang nhìn chỗ
   // khác (không thấy nhấp nháy). Một kênh hỏng thì hai kênh còn lại vẫn nói.
+  // ĐỌC ĐƯỢC MÃ khác với QUÉT THÀNH CÔNG. Ở đây mới chỉ có một chuỗi ký tự:
+  // máy chủ chưa nói gì, mã có thể là tem sai, nhân viên nghỉ việc, công đoạn
+  // đã đóng. Nên chỗ này chỉ nhấp nháy khung + rung -- tiếng "tít" dành riêng
+  // cho lúc máy chủ đã trả lời ĐƯỢC (xem kiosk:scan-result bên dưới). Kêu ngay
+  // ở đây thì người đứng máy nghe tiếng thành công rồi bỏ đi, trong khi màn
+  // hình đang báo lỗi.
   function feedback() {
     frame?.classList.remove('hit');
     void frame?.offsetWidth;        // ép reflow để animation chạy lại từ đầu
     frame?.classList.add('hit');
     try { navigator.vibrate?.(40); } catch { /* iOS không có, không sao */ }
-    beep();
   }
 
-  function beep() {
+  //: Một nốt vuông ngắn. Sóng vuông nghe rõ hơn sóng sin qua loa điện thoại
+  //: trong tiếng máy xưởng, và tai người nhạy nhất quanh 1-2 kHz.
+  function tone(freq, seconds, delay = 0, volume = 0.16) {
     if (!audio) return;
     try {
+      const at = audio.currentTime + delay;
       const osc = audio.createOscillator();
       const gain = audio.createGain();
       osc.type = 'square';
-      osc.frequency.value = 1180;
-      gain.gain.setValueAtTime(0.0001, audio.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.16, audio.currentTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.12);
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(volume, at + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
       osc.connect(gain).connect(audio.destination);
-      osc.start();
-      osc.stop(audio.currentTime + 0.13);
+      osc.start(at);
+      osc.stop(at + seconds + 0.01);
     } catch { /* âm thanh là thứ tốt-thì-có, không được làm hỏng lần quét */ }
   }
 
-  // AudioContext phải được tạo/đánh thức TRONG một cử chỉ của người dùng, nếu
-  // không iOS giữ nó ở trạng thái 'suspended' và mọi tiếng bíp về sau im lặng.
+  // Hai tiếng KHÁC HẲN nhau, không phải hai mức to nhỏ: người đeo tai chống ồn
+  // ở xưởng phân biệt được cao/thấp chứ không phân biệt được to/nhỏ.
+  function beepSuccess() { wakeAudio(); tone(1180, 0.12); }
+  function beepError() { wakeAudio(); tone(300, 0.16); tone(220, 0.18, 0.2); }
+
+  // AudioContext phải được TẠO và THẬT SỰ CHẠY trong một cử chỉ của người dùng.
+  //
+  // Trên iOS, `new AudioContext()` ra đời ở trạng thái 'suspended' và
+  // `resume()` chỉ được chấp nhận bên trong một cử chỉ -- nhưng chừng đó vẫn
+  // chưa đủ: WebKit chỉ mở khoá hẳn khi đã có một node CHẠY XONG trong chính
+  // cử chỉ ấy. Nên phát một đoạn đệm 1 mẫu (hoàn toàn im lặng) ngay tại đây;
+  // đó là thứ biến mọi tiếng bíp về sau từ im lặng thành nghe được.
   function primeAudio() {
     try {
       const Ctor = window.AudioContext || window.webkitAudioContext;
       if (!Ctor) return;
       if (!audio) audio = new Ctor();
       if (audio.state === 'suspended') audio.resume();
+      const buffer = audio.createBuffer(1, 1, audio.sampleRate || 22050);
+      const source = audio.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audio.destination);
+      source.start(0);
+      audioUnlocked = true;
     } catch { audio = null; }
+  }
+
+  // iOS treo AudioContext lại khi khoá máy hoặc chuyển app. resume() ở đây là
+  // nỗ lực tốt nhất -- nếu hệ điều hành từ chối thì lần chạm nút tiếp theo mở
+  // lại được, và hình ảnh vẫn nói đủ.
+  function wakeAudio() {
+    try { if (audio && audio.state === 'suspended') audio.resume(); } catch { /* thôi */ }
+  }
+
+  // --- KẾT QUẢ QUÉT HIỆN NGAY TRÊN CAMERA ---------------------------------
+  //
+  // Lỗi thật gặp trên iPhone: quét được, máy chủ nhận đúng tên, nhưng lớp
+  // camera phủ kín màn hình nên người dùng phải TẮT camera mới đọc được kết
+  // quả. Ở xưởng, "tắt camera để xem rồi bật lại để quét tiếp" là bỏ hẳn lý do
+  // dùng điện thoại. Thẻ này mang đúng nội dung màn bên dưới đang hiện, không
+  // hơn: mọi câu chữ và mọi luật đều do kiosk.js quyết, module này chỉ vẽ.
+  function clearResult() {
+    lastResult = null;
+    if (!resultEl) return;
+    resultEl.hidden = true;
+    resultEl.classList.remove('flash');
+    layer.classList.remove('has-result');
+  }
+
+  function renderResult(detail) {
+    const data = detail || {};
+    lastResult = data;
+    if (!resultEl) return;
+    const ok = data.ok !== false;
+    resultEl.dataset.kind = ok ? 'ok' : 'error';
+    // "Đã quét:" là chữ người dùng đọc ra để biết máy ĐÃ ăn mã -- giữ nguyên
+    // câu đó kể cả khi lỗi, vì mã thì vẫn đọc được, chỉ nghiệp vụ mới từ chối.
+    if (resultKind) resultKind.textContent = ok ? `Đã quét: ${data.label || 'QR'}` : (data.label || 'Không nhận được mã');
+    if (resultTitle) resultTitle.textContent = data.title || '';
+    if (resultSub) resultSub.textContent = data.sub || '';
+    if (resultNext) resultNext.textContent = data.next || '';
+    resultEl.hidden = false;
+    layer.classList.add('has-result');
+    resultEl.classList.remove('flash');
+    void resultEl.offsetWidth;      // ép reflow để nhịp nhấp nháy chạy lại
+    resultEl.classList.add('flash');
   }
 
   // --- MẤT MẠNG: KHÔNG XẾP HÀNG HÀNH ĐỘNG NGHIỆP VỤ ----------------------
@@ -144,6 +216,11 @@
     if (!value) return;
     if (offline()) {
       feedback();
+      // Không có lần gọi máy chủ nào để sinh ra kiosk:scan-result, nên tiếng
+      // báo lỗi phải phát ngay tại đây, nếu không lần quét này im lặng hoàn toàn.
+      beepError();
+      renderResult({ok:false, label:'Mất kết nối mạng', title:'Chưa gửi được mã',
+        sub:value, next:'Giữ nguyên màn này, quét lại khi có mạng.'});
       setStatus('Mất kết nối mạng — chưa gửi được mã. Giữ nguyên màn này, quét lại khi có mạng.', 'error');
       return;
     }
@@ -309,6 +386,7 @@
   function stop({ keepWanted = false } = {}) {
     stopStream();
     if (!keepWanted) wanted = false;
+    clearResult();
     layer.classList.remove('on');
     toggle.setAttribute('aria-pressed', 'false');
     toggle.textContent = 'Camera điện thoại';
@@ -323,6 +401,12 @@
   // --- nối vào luồng kiosk ------------------------------------------------
   document.addEventListener('kiosk:screen', event => {
     const name = event.detail && event.detail.name;
+    // Về màn chờ nghĩa là lượt của người vừa rồi đã khép lại -- tên của họ
+    // không được nằm lại trên camera cho người kế tiếp đọc. Dọn thẻ ở ĐÂY chứ
+    // không hẹn giờ riêng: kiosk.js đã có đúng một chỗ quyết định lúc nào một
+    // lượt kết thúc (reset/scheduleReset), thêm đồng hồ thứ hai là thêm một
+    // nguồn sự thật lệch pha với nó.
+    if (name === 'ready') clearResult();
     if (!wanted) return;
     if (BLOCKED_SCREENS.has(name)) pause();
     else resume();
@@ -330,16 +414,44 @@
       : name === 'operation' ? 'Đưa camera vào QR CÔNG ĐOẠN' : '');
   });
 
+  // Máy chủ đã trả lời: ĐÂY mới là lúc biết lần quét thành công hay không.
+  //
+  // Chỉ làm gì khi người dùng ĐÃ bật camera. Trạm cố định với máy quét USB
+  // chưa bao giờ kêu tiếng nào, và một bản vá cho điện thoại không được tự
+  // thêm âm thanh vào một cái máy đang chạy tốt ở xưởng. `wanted` còn đúng cả
+  // khi camera đang tạm dừng ở màn nhập sản lượng -- tiếng bíp vẫn phải kêu ở
+  // đó, vì người dùng vẫn đang cầm điện thoại.
+  document.addEventListener('kiosk:scan-result', event => {
+    if (!(running || paused || wanted)) return;
+    const detail = event.detail || {};
+    if (detail.ok === false) beepError(); else beepSuccess();
+    renderResult(detail);
+  });
+
   // Rời tab / khoá máy / chuyển app: tắt hẳn. Không quay khi không ai nhìn.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (running) { paused = true; stopStream(); } }
-    else if (wanted && paused) resume();
+    else if (wanted && paused) { wakeAudio(); resume(); }
   });
   window.addEventListener('pagehide', () => stopStream());
   window.addEventListener('online', () => { if (statusEl?.dataset.kind === 'error' && running) setStatus(''); });
   window.addEventListener('offline', () => {
     if (running) setStatus('Mất kết nối mạng — quét sẽ không gửi đi được.', 'error');
   });
+
+  // Bấm nút camera là cử chỉ chính, nhưng không phải cử chỉ DUY NHẤT: người
+  // dùng có thể bấm "Mô phỏng quét QR" hoặc một nút bất kỳ trước đó. Mở khoá ở
+  // cử chỉ đầu tiên nào cũng được, một lần rồi thôi -- tiếng bíp khi đó nghe
+  // được kể cả với máy quét USB cắm vào điện thoại qua OTG.
+  const unlockOnce = () => {
+    primeAudio();
+    if (audioUnlocked) {
+      document.removeEventListener('pointerdown', unlockOnce, true);
+      document.removeEventListener('touchend', unlockOnce, true);
+    }
+  };
+  document.addEventListener('pointerdown', unlockOnce, true);
+  document.addEventListener('touchend', unlockOnce, true);
 
   toggle.addEventListener('click', async () => {
     if (wanted) { stop(); return; }
@@ -369,5 +481,8 @@
     // Đưa thẳng một chuỗi vào đúng đường mà camera dùng -- kể cả chặn trùng.
     emitForTest: emit,
     duplicateWindowMs: DUPLICATE_WINDOW_MS,
+    audioState: () => (audio ? audio.state : 'none'),
+    isAudioUnlocked: () => audioUnlocked,
+    lastResult: () => lastResult,
   };
 })();

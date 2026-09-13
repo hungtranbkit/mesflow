@@ -315,3 +315,264 @@ test('jsQR đọc được một ảnh QR THẬT từ khung hình camera trên W
   expect(await page.evaluate(() => typeof window.jsQR)).toBe('function');
   await context.close();
 });
+
+
+// === KẾT QUẢ QUÉT HIỆN NGAY TRÊN CAMERA ====================================
+//
+// Lỗi thật trên iPhone: camera quét được, máy chủ trả về đúng tên nhân viên,
+// nhưng lớp camera `position:fixed; inset:0` phủ kín màn hình -- người dùng
+// phải TẮT camera mới đọc được kết quả. Ở xưởng, "tắt để xem rồi bật lại để
+// quét tiếp" là bỏ hẳn lý do dùng điện thoại.
+//
+// Mọi bài dưới đây chạy trên WebKit/iPhone vì đó là engine của thiết bị đích.
+
+/** Ghi lại mọi thứ AudioContext làm, nhưng vẫn dùng AudioContext THẬT của
+ *  WebKit -- cần đo CƠ CHẾ mở khoá của iOS, không phải đo một cái giả. */
+const AUDIO_SPY = () => {
+  const Real = window.AudioContext || window.webkitAudioContext;
+  window.__audio = { ctxs: 0, silentStarts: 0, resumes: 0, freqs: [] };
+  function Spy() {
+    const ctx = new Real();
+    window.__audio.ctxs += 1;
+    const osc = ctx.createOscillator.bind(ctx);
+    ctx.createOscillator = () => {
+      const node = osc();
+      const start = node.start.bind(node);
+      node.start = (...args) => { window.__audio.freqs.push(Math.round(node.frequency.value)); return start(...args); };
+      return node;
+    };
+    const bufferSource = ctx.createBufferSource.bind(ctx);
+    ctx.createBufferSource = () => {
+      const node = bufferSource();
+      const start = node.start.bind(node);
+      node.start = (...args) => { window.__audio.silentStarts += 1; return start(...args); };
+      return node;
+    };
+    const resume = ctx.resume.bind(ctx);
+    ctx.resume = () => { window.__audio.resumes += 1; return resume(); };
+    return ctx;
+  }
+  Object.defineProperty(window, 'AudioContext', { configurable: true, value: Spy });
+  Object.defineProperty(window, 'webkitAudioContext', { configurable: true, value: Spy });
+};
+
+/** Bật camera thật sự (stream giả) và chờ vòng quét chạy. */
+async function turnCameraOn(page) {
+  await page.getByTestId('kiosk-camera-toggle').click();
+  await expect(page.getByTestId('kiosk-camera-layer')).toHaveClass(/on/);
+  await page.waitForFunction(() => window.KioskCamera.isRunning(), null, { timeout: 25000 });
+}
+
+test('camera VẪN MỞ mà tên nhân viên đã hiện ngay trên lớp camera', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+  await openKiosk(page, { scans: [] });
+  await turnCameraOn(page);
+
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|EMP|NV-009'));
+
+  // Đây là chính lỗi được sửa: KHÔNG phải tắt camera mới thấy kết quả.
+  await expect(page.getByTestId('kiosk-camera-layer')).toHaveClass(/on/);
+  expect(await page.evaluate(() => window.KioskCamera.isRunning())).toBe(true);
+
+  const card = page.getByTestId('kiosk-camera-result');
+  await expect(card).toBeVisible();
+  await expect(page.getByTestId('kiosk-camera-result-kind')).toHaveText('Đã quét: Thẻ nhân viên');
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Thợ Chín');
+  await expect(page.getByTestId('kiosk-camera-result-sub')).toContainText('NV-009');
+  await expect(page.getByTestId('kiosk-camera-result-next')).toContainText('QR CÔNG ĐOẠN');
+  await context.close();
+});
+
+test('thẻ kết quả TỰ ĐỔI theo lần quét mới, không giữ tên người trước', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+  await openKiosk(page, { scans: [] });
+  await turnCameraOn(page);
+
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|EMP|NV-009'));
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Thợ Chín');
+
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|OP|OP-77'));
+  await expect(page.getByTestId('kiosk-camera-result-kind')).toHaveText('Đã quét: QR công đoạn');
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Chấn');
+  await expect(page.getByTestId('kiosk-camera-result-next')).toContainText('ĐÃ BẮT ĐẦU', { timeout: 15000 });
+  await context.close();
+});
+
+test('thẻ kết quả KHÔNG che vùng quét, cả dọc lẫn ngang', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+  await openKiosk(page, { scans: [] });
+  await turnCameraOn(page);
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|EMP|NV-009'));
+  await expect(page.getByTestId('kiosk-camera-result')).toBeVisible();
+
+  for (const [w, h] of [[390, 844], [844, 390]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(180);
+    const frame = await page.locator('.camera-frame').boundingBox();
+    const card = await page.getByTestId('kiosk-camera-result').boundingBox();
+    expect(frame, 'khung quét phải còn nhìn thấy').not.toBeNull();
+    expect(card, 'thẻ kết quả phải còn nhìn thấy').not.toBeNull();
+    // Giao nhau bằng 0: vùng ngắm QR phải sạch, nếu không camera không đọc nổi
+    // tem mà người dùng lại tưởng máy hỏng.
+    const overlapX = Math.min(frame.x + frame.width, card.x + card.width) - Math.max(frame.x, card.x);
+    const overlapY = Math.min(frame.y + frame.height, card.y + card.height) - Math.max(frame.y, card.y);
+    const overlap = Math.max(0, overlapX) * Math.max(0, overlapY);
+    expect(overlap, `thẻ kết quả chồng ${overlap}px² vào vùng quét ở khổ ${w}x${h}`).toBe(0);
+    // Và cả hai phải nằm TRONG màn hình, không bị đẩy ra ngoài.
+    expect(frame.y).toBeGreaterThanOrEqual(-1);
+    expect(frame.y + frame.height).toBeLessThanOrEqual(h + 1);
+    expect(card.y).toBeGreaterThanOrEqual(-1);
+  }
+  await context.close();
+});
+
+test('quét lỗi thì thẻ chuyển ĐỎ và nói lý do, không im lặng', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+  await page.route(/\/api\/kiosk-web\/heartbeat/, r => r.fulfill({ json: { ok: true } }));
+  await page.route(/\/api\/kiosk-web\/scan/, r => r.fulfill({
+    status: 400, json: { ok: false, error_code: 'SCN-002', message: 'QR không hợp lệ' } }));
+  await page.goto('/kiosk');
+  await page.waitForFunction(() => !!window.KioskCamera);
+  await turnCameraOn(page);
+
+  await page.evaluate(() => window.KioskCamera.emitForTest('KHONG-PHAI-QR-MESFLOW'));
+  const card = page.getByTestId('kiosk-camera-result');
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute('data-kind', 'error');
+  await expect(page.getByTestId('kiosk-camera-result-sub')).toHaveText('SCN-002');
+  await context.close();
+});
+
+test('thẻ được DỌN khi trạm trở về màn chờ — không để tên người trước lại', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_CAMERA);
+  await openKiosk(page, { scans: [] });
+  await turnCameraOn(page);
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|EMP|NV-009'));
+  await expect(page.getByTestId('kiosk-camera-result')).toBeVisible();
+
+  // reset() -> show('ready') là đúng một đường mà kiosk.js dùng để khép một lượt.
+  await page.evaluate(() => window.MESFlowKioskDemo.close());
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('kiosk:screen', { detail: { name: 'ready' } })));
+  await expect(page.getByTestId('kiosk-camera-result')).toBeHidden();
+  await context.close();
+});
+
+// --- TIẾNG "TÍT" TRÊN iPHONE ----------------------------------------------
+//
+// iOS không cho phát âm thanh nếu AudioContext chưa được đánh thức TRONG một
+// cử chỉ của người dùng, và `resume()` một mình vẫn chưa đủ: WebKit chỉ mở
+// khoá hẳn khi đã có một node CHẠY trong chính cử chỉ ấy.
+
+test('bấm mở camera là mở khoá âm thanh ngay trong cử chỉ chạm', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(AUDIO_SPY);
+  await page.addInitScript(FAKE_CAMERA);
+  await openKiosk(page, { scans: [] });
+
+  // Trước khi chạm: chưa có AudioContext nào -- không tự tạo khi trang tải,
+  // vì một context tạo ngoài cử chỉ sẽ mắc kẹt ở 'suspended' vĩnh viễn.
+  expect(await page.evaluate(() => window.__audio.ctxs)).toBe(0);
+  expect(await page.evaluate(() => window.KioskCamera.isAudioUnlocked())).toBe(false);
+
+  await turnCameraOn(page);
+
+  expect(await page.evaluate(() => window.__audio.ctxs)).toBeGreaterThan(0);
+  // Đoạn đệm 1 mẫu im lặng: ĐÂY là thứ mở khoá thật sự trên iOS.
+  expect(await page.evaluate(() => window.__audio.silentStarts),
+    'phải phát một đoạn đệm im lặng trong cử chỉ chạm, nếu không iOS giữ im lặng mãi')
+    .toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.KioskCamera.isAudioUnlocked())).toBe(true);
+  await context.close();
+});
+
+test('quét THÀNH CÔNG phát tiếng tít, quét LỖI phát tiếng khác hẳn', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(AUDIO_SPY);
+  await page.addInitScript(FAKE_CAMERA);
+  await openKiosk(page, { scans: [] });
+  await turnCameraOn(page);
+  await page.evaluate(() => { window.__audio.freqs.length = 0; });
+
+  await page.evaluate(() => window.KioskCamera.emitForTest('WF|EMP|NV-009'));
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Thợ Chín');
+  const ok = await page.evaluate(() => window.__audio.freqs.slice());
+  expect(ok, 'quét thành công phải kêu một tiếng cao, ngắn').toContain(1180);
+
+  // Đổi máy chủ sang trả lỗi rồi quét một mã KHÁC (mã cũ còn trong cửa sổ chống trùng).
+  await page.unroute(/\/api\/kiosk-web\/scan/);
+  await page.route(/\/api\/kiosk-web\/scan/, r => r.fulfill({
+    status: 400, json: { ok: false, error_code: 'SCN-002', message: 'QR không hợp lệ' } }));
+  await page.evaluate(() => { window.__audio.freqs.length = 0; });
+  await page.evaluate(() => window.KioskCamera.emitForTest('MA-SAI-HOAN-TOAN'));
+  await expect(page.getByTestId('kiosk-camera-result')).toHaveAttribute('data-kind', 'error');
+  const bad = await page.evaluate(() => window.__audio.freqs.slice());
+  expect(bad, 'tiếng lỗi phải THẤP và khác hẳn tiếng thành công').toContain(300);
+  expect(bad, 'không được kêu tiếng thành công khi đang lỗi').not.toContain(1180);
+  await context.close();
+});
+
+test('trạm cố định (camera tắt) KHÔNG tự nhiên phát ra tiếng nào', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  await page.addInitScript(AUDIO_SPY);
+  await openKiosk(page, { scans: [] });
+  // Không bật camera. Máy quét USB gõ chuỗi vào -> đi đúng luồng cũ.
+  await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|EMP|NV-009'));
+  await expect(page.locator('#screen-operation')).toHaveClass(/active/);
+  expect(await page.evaluate(() => window.__audio.freqs),
+    'bản vá cho điện thoại không được thêm âm thanh vào trạm đang chạy tốt').toEqual([]);
+  await expect(page.getByTestId('kiosk-camera-result')).toBeHidden();
+  await context.close();
+});
+
+// --- ẢNH QR THẬT, ĐI HẾT ĐƯỜNG --------------------------------------------
+
+test('ảnh QR THẬT qua camera: đọc được, hiện thẻ kết quả, và kêu tiếng', async () => {
+  const context = await phone();
+  const page = await context.newPage();
+  const state = { scans: [] };
+  await page.addInitScript(AUDIO_SPY);
+  await page.addInitScript(qrBase64 => {
+    Object.defineProperty(window, 'isSecureContext', { get: () => true, configurable: true });
+    const canvas = document.createElement('canvas');
+    canvas.width = 480; canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 480, 480);
+    const image = new Image();
+    image.onload = () => {
+      const paint = () => {
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 480, 480);
+        ctx.drawImage(image, 120, 120, 240, 240);
+        requestAnimationFrame(paint);
+      };
+      paint();
+    };
+    image.src = `data:image/png;base64,${qrBase64}`;
+    navigator.mediaDevices = navigator.mediaDevices || {};
+    navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(10);
+    navigator.mediaDevices.enumerateDevices = async () => ([{ kind: 'videoinput', deviceId: 'back', label: 'Back' }]);
+  }, QR_PNG_BASE64);
+
+  await openKiosk(page, state);
+  await page.getByTestId('kiosk-camera-toggle').click();
+
+  // Không bơm chuỗi: chuỗi đi ra TỪ ẢNH, rồi thẻ kết quả phải hiện khi camera
+  // vẫn đang mở -- đúng cảnh người dùng giơ điện thoại trước tem.
+  await expect(page.getByTestId('kiosk-camera-result-title')).toHaveText('Thợ Chín', { timeout: 45000 });
+  await expect(page.getByTestId('kiosk-camera-layer')).toHaveClass(/on/);
+  expect(state.scans).toEqual(['WF|EMP|NV-009']);
+  expect(await page.evaluate(() => window.__audio.freqs)).toContain(1180);
+  await context.close();
+});
