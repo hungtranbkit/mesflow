@@ -299,12 +299,30 @@ test('jsQR đọc được một ảnh QR THẬT từ khung hình camera trên W
       paint();
     };
     image.src = `data:image/png;base64,${qrBase64}`;
-    navigator.mediaDevices = navigator.mediaDevices || {};
-    navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(10);
-    navigator.mediaDevices.enumerateDevices = async () => ([{ kind: 'videoinput', deviceId: 'back', label: 'Back' }]);
+    // defineProperty, KHÔNG phải gán thẳng -- cùng lý do đã ghi ở FAKE_CAMERA.
+    // Trên origin http thì `navigator.mediaDevices` không tồn tại nên gán thẳng
+    // tạo ra một object thường và ăn; trên origin https nó TỒN TẠI và chỉ đọc,
+    // nên `navigator.mediaDevices.getUserMedia = ...` IM LẶNG không có tác dụng
+    // (không ném lỗi). Hậu quả đo được khi trỏ bài vào bản đã deploy: getUserMedia
+    // THẬT chạy, WebKit trong container không có camera nên báo "đã từ chối quyền",
+    // jsQR không bao giờ được nạp, và bài đỏ vì một lý do không liên quan gì tới
+    // thứ nó định kiểm.
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: async () => canvas.captureStream(10),
+        enumerateDevices: async () => ([{ kind: 'videoinput', deviceId: 'back', label: 'Back' }]),
+      },
+    });
   }, QR_PNG_BASE64);
 
   await openKiosk(page, state);
+  // CHỐT lại rằng camera giả thật sự được cài. Không có dòng này thì một lần
+  // cài hỏng IM LẶNG (xem chú thích defineProperty ngay trên) biến bài thành
+  // "đỏ vì không có camera" thay vì "đỏ vì giải mã sai" -- hai chuyện khác hẳn
+  // nhau mà thông báo lỗi lại giống nhau.
+  expect(await page.evaluate(() => /captureStream/.test(String(navigator.mediaDevices.getUserMedia))),
+    'camera giả chưa được cài -- gán thẳng lên navigator.mediaDevices không ăn trên origin https').toBe(true);
   expect(await page.evaluate(() => 'BarcodeDetector' in window)).toBe(false);
   await page.getByTestId('kiosk-camera-toggle').click();
 
@@ -560,12 +578,30 @@ test('ảnh QR THẬT qua camera: đọc được, hiện thẻ kết quả, và
       paint();
     };
     image.src = `data:image/png;base64,${qrBase64}`;
-    navigator.mediaDevices = navigator.mediaDevices || {};
-    navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(10);
-    navigator.mediaDevices.enumerateDevices = async () => ([{ kind: 'videoinput', deviceId: 'back', label: 'Back' }]);
+    // defineProperty, KHÔNG phải gán thẳng -- cùng lý do đã ghi ở FAKE_CAMERA.
+    // Trên origin http thì `navigator.mediaDevices` không tồn tại nên gán thẳng
+    // tạo ra một object thường và ăn; trên origin https nó TỒN TẠI và chỉ đọc,
+    // nên `navigator.mediaDevices.getUserMedia = ...` IM LẶNG không có tác dụng
+    // (không ném lỗi). Hậu quả đo được khi trỏ bài vào bản đã deploy: getUserMedia
+    // THẬT chạy, WebKit trong container không có camera nên báo "đã từ chối quyền",
+    // jsQR không bao giờ được nạp, và bài đỏ vì một lý do không liên quan gì tới
+    // thứ nó định kiểm.
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: async () => canvas.captureStream(10),
+        enumerateDevices: async () => ([{ kind: 'videoinput', deviceId: 'back', label: 'Back' }]),
+      },
+    });
   }, QR_PNG_BASE64);
 
   await openKiosk(page, state);
+  // CHỐT lại rằng camera giả thật sự được cài. Không có dòng này thì một lần
+  // cài hỏng IM LẶNG (xem chú thích defineProperty ngay trên) biến bài thành
+  // "đỏ vì không có camera" thay vì "đỏ vì giải mã sai" -- hai chuyện khác hẳn
+  // nhau mà thông báo lỗi lại giống nhau.
+  expect(await page.evaluate(() => /captureStream/.test(String(navigator.mediaDevices.getUserMedia))),
+    'camera giả chưa được cài -- gán thẳng lên navigator.mediaDevices không ăn trên origin https').toBe(true);
   await page.getByTestId('kiosk-camera-toggle').click();
 
   // Không bơm chuỗi: chuỗi đi ra TỪ ẢNH, rồi thẻ kết quả phải hiện khi camera
