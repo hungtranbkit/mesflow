@@ -102,8 +102,11 @@ for (const [label, open] of SCREENS) {
     await open(page, ['1366', 1366, 900]);
     const block = page.locator('.part-block').first();
     await expect(block).toBeVisible();
-    // Đủ bộ vỏ: header có badge, danh sách OP, footer thêm OP.
-    await expect(block.locator('.part-block-head .part-block-badge')).toHaveText(/PART\s*1/i);
+    // Đủ bộ vỏ: header, danh sách OP, footer thêm OP.
+    await expect(block.locator('.part-block-head')).toHaveCount(1);
+    // Và KHÔNG còn nhãn 'Part 1' -- đó là số thứ tự của giao diện, không phải
+    // tên của thứ gì trong xưởng.
+    await expect(block.locator('.part-block-head')).not.toHaveText(/\bPart\s*\d+\b/i);
     await expect(block.locator('.op-list')).toHaveCount(1);
     await expect(block.locator('.part-block-foot .part-block-add')).toHaveText(/Thêm Operation/);
     // Xoá Part là destructive SECONDARY: chữ đỏ trên nền trong suốt, không
@@ -119,7 +122,7 @@ for (const [label, open] of SCREENS) {
     await open(page, ['1366', 1366, 900]);
     const head = page.locator('.part-block-head').first();
     const bottoms = await head.evaluate(el => [...el.querySelectorAll(
-      ':scope > .part-block-badge, :scope > label > input, :scope > .btn, :scope .panel-actions > .btn')]
+      ':scope > label > input, :scope > .btn, :scope .panel-actions > .btn')]
       .map(e => Math.round(e.getBoundingClientRect().bottom)));
     expect(bottoms.length, 'header phải có control để so').toBeGreaterThan(1);
     const spread = Math.max(...bottoms) - Math.min(...bottoms);
@@ -144,7 +147,6 @@ test('hai màn dùng CÙNG một khuôn: badge, nút xoá, nút thêm giống nh
     const g = (s, ...p) => { const e = document.querySelector(s); if (!e) return null;
       const cs = getComputedStyle(e); return p.map(k => cs[k]).join('|'); };
     return {
-      badge: g('.part-block-badge', 'borderTopLeftRadius', 'backgroundColor', 'color', 'fontWeight', 'height'),
       del: g('.part-block-destructive', 'color', 'backgroundColor', 'height'),
       add: g('.part-block-add', 'borderStyle', 'color', 'height'),
       block: g('.part-block', 'borderTopLeftRadius', 'borderTopColor', 'boxShadow'),
