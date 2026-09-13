@@ -1074,7 +1074,7 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
         ws = wb[sheet_name]
         slots = markers.get(sheet_name, {}).get(excel_row, {})
 
-        def emit(kind, payload, label, operation_id, fallback_column):
+        def emit(kind, payload, operation_id, fallback_column):
             marker = slots.get(kind)
             if marker:
                 marker_row, marker_col, coordinate = marker
@@ -1083,14 +1083,9 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
                 side = max(min(region_w, region_h) - 2 * QR_MARKER_MARGIN_PX, 1)
                 offset_x = max((region_w - side) // 2, 0)
                 offset_y = max((region_h - side) // 2, 0)
-                # QR VUÔNG side x side lấp vùng marker; ảnh cao thêm dải nhãn phía
-                # dưới. Giữ ĐÚNG TỈ LỆ ảnh khi neo (ext cao theo pw:ph) để phần QR
-                # vẫn vuông và nhãn KHÔNG bị bóp dẹt/cắt -- nhãn tràn xuống dưới ô
-                # marker, đổi lại đọc được trọn payload.
-                from PIL import Image as _Image
-                png = _qr_png(payload, label).getvalue()
-                _im = _Image.open(BytesIO(png))
-                ext_h = max(int(round(side * _im.height / _im.width)), side)
+                # CHỈ ảnh QR VUÔNG side x side, KHÔNG nhãn chữ dưới tem (payload
+                # vẫn nằm trong QR). Không dải nhãn -> ext vuông như QR.
+                png = _qr_png(payload).getvalue()
                 placed.append({
                     'operation_id': operation_id, 'sheet': sheet_name, 'kind': kind,
                     'payload': payload, 'placement': 'marker', 'marker_cell': coordinate,
@@ -1101,7 +1096,7 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
                     'png': png,
                     'col0': region[1] - 1, 'row0': region[0] - 1,
                     'colOff': offset_x * QR_EMU_PER_PX, 'rowOff': offset_y * QR_EMU_PER_PX,
-                    'cx': side * QR_EMU_PER_PX, 'cy': ext_h * QR_EMU_PER_PX})
+                    'cx': side * QR_EMU_PER_PX, 'cy': side * QR_EMU_PER_PX})
                 return
             if marker_mode == 'MARKER':
                 # Block thiếu ô QRCODE trong biểu mẫu đã có marker: chỉ CẢNH BÁO,
@@ -1122,7 +1117,7 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
             column = fallback_column()
             _assert_lane_is_free(ws, column, QR_COLUMN_GAP + 2,
                                  sheet=sheet_name, operation=row['code'])
-            png = _qr_png(payload, label).getvalue()
+            png = _qr_png(payload).getvalue()
             image = Image.open(BytesIO(png))
             width_px, height_px = image.width, image.height
             placed.append({
@@ -1133,12 +1128,12 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
                 'colOff': 0, 'rowOff': 0,
                 'cx': width_px * QR_EMU_PER_PX, 'cy': height_px * QR_EMU_PER_PX})
 
-        # Nhãn dưới tem = CHÍNH chuỗi payload của tem đó (không phải "QR OP"/
-        # "QR Setup"): tem OP hiện payload OP, tem Setup hiện payload Setup.
-        emit('OP', row['op_qr'], row['op_qr'], row['id'],
+        # CHỈ chèn ảnh QR, KHÔNG in chữ/payload dưới tem: payload đã nằm trong
+        # chính mã QR; tờ router chỉ nhận thêm ảnh, không có dòng chữ lem xuống.
+        emit('OP', row['op_qr'], row['id'],
              lambda: lane_for(ws, sheet_name))
         if row['setup_id']:
-            emit('SETUP', row['setup_qr'], row['setup_qr'], row['setup_id'],
+            emit('SETUP', row['setup_qr'], row['setup_id'],
                  lambda: lane_for(ws, sheet_name) + QR_COLUMN_GAP)
 
     matched = len(rows) - len(leftovers)
