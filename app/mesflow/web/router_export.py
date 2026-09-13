@@ -154,16 +154,33 @@ def _qr_png(payload: str, label: str = '') -> BytesIO:
     if not label:
         out = BytesIO(); code.save(out, format='PNG'); out.seek(0)
         return out
+    # Nhãn dưới tem giờ là CHÍNH chuỗi payload đang mã hoá trong QR (OP hiện
+    # payload OP, Setup hiện payload Setup). Chuỗi có thể dài, nên render bằng
+    # font mặc định của Pillow rồi THU NHỎ vừa đúng bề ngang tem và chiều cao
+    # dải nhãn -- "font nhỏ để vừa tem". Giữ tổng chiều cao = QR + QR_LABEL_STRIP
+    # để không đổi hình học/anchor của tem.
+    resample = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS')
+    no_dither = getattr(getattr(Image, 'Dither', Image), 'NONE', 0)
+    measure = ImageDraw.Draw(Image.new('L', (8, 8)))
+    try:
+        text_w = max(int(measure.textlength(label)), 1)
+    except AttributeError:  # Pillow rất cũ
+        text_w = max(len(label) * 6, 1)
+    source_h = 11
+    text_img = Image.new('L', (text_w, source_h), 255)
+    ImageDraw.Draw(text_img).text((0, 0), label, fill=0)
+    max_w, max_h = code.width, max(QR_LABEL_STRIP - 2, 1)
+    scale = min(max_w / text_w, max_h / source_h, 1.0)
+    new_w, new_h = max(int(text_w * scale), 1), max(int(source_h * scale), 1)
+    if (new_w, new_h) != (text_w, source_h):
+        text_img = text_img.resize((new_w, new_h), resample)
+    # Ngưỡng về đen/trắng (không dither) -> chữ có mực thật (pixel 0), sắc nét
+    # sau khi thu, và ảnh giữ mode '1' như tem trần.
+    text_img = text_img.convert('1', dither=no_dither)
     canvas = Image.new('1', (code.width, code.height + QR_LABEL_STRIP), 1)
     canvas.paste(code, (0, 0))
-    draw = ImageDraw.Draw(canvas)
-    # Font mặc định của Pillow: có sẵn ở mọi môi trường, không kéo theo phụ
-    # thuộc phông chữ hệ thống. Nhãn chỉ là chữ ASCII ngắn nên đủ đọc.
-    try:
-        width = int(draw.textlength(label))
-    except AttributeError:  # Pillow rất cũ
-        width = len(label) * 6
-    draw.text((max((code.width - width) // 2, 0), code.height + 1), label, fill=0)
+    canvas.paste(text_img, (max((code.width - new_w) // 2, 0),
+                            code.height + max((QR_LABEL_STRIP - new_h) // 2, 0)))
     out = BytesIO(); canvas.save(out, format='PNG'); out.seek(0)
     return out
 
@@ -1070,10 +1087,12 @@ def _compute_qr_placements(source_bytes, po, rows, warnings):
                 'colOff': 0, 'rowOff': 0,
                 'cx': width_px * QR_EMU_PER_PX, 'cy': height_px * QR_EMU_PER_PX})
 
-        emit('OP', row['op_qr'], QR_OP_LABEL, row['id'],
+        # Nhãn dưới tem = CHÍNH chuỗi payload của tem đó (không phải "QR OP"/
+        # "QR Setup"): tem OP hiện payload OP, tem Setup hiện payload Setup.
+        emit('OP', row['op_qr'], row['op_qr'], row['id'],
              lambda: lane_for(ws, sheet_name))
         if row['setup_id']:
-            emit('SETUP', row['setup_qr'], QR_SETUP_LABEL, row['setup_id'],
+            emit('SETUP', row['setup_qr'], row['setup_qr'], row['setup_id'],
                  lambda: lane_for(ws, sheet_name) + QR_COLUMN_GAP)
 
     matched = len(rows) - len(leftovers)
