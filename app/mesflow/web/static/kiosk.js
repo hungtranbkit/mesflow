@@ -119,8 +119,35 @@
     cancelReset();
     screens.forEach(el => el.classList.toggle('active', el.id === `screen-${name}`));
     state = name;
+    // Nguồn quét NGOÀI bàn phím (camera điện thoại) cần biết luồng đang ở đâu:
+    // lúc nhập sản lượng thì phải tắt camera đi, cả vì nó che bàn phím số lẫn
+    // vì không ai yêu cầu nó quay lúc đó. Phát sự kiện thay vì gọi thẳng, để
+    // kiosk.js không phải biết có module camera hay không -- máy kiosk cố định
+    // chạy y như cũ khi tệp đó không được nạp.
+    // Cùng một sự thật ở hai chỗ đọc được: sự kiện cho JavaScript, thuộc tính
+    // trên <body> cho CSS. Dùng data-attribute thay cho :has() vì :has() chỉ
+    // có từ Safari 15.4 trở lên, mà máy ở xưởng thì không ai cập nhật.
+    document.body.dataset.screen = name;
+    document.dispatchEvent(new CustomEvent('kiosk:screen', {detail:{name}}));
     sendHeartbeat();
     const qtyInputId = QUANTITY_INPUT[name];
+    // BÀN PHÍM SỐ ĐI THEO MÀN, không theo một biến trạng thái riêng.
+    //
+    // Bản đầu hiện/ẩn bảng số bằng body[data-screen]. Sai ở chỗ: đó là NGUỒN
+    // SỰ THẬT THỨ HAI cho câu hỏi "màn nào đang hiện", và hai nguồn lệch nhau
+    // được. Bài kiểm chống chạm-xuyên-màn bật/tắt .active trực tiếp để đo toạ
+    // độ nút, không đi qua show() -- lúc đó bảng số vẫn tưởng đang ở màn nhập
+    // số, nên nó chiếm chỗ trong CẢ màn xác nhận và đẩy nút XÁC NHẬN lên
+    // chồng vào vùng nút TIẾP TỤC. Đúng cái chồng vùng mà P0 kia đã sửa.
+    //
+    // Cách chắc chắn: cho bảng số nằm BÊN TRONG màn đang dùng nó. Màn ẩn thì
+    // nó ẩn theo, không cần ai nhớ đồng bộ.
+    const keypadNode = document.getElementById('qty-keypad');
+    if (keypadNode) {
+      const host = qtyInputId ? document.getElementById(`screen-${name}`) : null;
+      if (host) { host.appendChild(keypadNode); keypadNode.hidden = false; }
+      else { keypadNode.hidden = true; }
+    }
     if (qtyInputId) {
       const el = document.getElementById(qtyInputId);
       if (el) {
@@ -819,6 +846,41 @@
   document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr()));
   document.getElementById('demo-copy-employee').addEventListener('click', () => copyText(employeeQr()));
   document.getElementById('demo-copy-operation').addEventListener('click', () => copyText(operationQr()));
+
+  // Camera điện thoại đọc được mã -> đi vào ĐÚNG scan() mà máy quét USB dùng.
+  // Không có đường tắt nào khác: mọi kiểm tra và mọi luật nghiệp vụ nằm sau
+  // /api/kiosk-web/scan, và cả hai nguồn quét đều phải đi qua đó.
+  document.addEventListener('kiosk:camera-scan', event => {
+    const payload = event.detail && event.detail.payload;
+    if (payload) scan(payload);
+  });
+
+  // BÀN PHÍM SỐ CẢM ỨNG.
+  //
+  // Chỉ dựng trên thiết bị con trỏ THÔ (điện thoại, máy bảng). Trạm cố định có
+  // bàn phím rời và máy quét USB: thêm một bảng số ở đó là thêm một vùng chạm
+  // chồng lên luồng đang chạy tốt, và mọi bài kiểm hiện có đang khoá đúng
+  // luồng ấy. Bảng số ghi thẳng vào state sản lượng (setQty/markQtyTouched),
+  // đúng một đường với bàn phím cứng -- không có đường dữ liệu thứ hai.
+  const touchDevice = window.matchMedia?.('(pointer: coarse)')?.matches
+    || navigator.maxTouchPoints > 0;
+  if (touchDevice) document.body.classList.add('kiosk-touch');
+  const keypad = document.getElementById('qty-keypad');
+  if (keypad) {
+    keypad.addEventListener('click', event => {
+      const key = event.target.closest('[data-key]');
+      if (!key) return;
+      const id = QUANTITY_INPUT[state];
+      if (!id) return;
+      const action = key.dataset.key;
+      if (action === 'back') setQty(id, qty[id].slice(0, -1) || '0');
+      else if (action === 'clear') setQty(id, '0');
+      else setQty(id, qty[id] === '0' ? action : qty[id] + action);
+      // Mọi phím -- kể cả Xoá -- đều là một câu trả lời của con người. Không
+      // đánh dấu thì màn xác nhận vẫn coi số 0 mặc định là "chưa ai nhập".
+      markQtyTouched(id);
+    });
+  }
 
   const hcmClock = new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
   const updateClock = () => document.getElementById('clock').textContent = hcmClock.format(new Date());

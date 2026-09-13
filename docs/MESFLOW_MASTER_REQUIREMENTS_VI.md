@@ -2674,6 +2674,82 @@ Nên: **phím xác nhận đổi sang `Enter`**, **phím quay lại `*` giữ ng
   động, nghịch (`#` không làm gì, không chữ nào in `#`), `*` vẫn quay lại, hình
   học (dòng nhắc nằm dưới hàng nút; không dịch khi thông báo lỗi hiện), 390px.
 
+### REQ-KIOSK-016 — Mobile Kiosk: camera điện thoại là NGUỒN QUÉT, không phải kiosk thứ hai
+
+> **Nguồn sự thật:** một máy không có trạm cố định đứng cạnh thì vẫn có điện
+> thoại trong túi mọi người. Camera thay cho máy quét USB -- và không thay cho
+> bất cứ thứ gì khác.
+
+- **Phạm vi**: trang kiosk web (`/kiosk`) mở trên điện thoại. Đích chính là
+  **Safari trên iPhone**; Chrome trên Android là đích phụ.
+- **Ranh giới làm cho việc này an toàn**: `static/kiosk-camera.js` giải mã QR rồi
+  phát sự kiện `kiosk:camera-scan` mang đúng chuỗi đọc được. `kiosk.js` đưa chuỗi
+  đó vào CHÍNH hàm `scan()` mà máy quét USB/GM65 đang dùng, và hàm đó POST tới
+  `/api/kiosk-web/scan`. Module camera không gọi API nào, không biết luật nghiệp
+  vụ nào, không giữ session nào. Nhờ vậy mọi kiểm tra quyền, mọi luật và mọi câu
+  báo lỗi vẫn chỉ có ĐÚNG MỘT bản. Một bài kiểm tĩnh đọc mã nguồn và báo đỏ nếu
+  thấy `fetch(`, `/api/`, `MFNet` hay `XMLHttpRequest` trong phần MÃ (không tính
+  chú thích).
+- **Đường máy quét cố định không bị đụng tới**: `scanner-input`, bộ đệm `keydown`
+  và `focusScanner` giữ nguyên; `kiosk-camera.js` nạp sau cùng và là tuỳ chọn --
+  gỡ thẻ `<script>` đó ra là kiosk trở về đúng hành vi cũ. REQ-KIOSK-002 (ESP v2)
+  hoàn toàn không bị chạm tới.
+- **Bộ giải mã**: dùng `BarcodeDetector` khi trình duyệt có (Chrome/Android).
+  **iOS không có `BarcodeDetector` ở bất kỳ trình duyệt nào** -- mọi trình duyệt
+  trên iOS đều là WebKit -- nên trên đích CHÍNH, bộ giải mã bằng JavaScript mới
+  là đường chính chứ không phải đường dự phòng: nhúng kèm `jsqr@1.4.0`
+  (Apache-2.0, trong `static/vendor/`, nguồn gốc và SHA-256 ghi ở
+  `static/vendor/README.md`). Nạp **động**, chỉ khi camera được bật VÀ trình
+  duyệt thiếu `BarcodeDetector`, nên trạm cố định không bao giờ tải nó.
+- **Chống quét trùng**: cùng một mã không gửi lại trong 1,5-2 giây (1800 ms).
+  Khoá theo CHÍNH MÃ, không theo thời gian thuần tuý -- quét thẻ rồi quét công
+  đoạn là hai mã liền nhau, chặn theo thời gian sẽ nuốt mất cái thứ hai và người
+  dùng tưởng máy treo.
+- **Báo đã đọc được mã**: ba kênh cùng lúc, vì kênh nào cũng hỏng với một ai đó
+  -- khung nhấp nháy xanh (cho xưởng ồn), một tiếng bíp ngắn (cho người đang nhìn
+  chỗ khác), và `navigator.vibrate` ở nơi có. **iOS không có `navigator.vibrate`**
+  nên rung là thứ tốt-thì-có, không bao giờ là tín hiệu duy nhất.
+- **Riêng tư**: camera chỉ chạy khi người dùng đã bật và đang ở màn quét. Track
+  bị **DỪNG HẲN** -- không phải chỉ ẩn thẻ video -- khi tắt, khi luồng sang màn
+  nhập sản lượng, khi rời tab, và khi `pagehide`. Không khung hình, ảnh hay video
+  nào rời khỏi máy: chỉ chuỗi đã giải mã được gửi đi, đúng như máy quét USB. Một
+  bài kiểm tĩnh cấm `toDataURL`, `toBlob`, `FormData`, `sendBeacon`, `WebSocket`
+  trong module này.
+- **HTTPS**: `getUserMedia` chỉ tồn tại ở secure context, nên trên trang http
+  thường nút camera bị **ẩn** thay vì hiện ra rồi bấm vào là lỗi; từ chối quyền,
+  không có camera, và camera đang bị ứng dụng khác giữ -- mỗi trường hợp một câu
+  tiếng Việt nói rõ phải làm gì.
+- **Mất mạng — CỐ Ý không xếp hàng hành động nghiệp vụ**: một lần QUÉT chỉ là tra
+  cứu, gửi lại vô hại, nên chẳng có gì để xếp hàng. `START`/`FINISH` đã chống
+  trùng ở phía máy chủ (`kiosk_idempotency`, khoá theo `request_id`) nên gửi lại
+  không tạo hai bản ghi -- nhưng một lệnh START bị giữ trong hàng đợi rồi bắn đi
+  mười lăm phút sau vẫn tạo ra session có **giờ bắt đầu SAI**, tức dữ liệu sai mà
+  không ai biết, tệ hơn hẳn một lỗi hiện ra trên màn hình. Vì vậy: mất mạng thì
+  nói thẳng, không giữ gì, và người đứng máy quét lại khi có mạng.
+- **Bố cục**: lớp camera phủ toàn màn hình lên màn đang hiện; `viewport-fit=cover`
+  cộng `env(safe-area-inset-*)` để tránh tai thỏ; chạy được cả dọc lẫn ngang; bàn
+  phím số lớn ở màn nhập sản lượng, CHỈ trên thiết bị con trỏ thô. Bàn phím ghi
+  qua đúng state `setQty`/`markQtyTouched` có sẵn -- không ghi thẳng vào DOM --
+  nên không có đường dữ liệu thứ hai cho sản lượng; và nó nằm BÊN TRONG màn đang
+  dùng nó nên không thể lệch trạng thái rồi đẩy nút của màn khác (việc đó sẽ phá
+  đúng luật bố cục đo được của REQ-KIOSK-013).
+- **PWA ở mức tối thiểu**: manifest tại `/kiosk.webmanifest` và các thẻ meta của
+  Apple, đủ để "Thêm vào màn hình chính". **Không có service worker, cố ý**:
+  kiosk đã tự nạp lại khi máy chủ lên phiên bản mới (heartbeat so `data-version`
+  của tab), và một service worker phục vụ từ cache sẽ đánh nhau với đúng cơ chế
+  đó, có thể giữ một máy ở bản cũ mà không ai biết.
+- **Giới hạn đã biết của iOS**: không có `BarcodeDetector` (nên phải dùng jsQR),
+  không có `navigator.vibrate`, `<video>` bắt buộc `playsinline` nếu không iOS mở
+  trình phát toàn màn hình riêng, và âm thanh cần `AudioContext` được tạo ngay
+  trong cú chạm bật camera.
+- **Liên quan**: REQ-KIOSK-001 (bề mặt công khai), REQ-KIOSK-011, REQ-KIOSK-013,
+  REQ-KIOSK-015, `docs/MOBILE_KIOSK.md`.
+- **Độ ưu tiên**: P1.
+- **Khía cạnh kiểm thử**: positive (giải mã -> vào đúng luồng cũ), chống quét
+  trùng, negative (từ chối quyền / không có camera / http / mất mạng), vòng đời
+  (dừng track khi tắt, khi sang màn nhập số, khi rời tab), bố cục ở 390×844 và
+  844×390, và bề mặt hồi quy của trạm cố định.
+
 ## 15.9 Ca làm việc / Auto-close (`REQ-SHIFT-*`)
 
 Chi tiết đầy đủ ở §6.4 và schema `work_shifts`/`work_shift_intervals`
@@ -3364,6 +3440,7 @@ Chú giải: **A** = đã có coverage tự động (pytest/Playwright) tại th
 | REQ-KIOSK-013 (Kiosk web an toàn khi chạm — chạm lặp không đi xuyên màn) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; đo vùng không giao nhau, đường bàn phím mềm/IME, negative proof bằng mutation) | A |
 | REQ-KIOSK-014 (quét được thì phải nhìn thấy được — kiosk ↔ màn hình điều hành) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 case: start PRODUCTION và start SETUP đều lên bảng, KPI đối chiếu DB, start bị từ chối không sinh task, PO tạm dừng, cô lập PO, hai OP trùng tên không tráo chỗ, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (khoá `BOARD_TASK_TYPES == STARTABLE_TYPES` và giữ mặc định chỉ-sản-xuất của `daily_progress()`), `tests/e2e/daily-dashboard-kiosk.spec.js` (task mới lên màn trong nhịp làm mới, không reload; dòng việc hỗ trợ không mượn ô sản lượng) | A — negative proof: gỡ bản vá thì 3 bài đỏ (`assert 1 == 2` ở KPI), 7 bài canh vẫn xanh |
 | REQ-KIOSK-015 (Kiosk web: phím xác nhận `Enter` + nhắc Num Lock; ESP KHÔNG đổi) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 case: Enter và NumpadEnter đi hết luồng, một-bấm-một-hành-động, giữ/bấm liên tiếp lúc đang gửi vẫn đúng MỘT lượt, `#` không làm gì và không xuất hiện trong chữ, `*` vẫn quay lại, dòng nhắc nằm dưới hàng nút / không dịch khi lỗi hiện / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (luật bố cục đo được vẫn đúng), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (nhãn + ánh xạ phím tĩnh), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
+| REQ-KIOSK-016 (Mobile Kiosk: camera điện thoại là nguồn quét) | `tests/test_mobile_kiosk_camera_contract.py` (15 case: ranh giới không gọi API, cửa sổ chống trùng, dừng track, không gửi khung hình đi đâu, jsQR nạp động kèm SHA-256 ghim sẵn, manifest, không service worker, safe-area, bàn phím số ghi qua state sản lượng có sẵn), `tests/e2e/kiosk-mobile-camera.spec.js` (10 case trên WebKit THẬT + iPhone 13) | A |
 | REQ-KIOSK-001 (không nhảy layout vì loading trong luồng quét) | `tests/e2e/kiosk-scan-no-loading-layout-shift.spec.js` (đo bounding box vùng chính trước/trong/sau request bị làm chậm, ở 1280/820/390px; gồm cả lần tự làm mới nền 10 giây/lần bằng đồng hồ giả) | A — chỉ báo chờ phải không chiếm chỗ (`#demo-busy`, `position:absolute`), không chèn/xoá chữ chờ, không ẩn `#demo-content` giữa chừng |
 | REQ-DASH-006 (lọc Dashboard theo PO + cầu nối Kiosk) | `tests/integration/test_dashboard_day_po_scope.py`, `tests/e2e/dashboard-po-filter.spec.js` | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |

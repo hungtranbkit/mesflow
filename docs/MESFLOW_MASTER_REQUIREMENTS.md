@@ -2271,6 +2271,82 @@ The change is deliberately **asymmetric**, because the hardware is asymmetric.
   still goes back, geometry (hint sits below the button row; does not move when
   a validation line appears), 390px.
 
+### REQ-KIOSK-016 — Mobile Kiosk: the phone camera is a scan SOURCE, not a second kiosk
+
+> **Source of truth:** a shop with no fixed terminal at a machine still has a
+> phone in every pocket. The camera replaces the USB scanner — it replaces
+> nothing else.
+
+- **Module**: the web Kiosk (`/kiosk`) on a phone. Primary target **iPhone
+  Safari**; Chrome on Android is the secondary target.
+- **The boundary that makes this safe**: `static/kiosk-camera.js` decodes a QR
+  and emits a `kiosk:camera-scan` event carrying the raw string. `kiosk.js`
+  hands that string to the SAME `scan()` the USB/GM65 scanner feeds, which POSTs
+  it to `/api/kiosk-web/scan`. The camera module calls no API, knows no business
+  rule and holds no session. Every permission check, every rule and every error
+  message therefore still exists in exactly one place. A static test parses the
+  JavaScript and fails if `fetch(`, `/api/`, `MFNet` or `XMLHttpRequest` appear
+  in its real code (comments excluded).
+- **The fixed-terminal path is untouched**: `scanner-input`, the `keydown`
+  buffer and `focusScanner` are unchanged; `kiosk-camera.js` is loaded last and
+  is optional — remove the `<script>` tag and the kiosk is byte-for-byte the old
+  behaviour. REQ-KIOSK-002 (ESP v2) is not touched at all.
+- **Decoder**: `BarcodeDetector` when the browser has it (Chrome/Android).
+  **iOS has no `BarcodeDetector` in any browser** — every iOS browser is WebKit —
+  so on the primary target the JavaScript decoder is the MAIN path, not a
+  fallback: vendored `jsqr@1.4.0` (Apache-2.0, `static/vendor/`, provenance and
+  SHA-256 in `static/vendor/README.md`). It is loaded **dynamically**, only when
+  the camera is switched on AND `BarcodeDetector` is missing, so a fixed station
+  never downloads it.
+- **Duplicate suppression**: the same payload is not submitted twice inside
+  1.5–2 s (1800 ms). Keyed on the PAYLOAD, not on time alone — scanning a badge
+  and then an operation are two payloads back to back, and a pure time gate
+  would swallow the second and read as a frozen machine.
+- **Feedback on a decode**: three channels at once, because each one fails for
+  someone — a green frame flash (for a noisy shop), a short beep (for someone
+  looking away), and `navigator.vibrate` where it exists. **iOS has no
+  `navigator.vibrate`**, so vibration is a bonus and never the only signal.
+- **Privacy**: the camera runs only while the operator has switched it on and is
+  on a scanning screen. Tracks are **stopped** — not merely hidden — when it is
+  switched off, when the flow reaches a quantity screen, when the tab is hidden
+  and on `pagehide`. No frame, image or video ever leaves the device: only the
+  decoded string is sent, exactly as a USB scanner would. A static test forbids
+  `toDataURL`, `toBlob`, `FormData`, `sendBeacon` and `WebSocket` in the module.
+- **HTTPS**: `getUserMedia` exists only in a secure context, so the camera
+  button is **hidden** on a plain-HTTP origin rather than present and broken; a
+  permission denial, a missing camera and a camera held by another app each get
+  their own Vietnamese message naming what to do.
+- **Offline — no queue of business actions, deliberately**: a SCAN is a lookup
+  and is free to retry, so there is nothing to queue. `START`/`FINISH` are
+  idempotent server-side (`kiosk_idempotency`, keyed by `request_id`), so
+  replaying them cannot duplicate a row — but a START held in a queue and fired
+  fifteen minutes later still writes a session with a **wrong start time**,
+  which is silently wrong data and worse than a visible failure. So: while
+  offline the kiosk says so, holds nothing, and the operator rescans when the
+  network returns.
+- **Layout**: full-screen camera layer above the current screen; `viewport-fit=cover`
+  plus `env(safe-area-inset-*)` for the notch; portrait and landscape; a large
+  touch keypad on quantity screens for coarse-pointer devices only. The keypad
+  writes through the existing `setQty`/`markQtyTouched` state — never into the
+  DOM — so there is no second data path for output, and it lives INSIDE the
+  screen using it so it can never desync and shift another screen's buttons
+  (which would break REQ-KIOSK-013's measured layout rule).
+- **PWA, minimum only**: manifest at `/kiosk.webmanifest` plus Apple meta tags,
+  enough for Add to Home Screen. **No service worker, on purpose**: the kiosk
+  already reloads itself when the server version changes (heartbeat compares the
+  tab's `data-version`), and a worker serving from cache would fight exactly
+  that and could pin a station to an old build unnoticed.
+- **Known iOS limits**: no `BarcodeDetector` (hence jsQR), no `navigator.vibrate`,
+  `<video>` must carry `playsinline` or iOS opens its own full-screen player, and
+  audio needs an `AudioContext` created inside the tap that starts the camera.
+- **Related**: REQ-KIOSK-001 (public surface), REQ-KIOSK-011, REQ-KIOSK-013,
+  REQ-KIOSK-015, `docs/MOBILE_KIOSK.md`.
+- **Priority**: P1.
+- **Dimensions**: positive (decode → the existing flow), duplicate suppression,
+  negative (permission denied / no camera / HTTP / offline), lifecycle (tracks
+  stopped on close, on a quantity screen, on tab hide), layout at 390×844 and
+  844×390, and the fixed-terminal regression surface.
+
 ## 15.9 Shift / Auto-close (`REQ-SHIFT-*`)
 
 Full detail in §6.4 and §4.10's `work_shifts`/`work_shift_intervals`
@@ -2952,6 +3028,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-KIOSK-013 (web Kiosk touch safety — a repeated tap must not cross screens) | `tests/e2e/kiosk-double-tap-p0.spec.js` (desktop + Pixel 7; measured band non-intersection, soft-keyboard/IME path, negative proof by mutation) | A |
 | REQ-KIOSK-014 (scannable means visible — kiosk ↔ control-room board) | `tests/integration/test_kiosk_scan_to_board_contract.py` (10 cases: both a PRODUCTION and a SETUP start reach the board, KPIs reconciled against the database, a refused start yields no task, paused PO, PO isolation, two same-named Operations never swap, `WF|OPID|`), `tests/test_kiosk_board_shows_everything_kiosk_can_start.py` (locks `BOARD_TASK_TYPES == STARTABLE_TYPES` and keeps `daily_progress()`'s production-only default), `tests/e2e/daily-dashboard-kiosk.spec.js` (a new task arrives within the refresh cycle with no reload; a support row does not borrow the output cell) | A — negative proof: with the fix reverted 3 tests fail (`assert 1 == 2` on the KPI) and the 7 guard tests stay green |
 | REQ-KIOSK-015 (web Kiosk: `Enter` confirm key + Num Lock hint; ESP unchanged) | `tests/e2e/kiosk-web-enter-key.spec.js` (12 cases: Enter and NumpadEnter drive the whole flow, one press = one action, repeated presses mid-submit still yield exactly ONE submit, `#` does nothing and appears in no text, `*` still goes back, hint sits below the button row / does not move when validation appears / 390px), `tests/e2e/kiosk-esp-parity.spec.js` + `tests/e2e/kiosk-double-tap-p0.spec.js` (measured layout rule still holds), `tests/test_kiosk_confirm_slot_position.py`, `tests/test_web_kiosk_rework_v658442.py`, `tests/test_rework_visibility_v658444.py`, `tests/test_kiosk_choice_button_hidden_css.py` (static labels + key mapping), `docs/KIOSK_ESP_PARITY.md` §2.5 | A |
+| REQ-KIOSK-016 (Mobile Kiosk: phone camera as a scan source) | `tests/test_mobile_kiosk_camera_contract.py` (15 cases: the no-API boundary, duplicate window, tracks stopped, no frame leaves the device, lazy jsQR with pinned SHA-256, manifest, no service worker, safe-area, keypad writes through the existing quantity state), `tests/e2e/kiosk-mobile-camera.spec.js` (10 cases on REAL WebKit + iPhone 13) | A |
 | REQ-SHIFT-* | `test_shift_dashboard.py`, `test_shift_session_lifecycle.py`, `test_scheduling_time_p2.py`, `test_daily_progress_day_state_semantics.py` | A |
 | REQ-EXC-* | `test_v67_exception_center.py`, `test_session_exception_workflow.py`, `test_session_exception_resolution_modal.py`, `test_session_audit_phase14.py`, `tests/e2e/exception-center-v67.spec.js`, `session-exception-detail-drawer.spec.js` | A |
 | REQ-PROD-* | `tests/integration/test_employee_productivity.py` (14 cases), `test_employee_productivity_wallboard.py` (23 cases) | A |
