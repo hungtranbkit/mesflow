@@ -141,6 +141,17 @@ def reset_user_password(user_id):
     user = UserRepository().get_by_id(user_id)
     if not user:
         return jsonify(ok=False, message='Không tìm thấy tài khoản'), 404
+    # Task spec section 4, CÙNG MỘT LUẬT như create() và update() ở trên: chỉ
+    # SUPER_ADMIN mới được đụng vào một tài khoản SUPER_ADMIN. Thiếu đúng chỗ
+    # này thì cả hai chốt kia thành vô nghĩa -- đổi vai trò bị chặn, nhưng ĐẶT
+    # LẠI MẬT KHẨU rồi đăng nhập bằng chính tài khoản đó thì không, và người
+    # admin bước thẳng vào System Console mà super_admin_required() nói là
+    # "an ordinary ADMIN session always gets 403, never a silent pass".
+    # Đã dựng lại được đầu-cuối trên 71.0.0.310: admin -> reset -> đăng nhập ->
+    # GET /api/system-health/services đổi từ 403 sang 200.
+    if str(user['role']).strip().lower() == 'super_admin' and _acting_role() != 'super_admin':
+        return jsonify(ok=False, error='FORBIDDEN',
+                       message='Chỉ Super Admin mới có thể đặt lại mật khẩu tài khoản Super Admin'), 403
     must_change = bool(b.get('must_change_password', True))
     UserRepository().set_password(user_id, password, must_change)
     _audit('USER_PASSWORD_RESET', user_id, {'must_change_password': must_change})
