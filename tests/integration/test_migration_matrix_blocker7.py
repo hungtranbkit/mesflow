@@ -20,6 +20,9 @@ import subprocess
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import re
+from pathlib import Path
+
 import psycopg
 import pytest
 from psycopg.rows import dict_row
@@ -63,6 +66,33 @@ def scratch_db():
             admin.execute(f'DROP DATABASE IF EXISTS "{name}"')
 
 
+def _expected_head():
+    """Head THẬT của chuỗi migration, đọc từ thư mục versions.
+
+    Trước đây hai bài dưới đây ghi cứng '0052_router_source_semantics'. Ghi
+    cứng ở đây không bảo vệ được gì -- nó chỉ bắt mọi migration mới phải sửa
+    kèm hai dòng, và người sửa sẽ sửa cho xanh chứ không nghĩ. Thứ hai bài này
+    thật sự cần khẳng định là "upgrade head đi tới ĐÚNG head của chuỗi", và
+    head đó thì đọc được: đúng một revision không bị revision nào khác trỏ tới.
+    """
+    versions = Path(__file__).resolve().parents[2] / 'app/migrations/versions'
+    revisions, parents = set(), set()
+    for path in versions.glob('*.py'):
+        text = path.read_text(encoding='utf-8')
+        # KHÔNG neo đầu dòng, và chấp nhận cả chú thích kiểu: vài revision
+        # viết `revision='x';down_revision='y'` trên CÙNG một dòng, nên một
+        # regex neo `^` sẽ bỏ sót và bịa ra thêm head giả.
+        rev = re.search(r'(?<!down_)revision\s*(?::[^=\n]*)?=\s*["\']([^"\']+)["\']', text)
+        down = re.search(r'down_revision\s*(?::[^=\n]*)?=\s*["\']([^"\']+)["\']', text)
+        if rev:
+            revisions.add(rev.group(1))
+        if down:
+            parents.add(down.group(1))
+    heads = revisions - parents
+    assert len(heads) == 1, f'chuỗi migration phải có ĐÚNG một head, đang có: {sorted(heads)}'
+    return heads.pop()
+
+
 def test_clean_db_upgrades_to_head(scratch_db):
     _name, dsn = scratch_db
     r = _run_alembic('upgrade', 'head', database_url=dsn)
@@ -70,7 +100,7 @@ def test_clean_db_upgrades_to_head(scratch_db):
 
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
         head = conn.execute('SELECT version_num FROM alembic_version').fetchone()
-        assert head['version_num'] == '0052_router_source_semantics'
+        assert head['version_num'] == _expected_head()
         version = conn.execute("SELECT value FROM system_meta WHERE key='schema_version'").fetchone()
         assert version['value'] == '72.0.11.0'
         cols = {r['column_name'] for r in conn.execute(
@@ -190,7 +220,7 @@ def test_downgrade_then_reupgrade_is_clean(scratch_db):
     assert reup.returncode == 0, reup.stdout + reup.stderr
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
         head = conn.execute('SELECT version_num FROM alembic_version').fetchone()
-        assert head['version_num'] == '0052_router_source_semantics'
+        assert head['version_num'] == _expected_head()
         cols = {r['column_name'] for r in conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name='work_sessions'")}
         assert {'close_reason', 'closed_by_system', 'started_at_trusted', 'ended_at_trusted'} <= cols
