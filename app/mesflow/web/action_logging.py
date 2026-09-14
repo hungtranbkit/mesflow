@@ -7,7 +7,17 @@ from mesflow.web.auth import admin_required
 from mesflow.core.log_retention import preview as retention_preview, run as retention_run
 logger=logging.getLogger('mesflow.action_log')
 bp=Blueprint('action_logging',__name__,url_prefix='/api/system')
-SENSITIVE=('password','token','authorization','cookie','secret','api_key')
+# Khoá nào chạm vào là thay bằng '***' trước khi ghi vào action_logs.
+# 'qr' nằm đây vì MÃ QR THẺ NHÂN VIÊN LÀ MỘT THÔNG TIN XÁC THỰC -- chính mã này
+# là thứ /api/kiosk-web/demo-data bị khoá lại sau sự cố 2026-09-09 để bảo vệ
+# ("dumps the whole employee roster INCLUDING every badge QR value, which is a
+# credential", xem web/kiosk.py). Ai cầm được chuỗi đó thì nhận diện được thành
+# người đó ở bất kỳ trạm nào. Trước bản vá, MỌI lần quét ghi nguyên chuỗi ấy vào
+# action_logs.request_json VÀ response_json, giữ 30 ngày, nằm trong mọi bản
+# backup, và mọi admin đọc được qua /api/system/action-logs/<id>.
+# Đánh đổi đã cân nhắc: nhật ký không còn cho biết CHUỖI nào được quét. Vẫn còn
+# đủ để lần vết: employee_no/id trong response, path, actor, trace_id, thời gian.
+SENSITIVE=('password','token','authorization','cookie','secret','api_key','qr')
 SCANNER_MARKERS=(
     '/vendor/phpunit/', '/phpunit/', '/eval-stdin.php', '/index.php', '/public/index.php',
     '/wp-admin', '/wp-login.php', '/xmlrpc.php', '/.env', '/.git/', '/config.php',
