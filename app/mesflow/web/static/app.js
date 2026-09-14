@@ -1841,12 +1841,23 @@ function templateExpectedTimeBox(x){
   // Nêu ĐÍCH DANH các công đoạn lệch kèm hệ số suy ra được: "chênh 29 giờ" là
   // một con số, "5 công đoạn hệ số x2/x4/x10" là một việc làm được.
   const bad=x.mismatch_operations||[];
-  const list=bad.length?`<ul class="tpl-total-list">`+bad.slice(0,6).map(o=>
-      `<li><code>${esc(o.code||'')}</code> ${esc(o.name||'')}`
+  // VỊ TRÍ trước, mã sau: người dùng đang cầm file Excel và cần tới đúng chỗ.
+  // "Sheet X, dòng 8-19, ô M14" đưa họ tới nơi; một mã Operation thì không.
+  const where=o=>{
+    if(!o.sheet)return '';
+    const rows=(o.row_start&&o.row_end)?` dòng ${o.row_start}–${o.row_end}`
+      :(o.row_start?` dòng ${o.row_start}`:'');
+    return `<span class="tpl-total-where">${esc(o.sheet)}${rows}${o.cell?` · ô ${esc(o.cell)}`:''}</span>`;
+  };
+  const list=bad.length?`<ul class="tpl-total-list">`+bad.slice(0,8).map(o=>
+      `<li>${where(o)}<code>${esc(o.code||'')}</code> ${esc(o.name||'')}`
       +(o.implied_multiplier?` <b>×${o.implied_multiplier}</b>`:'')
-      +` <span>(Excel ${esc(fmtDuration(o.source_seconds))} · tính ${esc(fmtDuration(o.calculated_seconds))})</span></li>`
+      +` <span>Excel ${esc(fmtDuration(o.source_seconds))} · MESFlow ${esc(fmtDuration(o.calculated_seconds))}`
+      +` · chênh ${esc(fmtDuration(Math.abs(o.delta_seconds||0)))}</span>`
+      +(o.formula?`<code class="tpl-total-formula">${esc(o.formula)}</code>`:'')
+      +`</li>`
     ).join('')
-    +(bad.length>6?`<li class="muted">…và ${bad.length-6} công đoạn nữa</li>`:'')
+    +(bad.length>8?`<li class="muted">…và ${bad.length-8} công đoạn nữa</li>`:'')
     +`</ul>`:'';
   return `<div class="tpl-total tpl-total-warn"><div class="tpl-total-main"><span class="tpl-total-label">Tổng thời gian gia công dự kiến</span>`
     +`<strong title="${calcMin} phút">${esc(calc)}</strong>`

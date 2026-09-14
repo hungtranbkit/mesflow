@@ -29,6 +29,7 @@ thay đổi sau này ở parser hay ở công thức làm xê dịch nó thì ph
 """
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -225,3 +226,97 @@ def test_a_non_integer_ratio_reports_no_multiplier():
     out = expected_time.summarize(parts, ops)
     assert out['mismatch_operation_count'] == 1
     assert out['mismatch_operations'][0]['implied_multiplier'] is None
+
+
+# --------------------------------------------------------------------------
+# 4. VỊ TRÍ: đủ để mở file ra là tới thẳng chỗ lệch
+# --------------------------------------------------------------------------
+def _newark_with_formulas():
+    if not FIXTURE.is_file():
+        pytest.skip(f'thiếu fixture {FIXTURE}')
+    raw = FIXTURE.read_bytes()
+    return _parse_go_router_template(
+        load_workbook(BytesIO(raw), data_only=True), FIXTURE.name,
+        formula_workbook=load_workbook(BytesIO(raw), data_only=False))
+
+
+def test_every_block_records_where_it_came_from():
+    """Sheet + khoảng dòng + ô tổng, cho MỌI block -- không chỉ block lệch."""
+    for op in _newark_with_formulas()['operations']:
+        assert op['_excel_sheet'], op['code']
+        assert op['_excel_row'] and op['_excel_row_end'], op['code']
+        assert op['_excel_row_end'] >= op['_excel_row'], op['code']
+        assert re.fullmatch(r'[A-Z]+\d+', op['total_expected_cell'] or ''), op['code']
+
+
+def test_the_first_block_points_at_the_exact_cells_read_by_hand():
+    """Chốt bằng toạ độ đã đọc tay từ file: L11 setup, L14 cycle, M14 tổng,
+    block chiếm dòng 8-19 của sheet 'Tay ghế - Trái'."""
+    ops = _newark_with_formulas()['operations']
+    first = next(o for o in ops if o['_excel_sheet'] == 'Tay ghế - Trái'
+                 and o['_excel_row'] == 8)
+    assert (first['setup_cell'], first['cycle_cell'], first['total_expected_cell']) == (
+        'L11', 'L14', 'M14')
+    assert first['_excel_row_end'] == 19
+
+
+def test_the_original_excel_formula_is_captured():
+    """Công thức là thứ DUY NHẤT giải thích được hệ số ẩn -- nó không nằm trong
+    ô nào khác, nên không đọc được nó thì chỉ còn cách đoán."""
+    ops = _newark_with_formulas()['operations']
+    first = next(o for o in ops if o['_excel_sheet'] == 'Tay ghế - Trái'
+                 and o['_excel_row'] == 8)
+    assert first['total_expected_formula'] == '=$I$4*L14/3600+L11/60'
+
+
+def test_the_five_mismatches_are_fully_locatable():
+    """Yêu cầu của người dùng, từng mục một: mỗi dòng lệch phải có sheet, dòng,
+    ô, mã, tên, công thức gốc, hệ số ẩn, hai con số và độ chênh."""
+    parsed = _newark_with_formulas()
+    quantity = {p['key']: p['planned_quantity'] for p in parsed['parts']}
+    parts = [{'id': p['key'], 'planned_quantity': p['planned_quantity']}
+             for p in parsed['parts']]
+    ops = [{'part_id': o['part_key'], 'code': o['code'], 'name': o['name'],
+            'standard_seconds_per_unit': o.get('standard_seconds_per_unit'),
+            'expected_setup_minutes': o.get('expected_setup_minutes'),
+            'expected_total_seconds': o.get('total_expected_seconds'),
+            'source_sheet': o.get('_excel_sheet'),
+            'source_row_start': o.get('_excel_row'),
+            'source_row_end': o.get('_excel_row_end'),
+            'expected_total_cell': o.get('total_expected_cell'),
+            'expected_total_formula': o.get('total_expected_formula')}
+           for o in parsed['operations']]
+
+    out = expected_time.summarize(parts, ops)
+    assert out['mismatch_operation_count'] == 5
+    for item in out['mismatch_operations']:
+        assert item['sheet'], item
+        assert item['row_start'] and item['row_end'], item
+        assert re.fullmatch(r'[A-Z]+\d+', item['cell'] or ''), item
+        assert item['code'] and item['name'], item
+        assert item['formula'] and item['formula'].startswith('='), item
+        assert item['implied_multiplier'] in (2, 4, 10), item
+        assert item['source_seconds'] > item['calculated_seconds']
+        assert item['delta_seconds'] == pytest.approx(
+            item['calculated_seconds'] - item['source_seconds'])
+        # Hệ số ẩn phải xuất hiện NGUYÊN VĂN trong công thức -- đó là bằng chứng
+        # cho chẩn đoán, không phải một con số ta bịa ra từ tỉ lệ.
+        assert f"*{item['implied_multiplier']}/" in item['formula'].replace(' ', ''), item
+
+    # Và đúng hai tờ đó, không phải rải rác khắp nơi.
+    assert {i['sheet'] for i in out['mismatch_operations']} == {
+        'Lắp ráp sau khi sơn', 'Đóng gói'}
+
+
+def test_a_template_imported_before_the_location_columns_still_works():
+    """Tương thích ngược: Template cũ không có vị trí -- vẫn phải ra đủ hai con
+    số và độ lệch, chỉ thiếu phần chỉ đường."""
+    parts = [{'id': 1, 'planned_quantity': 110}]
+    ops = [{'part_id': 1, 'code': 'OP01', 'name': 'CŨ',
+            'standard_seconds_per_unit': 40, 'expected_setup_minutes': None,
+            'expected_total_seconds': 44000.0}]
+    out = expected_time.summarize(parts, ops)
+    assert out['mismatch'] is True
+    item = out['mismatch_operations'][0]
+    assert item['sheet'] is None and item['cell'] is None and item['formula'] is None
+    assert item['implied_multiplier'] == 10

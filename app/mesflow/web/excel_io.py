@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, session
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 
 from mesflow.db.connection import transaction
 from mesflow.web.auth import login_required,roles_required
@@ -670,7 +671,7 @@ def _deaccent(value):
                    if unicodedata.category(c) != 'Mn')
 
 
-def _block_labeled_time(block_rows, labels, *, where, label_vi):
+def _block_labeled_time(block_rows, labels, *, where, label_vi, first_excel_row=None):
     """Một trường thời gian trong block: giá trị, đơn vị theo nhãn, trạng thái thô.
 
     Trả dict:
@@ -684,7 +685,7 @@ def _block_labeled_time(block_rows, labels, *, where, label_vi):
     không lặng lẽ quy về 0.
     """
     empty = {'declared': False, 'value_found': False, 'raw': None,
-             'seconds': None, 'unit': None, 'label': ''}
+             'seconds': None, 'unit': None, 'label': '', 'cell': None}
     wanted = {_deaccent(x) for x in labels}
     short = {'setup': SETUP_TIME_LABELS, 'cycle': CYCLE_TIME_LABELS,
              'total': TOTAL_TIME_LABELS}
@@ -707,8 +708,14 @@ def _block_labeled_time(block_rows, labels, *, where, label_vi):
                     f'{where}: nhãn "{label}" không nói rõ đơn vị thời gian '
                     '(giây/phút/giờ), nên không biết quy đổi. Ghi rõ đơn vị trong '
                     'ngoặc, ví dụ "( phút )" hoặc "(s)".')
+            # TOẠ ĐỘ Ô GIÁ TRỊ, tính ra ngay tại đây vì chỉ ở đây mới biết
+            # nhãn nằm ở dòng/cột nào. Người dùng cần "M14", không phải "một ô
+            # nào đó trong block" -- thiếu nó thì họ phải dò tay 44 sheet.
+            cell = None
+            if first_excel_row is not None:
+                cell = f'{get_column_letter(col + 1)}{first_excel_row + idx + 1}'
             found = {'declared': True, 'value_found': False, 'raw': None,
-                     'seconds': None, 'unit': unit, 'label': label}
+                     'seconds': None, 'unit': unit, 'label': label, 'cell': cell}
             # ĐÚNG MỘT Ô: ô NGAY DƯỚI nhãn. Bản cũ quét hai dòng
             # (block_rows[idx+1:idx+3]) và lấy ô không rỗng đầu tiên, nên khi ô
             # ngay dưới trống -- hoặc chứa công thức chưa có giá trị cache, thứ
@@ -762,6 +769,11 @@ def _block_labeled_time(block_rows, labels, *, where, label_vi):
 
 #: Cột giữ NGUYÊN VĂN dữ liệu nguồn. Không bao giờ suy lại từ thứ khác.
 SOURCE_COLUMNS=('source_op_no','source_title','expected_total_seconds','setup_source_raw')
+#: Vị trí trên tờ giấy (migration 0053). CHỈ template_operations: đây là dữ liệu
+#: để soi lại file gốc của Template, không phải thứ một PO đang chạy cần biết.
+#: Thiếu (Template nhập trước 0053) thì màn hình đơn giản không hiện phần vị trí.
+SOURCE_LOCATION_COLUMNS=('source_sheet','source_row_start','source_row_end',
+                         'expected_total_cell','expected_total_formula')
 
 
 def _preserved_key(part_code_by_key, opitem):
@@ -785,7 +797,36 @@ def _preserved_key(part_code_by_key, opitem):
     return (part_code, int(source_no or 0), source_title)
 
 
-def _parse_go_router_template(workbook, filename):
+def _formula_at(formula_workbook, sheet_title, cell):
+    """Công thức nguyên văn của một ô, hoặc None. Không bao giờ làm hỏng import.
+
+    Đây là đường CHẨN ĐOÁN: một file lạ, một tên sheet lạ, một ô ngoài vùng --
+    tất cả chỉ nên làm mất phần giải thích, tuyệt đối không làm hỏng lần nhập.
+    """
+    if formula_workbook is None or not cell or not sheet_title:
+        return None
+    try:
+        value = formula_workbook[sheet_title][cell].value
+    except Exception:                     # noqa: BLE001 - chẩn đoán, không phải nghiệp vụ
+        return None
+    text = str(value).strip() if value is not None else ''
+    return text if text.startswith('=') else None
+
+
+def _parse_go_router_template(workbook, filename, formula_workbook=None):
+    """`formula_workbook` là CHÍNH file đó mở với ``data_only=False``.
+
+    Tuỳ chọn, và chỉ dùng cho CHẨN ĐOÁN: openpyxl với ``data_only=True`` trả về
+    giá trị đã cache, nên công thức gốc biến mất -- mà công thức mới là thứ giải
+    thích được vì sao số của khách khác số ta tính. Ví dụ trên file thật:
+
+        'Lắp ráp sau khi sơn'!M14 = $I$4*L14*10/3600 + L11/60
+
+    Cái ``*10`` đó là số lượng chi tiết trên mỗi sản phẩm; nó KHÔNG nằm trong ô
+    nào, chỉ nằm trong công thức. Không đọc được nó thì người dùng chỉ thấy "lệch
+    29 giờ" mà không biết vì sao. Bỏ trống tham số này thì mọi thứ vẫn chạy y
+    như cũ, chỉ không có phần công thức.
+    """
     """Parse the workshop GO ROUTER workbook used by the SQLite version.
 
     Each visible worksheet becomes one Template Part. Operation blocks are
@@ -904,11 +945,14 @@ def _parse_go_router_template(workbook, filename):
             where=(f"Sheet '{sheet.title}' dòng {excel_row} "
                    f"(Operation {source_title or op_name})")
             setup=_block_labeled_time(block,SETUP_TIME_LABELS,where=where,
-                                      label_vi='Thời gian Setup')
+                                      label_vi='Thời gian Setup',
+                                      first_excel_row=excel_row)
             cycle=_block_labeled_time(block,CYCLE_TIME_LABELS,where=where,
-                                      label_vi='Thời gian gia công / sản phẩm')
+                                      label_vi='Thời gian gia công / sản phẩm',
+                                      first_excel_row=excel_row)
             total=_block_labeled_time(block,TOTAL_TIME_LABELS,where=where,
-                                      label_vi='Tổng thời gian gia công dự kiến')
+                                      label_vi='Tổng thời gian gia công dự kiến',
+                                      first_excel_row=excel_row)
             # Part Number riêng của block. 27/112 block trong file thật để
             # trống, chủ yếu công đoạn xử lý -- trống thì KẾ THỪA Part của
             # sheet, không phải lỗi.
@@ -946,6 +990,13 @@ def _parse_go_router_template(workbook, filename):
                 'total_expected_raw':total['raw'],
                 'total_expected_unit':total['unit'],
                 'total_expected_label':total['label'],
+                # VỊ TRÍ, để người dùng mở file ra là tới thẳng chỗ cần xem.
+                # Chỉ có mã Operation thì họ vẫn phải dò tay 44 sheet.
+                'total_expected_cell':total['cell'],
+                'total_expected_formula':_formula_at(formula_workbook,sheet.title,total['cell']),
+                'setup_cell':setup['cell'],
+                'cycle_cell':cycle['cell'],
+                '_excel_row_end':end,
                 # Where this block actually sits, so a rejection can point at
                 # it: this layout puts each Part on its own sheet, so the sheet
                 # name matters as much as the row number.
@@ -1142,7 +1193,15 @@ def _parse_uploaded_router(upload):
     """Đọc file đã upload thành cấu trúc Template, dùng chung cho preview và import."""
     validated = validate_excel_upload(upload)
     wb = load_workbook(BytesIO(validated.data), data_only=True)
-    parsed = _parse_go_router_template(wb, upload.filename)
+    # Lần mở thứ hai CHỈ để lấy công thức nguyên văn (data_only=True làm mất
+    # chúng). Dùng cho chẩn đoán lệch thời gian: cái `*10` trong
+    # `=$I$4*L14*10/3600` không nằm trong ô nào cả. Hỏng thì bỏ qua -- chẩn
+    # đoán không được phép làm hỏng một lần nhập file hợp lệ.
+    try:
+        formula_wb = load_workbook(BytesIO(validated.data), data_only=False)
+    except Exception:                     # noqa: BLE001
+        formula_wb = None
+    parsed = _parse_go_router_template(wb, upload.filename, formula_workbook=formula_wb)
     return validated.data, parsed
 
 
@@ -1247,7 +1306,14 @@ def import_template_workbook():
                 if not on: raise ValueError(f'Operations dòng {idx+2}: thiếu tên Operation.')
                 cycle_value=float(ov('cycle time value','cycle_time_value',default=0) or 0); cycle_unit=_text(ov('cycle time unit','cycle_time_unit',default='second')).lower(); operations.append({'part_key':pc,'code':_text(ov('operation code','operation_code')).upper(),'name':on,'equipment_code':_text(ov('equipment code','equipment_code')).upper(),'standard_seconds_per_unit':cycle_value*(60 if cycle_unit.startswith(('min','phút','phut')) else 1),'sort_order':_integer(ov('sort order','sort_order',default=idx),f'Operations dòng {idx+2} sort_order',default=idx),'_excel_sheet':'Operations','_excel_row':idx+2})
         else:
-            parsed=_parse_go_router_template(wb,upload.filename)
+            # Lần mở thứ hai chỉ để lấy công thức nguyên văn -- xem
+            # _parse_uploaded_router. Hỏng thì bỏ qua: chẩn đoán không được
+            # phép làm hỏng một lần nhập file hợp lệ.
+            try:
+                formula_wb=load_workbook(BytesIO(validated.data),data_only=False)
+            except Exception:                 # noqa: BLE001
+                formula_wb=None
+            parsed=_parse_go_router_template(wb,upload.filename,formula_workbook=formula_wb)
             if not parsed:
                 return jsonify(ok=False,message='Không nhận diện được dữ liệu Template. File cần có 3 sheet chuẩn hoặc các dòng OPERATION # trong từng sheet.'),400
             source_format='go_router'
@@ -1405,14 +1471,18 @@ def import_template_workbook():
                         opitem.get('expected_setup_minutes') if opitem.get('requires_setup') else None)
                 # SOURCE_COLUMNS giữ nguyên văn thứ trên giấy; chúng không bao
                 # giờ được suy lại từ thứ khác.
+                columns=SOURCE_COLUMNS+SOURCE_LOCATION_COLUMNS+PRESERVED
                 conn.execute('INSERT INTO template_operations(template_id,part_id,code,name,sort_order,equipment_code,standard_seconds_per_unit,'
-                    +','.join(SOURCE_COLUMNS)+','+','.join(PRESERVED)
-                    +') VALUES('+','.join(['%s']*(7+len(SOURCE_COLUMNS)+len(PRESERVED)))+')',
+                    +','.join(columns)
+                    +') VALUES('+','.join(['%s']*(7+len(columns)))+')',
                     (t['id'],ids[opitem['part_key']],opitem['code'],opitem['name'],opitem['sort_order'],
                      opitem['equipment_code'],float(opitem.get('standard_seconds_per_unit') or 0))
                     +(opitem.get('source_op_no'),opitem.get('source_title') or '',
                       opitem.get('total_expected_seconds'),
                       _text(opitem.get('setup_raw')) if opitem.get('setup_raw') is not None else None)
+                    +(opitem.get('_excel_sheet'),opitem.get('_excel_row'),
+                      opitem.get('_excel_row_end'),opitem.get('total_expected_cell'),
+                      opitem.get('total_expected_formula'))
                     +tuple(cfg[c] for c in PRESERVED))
         verb='cập nhật' if replaced else 'tạo'
         archive.record(data=raw_bytes,filename=upload.filename,

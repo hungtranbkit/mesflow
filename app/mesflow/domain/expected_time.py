@@ -129,7 +129,16 @@ def summarize(parts: Iterable[Mapping[str, Any]],
             'name': op.get('name') or '',
             'calculated_seconds': round(own, 3),
             'source_seconds': round(own_source, 3),
+            'delta_seconds': round(own - own_source, 3),
             'implied_multiplier': rounded if rounded >= 2 and abs(factor - rounded) <= 0.01 else None,
+            # VỊ TRÍ TRÊN TỜ GIẤY (migration 0053). Không có nó, người dùng cầm
+            # mã Operation rồi phải dò tay 44 sheet. Có thể là None với Template
+            # nhập trước 0053 -- màn hình khi đó chỉ bỏ phần vị trí đi.
+            'sheet': op.get('source_sheet') or None,
+            'row_start': op.get('source_row_start'),
+            'row_end': op.get('source_row_end'),
+            'cell': op.get('expected_total_cell') or None,
+            'formula': op.get('expected_total_formula') or None,
         })
 
     has_source = source_count > 0
