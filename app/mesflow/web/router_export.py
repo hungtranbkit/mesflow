@@ -50,6 +50,7 @@ hay tên người thực hiện — xem ``_qr_lane_column()``.
 """
 from __future__ import annotations
 
+import html
 import re
 from io import BytesIO
 from urllib.parse import quote
@@ -1148,7 +1149,16 @@ def _public_labels(placed):
 
 
 def _worksheet_file_map(parts):
-    """{tên sheet -> đường dẫn part của sheet} đọc từ workbook.xml + rels."""
+    """{tên sheet -> đường dẫn part của sheet} đọc từ workbook.xml + rels.
+
+    TÊN SHEET PHẢI ĐƯỢC GIẢI MÃ THỰC THỂ XML. Trong workbook.xml, một tờ tên
+    ``Khung & Chân`` được ghi là ``name="Khung &amp;amp; Chan"``; openpyxl trả
+    về ``ws.title`` đã giải mã. Trước bản vá, khoá của bảng này là chuỗi CÒN
+    MÃ HOÁ, nên mọi tra cứu theo ``ws.title`` đều trượt -- và cả hai chỗ dùng
+    đều `continue` trong im lặng, tức là tem QR của cả tờ đó biến mất trong khi
+    số tem báo cho người dùng vẫn đếm đủ. Tên sheet hợp lệ của Excel được phép
+    chứa ``&``, ``<`` và ``"``, nên đây không phải ca hiếm.
+    """
     wb_xml = parts['xl/workbook.xml'].decode('utf-8')
     rels_xml = parts['xl/_rels/workbook.xml.rels'].decode('utf-8')
     rel_target = {}
@@ -1164,8 +1174,26 @@ def _worksheet_file_map(parts):
         name = re.search(r'name="([^"]+)"', t)
         rid = re.search(r'r:id="([^"]+)"', t)
         if name and rid and rid.group(1) in rel_target:
-            name_to_file[name.group(1)] = rel_target[rid.group(1)]
+            name_to_file[html.unescape(name.group(1))] = rel_target[rid.group(1)]
     return name_to_file
+
+
+def _sheet_part(name_to_file, parts, sheet_name, what):
+    """Part XML của một sheet, hoặc NỔ.
+
+    Trước bản vá đây là hai lần `continue` im lặng. Một placement đã tính xong
+    mà không ghi được vào file là một bản xuất HỎNG, không phải là không có gì:
+    người đứng máy nhận tờ router thiếu tem, còn màn hình báo đã xuất đủ. Thà
+    đỏ ồn ào còn hơn giao ra một tờ giấy sai.
+    """
+    sheet_file = name_to_file.get(sheet_name)
+    if not sheet_file or sheet_file not in parts:
+        raise RouterPlacementError(
+            f"Không tìm được dữ liệu của sheet '{sheet_name}' trong file gốc để {what}. "
+            'File nguồn có thể đã hỏng hoặc được tạo bằng công cụ lạ; hãy mở lại '
+            'bằng Excel, lưu lại rồi nhập lại Template.',
+            reason='SHEET_PART_NOT_FOUND', sheet=sheet_name, operation='')
+    return sheet_file
 
 
 def _norm_target(base_part, target):
@@ -1253,9 +1281,7 @@ def _graft_qr_into_workbook(source_bytes, placed, clear_cells=None):
     # LƯỢT 0 -- xoá chữ 'QRCODE' ở đúng ô marker (chỉ value). Làm trước khi dán
     # ảnh; ảnh sẽ neo đè lên chính ô đó.
     for sheet_name, coords in clear_cells.items():
-        sheet_file = name_to_file.get(sheet_name)
-        if not sheet_file or sheet_file not in parts:
-            continue
+        sheet_file = _sheet_part(name_to_file, parts, sheet_name, 'xoá chữ QRCODE')
         sheet_xml = parts[sheet_file].decode('utf-8')
         for coord in coords:
             sheet_xml = _clear_marker_value(sheet_xml, coord)
@@ -1279,9 +1305,7 @@ def _graft_qr_into_workbook(source_bytes, placed, clear_cells=None):
         by_sheet.setdefault(item['sheet'], []).append(item)
 
     for sheet_name, items in by_sheet.items():
-        sheet_file = name_to_file.get(sheet_name)
-        if not sheet_file or sheet_file not in parts:
-            continue
+        sheet_file = _sheet_part(name_to_file, parts, sheet_name, 'dán tem QR')
         base = sheet_file.rsplit('/', 1)[-1]
         sheet_rels_path = f'xl/worksheets/_rels/{base}.rels'
         drawing_path = None
