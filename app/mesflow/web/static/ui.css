@@ -3641,3 +3641,18 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .tpl-total-formula{display:block;margin-top:2px;padding:2px 6px;border-radius:3px;
   background:#f4f6f8;color:#4a5866;font-size:11.5px;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}
+
+/* Nhóm "Lỗi công thức / tham chiếu sai" của màn kiểm tra file Excel.
+   Đỏ hơn cảnh báo thường: đây là dữ liệu nguồn SAI, người dùng phải sửa file
+   chứ không phải thứ MESFlow tự xử lý được. */
+.tpl-preview-formula{margin:12px 0;padding:12px 14px;border:1px solid #e0b4b4;border-radius:var(--radius-panel);background:#fff6f6;color:#7a2f2f;font-size:13px}
+.tpl-preview-formula summary{cursor:pointer}
+.tpl-formula-help{margin:8px 0 0;color:#7a2f2f}
+.tpl-formula-table{width:100%;margin-top:10px;border-collapse:collapse;font-size:12px;background:#fff}
+.tpl-formula-table th{padding:6px 8px;border-bottom:1px solid var(--line);color:#4a5866;text-align:left;font-weight:700}
+.tpl-formula-table td{padding:6px 8px;border-bottom:1px solid var(--line);color:var(--text);vertical-align:top}
+.tpl-formula-table code{font-size:11px;word-break:break-all}
+.tpl-formula-table small{color:#6b7785}
+.tpl-formula-sev{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+.tpl-formula-table tr.is-error .tpl-formula-sev{background:#f6d5d5;color:#8c2020}
+.tpl-formula-table tr.is-warn .tpl-formula-sev{background:#f6e8cf;color:#7a5410}

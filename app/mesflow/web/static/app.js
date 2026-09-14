@@ -1624,6 +1624,24 @@ function showTemplateImportPreview(file,data,{onDone}={}){
       <div><b>Template</b><span>${esc(data.plan.template.message||'')}</span></div>
       <div><b>Production Order</b><span>${esc(data.plan.po.message||'')}</span></div>
     </div>`:''}
+    ${(data.formula_issues||[]).length?`<details class="tpl-preview-formula" open><summary><b>Lỗi công thức / tham chiếu sai (${
+      data.formula_issues.length})</b> — ${data.formula_issues.filter(i=>i.severity==='ERROR').length} đang tính sai, ${
+      data.formula_issues.filter(i=>i.severity!=='ERROR').length} sai cấu trúc nhưng chưa lệch</summary>
+      <p class="tpl-formula-help">Công thức ô tổng của block dưới vẫn trỏ về ô Thời gian Setup của block đầu (tham chiếu bị khoá dòng khi copy). <b>Sửa công thức trong file Excel rồi nhập/phân tích lại</b> — MESFlow không tự sửa file của bạn.</p>
+      <table class="tpl-formula-table"><thead><tr><th>Mức</th><th>Vị trí</th><th>Công thức hiện tại</th><th>Tham chiếu đáng ngờ</th><th>Ô đúng</th><th>Ảnh hưởng</th></tr></thead><tbody>${
+      data.formula_issues.map(i=>`<tr class="${i.severity==='ERROR'?'is-error':'is-warn'}">
+        <td><span class="tpl-formula-sev">${i.severity==='ERROR'?'LỖI':'NGHI NGỜ'}</span></td>
+        <td>${esc(i.sheet)}<br><small>dòng ${i.row_start}–${i.row_end} · ô <b>${esc(i.cell)}</b></small>
+            <br><small>${esc(i.operation_code||'')} ${esc(i.operation_name||'')}</small></td>
+        <td><code>${esc(i.formula)}</code></td>
+        <td><code>${esc(i.suspect_ref||'')}</code><br><small>${esc(i.suspect_cell)} = ${
+          i.suspect_value==null?'—':esc(String(i.suspect_value))} phút</small></td>
+        <td><code>${esc(i.expected_cell)}</code><br><small>= ${
+          i.expected_value==null?'—':esc(String(i.expected_value))} phút</small></td>
+        <td>${i.delta_seconds==null?'không tính được'
+          :(Math.abs(i.delta_seconds)>=1?`lệch <b>${Math.round(Math.abs(i.delta_seconds)/60)} phút</b> cho công đoạn này`
+            :'chưa lệch — hai ô Setup đang tình cờ bằng nhau')}</td></tr>`).join('')}
+      </tbody></table></details>`:''}
     ${(sections.warnings||[]).length?`<details class="tpl-preview-warn" open><summary><b>Cảnh báo cần xử lý (${
       sections.warnings.length})</b></summary><ul>${
       sections.warnings.map(w=>`<li>${esc(w.message||w)}</li>`).join('')}</ul></details>`:''}

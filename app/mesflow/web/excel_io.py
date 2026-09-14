@@ -21,6 +21,7 @@ from mesflow.web.errors import api_error_response
 from mesflow.db.repositories.master_data import (_validate_template_part_codes,
     _validate_template_operation_codes, TemplateValidationError)
 from mesflow.db.repositories.setup_ops import SETUP_CODE_SUFFIX
+from mesflow.domain import formula_audit
 from mesflow.db.repositories.template_imports import (TemplateImportRepository,
 
     OUTCOME_CREATED, OUTCOME_REPLACED, OUTCOME_FAILED)
@@ -813,6 +814,15 @@ def _formula_at(formula_workbook, sheet_title, cell):
     return text if text.startswith('=') else None
 
 
+def _cell_value(worksheet, cell):
+    """Giá trị đã tính của một ô, hoặc None. Cùng tinh thần với _formula_at:
+    chẩn đoán không được phép làm hỏng một lần nhập file hợp lệ."""
+    try:
+        return worksheet[cell].value
+    except Exception:                     # noqa: BLE001 - chẩn đoán, không phải nghiệp vụ
+        return None
+
+
 def _parse_go_router_template(workbook, filename, formula_workbook=None):
     """`formula_workbook` là CHÍNH file đó mở với ``data_only=False``.
 
@@ -849,6 +859,7 @@ def _parse_go_router_template(workbook, filename, formula_workbook=None):
     product=stem
     seen_part_codes=set()
     warnings=[]
+    formula_issues=[]
     # Mọi thứ hệ thống ĐỌC ĐƯỢC nhưng chưa map vào model, cộng với mọi cảnh báo,
     # đi chung một kênh có phân loại. Không có đường nào để một field trong file
     # biến mất im lặng: nó hoặc vào 'operations'/'parts', hoặc nằm ở đây.
@@ -1002,6 +1013,18 @@ def _parse_go_router_template(workbook, filename, formula_workbook=None):
                 # name matters as much as the row number.
                 '_excel_sheet':sheet.title,'_excel_row':excel_row
             })
+            # Công thức ô tổng có trỏ đúng ô Setup của block này không? Xem
+            # domain/formula_audit.py -- chỉ báo khi TRỎ SANG Ô KHÁC, nên 12 ô
+            # `$L$11` hợp lệ ở block đầu không bị đụng tới.
+            issue=formula_audit.audit_total_formula(
+                sheet=sheet.title,block_start=excel_row,block_end=end,
+                total_cell=total['cell'],
+                formula=_formula_at(formula_workbook,sheet.title,total['cell']),
+                setup_cell=setup['cell'],value_at=lambda cell:_cell_value(sheet,cell))
+            if issue:
+                issue['operation_code']=op_code
+                issue['operation_name']=op_name
+                formula_issues.append(issue)
             op_order+=1
         if not starts:
             notes.append({
@@ -1017,6 +1040,7 @@ def _parse_go_router_template(workbook, filename, formula_workbook=None):
         'order_type':_text(order_type),'po_note':_text(po_note),
         'source_document_meta':_text(first_rows[0][9] if len(first_rows[0])>9 else ''),
         'warnings':warnings,'notes':notes,
+        'formula_issues':formula_issues,
     }
 
 @template_excel_bp.get('/<int:template_id>/export-workbook')
@@ -1134,6 +1158,8 @@ def _preview_payload(parsed):
                      'product': parsed.get('product') or '', 'version': parsed.get('version') or '1.0'},
         'po': parsed.get('po') or '', 'qty': parsed.get('qty') or 0,
         'parts': parts, 'warnings': parsed.get('warnings') or [],
+        # Nhóm riêng 'Lỗi công thức / tham chiếu sai' của màn kiểm tra file.
+        'formula_issues': parsed.get('formula_issues') or [],
         'counts': {'parts': len(parts),
                    'operations': sum(len(p['operations']) for p in parts),
                    'setups': setup_count},
@@ -1526,6 +1552,7 @@ def import_template_workbook():
         return jsonify(ok=True,message=message,template_id=t['id'],part_count=len(parts),
             operation_count=len(operations),setup_count=setup_count,
             warnings=import_warnings,dropped_setups=dropped_setups,
+            formula_issues=(parsed.get('formula_issues') or []) if source_format=='go_router' else [],
             production_order=po_result,
             source_format=source_format,replaced=replaced)
     except Exception as exc:
@@ -1667,13 +1694,19 @@ def reanalyze_template_source(template_id:int):
                      op.get('total_expected_cell'),op.get('total_expected_formula'),
                      row['id'],template_id))
                 updated+=1
+        issues=parsed.get('formula_issues') or []
         message=(f'Đã đọc lại file gốc và điền vị trí cho {updated}/{len(rows)} công đoạn.')
+        if issues:
+            errs=sum(1 for i in issues if i['severity']=='ERROR')
+            message+=(f' Phát hiện {len(issues)} ô công thức trỏ sai ô Thời gian Setup'
+                      f' ({errs} đang tính sai). Sửa trong file Excel rồi phân tích lại.')
         if unmatched:
             message+=(f' {len(unmatched)} công đoạn không còn khớp block nào trong file '
                       f"({', '.join(unmatched[:5])}{'...' if len(unmatched)>5 else ''}) "
                       '-- file gốc đã đổi so với lúc nhập.')
         return jsonify(ok=True,message=message,template_id=template_id,
             updated=updated,operation_count=len(rows),unmatched=unmatched,
+            formula_issues=issues,
             source={'filename':link.get('original_filename') or path.name,
                     'sha256':link['sha256'],'byte_size':link['byte_size'],
                     'blob_id':link['blob_id'],'link_source':link['link_source'],
