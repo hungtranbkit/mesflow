@@ -1843,6 +1843,11 @@ function templateExpectedTimeBox(x){
   const bad=x.mismatch_operations||[];
   // VỊ TRÍ trước, mã sau: người dùng đang cầm file Excel và cần tới đúng chỗ.
   // "Sheet X, dòng 8-19, ô M14" đưa họ tới nơi; một mã Operation thì không.
+  // Template nhập TRƯỚC 71.0.0.312 không có cột vị trí (migration 0053 thêm
+  // cột NULL được, cố ý không backfill: dữ liệu nằm trong file gốc chứ không
+  // nằm trong DB). Khi đó phải NÓI RA lý do và cách lấy, chứ không im lặng bỏ
+  // trống -- người đọc sẽ tưởng hệ thống không biết chỗ nào lệch.
+  const missingWhere=bad.length&&bad.every(o=>!o.sheet);
   const where=o=>{
     if(!o.sheet)return '';
     const rows=(o.row_start&&o.row_end)?` dòng ${o.row_start}–${o.row_end}`
@@ -1858,7 +1863,9 @@ function templateExpectedTimeBox(x){
       +`</li>`
     ).join('')
     +(bad.length>8?`<li class="muted">…và ${bad.length-8} công đoạn nữa</li>`:'')
-    +`</ul>`:'';
+    +`</ul>`
+    +(missingWhere?`<p class="tpl-total-note">Template này nhập trước 71.0.0.312 nên chưa lưu vị trí trên file (tờ, dòng, ô, công thức). <b>Nhập lại đúng file Excel đó</b> là các dòng trên sẽ có đủ vị trí để mở ra xem thẳng.</p>`:'')
+    :'';
   return `<div class="tpl-total tpl-total-warn"><div class="tpl-total-main"><span class="tpl-total-label">Tổng thời gian gia công dự kiến</span>`
     +`<strong title="${calcMin} phút">${esc(calc)}</strong>`
     +`<span class="tpl-total-badge">Chênh ${sign}${esc(fmtDuration(Math.abs(d)))}</span></div>${rows}`
