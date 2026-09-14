@@ -3238,6 +3238,21 @@ body[data-page="daily-dashboard-kiosk"] .admin-page{padding:0;margin:0;max-width
    cột cố định, không kẻ ngang xuyên suốt. */
 @media(min-width:860px){.op-card-body{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));align-items:start}}
 
+/* "Tiến độ theo Operation": hai thanh phải chạy gần hết bề ngang thẻ.
+   auto-fit ở trên chia thẻ thành 3-4 rãnh 230px trên màn rộng, nhưng thẻ này
+   chỉ có ĐÚNG HAI con -- khối hai thanh và khối "Người làm". Kết quả là thanh
+   nằm gọn trong một rãnh ~230-300px còn nửa phải thẻ bỏ trống, trong khi chữ
+   phía trên/dưới vẫn trải hết bề ngang, nhìn lệch hẳn.
+   Hai con thì tả rõ hai cột: phần còn lại cho thanh, "Người làm" lấy đúng chỗ
+   nó cần rồi thôi. minmax(0,1fr) chứ không phải 1fr -- rãnh grid mặc định là
+   `auto` (tối thiểu = min-content), thiếu min 0 thì một mã OP dài sẽ đẩy cột
+   phình ra và ăn lại đúng chỗ vừa giành được.
+   Dưới 860px .op-card-body vẫn một cột nên thanh đã full sẵn, không cần đụng. */
+@media(min-width:860px){
+  .op-time-panel .op-card-body{grid-template-columns:minmax(0,1fr) minmax(200px,264px)}
+  .op-time-panel .op-dual-progress{min-width:0}
+}
+
 /* "Hàng chờ sửa" -- cùng một archetype với danh sách Operation (một bản ghi
    nhiều dữ kiện cần quyết định), nên dùng LẠI `.op-card`/`.op-card-list` chứ
    không dựng thẻ riêng. Ở đây chỉ còn phần riêng của màn: con số "chờ sửa" là
