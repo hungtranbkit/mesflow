@@ -107,3 +107,39 @@ class TemplateImportRepository:
             FROM template_import_events e JOIN template_import_blobs b ON b.id=e.blob_id
             WHERE e.id=%s""", (int(import_id),))
         return row
+
+    def source_workbook_for(self, template_id: int):
+        """The workbook THIS Template was built from -- by link, never by name.
+
+        Matching on `original_filename` would be a coin toss: on the live TEST
+        box seven distinct blobs share the name 'Lộ trình sản xuất NEWARK ARM
+        CHAIR .xlsx', differing by a few hundred bytes each. Opening the wrong
+        one backfills row numbers that point at the wrong rows -- worse than
+        showing nothing, because it looks right.
+
+        Two sources of truth, in order:
+
+        1. `template_source_workbooks` (0052) -- the link written INSIDE the
+           import's own transaction, so it can only exist for a Template that
+           exists. Newest wins: a re-import links the newer file.
+        2. `template_import_events` (0046) -- the fallback for Templates
+           imported before 0052 existed. Only CREATED/REPLACED: a FAILED
+           attempt wrote no Operation, so its rows cannot be the ones on
+           screen. Still keyed on `template_id`, never on the filename.
+
+        Returns None when nothing links, so the caller can say WHY rather than
+        guess. The row carries `link_source` for exactly that reason.
+        """
+        row = fetch_one("""SELECT b.id blob_id,b.sha256,b.byte_size,b.storage_path,
+                w.original_filename,w.linked_at AS at,'template_source_workbooks' AS link_source
+            FROM template_source_workbooks w JOIN template_import_blobs b ON b.id=w.blob_id
+            WHERE w.template_id=%s ORDER BY w.linked_at DESC,w.id DESC LIMIT 1""",
+            (int(template_id),))
+        if row:
+            return row
+        return fetch_one("""SELECT b.id blob_id,b.sha256,b.byte_size,b.storage_path,
+                e.original_filename,e.created_at AS at,'template_import_events' AS link_source
+            FROM template_import_events e JOIN template_import_blobs b ON b.id=e.blob_id
+            WHERE e.template_id=%s AND e.outcome IN (%s,%s)
+            ORDER BY e.created_at DESC,e.id DESC LIMIT 1""",
+            (int(template_id), OUTCOME_CREATED, OUTCOME_REPLACED))

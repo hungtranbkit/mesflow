@@ -1578,3 +1578,105 @@ def download_template_import(import_id:int):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as exc:
         return api_error_response(exc,logger_name=__name__)
+
+
+def _location_key(part_code, source_op_no, source_title, code):
+    """Danh tính một block trên giấy, dùng chung cho cả hai phía của backfill.
+
+    Cùng quy tắc `_preserved_key`: (số OP gốc, tiêu đề gốc) chứ không phải mã
+    nội bộ, vì mã nội bộ có hậu tố phụ thuộc thứ tự đọc. Chỉ khi file không
+    khai báo cả hai -- workbook chuẩn 3 sheet -- mới rơi về mã.
+    """
+    part=str(part_code or '').upper()
+    title=str(source_title or '').strip().upper()
+    if source_op_no is None and not title:
+        return (part,str(code or '').upper())
+    return (part,int(source_op_no or 0),title)
+
+
+@template_excel_bp.post('/<int:template_id>/reanalyze-source')
+@roles_required('admin','manager')
+def reanalyze_template_source(template_id:int):
+    """Đọc lại file Excel gốc ĐÃ LƯU và điền vị trí cho Template nhập trước 0053.
+
+    VÌ SAO. Năm cột vị trí (tờ, dòng đầu, dòng cuối, ô tổng, công thức) chỉ
+    được ghi từ 71.0.0.312. Template nhập trước đó hiện cảnh báo lệch giờ mà
+    không nói lệch ở ĐÂU, và không có cách nào suy ra: thứ duy nhất biết là
+    file gốc. File gốc thì hệ thống vẫn giữ (kho blob của 0046), nên bắt người
+    dùng upload lại đúng file họ đã upload là việc thừa.
+
+    GIỚI HẠN CÓ CHỦ ĐÍCH -- đây là backfill CHẨN ĐOÁN, không phải nhập lại:
+
+    * Chỉ UPDATE năm cột vị trí trên đúng `template_operations` của Template
+      này. Không INSERT, không DELETE, không đụng Part, PO, Operation đang
+      chạy, và không đụng một cột nghiệp vụ nào -- kể cả thời gian. Số lệch
+      vẫn lệch y như trước: nó là tín hiệu dữ liệu thiếu, không phải thứ cần
+      dọn cho đẹp.
+    * Khớp theo danh tính trên giấy (`_location_key`). Block nào không khớp
+      thì bỏ qua và ĐẾM, chứ không đoán theo thứ tự -- đoán sai là chỉ vào
+      nhầm dòng, tệ hơn là không chỉ gì cả.
+    * Chạy lại được bao nhiêu lần cũng ra đúng ngần ấy: cùng file, cùng kết
+      quả.
+    """
+    try:
+        link=TemplateImportRepository().source_workbook_for(template_id)
+        if not link:
+            raise NotFoundError(
+                'Template này chưa nối được với file Excel gốc nào trong kho, '
+                'nên không có gì để phân tích lại. Nhập lại đúng file Excel đó.')
+        path=Path(link['storage_path'])
+        if not path.exists():
+            raise NotFoundError(
+                f"File Excel gốc của Template không còn trên máy chủ ({path.name}). "
+                'Nhập lại đúng file Excel đó.')
+        raw=path.read_bytes()
+        wb=load_workbook(BytesIO(raw),data_only=True)
+        try:
+            formula_wb=load_workbook(BytesIO(raw),data_only=False)
+        except Exception:                     # noqa: BLE001
+            formula_wb=None
+        parsed=_parse_go_router_template(wb,link.get('original_filename') or path.name,
+                                         formula_workbook=formula_wb)
+        if not parsed:
+            raise ValueError('File Excel gốc không đọc được theo định dạng lộ trình '
+                             '(không thấy block OPERATION # nào).')
+        part_code_by_key={p['key']:p['code'] for p in parsed['parts']}
+        found={}
+        for op in parsed['operations']:
+            found[_location_key(part_code_by_key.get(op['part_key']),
+                                op.get('source_op_no'),op.get('source_title'),
+                                op.get('code'))]=op
+        updated=0; unmatched=[]
+        with transaction() as conn:
+            rows=conn.execute("""SELECT o.id,o.code,o.source_op_no,o.source_title,p.code part_code
+                FROM template_operations o JOIN template_parts p ON p.id=o.part_id
+                WHERE o.template_id=%s""",(template_id,)).fetchall()
+            if not rows:
+                raise NotFoundError('Không tìm thấy Template này.')
+            for row in rows:
+                op=found.get(_location_key(row['part_code'],row['source_op_no'],
+                                           row['source_title'],row['code']))
+                if not op:
+                    unmatched.append(str(row['code'] or ''))
+                    continue
+                conn.execute("""UPDATE template_operations
+                    SET source_sheet=%s,source_row_start=%s,source_row_end=%s,
+                        expected_total_cell=%s,expected_total_formula=%s
+                    WHERE id=%s AND template_id=%s""",
+                    (op.get('_excel_sheet'),op.get('_excel_row'),op.get('_excel_row_end'),
+                     op.get('total_expected_cell'),op.get('total_expected_formula'),
+                     row['id'],template_id))
+                updated+=1
+        message=(f'Đã đọc lại file gốc và điền vị trí cho {updated}/{len(rows)} công đoạn.')
+        if unmatched:
+            message+=(f' {len(unmatched)} công đoạn không còn khớp block nào trong file '
+                      f"({', '.join(unmatched[:5])}{'...' if len(unmatched)>5 else ''}) "
+                      '-- file gốc đã đổi so với lúc nhập.')
+        return jsonify(ok=True,message=message,template_id=template_id,
+            updated=updated,operation_count=len(rows),unmatched=unmatched,
+            source={'filename':link.get('original_filename') or path.name,
+                    'sha256':link['sha256'],'byte_size':link['byte_size'],
+                    'blob_id':link['blob_id'],'link_source':link['link_source'],
+                    'stored_name':path.name})
+    except Exception as exc:
+        return api_error_response(exc,logger_name=__name__)

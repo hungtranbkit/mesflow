@@ -1785,6 +1785,21 @@ async function loadTemplateImportHistory(templateId){
 // đi qua pipeline xuất/chèn QR. Resolve lần nhập THÀNH CÔNG gần nhất tại thời
 // điểm click (không hardcode import id, không tải nhầm mẫu khác). Chưa có nguồn
 // thì báo rõ, không nút chết, không lỗi 500.
+async function reanalyzeTemplateSource(templateId){
+  // Đọc lại file Excel gốc đã lưu để điền vị trí (tờ/dòng/ô/công thức) cho
+  // Template nhập trước 71.0.0.312. Không tạo Template/PO mới, không sửa số.
+  const btn=document.getElementById('tplReparseSource'),original=btn?.textContent;
+  if(btn){btn.disabled=true;btn.textContent='Đang đọc file gốc…';}
+  try{
+    const d=await api(`/api/templates/${templateId}/reanalyze-source`,{method:'POST'});
+    toast(d.message||'Đã đọc lại file gốc.');
+    await window.selectTemplateOld(templateId);
+  }catch(err){
+    toast(err.message||'Không đọc lại được file Excel gốc.');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=original;}
+  }
+}
 async function downloadTemplateSource(templateId){
   const btn=document.getElementById('tplDownloadSource'),original=btn?.textContent;
   if(btn){btn.disabled=true;btn.textContent='Đang tìm file gốc…';}
@@ -1864,7 +1879,11 @@ function templateExpectedTimeBox(x){
     ).join('')
     +(bad.length>8?`<li class="muted">…và ${bad.length-8} công đoạn nữa</li>`:'')
     +`</ul>`
-    +(missingWhere?`<p class="tpl-total-note">Template này nhập trước 71.0.0.312 nên chưa lưu vị trí trên file (tờ, dòng, ô, công thức). <b>Nhập lại đúng file Excel đó</b> là các dòng trên sẽ có đủ vị trí để mở ra xem thẳng.</p>`:'')
+    // Không bắt người dùng upload lại thứ hệ thống đang giữ: file gốc vẫn nằm
+    // trong kho blob, và nút này đọc lại chính nó để điền vị trí. Chỉ chạm vào
+    // năm cột chẩn đoán -- số giờ lệch giữ nguyên, vì nó là tín hiệu.
+    +(missingWhere?`<p class="tpl-total-note">Template này nhập trước 71.0.0.312 nên chưa lưu vị trí trên file (tờ, dòng, ô, công thức). Hệ thống vẫn giữ file Excel gốc, bấm nút dưới đây để đọc lại và điền vị trí — không cần upload lại.</p>`
+      +`<button class="btn" type="button" id="tplReparseSource">Phân tích lại file gốc</button>`:'')
     :'';
   return `<div class="tpl-total tpl-total-warn"><div class="tpl-total-main"><span class="tpl-total-label">Tổng thời gian gia công dự kiến</span>`
     +`<strong title="${calcMin} phút">${esc(calc)}</strong>`
@@ -1874,7 +1893,7 @@ function templateExpectedTimeBox(x){
 function drawTemplateOldEditor(){const e=document.getElementById('tplEditor'),t=templateUi.current;if(!e||!t)return;const parts=normalizeOldTree(),createPo=document.getElementById('tplCreatePO');if(createPo)createPo.disabled=!t.id;e.innerHTML=`<div class="panel-head template-old-head"><div><h2>${templateUi.isNew?'Template chưa đặt tên':`${esc(t.code)} · ${esc(t.name)}`}</h2><p>${templateUi.isNew?'Điền thông tin chung, sau đó thêm Part và Operation.':'Các Production Order đã tạo sẽ không bị thay đổi khi sửa Template này.'}</p></div><div class="template-editor-actions"><button class="btn primary" id="tplSave">Lưu thay đổi</button>${t.id?'<button class="btn" id="tplDownloadSource">⬇ Tải file Excel gốc</button>':''}${t.id?'<button class="btn danger" id="tplDelete">Xóa Template</button>':''}</div></div><div class="template-old-form"><label>Mã Template <small>Bắt buộc, không trùng</small><input id="tplCode" value="${esc(t.code||'')}"></label><label>Tên Template <small>Tên dễ nhận biết</small><input id="tplName" value="${esc(t.name||'')}"></label><label>Sản phẩm <small>Sản phẩm đầu ra</small><input id="tplProduct" value="${esc(t.product||'')}"></label><label>Phiên bản <small>Ví dụ: 1.0</small><input id="tplVersion" value="${esc(t.version||'1.0')}"></label><label class="template-old-check"><input id="tplActive" type="checkbox" ${t.active!==false?'checked':''}> Cho phép dùng Template này để tạo PO</label></div>${templateExpectedTimeBox(templateUi.tree&&templateUi.tree.expected_time)}<div class="template-old-section"><div class="panel-head"><div><h2>Cấu trúc sản xuất</h2><p>Mỗi Part chứa các Operation thực hiện trực tiếp trên Part đó.</p></div><button class="btn" id="tplAddPart">+ Thêm Part</button></div><div id="tplParts">${parts.length?parts.map(oldPartBox).join(''):'<div class="empty-hint"><b>Chưa có Part</b><span>Thêm Part đầu tiên, sau đó khai báo các Operation bên trong.</span><button class="btn" type="button" id="tplEmptyAddPart">+ Thêm Part</button></div>'}</div></div>${t.id?'<div class="template-old-section" id="tplImportHistory"></div>':''}`;
   if(t.id)loadTemplateImportHistory(t.id);
   ['tplCode','tplName','tplProduct','tplVersion','tplActive'].forEach(id=>document.getElementById(id).oninput=()=>templateUi.dirty=true);
-  document.getElementById('tplSave').onclick=saveTemplateOld;if(t.id)document.getElementById('tplDelete').onclick=()=>removeTemplate(t.id);if(t.id)document.getElementById('tplDownloadSource').onclick=()=>downloadTemplateSource(t.id);const addPart=()=>{const ps=normalizeOldTree();ps.push({key:`new-${Date.now()}`,code:'',name:'',sort_order:ps.length,operations:[]});applyOldParts(ps);templateUi.dirty=true;drawTemplateOldEditor()};document.getElementById('tplAddPart').onclick=addPart;const emptyAdd=document.getElementById('tplEmptyAddPart');if(emptyAdd)emptyAdd.onclick=addPart;bindOldEditorEvents(parts)
+  document.getElementById('tplSave').onclick=saveTemplateOld;if(t.id)document.getElementById('tplDelete').onclick=()=>removeTemplate(t.id);if(t.id)document.getElementById('tplDownloadSource').onclick=()=>downloadTemplateSource(t.id);const reparse=document.getElementById('tplReparseSource');if(reparse&&t.id)reparse.onclick=()=>reanalyzeTemplateSource(t.id);const addPart=()=>{const ps=normalizeOldTree();ps.push({key:`new-${Date.now()}`,code:'',name:'',sort_order:ps.length,operations:[]});applyOldParts(ps);templateUi.dirty=true;drawTemplateOldEditor()};document.getElementById('tplAddPart').onclick=addPart;const emptyAdd=document.getElementById('tplEmptyAddPart');if(emptyAdd)emptyAdd.onclick=addPart;bindOldEditorEvents(parts)
 }
 function oldPartBox(p,pi){const drawing=p.drawing_path?`<a class="template-drawing-link" href="/uploads/${esc(p.drawing_path)}" target="_blank">${esc(p.drawing_name||p.drawing_path.split('/').pop())}</a>`:'<span class="muted">Chưa đính kèm bản vẽ</span>';return `<section class="part-block template-old-part" data-part="${pi}"><header class="part-block-head template-old-part-head"><span class="part-block-badge template-part-number">Part ${pi+1}</span><label>Mã Part<input data-pf="code" value="${esc(p.code||'')}" placeholder="Ví dụ: P01"></label><label>Tên Part<input data-pf="name" value="${esc(p.name||'')}" placeholder="Tên chi tiết hoặc cụm"></label><button class="btn part-block-destructive" data-remove-part="${pi}">Xóa Part</button></header><div class="part-block-util template-part-drawing"><div><b>Bản vẽ kỹ thuật</b><span>${drawing}</span></div><input type="file" data-drawing-file="${pi}" accept=".pdf,.png,.jpg,.jpeg,.webp,.svg,.dxf,.dwg,.step,.stp,.iges,.igs,.zip" hidden><button class="btn" data-upload-drawing="${pi}">${p.drawing_path?'Đổi bản vẽ':'Đính kèm bản vẽ'}</button>${p.drawing_path?`<button class="btn danger" data-remove-drawing="${pi}">Gỡ</button>`:''}</div><div class="part-block-section template-old-part-title"><b>Danh sách Operation</b><span>Thực hiện theo thứ tự từ trên xuống.</span></div><div class="op-list template-old-op-table"><div class="op-list-head template-old-op-header no-order"><span>Mã OP</span><span>Tên Operation</span><span>Thiết bị</span><span>Thời gian / SP</span><span></span></div>${(p.operations||[]).map((o,oi)=>oldOperationRow(o,pi,oi)).join('')}</div><footer class="part-block-foot template-old-op-actions"><button class="btn part-block-add" data-add-op="${pi}">+ Thêm Operation</button></footer></section>`}
 function cycleTimeDisplay(o){const sec=Number(o.standard_seconds_per_unit||0);if(sec>=60)return {value:Number((sec/60).toFixed(2)),unit:'minute'};return {value:sec,unit:'second'}}
