@@ -3608,3 +3608,29 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .tpl-preview-unused td{padding:6px 8px;border-bottom:1px solid var(--line);color:var(--text);vertical-align:top}
 .tpl-preview-warn summary{cursor:pointer}
 .tpl-preview-warn ul{margin:8px 0 0;padding-left:18px;max-height:200px;overflow:auto}
+
+/* TỔNG THỜI GIAN GIA CÔNG DỰ KIẾN (màn Template).
+   Hai con số nằm cạnh nhau vì chúng trả lời hai câu khác nhau: "file khách ghi
+   bao nhiêu" và "MESFlow tính được bao nhiêu". Khi lệch, badge phải đọc được ở
+   khoảng cách liếc mắt -- đó là lúc dữ liệu còn thiếu thứ gì đó. */
+.tpl-total{margin:0 0 18px;padding:14px 16px;border:1px solid var(--line);
+  border-left:4px solid var(--action);border-radius:var(--radius-panel);background:var(--subtle)}
+.tpl-total-main{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px}
+.tpl-total-label{color:var(--muted);font-size:13px;font-weight:700;letter-spacing:.02em}
+.tpl-total-main strong{color:var(--text);font-size:26px;line-height:1.15;font-variant-numeric:tabular-nums}
+.tpl-total-ok{padding:2px 8px;border-radius:999px;background:#e8f4ef;color:var(--success);
+  font-size:12px;font-weight:700}
+.tpl-total-badge{padding:2px 8px;border-radius:999px;background:#fdecec;color:var(--danger);
+  font-size:12px;font-weight:700}
+.tpl-total-pair{display:flex;justify-content:space-between;gap:16px;max-width:420px;
+  margin-top:6px;padding-top:6px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+.tpl-total-pair strong{color:var(--text);font-variant-numeric:tabular-nums}
+.tpl-total-note{margin:8px 0 0;color:var(--muted);font-size:12.5px;line-height:1.5}
+.tpl-total-note code{padding:1px 5px;border-radius:3px;background:#eef2f5;font-size:12px}
+.tpl-total-warn{border-left-color:var(--danger)}
+@media (max-width:640px){.tpl-total-pair{max-width:none}}
+.tpl-total-list{margin:8px 0 0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.7}
+.tpl-total-list code{padding:1px 5px;border-radius:3px;background:#eef2f5;font-size:12px;color:var(--text)}
+.tpl-total-list b{color:var(--danger)}
+.tpl-total-list span{color:var(--muted)}

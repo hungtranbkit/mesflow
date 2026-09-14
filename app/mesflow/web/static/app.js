@@ -1803,7 +1803,57 @@ async function downloadTemplateSource(templateId){
   finally{if(btn?.isConnected){btn.disabled=false;btn.textContent=original;}}
 }
 
-function drawTemplateOldEditor(){const e=document.getElementById('tplEditor'),t=templateUi.current;if(!e||!t)return;const parts=normalizeOldTree(),createPo=document.getElementById('tplCreatePO');if(createPo)createPo.disabled=!t.id;e.innerHTML=`<div class="panel-head template-old-head"><div><h2>${templateUi.isNew?'Template chưa đặt tên':`${esc(t.code)} · ${esc(t.name)}`}</h2><p>${templateUi.isNew?'Điền thông tin chung, sau đó thêm Part và Operation.':'Các Production Order đã tạo sẽ không bị thay đổi khi sửa Template này.'}</p></div><div class="template-editor-actions"><button class="btn primary" id="tplSave">Lưu thay đổi</button>${t.id?'<button class="btn" id="tplDownloadSource">⬇ Tải file Excel gốc</button>':''}${t.id?'<button class="btn danger" id="tplDelete">Xóa Template</button>':''}</div></div><div class="template-old-form"><label>Mã Template <small>Bắt buộc, không trùng</small><input id="tplCode" value="${esc(t.code||'')}"></label><label>Tên Template <small>Tên dễ nhận biết</small><input id="tplName" value="${esc(t.name||'')}"></label><label>Sản phẩm <small>Sản phẩm đầu ra</small><input id="tplProduct" value="${esc(t.product||'')}"></label><label>Phiên bản <small>Ví dụ: 1.0</small><input id="tplVersion" value="${esc(t.version||'1.0')}"></label><label class="template-old-check"><input id="tplActive" type="checkbox" ${t.active!==false?'checked':''}> Cho phép dùng Template này để tạo PO</label></div><div class="template-old-section"><div class="panel-head"><div><h2>Cấu trúc sản xuất</h2><p>Mỗi Part chứa các Operation thực hiện trực tiếp trên Part đó.</p></div><button class="btn" id="tplAddPart">+ Thêm Part</button></div><div id="tplParts">${parts.length?parts.map(oldPartBox).join(''):'<div class="empty-hint"><b>Chưa có Part</b><span>Thêm Part đầu tiên, sau đó khai báo các Operation bên trong.</span><button class="btn" type="button" id="tplEmptyAddPart">+ Thêm Part</button></div>'}</div></div>${t.id?'<div class="template-old-section" id="tplImportHistory"></div>':''}`;
+// TỔNG THỜI GIAN GIA CÔNG DỰ KIẾN.
+//
+// Hai con số, cố ý: "Theo Excel" là ô tổng của chính file khách (đã lưu lúc
+// import), "MESFlow tính" là tổng tính lại từ Operation đang có. Trên file thật
+// hai số lệch 9,4% -- không phải lỗi làm tròn, mà là các block có hệ số BOM viết
+// thẳng trong công thức Excel (`=$I$4*L14*10/3600+L11/60`), thứ trình đọc file
+// không nhìn thấy được. Nên độ lệch chính là thông tin, không phải thứ để giấu:
+// nó chỉ đúng những công đoạn hệ thống còn thiếu dữ liệu.
+function fmtDuration(seconds){
+  const s=Math.max(0,Math.round(Number(seconds)||0));
+  const h=Math.floor(s/3600),m=Math.round((s-h*3600)/60);
+  if(h&&m)return `${h} giờ ${m} phút`;
+  if(h)return `${h} giờ`;
+  return `${m} phút`;
+}
+function templateExpectedTimeBox(x){
+  if(!x||!x.operation_count)return '';
+  const calc=fmtDuration(x.calculated_seconds);
+  const calcMin=Math.round((Number(x.calculated_seconds)||0)/60);
+  if(!x.has_source){
+    return `<div class="tpl-total"><div class="tpl-total-main"><span class="tpl-total-label">Tổng thời gian gia công dự kiến</span>`
+      +`<strong title="${calcMin} phút">${esc(calc)}</strong></div>`
+      +`<p class="tpl-total-note">MESFlow tính từ ${x.operation_count} Operation. File nguồn không có ô tổng để đối chiếu.</p></div>`;
+  }
+  const src=fmtDuration(x.source_seconds),d=Number(x.delta_seconds)||0;
+  const partial=x.source_is_partial
+    ?` Số theo Excel chỉ phủ ${x.source_operation_count}/${x.operation_count} Operation.`:'';
+  const rows=`<div class="tpl-total-pair"><span>Theo Excel</span><strong title="${Math.round(Number(x.source_seconds)/60)} phút">${esc(src)}</strong></div>`
+    +`<div class="tpl-total-pair"><span>MESFlow tính</span><strong title="${calcMin} phút">${esc(calc)}</strong></div>`;
+  if(!x.mismatch){
+    return `<div class="tpl-total"><div class="tpl-total-main"><span class="tpl-total-label">Tổng thời gian gia công dự kiến</span>`
+      +`<strong title="${calcMin} phút">${esc(calc)}</strong><span class="tpl-total-ok">Khớp với Excel</span></div>${rows}`
+      +(partial?`<p class="tpl-total-note">${esc(partial.trim())}</p>`:'')+`</div>`;
+  }
+  const sign=d>0?'+':'−';
+  // Nêu ĐÍCH DANH các công đoạn lệch kèm hệ số suy ra được: "chênh 29 giờ" là
+  // một con số, "5 công đoạn hệ số x2/x4/x10" là một việc làm được.
+  const bad=x.mismatch_operations||[];
+  const list=bad.length?`<ul class="tpl-total-list">`+bad.slice(0,6).map(o=>
+      `<li><code>${esc(o.code||'')}</code> ${esc(o.name||'')}`
+      +(o.implied_multiplier?` <b>×${o.implied_multiplier}</b>`:'')
+      +` <span>(Excel ${esc(fmtDuration(o.source_seconds))} · tính ${esc(fmtDuration(o.calculated_seconds))})</span></li>`
+    ).join('')
+    +(bad.length>6?`<li class="muted">…và ${bad.length-6} công đoạn nữa</li>`:'')
+    +`</ul>`:'';
+  return `<div class="tpl-total tpl-total-warn"><div class="tpl-total-main"><span class="tpl-total-label">Tổng thời gian gia công dự kiến</span>`
+    +`<strong title="${calcMin} phút">${esc(calc)}</strong>`
+    +`<span class="tpl-total-badge">Chênh ${sign}${esc(fmtDuration(Math.abs(d)))}</span></div>${rows}`
+    +`<p class="tpl-total-note">Lệch ở <b>${x.mismatch_operation_count||bad.length}</b>/${x.operation_count} Operation. Nguyên nhân đã biết: công thức Excel của những block đó có thêm hệ số số lượng chi tiết (ví dụ <code>=$I$4*L14*10/3600</code>) — hệ số nằm trong công thức, không nằm trong ô nào, nên khi đọc file không lấy được.${esc(partial)}</p>${list}</div>`;
+}
+function drawTemplateOldEditor(){const e=document.getElementById('tplEditor'),t=templateUi.current;if(!e||!t)return;const parts=normalizeOldTree(),createPo=document.getElementById('tplCreatePO');if(createPo)createPo.disabled=!t.id;e.innerHTML=`<div class="panel-head template-old-head"><div><h2>${templateUi.isNew?'Template chưa đặt tên':`${esc(t.code)} · ${esc(t.name)}`}</h2><p>${templateUi.isNew?'Điền thông tin chung, sau đó thêm Part và Operation.':'Các Production Order đã tạo sẽ không bị thay đổi khi sửa Template này.'}</p></div><div class="template-editor-actions"><button class="btn primary" id="tplSave">Lưu thay đổi</button>${t.id?'<button class="btn" id="tplDownloadSource">⬇ Tải file Excel gốc</button>':''}${t.id?'<button class="btn danger" id="tplDelete">Xóa Template</button>':''}</div></div><div class="template-old-form"><label>Mã Template <small>Bắt buộc, không trùng</small><input id="tplCode" value="${esc(t.code||'')}"></label><label>Tên Template <small>Tên dễ nhận biết</small><input id="tplName" value="${esc(t.name||'')}"></label><label>Sản phẩm <small>Sản phẩm đầu ra</small><input id="tplProduct" value="${esc(t.product||'')}"></label><label>Phiên bản <small>Ví dụ: 1.0</small><input id="tplVersion" value="${esc(t.version||'1.0')}"></label><label class="template-old-check"><input id="tplActive" type="checkbox" ${t.active!==false?'checked':''}> Cho phép dùng Template này để tạo PO</label></div>${templateExpectedTimeBox(templateUi.tree&&templateUi.tree.expected_time)}<div class="template-old-section"><div class="panel-head"><div><h2>Cấu trúc sản xuất</h2><p>Mỗi Part chứa các Operation thực hiện trực tiếp trên Part đó.</p></div><button class="btn" id="tplAddPart">+ Thêm Part</button></div><div id="tplParts">${parts.length?parts.map(oldPartBox).join(''):'<div class="empty-hint"><b>Chưa có Part</b><span>Thêm Part đầu tiên, sau đó khai báo các Operation bên trong.</span><button class="btn" type="button" id="tplEmptyAddPart">+ Thêm Part</button></div>'}</div></div>${t.id?'<div class="template-old-section" id="tplImportHistory"></div>':''}`;
   if(t.id)loadTemplateImportHistory(t.id);
   ['tplCode','tplName','tplProduct','tplVersion','tplActive'].forEach(id=>document.getElementById(id).oninput=()=>templateUi.dirty=true);
   document.getElementById('tplSave').onclick=saveTemplateOld;if(t.id)document.getElementById('tplDelete').onclick=()=>removeTemplate(t.id);if(t.id)document.getElementById('tplDownloadSource').onclick=()=>downloadTemplateSource(t.id);const addPart=()=>{const ps=normalizeOldTree();ps.push({key:`new-${Date.now()}`,code:'',name:'',sort_order:ps.length,operations:[]});applyOldParts(ps);templateUi.dirty=true;drawTemplateOldEditor()};document.getElementById('tplAddPart').onclick=addPart;const emptyAdd=document.getElementById('tplEmptyAddPart');if(emptyAdd)emptyAdd.onclick=addPart;bindOldEditorEvents(parts)

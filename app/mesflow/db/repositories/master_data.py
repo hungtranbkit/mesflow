@@ -3,6 +3,7 @@ from typing import Any
 from datetime import datetime
 from mesflow.core.time_policy import parse_datetime_utc
 from psycopg import sql
+from mesflow.domain import expected_time
 from mesflow.db.connection import transaction, fetch_all
 from .base import BaseRepository, NotFoundError, ConflictError, RepositoryError, reportable_session_sql
 from .production_state import reconcile_operation_and_po, lock_production_order_for_operation_first
@@ -659,7 +660,15 @@ class TemplateTreeRepository:
             parts=conn.execute('SELECT * FROM template_parts WHERE template_id=%s ORDER BY sort_order,id',(template_id,)).fetchall()
             operations=conn.execute('SELECT * FROM template_operations WHERE template_id=%s ORDER BY part_id,sort_order,id',(template_id,)).fetchall()
             equipment=conn.execute('SELECT * FROM template_equipment WHERE template_id=%s ORDER BY id',(template_id,)).fetchall()
-            return {'template':template,'parts':list(parts),'operations':list(operations),'equipment':list(equipment)}
+            parts,operations=list(parts),list(operations)
+            # Tổng thời gian gia công dự kiến. Số NGUỒN (ô tổng của file khách)
+            # đã nằm sẵn trong template_operations.expected_total_seconds từ lúc
+            # import; trước bản vá này không có chỗ nào đọc nó ra. Tính ở tầng
+            # đọc chứ không lưu thêm cột: nó là hàm thuần của các cột đã có, nên
+            # lưu thêm là tạo ra một nguồn sự thật thứ hai có thể lệch.
+            return {'template':template,'parts':parts,'operations':operations,
+                    'equipment':list(equipment),
+                    'expected_time':expected_time.summarize(parts,operations)}
 
     def replace_tree(self,template_id:int,payload:dict[str,Any]):
         parts=list(payload.get('parts') or [])
