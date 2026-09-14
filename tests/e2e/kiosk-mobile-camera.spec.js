@@ -662,6 +662,10 @@ test('PO chưa Start: thẻ hiện TÊN công đoạn + chuỗi QR thô TRƯỚC
   const context = await phone();
   const page = await context.newPage();
   await page.addInitScript(FAKE_CAMERA);
+  // Không có AUDIO_SPY thì `window.__audio` không tồn tại, và phép đo tiếng bíp
+  // ở cuối bài trở thành `[] `-- xanh hay đỏ đều vô nghĩa. Bài đầu tiên tôi
+  // viết thiếu đúng dòng này.
+  await page.addInitScript(AUDIO_SPY);
 
   // Đúng thân phản hồi máy chủ trả về (tests/test_scan_result_survives_a_
   // business_error.py khoá hình dạng này ở phía máy chủ).
@@ -686,13 +690,21 @@ test('PO chưa Start: thẻ hiện TÊN công đoạn + chuỗi QR thô TRƯỚC
   // Chuỗi thô: thứ duy nhất trả lời được "tem in ra có đúng không".
   await expect(page.getByTestId('kiosk-camera-result-raw')).toHaveText('WF|OPID|4242');
   // Lời từ chối là DÒNG RIÊNG, hiện cùng lúc chứ không thay chỗ.
-  await expect(page.getByTestId('kiosk-camera-result-error')).toContainText('PO-001');
-  await expect(page.getByTestId('kiosk-camera-result-error')).toContainText('chưa Start');
+  //
+  // Kiểm MÃ LỖI, không kiểm nguyên văn câu của máy chủ: `workerError()` trong
+  // kiosk.js CỐ Ý thay câu của máy chủ bằng một câu viết cho người đứng máy
+  // (ở đây là "Công đoạn này hiện không thể bắt đầu."). Bài đầu tiên tôi viết
+  // đòi chữ "chưa Start" của máy chủ và vì thế đỏ ngay từ lúc ra đời -- nó
+  // kiểm sai thứ. Cái phải đúng là: có mã để tra, và câu chữ là câu cho người
+  // đứng máy chứ không phải văn bản kỹ thuật.
+  const errorLine = page.getByTestId('kiosk-camera-result-error');
+  await expect(errorLine).toContainText('PO-001');
+  await expect(errorLine).toContainText('không thể bắt đầu');
   // Và luật nghiệp vụ vẫn nguyên: KHÔNG có session nào được mở.
   expect(starts, 'một PO chưa Start không được sinh ra lệnh start nào').toEqual([]);
   // Camera vẫn mở để quét tem tiếp theo, và có tiếng báo lỗi.
   await expect(page.getByTestId('kiosk-camera-layer')).toHaveClass(/on/);
-  expect(await page.evaluate(() => window.__audio?.freqs || [])).toContain(300);
+  expect(await page.evaluate(() => window.__audio.freqs)).toContain(300);
   await context.close();
 });
 
@@ -713,14 +725,22 @@ test('quét trúng: thẻ mang cả tên lẫn chuỗi QR thô, không có dòng
 
 // --- /kiosk-mobile: cùng giao diện, khác chính sách xác thực --------------
 
-test('/kiosk-mobile chưa đăng nhập thì về trang đăng nhập, mang theo đường quay lại', async () => {
+test('/kiosk-mobile chưa đăng nhập thì trả 302 về /login kèm đường quay lại', async () => {
   const context = await phone();
-  const page = await context.newPage();
-  const response = await page.goto('/kiosk-mobile');
-  expect(response.status()).toBe(200);          // sau khi đã đi theo redirect
-  expect(page.url()).toContain('/login');
-  expect(decodeURIComponent(page.url())).toContain('next=/kiosk-mobile');
-  await expect(page.locator('#loginForm')).toBeVisible();
+  // Kiểm ở tầng HTTP, KHÔNG lái trình duyệt tới đó.
+  //
+  // Bài đầu tiên tôi viết đi theo redirect rồi đòi thấy #loginForm, và nó đỏ
+  // ngay từ lúc ra đời: môi trường test bật MESFLOW_TEST_AUTO_LOGIN=1, nên
+  // trang /login tự đăng nhập rồi nhảy tiếp về đúng `next` -- form biến mất
+  // trước khi nhìn thấy, và trình duyệt kết thúc ở /kiosk-mobile. Nghĩa là sản
+  // phẩm chạy ĐÚNG (chuyển hướng và quay lại được), chỉ bài kiểm nhìn nhầm chỗ.
+  // Chính cái 302 và tham số next mới là hợp đồng; nó không phụ thuộc vào việc
+  // môi trường có bật tự đăng nhập hay không.
+  const response = await context.request.get('/kiosk-mobile', { maxRedirects: 0 });
+  expect(response.status()).toBe(302);
+  const location = response.headers()['location'];
+  expect(location).toContain('/login');
+  expect(decodeURIComponent(location)).toContain('next=/kiosk-mobile');
   await context.close();
 });
 
