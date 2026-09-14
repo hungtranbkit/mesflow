@@ -639,7 +639,8 @@ def _block_labeled_time(block_rows, labels, *, where, label_vi):
     Số âm, chữ vô nghĩa và nhãn không nói rõ đơn vị đều bị CHẶN kèm vị trí --
     không lặng lẽ quy về 0.
     """
-    empty = {'declared': False, 'raw': None, 'seconds': None, 'unit': None, 'label': ''}
+    empty = {'declared': False, 'value_found': False, 'raw': None,
+             'seconds': None, 'unit': None, 'label': ''}
     wanted = {_deaccent(x) for x in labels}
     short = {'setup': SETUP_TIME_LABELS, 'cycle': CYCLE_TIME_LABELS,
              'total': TOTAL_TIME_LABELS}
@@ -662,27 +663,55 @@ def _block_labeled_time(block_rows, labels, *, where, label_vi):
                     f'{where}: nhãn "{label}" không nói rõ đơn vị thời gian '
                     '(giây/phút/giờ), nên không biết quy đổi. Ghi rõ đơn vị trong '
                     'ngoặc, ví dụ "( phút )" hoặc "(s)".')
-            found = {'declared': True, 'raw': None, 'seconds': 0.0,
-                     'unit': unit, 'label': label}
-            for below in block_rows[idx + 1:idx + 3]:
+            found = {'declared': True, 'value_found': False, 'raw': None,
+                     'seconds': None, 'unit': unit, 'label': label}
+            # ĐÚNG MỘT Ô: ô NGAY DƯỚI nhãn. Bản cũ quét hai dòng
+            # (block_rows[idx+1:idx+3]) và lấy ô không rỗng đầu tiên, nên khi ô
+            # ngay dưới trống -- hoặc chứa công thức chưa có giá trị cache, thứ
+            # LibreOffice tạo ra mỗi lần lưu lại -- nó nhảy xuống dòng kế và đọc
+            # một con số HOÀN TOÀN KHÁC làm thời gian. Đo được: ô setup ghi
+            # '=5*2' (10 phút), giá trị nhập vào là 777 -- số thợ ở dòng dưới.
+            # Biểu mẫu thật luôn đặt giá trị ngay dưới nhãn (L10/L11, L13/L14,
+            # M13/M14), nên hai dòng chưa bao giờ là dung sai cần thiết; nó chỉ
+            # là một đường đoán mò, và đoán sai thì ra dữ liệu sai không ai biết.
+            value = None
+            if idx + 1 < len(block_rows):
+                below = block_rows[idx + 1]
                 value = below[col] if col < len(below) else None
-                if value in (None, ''):
-                    continue
-                found['raw'] = value
-                if _norm(value) in BLANK_NUMBER_PLACEHOLDERS:
-                    # '-' = không áp dụng. Giữ raw để phân biệt với 0.
-                    found['seconds'] = 0.0
-                    return found
-                try:
-                    number = float(value)
-                except (TypeError, ValueError):
-                    raise ValueError(
-                        f'{where}: {label_vi} phải là số, đang là {value!r}.')
-                if number < 0:
-                    raise ValueError(
-                        f'{where}: {label_vi} không được âm (đang là {value!r}).')
-                found['seconds'] = number * TIME_UNIT_SECONDS[unit]
+            if value in (None, ''):
+                # Có nhãn nhưng ô trống. Dừng ở đây, KHÔNG dò tiếp xuống dưới.
+                # `declared` vẫn là True: hợp đồng hiện có phân biệt ba trạng
+                # thái 0 / '-' / trống và coi cả ba là "nhãn có trên tờ giấy"
+                # (xem tests/test_router_import_field_semantics.py
+                # ::test_setup_0_va_gach_ngang_va_trong_khac_nhau). Bản vá này
+                # chỉ bỏ phép ĐOÁN hai dòng; nó không đụng vào ngữ nghĩa đó.
+                # `value_found=False` là chỗ ghi lại sự khác biệt mới, để chỗ
+                # nào cần thì đọc mà không làm lệch cách hiểu cũ.
                 return found
+            found['raw'] = value
+            found['value_found'] = True
+            if isinstance(value, str) and value.lstrip().startswith('='):
+                # Công thức chưa có giá trị cache: openpyxl data_only=True trả
+                # về None cho ô như thế, nên chuỗi '=' lọt tới đây nghĩa là ô
+                # thật sự chứa CHỮ '='. Nói thẳng thay vì để nó thành "phải là
+                # số" -- người dùng cần biết phải mở bằng Excel và lưu lại.
+                raise ValueError(
+                    f'{where}: {label_vi} đang là công thức chưa có giá trị '
+                    f'({value!r}). Mở file bằng Excel, lưu lại để Excel ghi kết '
+                    'quả vào ô, rồi nhập lại.')
+            if _norm(value) in BLANK_NUMBER_PLACEHOLDERS:
+                # '-' = không áp dụng. Giữ raw để phân biệt với 0.
+                found['seconds'] = 0.0
+                return found
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f'{where}: {label_vi} phải là số, đang là {value!r}.')
+            if number < 0:
+                raise ValueError(
+                    f'{where}: {label_vi} không được âm (đang là {value!r}).')
+            found['seconds'] = number * TIME_UNIT_SECONDS[unit]
             return found
     return dict(empty)
 
