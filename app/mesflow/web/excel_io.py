@@ -527,6 +527,50 @@ def _find_labeled_value(rows, labels, max_rows=12, max_span=4):
     return None
 
 
+def _maybe_int(value):
+    """Giá trị này có phải một số nguyên đọc được không? None nếu không."""
+    if value is None or isinstance(value, bool):
+        return None
+    text = _norm(value)
+    if not text:
+        return None
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return None
+    return int(number) if float(number).is_integer() else None
+
+
+def _find_quantity_value(rows, labels, *, label_vi):
+    """Sản lượng đọc được ở CẢ HAI kiểu đặt nhãn, và từ chối khi chúng đá nhau.
+
+    Đầu tờ router dùng hai kiểu nhãn cùng lúc (xem `_find_labeled_value_below`),
+    và `QTY` bị bỏ lại ở kiểu "giá trị BÊN PHẢI" trong khi `SỐ LƯỢNG` đã được
+    sửa sang kiểu "giá trị Ở DƯỚI". Trên biểu mẫu chuẩn (``A3='QTY:'`` ->
+    ``C3=110``) kiểu bên phải là đúng; nhưng trên biến thể đặt `QTY` làm TIÊU ĐỀ
+    CỘT (``H2='QTY'``, ``H4=110``), nó nhặt phải ô bên cạnh -- đo được: sản lượng
+    thật 110, nhập vào **2026** (một cái năm).
+
+    Vì thế không chọn cứng một kiểu. Đọc cả hai, và:
+
+      * chỉ ứng viên nào ra SỐ NGUYÊN mới được tính -- trên biểu mẫu chuẩn, ô
+        dưới ``A3`` là ``A4='TÊN BẢN VẼ:'``, một chuỗi, nên nó tự loại;
+      * hai bên cùng ra số mà KHÁC nhau thì DỪNG kèm cả hai con số. Sản lượng là
+        mẫu số của mọi phép tính tiến độ và chỉ được đặt một lần lúc tạo PO --
+        đoán sai ở đây thì PO chạy cả đời với một mẫu số sai, không ai thấy.
+        Dừng ồn ào là lựa chọn đúng, không phải sự bất tiện.
+    """
+    right = _maybe_int(_find_labeled_value(rows, labels))
+    below = _maybe_int(_find_labeled_value_below(rows, labels))
+    if right is not None and below is not None and right != below:
+        raise ValueError(
+            f'{label_vi} đọc được hai giá trị khác nhau: {right} ở ô bên phải nhãn '
+            f'và {below} ở ô bên dưới nhãn, nên không biết lấy số nào. Hãy để '
+            f'{label_vi} chỉ có một giá trị -- hoặc ngay bên phải nhãn, hoặc ngay '
+            'bên dưới nhãn -- rồi nhập lại.')
+    return right if right is not None else below
+
+
 def _find_labeled_value_below(rows, labels, max_rows=12, max_below=6):
     """Giá trị nằm DƯỚI ô nhãn, cùng cột.
 
@@ -754,7 +798,7 @@ def _parse_go_router_template(workbook, filename):
         return None
     first_rows=list(visible[0].iter_rows(values_only=True))
     po_value=_find_labeled_value(first_rows, {'PO NUMBER','PO NUMBER:'})
-    qty_value=_find_labeled_value(first_rows, {'QTY','QTY:'})
+    qty_value=_find_quantity_value(first_rows, {'QTY','QTY:'}, label_vi='QTY')
     order_type=_find_labeled_value_below(first_rows, {'LOẠI ĐƠN HÀNG','LOAI DON HANG','ORDER TYPE'})
     po_note=_find_labeled_value(first_rows, {'CHÚ Ý','CHU Y','NOTE','GHI CHÚ'})
     stem=re.sub(r'\.xlsx$','',filename,flags=re.I).strip()
@@ -787,7 +831,10 @@ def _parse_go_router_template(workbook, filename):
         # SỐ LƯỢNG của sheet là số lượng Part phải làm, ĐỘC LẬP với QTY của PO.
         # File thật: PO QTY 110, nhưng 11 sheet ghi 220 và 1 sheet ghi 440 -- bội
         # số BOM. Gộp về QTY của PO là xoá mất định mức.
-        sheet_qty=_find_labeled_value_below(rows, {'SỐ LƯỢNG','SO LUONG','QUANTITY'})
+        # Cùng một phép canh hai kiểu nhãn như QTY của PO: hai kiểu cho ra hai
+        # số khác nhau thì DỪNG, đừng chọn bừa một cái.
+        sheet_qty=_find_quantity_value(rows, {'SỐ LƯỢNG','SO LUONG','QUANTITY'},
+                                       label_vi=f"SỐ LƯỢNG của sheet '{sheet.title}'")
         sheet_meta=_text(rows[0][9] if len(rows[0])>9 else '')
         has_drawing_identity=bool(_text(drawing_code) or _text(drawing_name))
         if not has_drawing_identity:
