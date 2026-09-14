@@ -131,6 +131,20 @@ async function openPage(id,btn,{historyMode='push'}={}){if(!canOpenPage(id)){con
   // openPage(sameId) to refresh in place, clicking a nav item you're already
   // on) auto-downgrades to replaceState so Back never has to click through a
   // pile of identical entries.
+  // BƯỚC VÀO Dashboard = xem HÔM NAY. setPageUrl() chỉ ghi đè `page=`, nên
+  // `date=` của lần xem trước sống sót qua mọi màn khác và quay lại y nguyên:
+  // chọn 01/09 -> sang Template -> bấm Dashboard, URL vẫn còn date=2026-09-01
+  // và người dùng nhìn số liệu ngày cũ tưởng hệ thống hỏng. Bỏ nó đi ngay
+  // trước khi đẩy URL mới, để renderDashboard() rơi về todayHcm().
+  //
+  // CHỈ với 'push' -- tức người dùng thực sự bấm vào Dashboard. 'replace' là
+  // lúc khởi động/chuẩn hoá URL (F5 và link dán tay đi đường này), 'none' là
+  // Back/Forward: cả hai phải giữ nguyên ngày trong URL, nếu không thì deep
+  // link và nút Back mất tác dụng. Đang ở trong Dashboard mà tự đổi ngày cũng
+  // không đụng tới: chỗ đó chỉ replaceState rồi load() lại, không gọi
+  // openPage. Chỉ `date` bị xoá -- `tab` và `po_id` không phụ thuộc ngày nên
+  // giữ nguyên hành vi cũ.
+  if(historyMode==='push'&&id==='dashboard')AppNav.setQuery({date:null});
   if(historyMode!=='none'){const samePage=new URLSearchParams(location.search).get('page')===id;AppNav.setPageUrl(id,{replace:historyMode==='replace'||samePage})}
   // Rời màn = mọi request ĐỌC của màn cũ trở nên vô nghĩa. Bỏ chúng NGAY,
   // trước khi màn mới bắt đầu vẽ: một phản hồi về muộn chỉ còn hai khả năng,
