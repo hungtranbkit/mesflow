@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
 import uuid
+
+from psycopg.errors import DataError
 from flask import Blueprint, jsonify, request, render_template
 
 from mesflow import __version__
@@ -15,6 +18,7 @@ from mesflow.db.repositories.base import NotFoundError, ConflictError, Repositor
 from mesflow.domain.errors import PermissionDeniedError
 
 bp = Blueprint('web_kiosk', __name__)
+logger = logging.getLogger(__name__)
 
 # PUBLIC KIOSK SURFACE (business owner decision, 2026-09-12). Every route in
 # this module is reachable by a workshop machine that has never logged in and
@@ -48,9 +52,32 @@ def _error(exc):
     if isinstance(exc, PermissionDeniedError):
         return jsonify(ok=False, error='FORBIDDEN', error_code='AUTH-403', message=message,
                        action='Liên hệ quản trị viên để kiểm tra trạng thái kiosk.'), 403
-    if isinstance(exc, (ValueError, RepositoryError, KeyError, TypeError)):
+    if isinstance(exc, DataError):
+        # Số vượt khỏi kiểu cột (good_qty = 2**31) là lỗi dữ liệu vào, không
+        # phải lỗi hệ thống -- nhưng vẫn phải ghi lại, vì nó cũng có thể là dấu
+        # hiệu một thiết bị đang gửi rác.
+        logger.warning('Kiosk data error: %s', exc)
+        return jsonify(ok=False, error='INVALID_REQUEST', error_code='REQ-400',
+                       message='Dữ liệu nhập không đúng định dạng hoặc vượt giới hạn.',
+                       action='Kiểm tra lại số lượng vừa nhập rồi thử lại.'), 400
+    if isinstance(exc, (ValueError, RepositoryError)):
         return jsonify(ok=False, error='INVALID_REQUEST', error_code='REQ-400', message=message,
                        action='Quét lại đúng thứ tự hoặc nhập lại dữ liệu.'), 400
+    # KeyError/TypeError CỐ Ý KHÔNG nằm ở nhánh 400 nữa. Chúng là LỖI LẬP TRÌNH,
+    # không phải lỗi của người quét, và việc xếp chúng vào 400 gây ra hai hậu
+    # quả đo được trên 71.0.0.310:
+    #   * nội dung ngoại lệ Python lọt ra cho người gọi ẨN DANH trên internet --
+    #     POST /api/kiosk-web/start {} trả về message "'employee_id'";
+    #     {"employee_id":"abc"} trả về "invalid literal for int() with base 10";
+    #     và người đứng máy thì đọc được một câu Python thay vì một hướng dẫn.
+    #   * tệ hơn: lỗi thật BIẾN MẤT. action_logging chỉ ghi error_traces khi
+    #     status>=500 hoặc có exception chưa bắt; 400 nên sau cả ba lời gọi trên
+    #     `SELECT count(*) FROM error_traces` = 0 và outcome là 'FAILED' chứ
+    #     không phải 'ERROR'. Một defect thật không bao giờ tới được màn Nhật ký
+    #     lỗi mà cả System Console dựng lên để theo dõi.
+    # Nay chúng rơi xuống nhánh 500 bên dưới: câu trả lời cho người dùng là câu
+    # chung (không lộ nội bộ), còn traceback thì được GHI LẠI.
+    logger.exception('Kiosk request failed: %s', request.path)
     return jsonify(ok=False, error='INTERNAL_ERROR', error_code='SYS-500',
                    message='Máy chủ không xử lý được yêu cầu.',
                    action='Ghi lại mã SYS-500 và báo người quản trị.'), 500
@@ -388,13 +415,32 @@ def kiosk_start():
     return _start_response()
 
 
+def _required_id(body, field, label_vi):
+    """Một id bắt buộc, đọc thành lỗi NGƯỜI ĐỌC ĐƯỢC nếu thiếu hoặc sai kiểu.
+
+    Trước bản vá, `int(body['employee_id'])` để KeyError/TypeError tự nổ và
+    `_error()` xếp chúng vào 400 kèm nguyên văn ngoại lệ Python -- người đứng
+    máy nhận được "'employee_id'" hoặc "invalid literal for int() with base 10:
+    'abc'". Nay chúng là lỗi lập trình đi vào nhánh 500 (và được GHI LẠI), nên
+    phần "thiếu trường" phải được kiểm tường minh ở đây, nếu không một yêu cầu
+    thiếu trường sẽ thành 500 -- đúng kiểu đánh đổi sai.
+    """
+    value = body.get(field)
+    if value in (None, ''):
+        raise ValueError(f'Thiếu {label_vi}. Quét lại từ đầu.')
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'{label_vi} không hợp lệ ({value!r}). Quét lại từ đầu.')
+
+
 def _start_response():
     body = request.get_json(silent=True) or {}
     try:
         payload = {
             'request_id': str(body.get('request_id') or f'WEB-START-{uuid.uuid4()}'),
-            'employee_id': int(body['employee_id']),
-            'operation_id': int(body['operation_id']),
+            'employee_id': _required_id(body, 'employee_id', 'mã nhân viên'),
+            'operation_id': _required_id(body, 'operation_id', 'mã công đoạn'),
             'station_id': int(body['station_id']) if body.get('station_id') else None,
             'device_uuid': str(body.get('device_uuid') or 'WEB-KIOSK'),
         }
