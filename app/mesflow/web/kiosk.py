@@ -56,6 +56,16 @@ def _error(exc):
                    action='Ghi lại mã SYS-500 và báo người quản trị.'), 500
 
 
+#: Các trường của nhân viên được phép ra khỏi MẶT QUÉT CÔNG KHAI. Danh sách
+#: cho phép, không phải danh sách cấm: thêm cột mới vào bảng employees sẽ không
+#: âm thầm đẩy nó ra internet.
+PUBLIC_EMPLOYEE_FIELDS = ('id', 'employee_no', 'name', 'department', 'position', 'active')
+
+
+def _public_employee(row):
+    return {k: row[k] for k in PUBLIC_EMPLOYEE_FIELDS if k in row}
+
+
 def _normalize_qr(value: object) -> str:
     return str(value or '').strip()
 
@@ -290,7 +300,18 @@ def _scan_response():
                ORDER BY s.id DESC LIMIT 1""",
             (employee['id'],),
         )
-        return jsonify(ok=True, type='employee', employee=dict(employee), open_session=dict(opened) if opened else None)
+        # KHÔNG TRẢ LẠI MÃ THẺ. Chuỗi `employees.qr` là một THÔNG TIN XÁC THỰC --
+        # chính vì thế /api/kiosk-web/demo-data bị khoá lại sau sự cố
+        # 2026-09-09 ("dumps ... every badge QR value, which is a credential").
+        # Nhưng mặt quét này ẩn danh và chấp nhận cả `employee_no`, nên trước
+        # bản vá bất kỳ ai cũng dò được NV001, NV002... và thu về đúng chuỗi thẻ
+        # của từng người. Đo được trên 71.0.0.310: quét "WF|EMP|NV002" (đoán,
+        # chưa hề cầm thẻ) trả về qr + họ tên.
+        # Trạm quét KHÔNG cần chuỗi này: nó vừa tự đọc được từ tấm thẻ trên tay.
+        # `employment_status` cũng bỏ vì cùng lý do -- không màn hình nào dùng.
+        return jsonify(ok=True, type='employee',
+                       employee=_public_employee(employee),
+                       open_session=dict(opened) if opened else None)
 
     # Two payload shapes, one code path. `WF|OP|<code>` is what the labels
     # already printed in the workshop carry; `WF|OPID|<id>` is what new labels

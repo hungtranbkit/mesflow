@@ -504,7 +504,11 @@ def legacy_lookup():
             if not row: raise NotFoundError('employee not found')
             active=WorkSessionRepository().list_open_for_employee(row['id'])
             if device: KioskEventRepository().ingest({'event_uuid':f'{device}-SCAN-EMP-{uuid.uuid4()}','device_uuid':device,'event_type':'SCAN_EMPLOYEE','severity':'INFO','message':f"Quét nhân viên {row['employee_no']}",'employee_id':row['id'],'payload':{'qr':qr}})
-            return jsonify(ok=True,type='worker',worker={'id':row['id'],'code':row['employee_no'],'employee_code':row['employee_no'],'name':row['name'],'qr':row['qr']},active_sessions=active)
+            # Không trả lại 'qr': cùng lý do như /api/kiosk-web/scan -- chuỗi
+            # thẻ là thông tin xác thực, còn endpoint này thì ẩn danh HOÀN TOÀN
+            # (không cần cả device) và nginx còn phục vụ nó trên cổng 80 không
+            # mã hoá. Thiết bị vừa tự quét ra chuỗi đó nên không cần nhận lại.
+            return jsonify(ok=True,type='worker',worker={'id':row['id'],'code':row['employee_no'],'employee_code':row['employee_no'],'name':row['name']},active_sessions=active)
         # Both Operation payload shapes, because this is the endpoint the
         # LEGACY ESP firmware calls to validate a scan before letting the
         # worker proceed. 'WF|OPID|4243'.startswith('WF|OP|') is False -- the
