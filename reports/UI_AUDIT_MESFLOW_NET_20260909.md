@@ -14,7 +14,8 @@ Evidence bundle: `scratchpad/ui-audit/evidence/` (screenshots named
 
 - **Target**: real deployed TEST at `https://mesflow.net` (had to use `https` —
   the session cookie is `Secure`, plain `http` silently drops it). Login by
-  real password (`admin` / `Admin@123456`); autologin is **off** on this host
+  real password (`admin` / <REDACTED 2026-09-14 -- xem ghi chú cuối mục>);
+  autologin is **off** on this host
   (`data-test-auto-login="0"`).
 - **Coverage**: 24 authenticated SPA routes + 2 public kiosk pages, each at up
   to 4 viewports — **1920, 1366, 768 (tablet), 390 (mobile)**. axe run on all
@@ -202,3 +203,16 @@ Per the brief I'm stopping at the audit. On your word I can: (a) run the
 interactive second pass over the modals / PO-Part-OP detail / OP SETUP / print
 sheet, (b) apply the 3 safe quick-fixes (UI-1/3/7) on a branch, and/or (c) open
 these as tracked issues. No changes deployed.
+
+---
+
+> **Ghi chú bảo mật, 2026-09-14 (audit SEC-15).** Mật khẩu quản trị của host
+> `https://mesflow.net` từng được viết nguyên văn ở dòng 17 của chính tệp này.
+> Nay đã che đi, nhưng **che trong cây làm việc KHÔNG xoá nó khỏi lịch sử git**:
+> `git log -p -- reports/UI_AUDIT_MESFLOW_NET_20260909.md` vẫn đọc được. Vì vậy
+> giá trị đó phải coi là **đã lộ vĩnh viễn** và **bắt buộc phải đổi trên host**;
+> việc che này chỉ để nó thôi lan thêm.
+>
+> `scripts/reset-admin-password.sh` cũng đã bỏ mặc định (cùng chuỗi đó) và nay
+> từ chối mọi mật khẩu nằm trong danh sách đã công khai -- trước đây một cú chạy
+> script vô ý sẽ lặng lẽ khôi phục lại đúng mật khẩu vừa bị loại bỏ.
