@@ -312,7 +312,16 @@ def _scan_response():
                 **({'scanned': {'kind': 'employee', 'title': employee['name'] or '',
                                 'sub': employee['employee_no'] or ''}} if employee else {}),
             ), 404
-        opened = fetch_one(
+        # TẤT CẢ session đang mở, không phải một. Từ migration 0054 một người
+        # được giữ nhiều session OPEN trên các Operation khác nhau (trông 2-3
+        # máy cùng lúc). `LIMIT 1` cũ sẽ lặng lẽ giấu đi những việc còn lại --
+        # đúng kiểu sai nguy hiểm nhất ở màn hình xưởng: người đứng máy tin rằng
+        # mình chỉ còn một việc đang chạy.
+        #
+        # ORDER BY s.id DESC giữ NGUYÊN thứ tự cũ, nên phần tử đầu tiên vẫn đúng
+        # là dòng mà `LIMIT 1` từng trả về -- điều kiện để `open_session` bên
+        # dưới tương thích ngược từng bit với client cũ.
+        opened_rows = fetch_all(
             """SELECT s.id,s.employee_id,s.operation_id,s.started_at,s.station_id,
                       o.code operation_code,o.name operation_name,o.operation_type,
                       CASE WHEN strpos(upper(o.code),upper(p.code))>0 THEN o.code
@@ -324,9 +333,10 @@ def _scan_response():
                LEFT JOIN parts p ON p.id=o.part_id
                LEFT JOIN production_orders po ON po.id=o.production_order_id
                WHERE s.employee_id=%s AND s.status='OPEN'
-               ORDER BY s.id DESC LIMIT 1""",
+               ORDER BY s.id DESC""",
             (employee['id'],),
         )
+        opened = opened_rows[0] if opened_rows else None
         # KHÔNG TRẢ LẠI MÃ THẺ. Chuỗi `employees.qr` là một THÔNG TIN XÁC THỰC --
         # chính vì thế /api/kiosk-web/demo-data bị khoá lại sau sự cố
         # 2026-09-09 ("dumps ... every badge QR value, which is a credential").
@@ -336,9 +346,14 @@ def _scan_response():
         # chưa hề cầm thẻ) trả về qr + họ tên.
         # Trạm quét KHÔNG cần chuỗi này: nó vừa tự đọc được từ tấm thẻ trên tay.
         # `employment_status` cũng bỏ vì cùng lý do -- không màn hình nào dùng.
+        # `open_session` (số ít) GIỮ NGUYÊN: firmware ESP và mọi client dựng
+        # trước 0054 đọc đúng trường này. Thêm `open_sessions` bên cạnh chứ
+        # không thay thế -- client cũ tiếp tục thấy một session như trước, client
+        # mới đọc đủ danh sách. Đây là lý do không đổi tên trường cũ.
         return jsonify(ok=True, type='employee',
                        employee=_public_employee(employee),
-                       open_session=dict(opened) if opened else None)
+                       open_session=dict(opened) if opened else None,
+                       open_sessions=[dict(x) for x in opened_rows])
 
     # Two payload shapes, one code path. `WF|OP|<code>` is what the labels
     # already printed in the workshop carry; `WF|OPID|<id>` is what new labels

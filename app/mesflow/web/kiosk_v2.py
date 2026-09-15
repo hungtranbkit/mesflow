@@ -671,15 +671,26 @@ def _find_open_session_for_employee(employee_id: int):
     """Shared-terminal fix (2026-08-26): returns the employee's OWN currently
     OPEN work session, enriched with everything the kiosk_v2 projection
     needs to resume it (operation code/name, target quantity) -- or None.
-    At most one row can ever match: DB-enforced by
-    uq_open_session_per_employee, a partial UNIQUE index on
-    work_sessions(employee_id) WHERE status='OPEN' (confirmed via \\d
-    work_sessions -- the same "one employee = one active session" rule
-    WorkSessionRepository.start() itself already relies on, see its own
-    23505 -> ConflictError('employee already has an open session')
-    handling). This function only ever surfaces that existing rule, never
-    invents a second one. The WHERE clause here is exactly what that index
-    covers, so this is a single indexed row lookup, not a table scan."""
+
+    MỘT session, CÓ CHỦ Ý -- máy ESP giữ nguyên chế độ một việc.
+
+    Trước migration 0054 đây là sự thật do DB ép: uq_open_session_per_employee
+    chỉ cho một session OPEN mỗi người, nên "at most one row can ever match".
+    Từ 0054 điều đó KHÔNG còn đúng -- một người được giữ nhiều session OPEN trên
+    các Operation khác nhau.
+
+    kiosk_v2_projection chỉ có MỘT ô work_session_id cho mỗi thiết bị, và
+    firmware ESP cố định không cập nhật cùng nhịp với máy chủ. Mở rộng giao thức
+    ở đây sẽ buộc phải bump protocol version và đổi firmware -- nằm ngoài phạm
+    vi việc này. Máy ESP vì thế tiếp tục phục vụ đúng một việc; nhiều việc cùng
+    lúc là tính năng của kiosk web.
+
+    ORDER BY ws.id DESC là thứ MỚI và bắt buộc: `LIMIT 1` trần không có ORDER BY
+    cho kết quả không xác định khi có nhiều dòng khớp, nên một người mở 2 việc ở
+    kiosk web rồi quay lại máy ESP có thể được nối vào việc nào cũng được, đổi
+    theo từng lần gọi. Chốt về "việc mở gần nhất" -- cùng quy tắc mà
+    /api/kiosk-web/scan dùng cho phần tử đầu danh sách, nên hai mặt quét không
+    bao giờ nói hai chuyện khác nhau."""
     return fetch_one(
         """SELECT ws.id AS work_session_id, ws.operation_id, ws.started_at,
                   o.code AS operation_code, o.name AS operation_name,
@@ -688,6 +699,7 @@ def _find_open_session_for_employee(employee_id: int):
            JOIN operations o ON o.id = ws.operation_id
            LEFT JOIN production_orders po ON po.id = o.production_order_id
            WHERE ws.employee_id=%s AND ws.status='OPEN'
+           ORDER BY ws.id DESC
            LIMIT 1""",
         (employee_id,))
 
