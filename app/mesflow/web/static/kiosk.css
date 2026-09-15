@@ -197,3 +197,23 @@ body.kiosk-touch .qty-keypad:not([hidden]){display:grid;grid-template-columns:re
   .camera-layer.on.has-result .camera-hint{display:none}
   body.kiosk-touch .qty-keypad button{min-height:46px;font-size:20px}
 }
+
+/* Danh sách việc đang chạy (màn #screen-sessions, chỉ hiện khi >=2 việc).
+   Đọc-để-nhận-ra, không phải để bấm: tem Operation là thứ chọn session, nên ở
+   đây cố ý KHÔNG có nút trên từng dòng. Mã việc là thứ mắt phải bắt được đầu
+   tiên vì nó là cái người đứng máy đối chiếu với tem đang cầm. */
+.session-list{width:100%;max-width:620px;margin:14px 0 4px;padding:0;list-style:none;display:grid;gap:8px;text-align:left}
+.session-list li{display:grid;grid-template-columns:auto 1fr auto;align-items:baseline;gap:4px 12px;
+  padding:12px 14px;border:1px solid #b9cfdd;border-radius:10px;background:#eaf2f7}
+.session-list b{color:var(--command);font-size:22px;line-height:1.15;letter-spacing:-.01em}
+.session-list span{min-width:0;color:var(--text);font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-list small{color:var(--muted);font-size:14px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.sessions-hint{max-width:620px;line-height:1.45}
+
+@media(max-width:650px){
+  /* Một cột: ở 390px ba cột làm mã việc bị bóp lại còn vài ký tự, đúng thứ
+     KHÔNG được phép mờ đi trên màn này. Thời gian xuống dòng dưới tên việc. */
+  .session-list li{grid-template-columns:1fr;gap:2px;padding:10px 12px}
+  .session-list b{font-size:20px}
+  .session-list span{white-space:normal}
+}

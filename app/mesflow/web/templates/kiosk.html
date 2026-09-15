@@ -47,6 +47,23 @@
       <button class="secondary" data-action="cancel">Hủy</button>
     </section>
 
+    <!-- Từ 0054 một người có thể đang giữ nhiều việc. Màn này CHỈ hiện khi có
+         từ 2 việc trở lên: với đúng 1 việc, luồng cũ (vào thẳng nhập sản lượng)
+         giữ nguyên từng bước, vì đó là đại đa số ca làm và không có lý do gì
+         bắt họ thêm một nhịp.
+         Không có nút bấm trên từng dòng: tem Operation là thứ chọn, không phải
+         ngón tay -- người đứng máy thường đeo găng và đang cầm sẵn súng quét. -->
+    <section id="screen-sessions" class="screen">
+      <div class="badge">NHÂN VIÊN</div>
+      <h2 id="sessions-employee-name"></h2>
+      <p id="sessions-employee-code"></p>
+      <ul id="sessions-list" class="session-list"></ul>
+      <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v15M6 13l6 6 6-6"/></svg></div>
+      <h1>QUÉT MÃ CÔNG ĐOẠN</h1>
+      <p class="sessions-hint">Việc đang chạy &rarr; nhập sản lượng để kết thúc<br>Việc mới &rarr; bắt đầu thêm</p>
+      <button class="secondary" data-action="cancel">Hủy</button>
+    </section>
+
     <section id="screen-starting" class="screen">
       <div class="spinner"></div>
       <h1>ĐANG BẮT ĐẦU</h1>
@@ -57,7 +74,7 @@
       <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div>
       <h1>ĐÃ BẮT ĐẦU</h1>
       <h2 id="started-operation"></h2>
-      <p>Quét lại thẻ khi hoàn thành</p>
+      <p id="started-note">Quét lại thẻ khi hoàn thành</p>
     </section>
 
     <section id="screen-quantity-good" class="screen quantity-screen">
@@ -124,6 +141,7 @@
       <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div>
       <h1>ĐÃ GHI NHẬN</h1>
       <p id="finished-summary"></p>
+      <p id="finished-note" class="sessions-hint"></p>
     </section>
 
     <section id="screen-error" class="screen error">

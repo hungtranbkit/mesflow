@@ -53,7 +53,11 @@
   let state = 'ready';
   const tutorialMode = new URLSearchParams(window.location.search).get('tutorial') === '1';
   let employee = null;
+  // `openSession` = việc ĐANG được chốt sản lượng (con trỏ ngữ cảnh).
+  // `openSessions` = TẤT CẢ việc người này đang giữ. Từ 0054 hai thứ đó không
+  // còn là một: quét tem một việc khác chỉ đổi con trỏ, không đụng danh sách.
   let openSession = null;
+  let openSessions = [];
   let scanBuffer = '';
   let scanTimer = null;
   let resetTimer = null;
@@ -253,7 +257,7 @@
   }
   function reset() {
     cancelReset();
-    employee = null; openSession = null; scanBuffer = ''; input.value = '';
+    employee = null; openSession = null; openSessions = []; scanBuffer = ''; input.value = '';
     pendingFinish = { good:0, defect:0, rework:0, hasRework:false, note:'', requestId:'' };
     resetQty(); document.getElementById('finish-note').value = '';
     document.getElementById('rework-validation').textContent = '';
@@ -336,6 +340,66 @@
       throw error;
     }
   }
+  // Vào luồng KẾT THÚC cho một việc cụ thể. Tách ra khỏi nhánh quét thẻ vì từ
+  // 0054 có BA đường dẫn tới đây: quét thẻ khi đang giữ đúng một việc, quét tem
+  // một việc đang chạy từ màn danh sách, và quét tem một việc đang chạy KHÁC
+  // ngay giữa lúc đang nhập sản lượng cho việc này. Cả ba phải đặt cùng một
+  // trạng thái, nếu không sẽ có đường chốt số vào nhầm session.
+  // Trả về nhãn Operation để nơi gọi ghép câu thông báo.
+  function enterFinishFor(session) {
+    openSession = session;
+    const openOp = `${session.operation_display_key || session.operation_code} · ${session.operation_name}`;
+    document.getElementById('finish-employee').textContent = `${employee.employee_no} · ${employee.name}`;
+    document.getElementById('finish-operation').textContent = openOp;
+    pendingFinish.requestId = `${deviceUuid}-FINISH-${Date.now()}`;
+    // Bắt đầu một lượt kết thúc là bắt đầu từ trắng: số của lượt trước (và dấu
+    // "đã nhập" của nó) không được chảy sang người -- hay sang VIỆC -- kế tiếp.
+    resetQty();
+    pendingFinish.good = 0; pendingFinish.defect = 0;
+    pendingFinish.rework = 0; pendingFinish.hasRework = false;
+    pendingFinish.note = '';
+    if (OpPolicy.isSetup(session)) {
+      // A setup produces nothing, so there is nothing to type. The backend
+      // discards quantities for a setup session anyway (see
+      // WorkSessionRepository._finish_within), which is exactly how the fixed
+      // ESP terminal finishes one on its ordinary keypad screen -- this just
+      // spares the browser operator the three empty prompts.
+      renderFinishConfirmation();
+    } else {
+      show('quantity-good');   // show() tự focus good-qty đồng bộ
+    }
+    return openOp;
+  }
+
+  // Danh sách việc đang chạy. Chỉ đọc -- không nút bấm trên từng dòng: tem
+  // Operation là thứ chọn. Thời gian đã chạy là thông tin giúp người đứng máy
+  // nhận ra việc nào là việc nào nhanh hơn cả mã.
+  function renderSessionList() {
+    document.getElementById('sessions-employee-name').textContent = employee.name;
+    document.getElementById('sessions-employee-code').textContent =
+      `${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''} · ${openSessions.length} việc đang chạy`;
+    const list = document.getElementById('sessions-list');
+    list.textContent = '';
+    for (const s of openSessions) {
+      const li = document.createElement('li');
+      const code = document.createElement('b');
+      code.textContent = s.operation_display_key || s.operation_code || '';
+      const name = document.createElement('span');
+      name.textContent = s.operation_name || '';
+      const since = document.createElement('small');
+      since.textContent = elapsedLabel(s.started_at);
+      li.append(code, name, since);
+      list.append(li);
+    }
+  }
+
+  function elapsedLabel(startedAt) {
+    const ms = Date.now() - new Date(startedAt).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return '';
+    const min = Math.floor(ms / 60000);
+    return min < 60 ? `${min} phút` : `${Math.floor(min / 60)} giờ ${min % 60} phút`;
+  }
+
   async function scan(qr) {
     // CHUỖI THÔ, đúng như nguồn quét đưa vào -- không trim, không chuẩn hoá.
     // Bản gửi đi (`qr`) vẫn được trim như cũ; bản thô này tồn tại vì nó là thứ
@@ -349,30 +413,27 @@
       if (state === 'ready') {
         if (result.type !== 'employee') { const e=new Error('Hãy quét thẻ nhân viên trước'); e.code='SCN-003'; e.action='Quét thẻ nhân viên trước, sau đó mới quét Operation.'; throw e; }
         employee = result.employee;
-        if (result.open_session) {
-          openSession = result.open_session;
-          const openOp = `${openSession.operation_display_key || openSession.operation_code} · ${openSession.operation_name}`;
-          document.getElementById('finish-employee').textContent = `${employee.employee_no} · ${employee.name}`;
-          document.getElementById('finish-operation').textContent = openOp;
+        // `open_sessions` là trường mới; `open_session` là trường cũ. Đọc cả
+        // hai để màn hình này chạy được cả khi máy chủ chưa lên bản có 0054.
+        openSessions = result.open_sessions || (result.open_session ? [result.open_session] : []);
+        if (openSessions.length === 1) {
+          // ĐÚNG MỘT VIỆC: giữ nguyên luồng cũ từng bước -- vào thẳng màn nhập
+          // sản lượng. Đây là đại đa số ca làm, và thêm một nhịp chọn cho họ là
+          // bước lùi so với 71.0.0.317.
+          const openOp = enterFinishFor(openSessions[0]);
           announceScan({ok:true, kind:'employee', label:'Thẻ nhân viên', title:employee.name,
             sub:`${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`,
             raw:rawQr, next:`Đang làm: ${openOp} — nhập sản lượng để KẾT THÚC`});
-          pendingFinish.requestId = `${deviceUuid}-FINISH-${Date.now()}`;
-          // Bắt đầu một lượt kết thúc là bắt đầu từ trắng: số của lượt trước
-          // (và dấu "đã nhập" của nó) không được chảy sang người kế tiếp.
-          resetQty();
-          if (OpPolicy.isSetup(openSession)) {
-            // A setup produces nothing, so there is nothing to type. The
-            // backend discards quantities for a setup session anyway (see
-            // WorkSessionRepository._finish_within), which is exactly how the
-            // fixed ESP terminal finishes one on its ordinary keypad screen --
-            // this just spares the browser operator the three empty prompts.
-            pendingFinish.good = 0; pendingFinish.defect = 0;
-            pendingFinish.rework = 0; pendingFinish.hasRework = false;
-            renderFinishConfirmation();
-          } else {
-            show('quantity-good');   // show() tự focus good-qty đồng bộ
-          }
+        } else if (openSessions.length > 1) {
+          // TỪ HAI VIỆC TRỞ LÊN: không tự chọn hộ. Máy không biết người đứng
+          // máy vừa rời khỏi máy nào, và đoán sai thì sản lượng bị ghi sang
+          // đúng một Operation khác -- hỏng lặng lẽ, không ai biết cho tới lúc
+          // đối soát cuối ca. Hiện đủ danh sách rồi để tem Operation quyết định.
+          renderSessionList();
+          announceScan({ok:true, kind:'employee', label:'Thẻ nhân viên', title:employee.name,
+            sub:`${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`,
+            raw:rawQr, next:`Đang chạy ${openSessions.length} việc — quét mã công đoạn`});
+          show('sessions');
         } else {
           document.getElementById('employee-name').textContent = employee.name;
           document.getElementById('employee-code').textContent = `${employee.employee_no}${employee.department ? ` · ${employee.department}` : ''}`;
@@ -381,10 +442,24 @@
             raw:rawQr, next:'Tiếp theo: quét QR CÔNG ĐOẠN'});
           show('operation');
         }
-      } else if (state === 'operation') {
+      } else if (state === 'operation' || state === 'sessions' || quantityStates.includes(state)) {
         if (result.type !== 'operation') { const e=new Error('Hãy quét QR Operation'); e.code='SCN-004'; e.action='Sau khi nhận diện nhân viên, quét QR Operation.'; throw e; }
         const op = result.operation;
         const opText = `${op.display_key || op.code} · ${op.name}`;
+        // ĐANG MỞ hay CHƯA? Đây là toàn bộ ngữ nghĩa của máy quét từ 0054, và
+        // nó chỉ có một câu trả lời vì uq_open_session_per_employee_operation
+        // cấm hai session OPEN cùng một Operation.
+        const already = openSessions.find(s => Number(s.operation_id) === Number(op.id));
+        if (already) {
+          // CHUYỂN NGỮ CẢNH, không bắt đầu, không kết thúc. Kể cả khi đang nhập
+          // dở sản lượng cho việc khác: con số đang gõ thuộc về việc kia và bị
+          // bỏ (enterFinishFor gọi resetQty), nhưng KHÔNG session nào bị đóng --
+          // đóng chỉ xảy ra sau bước xác nhận, y như trước.
+          enterFinishFor(already);
+          announceScan({ok:true, kind:'operation', label:'QR công đoạn', title:op.name,
+            sub:op.display_key || op.code, raw:rawQr, next:`Đang làm: ${opText} — nhập sản lượng để KẾT THÚC`});
+          return;
+        }
         document.getElementById('starting-operation').textContent = opText;
         announceScan({ok:true, kind:'operation', label:'QR công đoạn', title:op.name,
           sub:op.display_key || op.code, raw:rawQr, next:'Đang bắt đầu công đoạn…'});
@@ -397,9 +472,29 @@
         // điều kiện duy nhất — để bật `idempotent` cho một POST.
         const startRequestId = `${deviceUuid}-START-${Date.now()}`;
         const started = await api(`${API_BASE}/start`, {idempotent:true, method:'POST', body:JSON.stringify({employee_id:employee.id, operation_id:op.id, device_uuid:deviceUuid, request_id:startRequestId})});
+        // Ghi việc vừa mở vào danh sách đang giữ, để lần quét tem TIẾP THEO của
+        // chính nó đi vào nhánh "đang mở" ở trên và kết thúc đúng session --
+        // không phải quét lại thẻ nhân viên mới thấy nó.
+        if (started && started.session) {
+          openSessions = [{
+            id: started.session.id,
+            operation_id: started.session.operation_id,
+            started_at: started.session.started_at,
+            operation_code: op.code,
+            operation_display_key: op.display_key || op.code,
+            operation_name: op.name,
+            operation_type: op.operation_type,
+          }, ...openSessions.filter(s => Number(s.operation_id) !== Number(op.id))];
+        }
         document.getElementById('started-operation').textContent = opText;
         announceScan({ok:true, kind:'operation', label:'QR công đoạn', title:op.name,
           sub:op.display_key || op.code, raw:rawQr, next:'ĐÃ BẮT ĐẦU — quét lại thẻ nhân viên khi xong'});
+        // Người đang giữ nhiều việc cần thấy ngay là mình vừa thành N việc,
+        // chứ không phải chỉ "đã bắt đầu" rồi tự đếm trong đầu.
+        const startedNote = document.getElementById('started-note');
+        if (startedNote) startedNote.textContent = openSessions.length > 1
+          ? `Đang chạy ${openSessions.length} việc · quét lại thẻ khi hoàn thành`
+          : 'Quét lại thẻ khi hoàn thành';
         show('started'); scheduleReset(3500);
       } else if (state === 'started' || state === 'finished' || state === 'error') {
         reset(); setTimeout(() => scan(qr), 50);
@@ -571,10 +666,19 @@
       // kịp nhận phản hồi, tình huống mà trước đây công nhân buộc phải tự
       // bấm "Gửi lại" và không ai biết lần đầu đã vào hay chưa.
       await api(`${API_BASE}/finish/${openSession.id}`, {idempotent:true, method:'POST', body:JSON.stringify({good_qty:good, defect_qty:defect, rework_qty:rework, note:pendingFinish.note, request_id:pendingFinish.requestId})});
+      // Việc này đã đóng -- bỏ khỏi danh sách đang giữ. Các việc còn lại KHÔNG
+      // bị đụng tới: chốt sản lượng OP2 không được ảnh hưởng OP1/OP3.
+      openSessions = openSessions.filter(s => Number(s.id) !== Number(openSession.id));
       const scrap = defect - rework;
       document.getElementById('finished-summary').textContent = rework > 0
         ? `Đạt ${good} · NG ${defect} · Sửa được ${rework} · Phế ${scrap}`
         : `Đạt ${good} · NG ${defect}`;
+      // Còn việc đang chạy thì phải nói ra, nếu không người đứng máy rời đi
+      // trong khi một Operation vẫn đang mở dưới tên mình.
+      const finishedNote = document.getElementById('finished-note');
+      if (finishedNote) finishedNote.textContent = openSessions.length
+        ? `Còn ${openSessions.length} việc đang chạy · quét lại thẻ để tiếp tục`
+        : '';
       show('finished'); scheduleReset(FINISHED_RESET_MS, {force:true});
     } catch (error) {
       document.getElementById('finish-submit-error').textContent = 'CHƯA GỬI ĐƯỢC SẢN LƯỢNG';
@@ -590,8 +694,35 @@
   input.addEventListener('keydown', event => {
     if (event.key === 'Enter') { event.preventDefault(); const value = input.value || scanBuffer; input.value=''; scanBuffer=''; scan(value); }
   });
+  // MÃ QR CÓ THỂ TỚI GIỮA LÚC ĐANG NHẬP SỐ.
+  //
+  // Từ 0054 người đứng máy được quét tem một việc khác ngay khi đang ở màn nhập
+  // sản lượng -- để bắt đầu thêm việc, hoặc để chuyển sang chốt số cho việc
+  // khác. Nhưng màn nhập số đang nuốt phím theo STATE, nên chuỗi từ súng quét
+  // sẽ rơi vào đúng cái hố đó nếu không tách ra.
+  //
+  // Tách bằng NỘI DUNG, không bằng tốc độ gõ: mọi mã của hệ thống đều có dấu
+  // `|` (WF|EMP|..., WF|OP|..., WF|OPID|...), còn bàn phím số rời thì không có
+  // phím nào sinh ra `|`. Vì vậy "đệm có chứa `|`" là bằng chứng chắc chắn đây
+  // là một lần quét chứ không phải một con số ai đó đang gõ -- không cần đoán
+  // theo ngưỡng thời gian, thứ sẽ hỏng với người gõ nhanh hoặc súng quét chậm.
+  const looksLikeScan = text => text.includes('|');
   document.addEventListener('keydown', event => {
     if (quantityStates.includes(state)) {
+      // Đệm chạy SONG SONG với ô nhập số và tự xoá sau 180ms im lặng, nên một
+      // người gõ tay không bao giờ tích đủ thành một mã. Chữ số vẫn đi tiếp
+      // xuống ô nhập như cũ -- dòng này không chặn phím nào.
+      if (event.key.length === 1) {
+        scanBuffer += event.key;
+        clearTimeout(scanTimer);
+        scanTimer = setTimeout(() => { scanBuffer = ''; }, 180);
+      }
+      if (event.key === 'Enter' && looksLikeScan(scanBuffer)) {
+        event.preventDefault();
+        const code = scanBuffer; scanBuffer = '';
+        scan(code);
+        return;
+      }
       // Nhập số theo STATE, không theo focus. GỐC P0: chữ số dựa vào ô
       // <input> đang được focus, nhưng khi chuyển màn (Đạt->Lỗi->Sửa) ô mới
       // KHÔNG focus kịp trong cùng tick keydown (focus() ngay sau đổi display
