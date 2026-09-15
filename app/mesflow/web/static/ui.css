@@ -3755,3 +3755,43 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .daily-section,
 #opTimeProgress .content-panel,
 #dailyAttention .content-panel{border-radius:var(--radius-surface-row)}
+
+/* --- Ngày công theo nhân viên: một dòng = một Operation --------------------
+   Trước đây khối này liệt kê Operation rồi lại liệt kê từng session thành
+   chip, nên hai việc hiện ra bốn dòng. Nay mỗi Operation là một item; phiên
+   chỉ hiện khi người dùng mở, và chỉ mang giờ/thời lượng/sản lượng vì phần
+   nhận dạng đã nằm ở item cha ngay trên. */
+.emp-op-list{display:grid;gap:6px;min-width:0}
+.emp-op-item{border:1px solid var(--border-subtle);border-radius:var(--radius-surface-row);
+  background:var(--surface-default);min-width:0}
+.emp-op-item.running{border-left:3px solid var(--status-success,#22a06b)}
+.emp-op-head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;
+  gap:6px 10px;padding:7px 9px;min-width:0}
+.emp-op-facts{display:grid;justify-items:end;gap:1px;min-width:0;text-align:right}
+.emp-op-facts b{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.emp-op-facts small{font-size:11px;color:var(--text-secondary)}
+/* Nút mở CHỈ xuất hiện khi có từ hai phiên -- một phiên thì item cha đã là
+   toàn bộ thông tin, thêm chevron ở đó là thêm thứ để bấm mà không có gì mới. */
+.emp-op-toggle{display:inline-flex;align-items:center;gap:5px;padding:3px 7px;
+  border:1px solid var(--border-default);border-radius:999px;background:var(--surface-subtle);
+  color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap}
+.emp-op-toggle:hover{border-color:var(--border-strong);color:var(--text-primary)}
+.emp-op-toggle:focus-visible{outline:2px solid var(--action-primary);outline-offset:2px}
+.emp-op-toggle>i{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;
+  border-top:5px solid currentColor;transition:transform .15s ease}
+.emp-op-item.open .emp-op-toggle>i{transform:rotate(180deg)}
+.emp-op-sessions{display:grid;gap:2px;padding:0 9px 7px;min-width:0}
+.emp-op-session{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:baseline;
+  gap:4px 10px;padding:4px 7px;border-radius:var(--radius-row);background:var(--surface-subtle);
+  font-size:11px;font-variant-numeric:tabular-nums}
+.emp-op-session.open{background:#eaf6f0}
+.emp-op-when{color:var(--text-primary);font-weight:600;white-space:nowrap}
+.emp-op-dur{color:var(--text-secondary);white-space:nowrap}
+.emp-op-qty{justify-self:end;text-align:right;min-width:0}
+@media(max-width:760px){
+  /* Gọn theo chiều dọc thay vì đẩy ngang -- không tạo overflow ở màn hẹp. */
+  .emp-op-head{grid-template-columns:minmax(0,1fr) auto}
+  .emp-op-facts{grid-column:1/-1;justify-items:start;text-align:left}
+  .emp-op-session{grid-template-columns:minmax(0,1fr) auto}
+  .emp-op-qty{grid-column:1/-1;justify-self:start;text-align:left}
+}

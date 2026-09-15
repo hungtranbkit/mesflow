@@ -340,6 +340,27 @@ const opMetaHtml=x=>`<span class="op-identity-key">Part:</span> ${esc(x.part_cod
 const opTooltip=x=>[MFUI.opIdentityText({name:x.operation_name,code:x.operation_code}),
   x.part_code?`Part: ${x.part_code}${x.part_name?` — ${x.part_name}`:''}`:'',
   x.po_code?`PO: ${x.po_code}`:''].filter(Boolean).join(' · ');
+// Mở/đóng danh sách phiên, khoá theo (nhân viên, Operation).
+//
+// Ở MODULE chứ không trong hàm vẽ: Dashboard tự vẽ lại mỗi 10 giây, và một
+// trạng thái nằm trong hàm vẽ sẽ bị đặt lại mỗi nhịp -- người đang đọc chi
+// tiết một Operation thấy nó tự đóng sập lại. Đây cũng là lý do nút dùng uỷ
+// quyền sự kiện thay vì gán onclick sau mỗi lần vẽ.
+const dailyOpExpanded=new Set();
+document.addEventListener('click',ev=>{
+  const btn=ev.target.closest?.('[data-op-toggle]');
+  if(!btn)return;
+  const key=btn.dataset.opToggle;
+  const open=!dailyOpExpanded.has(key);
+  if(open)dailyOpExpanded.add(key);else dailyOpExpanded.delete(key);
+  btn.setAttribute('aria-expanded',open?'true':'false');
+  const item=btn.closest('.emp-op-item');
+  if(item){
+    item.classList.toggle('open',open);
+    const kids=item.querySelector('.emp-op-sessions');
+    if(kids)kids.hidden=!open;
+  }
+});
 const opCardIdentity=x=>MFUI.opIdentity({
   name:x.operation_name, code:x.operation_code, codeLabel:'Operation',
   tooltip:opTooltip(x), metaHtml:opMetaHtml(x),
@@ -535,28 +556,58 @@ async function renderDashboard(){
     // có khi chỉ vài chục pixel. Vẫn ưu tiên TÊN (cắt còn đủ để nhận ra công
     // đoạn) chứ không phải mã; title= của thanh mang bản đầy đủ cả tên lẫn mã.
     const shortLabel=(s,max=18)=>{s=String(s||'');return s.length>max?s.slice(0,max-1)+'…':s};
-    const sessionChip=x=>{
-      const open=x.session_status==='OPEN',start=new Date(x.started_at).getTime(),end=open?now:new Date(x.ended_at||x.effective_end_at).getTime();
-      const elapsed=Math.max(0,(Math.min(end,shiftEnd)-Math.max(start,viewStart))/1000);
-      const recorded=mfOutputRecorded(x);
-      const qty=MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,recorded});
-      const qtyPlain=MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,recorded,plain:true});
-      const when=`${hm(x.started_at)} – ${open?'Đang chạy':hm(x.ended_at||x.effective_end_at)} · ${duration(elapsed)}`;
-      // title= vẫn soi được TOÀN BỘ nội dung chip kể cả phần bị cắt, và có
-      // thêm mã -- thứ duy nhất bị lấy khỏi bề mặt chip.
-      const full=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${when} · ${qtyPlain}`;
-      // Mã và Part TRỞ LẠI mặt chip. Bản trước bỏ chúng đi (showCode:false)
-      // với lý do "khối tổng hợp phía trên đã mang mã" -- lý do đó chỉ đúng khi
-      // một người làm mỗi Operation một tên khác nhau. Từ khi một người giữ
-      // nhiều việc cùng lúc (migration 0054) và hai Part của cùng PO dùng CHUNG
-      // một tên công đoạn, ba chip liên tiếp cùng ghi "HÀN ROBOT" là ba dòng
-      // không phân biệt nổi -- người đọc không biết đó là ba lần làm một việc
-      // hay ba việc khác nhau.
-      return MFUI.opIdentity({
-        name:x.operation_name,code:x.operation_code,codeLabel:'Operation',compact:true,
-        tooltip:full,className:open?'open':'',
-        metaHtml:`${opMetaHtml(x)}<span class="op-identity-when">${esc(when)} · ${qty}</span>`,
-      });
+    // MỘT ITEM = MỘT OPERATION, không phải một session.
+    //
+    // Bản trước liệt kê Operation ở trên rồi lại liệt kê từng session thành
+    // chip ở dưới, nên một người làm 2 Operation x 1 session hiện ra BỐN dòng
+    // cho đúng hai việc -- lớp trên và lớp dưới nói cùng một chuyện. Nay gom
+    // theo Operation: mặc định số dòng đúng bằng số việc, session chỉ hiện khi
+    // người dùng mở ra.
+    //
+    // Khoá gom là operation_id (fallback operation_code) chứ KHÔNG phải tên:
+    // hai Part của cùng một PO dùng chung tên công đoạn ("HÀN ROBOT"), gom
+    // theo tên là nhập hai việc khác nhau làm một -- đúng thứ cả hotfix nhãn
+    // trước đó tồn tại để tránh.
+    const opGroupList=(sessions,g)=>{
+      const groups=new Map();
+      for(const x of sessions){
+        const key=String(x.operation_id??x.operation_code??x.operation_name??'?');
+        if(!groups.has(key))groups.set(key,{key,head:x,items:[],good:0,bad:0,recorded:0,seconds:0,open:0});
+        const gr=groups.get(key);
+        gr.items.push(x);
+        gr.good+=Number(x.good_qty||0); gr.bad+=Number(x.defect_qty||0);
+        if(mfOutputRecorded(x))gr.recorded++;
+        if(x.session_status==='OPEN')gr.open++;
+        // Cộng đúng như trước: tổng thời lượng từng session, KHÔNG hợp khoảng.
+        gr.seconds+=splitWork(x).reduce((n,[a,b])=>n+(b-a)/1000,0);
+      }
+      const list=[...groups.values()];
+      if(!list.length)return '';
+      return `<div class="emp-op-list">${list.map(gr=>{
+        const x=gr.head, n=gr.items.length, multi=n>1;
+        const stateKey=`${g.employee_id||g.employee_code||''}::${gr.key}`;
+        const expanded=multi&&dailyOpExpanded.has(stateKey);
+        const qty=MFUI.qtyLine({good:gr.good,defect:gr.bad,recorded:gr.recorded>0});
+        const when=`${duration(gr.seconds)}${gr.open?' · đang chạy':''}`;
+        // Nhận dạng dùng lại đúng helper đã deploy -- tên / Operation: / Part·PO.
+        const ident=MFUI.opIdentity({
+          name:x.operation_name,code:x.operation_code,codeLabel:'Operation',compact:true,
+          tooltip:opTooltip(x),metaHtml:opMetaHtml(x),
+        });
+        // Chỉ Operation có từ HAI phiên mới có nút mở. Một phiên thì item chính
+        // đã là toàn bộ thông tin -- thêm chevron ở đó là thêm một thứ để bấm
+        // mà bấm xong không có gì mới.
+        const toggle=multi
+          ? `<button type="button" class="emp-op-toggle" data-op-toggle="${esc(stateKey)}" aria-expanded="${expanded?'true':'false'}"><span class="emp-op-count">${n} phiên</span><i aria-hidden="true"></i></button>`
+          : '';
+        const kids=multi?`<div class="emp-op-sessions"${expanded?'':' hidden'}>${gr.items.map(si=>{
+            const open=si.session_status==='OPEN';
+            const secs=splitWork(si).reduce((n2,[a,b])=>n2+(b-a)/1000,0);
+            // Child KHÔNG lặp lại Operation/Part/PO -- parent ngay trên đã có.
+            return `<div class="emp-op-session${open?' open':''}"><span class="emp-op-when">${hm(si.started_at)} – ${open?'Đang chạy':hm(si.ended_at||si.effective_end_at)}</span><span class="emp-op-dur">${duration(secs)}</span><span class="emp-op-qty">${MFUI.qtyLine({good:si.good_qty,defect:si.defect_qty,recorded:mfOutputRecorded(si)})}</span></div>`;
+          }).join('')}</div>`:'';
+        return `<div class="emp-op-item${gr.open?' running':''}${expanded?' open':''}"><div class="emp-op-head">${ident}<span class="emp-op-facts"><b>${when}</b><small>${qty}</small></span>${toggle}</div>${kids}</div>`;
+      }).join('')}</div>`;
     };
     return `<div class="employee-day-legend"><span><i class="legend-session"></i>Session</span><span><i class="legend-gap"></i>Khoảng hở ≥15 phút</span><span><i class="legend-lunch"></i>${breaks.map(x=>x[2]).join(' · ')||'Không có giờ nghỉ'}</span><span><i class="legend-off"></i>Ngoài ca</span></div><div class="employee-day-head"><span>Nhân viên / ngày công</span><div class="employee-day-scale shift-scale">${scaleHtml}</div><span>Session / sản lượng</span></div><div class="employee-day-list">${workers.map(g=>{
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
@@ -567,10 +618,7 @@ async function renderDashboard(){
       // không chồng trông y hệt bản trước. Nhiều tầng thì chia đều chiều cao
       // sẵn có, chừa 2px giữa các tầng.
       const H=24,G=2,h=laneCount>1?Math.max(6,Math.floor((H-(laneCount-1)*G)/laneCount)):0;
-      return ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · session chưa đóng':''}`,pos=laneCount>1?`;top:${9+lanes[i]*(h+G)}px;height:${h}px`:'';return `<i class="employee-session-segment ${palette[i%palette.length]} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%${pos}" title="${esc(tip)}"><span>${width>6&&(h===0||h>=12)?esc(shortLabel(x.operation_name||x.operation_code)):''}</span></i>`}).join('')).join('')})()}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div><div class="employee-day-summary">${ops.slice(0,3).map(x=>MFUI.opIdentity({
-          name:x.operation_name,code:x.operation_code,codeLabel:'Operation',compact:true,
-          tooltip:opTooltip(x),metaHtml:opMetaHtml(x),className:'op-identity-stacked',
-        })).join('')}${ops.length>3?`<small class="op-identity-more">+${ops.length-3} OP khác</small>`:''}<small>${MFUI.qtyLine({good:g.good,defect:g.bad,recorded:g.recorded>0})}</small><div class="employee-session-chips">${ordered.slice(0,10).map(sessionChip).join('')}${g.sessions.length>10?`<span>+${g.sessions.length-10} session</span>`:''}</div></div></article>`;
+      return ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · session chưa đóng':''}`,pos=laneCount>1?`;top:${9+lanes[i]*(h+G)}px;height:${h}px`:'';return `<i class="employee-session-segment ${palette[i%palette.length]} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%${pos}" title="${esc(tip)}"><span>${width>6&&(h===0||h>=12)?esc(shortLabel(x.operation_name||x.operation_code)):''}</span></i>`}).join('')).join('')})()}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div><div class="employee-day-summary">${opGroupList(ordered,g)}</div></article>`;
     }).join('')}</div>`;
   };
   // Nhịp tự làm mới 10s ở cuối hàm này từng là nguồn "Failed to fetch" thấy
