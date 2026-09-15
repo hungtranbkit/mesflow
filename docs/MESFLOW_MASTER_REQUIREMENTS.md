@@ -507,9 +507,19 @@ FK, also reachable via part), optionally belongs to one `sales_order`.
 | excluded_at | timestamptz | nullable |
 | created_at / updated_at | timestamptz | NN |
 
-**DB-enforced constraint**: `CREATE UNIQUE INDEX ON work_sessions(employee_id) WHERE status='OPEN'`
-— an employee can have **at most one `OPEN` session at any time**,
-enforced at the database level, not just application logic.
+**DB-enforced constraint** (migration 0054): `CREATE UNIQUE INDEX ON work_sessions(employee_id, operation_id) WHERE status='OPEN'`
+— an employee may hold **several `OPEN` sessions at once, on DIFFERENT
+Operations** (minding 2-3 machines at a time is ordinary on the floor), but
+**never two `OPEN` sessions on the same Operation**. Enforced at the database
+level, not just application logic.
+
+The second half is not an implementation detail: the Operation QR label is what
+the kiosk uses to pick which session to report quantities against. Allowing two
+open sessions on one Operation would leave that label ambiguous and force the
+screen to make the operator choose by hand.
+
+Before 0054 the key was `employee_id` alone (one `OPEN` session per employee).
+The old constraint implies the new one, so relaxing it needed no data cleanup.
 
 ### 4.5 `employees`
 
@@ -2946,7 +2956,7 @@ Independently numbered `BR-###`; a `REQ-*` may cite one or more.
 |---|---|---|
 | BR-001 | `admin` role bypasses the permission table entirely for ordinary business permissions — always allowed. | REQ-SYS-001 boundary case |
 | BR-002 | `super_admin` gets `admin`'s business bypass but System Console access requires the literal role string, never satisfied by `admin`. | REQ-SYS-003 |
-| BR-003 | An employee may have **at most one `OPEN` work session** at any time — DB-enforced, not merely app-level. | REQ-SESS-001 boundary |
+| BR-003 | An employee may hold **several `OPEN` work sessions at once, on different Operations**, but **never two `OPEN` sessions on the same Operation** — DB-enforced, not merely app-level (migration 0054). | REQ-SESS-001 boundary |
 | BR-004 | A downstream Operation with input-flow enabled cannot `start()` until its upstream source Operation has had **at least one session started** (not necessarily finished). | REQ-SESS-001 |
 | BR-005 | `qty=0` on finish is never rejected; if the session was open > 4h, it is flagged `ZERO_QUANTITY_LONG` for review, not blocked. | REQ-SESS-002, REQ-EXC-001 |
 | BR-006 | `rework_qty` can never exceed `defect_qty`, enforced on both finish and adjust. | REQ-SESS-002/004 boundary |

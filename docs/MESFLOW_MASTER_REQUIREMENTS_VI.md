@@ -520,9 +520,19 @@ truy cập được qua part), tùy chọn thuộc về một `sales_order`.
 | excluded_at | timestamptz | nullable |
 | created_at / updated_at | timestamptz | NN |
 
-**Ràng buộc DB-enforced**: `CREATE UNIQUE INDEX ON work_sessions(employee_id) WHERE status='OPEN'`
-— một nhân viên chỉ có thể có **tối đa một session `OPEN` tại một thời
-điểm**, được ép ở mức database, không chỉ ở logic ứng dụng.
+**Ràng buộc DB-enforced** (migration 0054): `CREATE UNIQUE INDEX ON work_sessions(employee_id, operation_id) WHERE status='OPEN'`
+— một nhân viên có thể giữ **nhiều session `OPEN` cùng lúc trên các Operation
+KHÁC nhau** (người trông 2-3 máy là chuyện bình thường ngoài xưởng), nhưng
+**không bao giờ hai session `OPEN` trên cùng một Operation**. Ép ở mức
+database, không chỉ ở logic ứng dụng.
+
+Vế sau không phải chi tiết kỹ thuật mà là điều kiện của luồng quét: tem QR
+Operation là thứ kiosk dùng để chọn session cần nhập sản lượng. Nếu một người
+có thể mở hai session trên cùng một Operation thì tem đó hết định danh duy nhất
+được, và màn hình buộc phải bắt người đứng máy chọn tay.
+
+Trước 0054 khoá chỉ gồm `employee_id` (một session `OPEN` mỗi người).
+Ràng buộc cũ hàm ý ràng buộc mới, nên việc nới không cần dọn dữ liệu.
 
 ### 4.5 `employees` (Nhân viên)
 
@@ -3344,7 +3354,7 @@ sự mập mờ đó không hình thành lại quanh các cột mới.
 |---|---|---|
 | BR-001 | Role `admin` bỏ qua toàn bộ bảng quyền đối với các quyền nghiệp vụ thông thường — luôn được phép. | Case biên REQ-SYS-001 |
 | BR-002 | `super_admin` được thừa hưởng cơ chế bypass nghiệp vụ của `admin` nhưng truy cập System Console đòi hỏi đúng chuỗi role, không bao giờ thỏa mãn bởi `admin`. | REQ-SYS-003 |
-| BR-003 | Một nhân viên chỉ được có **tối đa một session `OPEN`** tại một thời điểm — ép ở mức DB, không chỉ ở mức app. | Case biên REQ-SESS-001 |
+| BR-003 | Một nhân viên được giữ **nhiều session `OPEN` cùng lúc trên các Operation khác nhau**, nhưng **không bao giờ hai session `OPEN` trên cùng một Operation** — ép ở mức DB, không chỉ ở mức app (migration 0054). | Case biên REQ-SESS-001 |
 | BR-004 | Một Operation phía dưới có bật input-flow không thể `start()` cho tới khi Operation nguồn phía trên đã có **ít nhất một session được start** (không nhất thiết đã finish). | REQ-SESS-001 |
 | BR-005 | `qty=0` khi finish không bao giờ bị từ chối; nếu session đã mở > 4h, nó bị gắn cờ `ZERO_QUANTITY_LONG` để review, không bị chặn. | REQ-SESS-002, REQ-EXC-001 |
 | BR-006 | `rework_qty` không bao giờ được vượt quá `defect_qty`, ép cả khi finish lẫn adjust. | Case biên REQ-SESS-002/004 |
