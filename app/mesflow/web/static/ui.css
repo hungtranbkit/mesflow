@@ -3697,3 +3697,61 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .tpl-formula-sev{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
 .tpl-formula-table tr.is-error .tpl-formula-sev{background:#f6d5d5;color:#8c2020}
 .tpl-formula-table tr.is-warn .tpl-formula-sev{background:#f6e8cf;color:#7a5410}
+
+/* --- Thời gian dự kiến (hot-fix) -------------------------------------------
+   Ba trạng thái phải phân biệt được ngay khi liếc: ĐÃ LÀM (trung tính),
+   DỰ KIẾN (màu nhấn riêng) và VƯỢT DỰ KIẾN (cảnh báo). Dùng token sẵn có của
+   design system -- --text-primary / --status-info / --status-warning -- chứ
+   không đặt hex mới, nên dark/light và contrast đi theo hệ thống.
+   Đặt ở cuối file vì ui.css có nhiều override muộn; ở đây thì giá trị thật sự
+   thắng thay vì bị một rule sau đó ghi đè. */
+.time-metrics{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;min-width:0}
+.time-metric{display:inline-flex;align-items:baseline;gap:4px;min-width:0;white-space:nowrap}
+.time-metric small{color:var(--text-secondary);font-size:11px;font-weight:500}
+.time-metric b{font-variant-numeric:tabular-nums}
+/* ĐÃ LÀM: màu chữ chính, không nhấn -- đây là số liệu nền. */
+.time-metric.actual b{color:var(--text-primary);font-weight:650}
+/* DỰ KIẾN: màu nhấn riêng, dịu nhưng rõ. Khi CHƯA vượt thì đây chỉ là màu
+   phân loại thông tin, cố ý không mang sắc thái lỗi/cảnh báo. */
+.time-metric.expected b{color:var(--status-info);font-weight:700}
+.time-metric.expected.total b{font-size:15px;line-height:1.3}
+/* VƯỢT DỰ KIẾN: chuyển sang token cảnh báo. Chữ đã tự nói rõ trạng thái nên
+   người không phân biệt được màu vẫn đọc được nghĩa. */
+.time-metric.overrun small,.time-metric.overrun b{color:var(--status-warning);font-weight:700}
+.po-op-row .time-metrics{margin-top:3px}
+.po-op-row .time-metric small{font-size:10px}
+.po-expected-total{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:4px 0 0}
+.po-expected-missing{color:var(--status-warning);font-size:11px}
+.template-expected-summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;margin:6px 0 0}
+.template-expected-note{color:var(--text-secondary);font-size:11px}
+.template-old-op-row .time-metric{margin-left:8px}
+.template-old-op-row .time-metric small{font-size:10px}
+/* Mobile: cho phép xuống dòng thay vì đẩy ngang -- không tạo overflow. */
+@media(max-width:760px){
+  .time-metrics{gap:2px 8px}
+  .time-metric{white-space:normal}
+  .template-old-op-row .time-metric{margin-left:0}
+}
+
+/* --- Bo góc vừa phải cho thẻ trên Dashboard theo ngày ----------------------
+   Ảnh người dùng: thẻ Operation và các khối trên Dashboard bo quá tròn so với
+   phần còn lại, và ở góc cong 12px chữ sát mép trong ô hẹp (mã Operation dài,
+   con số KPI) bị chính đường bo cắt vào.
+
+   Hạ về --radius-surface-row (8px) -- token ĐÃ CÓ trong thang, cùng giá trị mà
+   khối lồng bên trong một surface đang dùng, nên thẻ nay cùng cảm giác với
+   hàng danh sách thay vì tròn hơn hẳn.
+
+   CỐ Ý KHÔNG đổi token --radius-surface (12px): đó là quyết định thiết kế
+   toàn hệ thống chốt ngày 2026-09-11 ("soft rounded industrial SaaS") và có
+   bài test hợp đồng canh -- tests/test_ui_design_tokens_single_source.py. Đổi
+   nó ở đây là lấy một bản vá màn lẻ để lật một lựa chọn toàn cục, đúng thứ bài
+   test đó sinh ra để chặn. Phạm vi vì vậy bám đúng các khối của màn này.
+
+   Chỉ đụng bo góc -- không đổi padding, spacing hay layout. */
+.op-card,
+.op-card-list,
+.daily-kpi,
+.daily-section,
+#opTimeProgress .content-panel,
+#dailyAttention .content-panel{border-radius:var(--radius-surface-row)}
