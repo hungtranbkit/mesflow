@@ -1264,6 +1264,22 @@ class ReportRepository:
                 AND EXTRACT(EPOCH FROM (COALESCE(b.ended_at,CURRENT_TIMESTAMP)-b.started_at))<300)
             ) secondary_evidence
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
+           -- CÙNG Operation mới là xung đột (migration 0054).
+           --
+           -- Trước 0054 một người chỉ được giữ một session mở, nên mọi lần
+           -- chồng giờ đều bất khả thi và luật này không cần lọc theo
+           -- Operation. Từ 0054 một người được giữ nhiều session trên các
+           -- Operation KHÁC nhau -- người trông hai ba máy cùng lúc -- và bản
+           -- sao luật ở db/repositories/exceptions.py đã được cập nhật đúng,
+           -- còn bản sao này thì không. Đo trên TEST ngày 2026-09-15: session
+           -- #74 (Operation 2418) và #72 (Operation 2416) của cùng một nhân
+           -- viên chồng giờ hợp lệ, bản sao kia im lặng đúng, bản sao này vẫn
+           -- kêu OVERLAP/CRITICAL -- và đó chính là con số "1 session cần xử
+           -- lý" dẫn người dùng tới một Inbox trống.
+           --
+           -- Chồng giờ trên CÙNG một Operation thì vẫn luôn sai: không ai chạy
+           -- được một công đoạn hai lần cùng lúc.
+           AND b.operation_id=a.operation_id
            -- GREATEST(...,started_at) guard: same fix as
            -- db/repositories/exceptions.py's reconcile() query (2026-08-27)
            -- -- tstzrange() raises "range lower bound must be less than or

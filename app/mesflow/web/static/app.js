@@ -2389,17 +2389,30 @@ async function renderSessionManagement(){
   // already showing a specific return-context banner above, so the two
   // never stack/compete for attention.
   if(!returnContext){
-    api('/api/session-exceptions?view=inbox&limit=500').then(d=>{
-      // Bug found live (2026-09-02): the inbox view is a UNION ALL of
-      // independently-detected exception rules (OPEN_TOO_LONG, ZERO_QTY_LONG,
-      // AUTO_CLOSED_UNCONFIRMED, ...), so one Session that matches two rules
-      // at once (e.g. auto-closed by the shift job AND closed with zero
-      // quantity) legitimately appears as two rows -- (d.items||[]).length
-      // was counting rows, not Sessions, so the banner said "6 session" for
-      // what was really 3 distinct Sessions (matches both the Overview
-      // page's unconfirmed_quantity_sessions count and Trung tâm ngoại lệ's
-      // own per-Session exceptions list). Count distinct session_id instead.
-      const count=new Set((d.items||[]).map(x=>x.session_id)).size;
+    // ĐÚNG MỘT NGUỒN với chỗ nút này dẫn tới. Trước bản vá, con số đọc từ
+    // /api/session-exceptions -- một phép chiếu ĐỘNG tính lại bằng SQL mỗi lần
+    // đọc, bộ luật riêng, từ vựng trạng thái riêng (NEW/IN_PROGRESS/...) --
+    // còn Trung tâm ngoại lệ mà nút dẫn tới lại vẽ từ /api/exceptions, tức
+    // bảng exception_records đã vật chất hoá (OPEN/ACKNOWLEDGED/RESOLVED/
+    // AUTO_IGNORED/MANUAL_IGNORED). Hai bộ luật thì sớm muộn cũng lệch nhau,
+    // và ngày 2026-09-15 trên TEST chúng lệch thật: banner báo 1 session cần
+    // xử lý, bấm vào thì màn hình trống trơn.
+    //
+    // Nên bỏ hẳn nguồn thứ hai ở đây thay vì thêm một lớp đồng bộ nữa: đọc
+    // CHÍNH câu mà Trung tâm ngoại lệ đọc, cùng view mặc định 'action' (chỉ
+    // OPEN/ACKNOWLEDGED -- RESOLVED, MANUAL_IGNORED và AUTO_IGNORED đều nằm
+    // ngoài). Cùng endpoint, cùng phạm vi, nên "đếm > 0" và "Inbox có ít nhất
+    // một việc" không còn là hai câu hỏi khác nhau nữa. Endpoint đó cũng tự
+    // chạy reconcile() trước khi trả lời, nên con số không bao giờ là dư âm
+    // của một lần dò cũ.
+    api('/api/exceptions?view=action&page_size=200').then(d=>{
+      // Vẫn đếm SESSION chứ không đếm dòng: một Session dính hai luật khác
+      // nhau (ví dụ vừa tự đóng hết ca vừa có sản lượng 0) sinh hai bản ghi
+      // ngoại lệ hợp lệ, và banner nói "N session" chứ không nói "N ngoại lệ".
+      // Đây là lỗi đã sửa ngày 2026-09-02, giữ nguyên tinh thần đó.
+      // Đếm trên CHÍNH những dòng Inbox sẽ vẽ, nên count>0 kéo theo Inbox có
+      // dòng -- bất biến mà bản vá này tồn tại để giữ.
+      const count=new Set((d.items||[]).map(x=>x.session_id).filter(Boolean)).size;
       if(!count){el('smInboxBanner').innerHTML='';return}
       el('smInboxBanner').innerHTML=`<div class="session-inbox-banner"><div><b>Session cần xử lý</b><span>${count} session đang chờ kiểm tra hoặc bổ sung số liệu.</span></div><button class="btn primary" id="smGoInbox" type="button">Xem ngay</button></div>`;
       el('smGoInbox').onclick=()=>openPage('session-exceptions',document.querySelector('[data-page="session-exceptions"]'));
