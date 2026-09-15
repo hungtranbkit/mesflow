@@ -415,6 +415,29 @@ async function renderDashboard(){
       ? String(a.employee_name||'').localeCompare(String(b.employee_name||''),'vi',{sensitivity:'base'})||firstStart(a)-firstStart(b)
       : firstStart(a)-firstStart(b)||String(a.employee_name||'').localeCompare(String(b.employee_name||''),'vi',{sensitivity:'base'}));
     const palette=['p1','p2','p3','p4','p5','p6'];
+    // PHÂN TẦNG khi hai việc chạy chồng giờ.
+    //
+    // Từ migration 0054 một người giữ được nhiều session OPEN trên các Operation
+    // KHÁC nhau, nên hai đoạn của cùng một hàng có thể phủ lên nhau. Trước đây
+    // điều đó bất khả thi nên mọi đoạn dùng chung một top/height, và đoạn vẽ sau
+    // che mất đoạn vẽ trước -- người xem thấy ÍT việc hơn thực tế, đúng kiểu sai
+    // mà không ai phát hiện ra.
+    //
+    // Xếp tham lam: mỗi việc rơi vào tầng trống đầu tiên. Không chồng thì tất cả
+    // nằm tầng 0 và hàng trông y hệt trước -- ca làm bình thường không đổi một
+    // pixel. THỜI LƯỢNG KHÔNG BỊ ĐỘNG TỚI: đây thuần là chuyện chỗ vẽ, mỗi
+    // session vẫn giữ nguyên giờ của nó (không hợp, không trừ phần chồng lấn).
+    const assignLanes=(ordered)=>{
+      const laneEnds=[],lanes=[];
+      for(const x of ordered){
+        const start=new Date(x.started_at).getTime();
+        const end=x.session_status==='OPEN'?Math.min(now,shiftEnd):new Date(x.ended_at||x.effective_end_at||start).getTime();
+        let lane=laneEnds.findIndex(e=>e<=start);
+        if(lane<0){lane=laneEnds.length;laneEnds.push(end)}else laneEnds[lane]=Math.max(laneEnds[lane],end);
+        lanes.push(lane);
+      }
+      return lanes;
+    };
     const gapBlocks=(ordered)=>{
       const blocks=[];
       for(let i=1;i<ordered.length;i++){
@@ -503,7 +526,12 @@ async function renderDashboard(){
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
       const percent=Math.min(100,Math.round(g.seconds/target*100)),remaining=Math.max(0,target-g.seconds),over=Math.max(0,g.seconds-target),ops=[...new Map(g.sessions.map(x=>[x.operation_id||x.operation_code,x])).values()];
       const staleOpen=g.sessions.some(x=>x.session_status==='OPEN'&&now>=shiftEnd);
-      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} session${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Session mở quá cuối ca</mark>':''}</div><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows[0][0])-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>`<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${Math.max(.5,pct(b)-pct(a))}%" title="Khoảng hở ${duration((b-a)/1000)}"></i>`).join('')}${ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · session chưa đóng':''}`;return `<i class="employee-session-segment ${palette[i%palette.length]} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%" title="${esc(tip)}"><span>${width>6?esc(shortLabel(x.operation_name||x.operation_code)):''}</span></i>`}).join('')).join('')}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div><div class="employee-day-summary">${MFUI.opIdentity({
+      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} session${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Session mở quá cuối ca</mark>':''}</div><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows[0][0])-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>`<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${Math.max(.5,pct(b)-pct(a))}%" title="Khoảng hở ${duration((b-a)/1000)}"></i>`).join('')}${(()=>{const lanes=assignLanes(ordered),laneCount=Math.max(1,...lanes.map(n=>n+1));
+      // Một tầng: giữ nguyên top/height của CSS (không đặt inline) để hàng
+      // không chồng trông y hệt bản trước. Nhiều tầng thì chia đều chiều cao
+      // sẵn có, chừa 2px giữa các tầng.
+      const H=24,G=2,h=laneCount>1?Math.max(6,Math.floor((H-(laneCount-1)*G)/laneCount)):0;
+      return ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · session chưa đóng':''}`,pos=laneCount>1?`;top:${9+lanes[i]*(h+G)}px;height:${h}px`:'';return `<i class="employee-session-segment ${palette[i%palette.length]} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%${pos}" title="${esc(tip)}"><span>${width>6&&h!==0&&h<12?'':(width>6?esc(shortLabel(x.operation_name||x.operation_code)):'')}</span></i>`}).join('')).join('')})()}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div><div class="employee-day-summary">${MFUI.opIdentity({
         // Khối "nhân viên này hôm nay làm những OP nào": trước đây chỉ liệt kê
         // MÃ, tên chỉ có trong title=. Nay tên là dòng chính, mã là dòng phụ,
         // hai danh sách song song đúng thứ tự nên đối chiếu được từng cặp.

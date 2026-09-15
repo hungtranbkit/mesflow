@@ -905,10 +905,17 @@ class DashboardRepository:
             COALESCE(SUM({duration_sql}),0)::bigint day_work_seconds,
             -- "Người làm" must reflect who is CURRENTLY running the Operation,
             -- not everyone who ever touched it in the window. status='OPEN' is
-            -- the same source-of-truth predicate as open_session_count above
-            -- (and is backed by uq_open_session_per_employee, so an employee
-            -- can hold at most one OPEN session at all -- DISTINCT on the
-            -- whole object is therefore already DISTINCT by employee_id).
+            -- the same source-of-truth predicate as open_session_count above.
+            --
+            -- DISTINCT trên cả object vẫn tương đương DISTINCT theo employee_id
+            -- ở đây, nhưng LÝ DO đã đổi kể từ migration 0054. Trước 0054 là vì
+            -- một người chỉ được một session OPEN trong toàn hệ thống. Nay họ
+            -- được giữ nhiều session OPEN cùng lúc -- chỉ là không bao giờ hai
+            -- session trên CÙNG một Operation
+            -- (uq_open_session_per_employee_operation). CTE này GROUP BY
+            -- operation_id, nên trong phạm vi một Operation mỗi người vẫn chỉ
+            -- đóng góp đúng một dòng OPEN. Cùng một người xuất hiện ở NHIỀU
+            -- Operation là đúng và phải giữ: đó chính là việc họ đang làm.
             jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))
               FILTER (WHERE ds.status='OPEN') active_workers,
             -- History only (who touched this Operation in the window, active
