@@ -4,7 +4,7 @@ import logging
 import uuid
 
 from psycopg.errors import DataError
-from flask import Blueprint, jsonify, request, render_template
+from flask import Blueprint, jsonify, make_response, request, render_template
 
 from mesflow import __version__
 from mesflow.domain.qr_identity import (AmbiguousEmployeeQR, AmbiguousOperationQR,
@@ -97,12 +97,32 @@ def _normalize_qr(value: object) -> str:
     return str(value or '').strip()
 
 
+def _never_cache(response):
+    """Trang/khai báo phiên bản KHÔNG được nằm lại trong cache.
+
+    Mọi asset của kiosk đã gắn `?v=<version>` (xem kiosk.html), nên trình duyệt
+    tự lấy bản mới sau một lần deploy -- NHƯNG chỉ khi nó đọc được tài liệu HTML
+    mới, vì chính tài liệu đó mang các con trỏ `?v=`. Trang kiosk trước đây trả
+    về không kèm một header cache nào, nên nó rơi vào phép đoán tự do của trình
+    duyệt/proxy (heuristic freshness). Một bản HTML cũ nằm lại là kiosk vĩnh
+    viễn nạp đúng bộ JS/CSS cũ, dù đã deploy bao nhiêu lần -- và vì `?v=` trong
+    đó cũng cũ, không có gì trên đời buộc nó phải tải lại.
+
+    Máy ở xưởng bị khoá bàn phím và không ai với tới được, nên đây không phải
+    chuyện tối ưu mà là chuyện bản vá có tới được máy hay không.
+    """
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    return response
+
+
 @bp.get('/kiosk')
 def kiosk_page():
-    return render_template('kiosk.html', version=__version__,
-                           api_base='/api/kiosk-web',
-                           manifest_url='/kiosk.webmanifest',
-                           mobile=False)
+    return _never_cache(make_response(render_template(
+        'kiosk.html', version=__version__,
+        api_base='/api/kiosk-web',
+        manifest_url='/kiosk.webmanifest',
+        mobile=False)))
 
 
 # --------------------------------------------------------------------------
@@ -125,10 +145,11 @@ def kiosk_page():
 @bp.get('/kiosk-mobile')
 @kiosk_mobile_page_required
 def kiosk_mobile_page():
-    return render_template('kiosk.html', version=__version__,
-                           api_base='/api/kiosk-mobile',
-                           manifest_url='/kiosk-mobile.webmanifest',
-                           mobile=True)
+    return _never_cache(make_response(render_template(
+        'kiosk.html', version=__version__,
+        api_base='/api/kiosk-mobile',
+        manifest_url='/kiosk-mobile.webmanifest',
+        mobile=True)))
 
 
 # P1 fix (2026-08-28 business-logic audit): this route never existed --
@@ -200,7 +221,11 @@ def employee_productivity_wallboard_page():
 
 @bp.get('/api/kiosk-web/health')
 def kiosk_health():
-    return jsonify(ok=True, version=__version__, module='web-kiosk')
+    # Khai báo phiên bản NHẸ, không đụng DB: dùng để đối chiếu bản đang chạy
+    # trên máy chủ với bản một tab kiosk đã nạp. no-store là bắt buộc -- một
+    # phản hồi phiên bản nằm lại trong cache thì nói mãi một con số cũ, tức là
+    # nói dối đúng về thứ nó tồn tại để trả lời.
+    return _never_cache(jsonify(ok=True, version=__version__, module='web-kiosk'))
 
 
 @bp.post('/api/kiosk-web/heartbeat')

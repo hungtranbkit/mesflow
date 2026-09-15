@@ -160,6 +160,12 @@
     document.body.dataset.screen = name;
     document.dispatchEvent(new CustomEvent('kiosk:screen', {detail:{name}}));
     sendHeartbeat();
+    // VỪA XONG VIỆC = thời điểm nạp bản mới. Nếu một bản mới đã được nhìn thấy
+    // lúc đang dở tay thì nạp NGAY ở đây, không chờ nhịp heartbeat kế tiếp
+    // (cách tới 30 giây) và không cần thêm một vòng mạng nào -- điều đó cũng có
+    // nghĩa bản vá vẫn tới được máy kể cả khi mạng vừa rớt ngay sau lúc phát
+    // hiện. Khi chưa thấy bản mới nào thì đây là một lời gọi rỗng.
+    applyPendingReload();
     const qtyInputId = QUANTITY_INPUT[name];
     // BÀN PHÍM SỐ ĐI THEO MÀN, không theo một biến trạng thái riêng.
     //
@@ -271,15 +277,37 @@
   // heartbeat response below to detect a server redeploy.
   const loadedVersion = document.documentElement.dataset.version || '';
   let reloadPending = false;
+  // Bản mới ĐÃ THẤY nhưng chưa nạp được vì lúc đó đang dở việc. Nhớ lại thay vì
+  // quên đi: nhịp heartbeat kế tiếp có thể cách tới 30 giây, và mạng xưởng có
+  // thể rớt ngay sau đó -- lúc người ta vừa xong việc thì đã biết thừa là có
+  // bản mới, không việc gì phải đi hỏi lại rồi chờ một vòng mạng nữa.
+  let pendingVersion = '';
+  function isIdleForReload() {
+    // Chỉ 'ready' mới là rảnh. 'finished'/'error' trông như đã xong nhưng vẫn
+    // đang đếm giờ tự quay về màn chờ, và người đứng máy còn đang đọc số vừa
+    // ghi -- nạp lại lúc đó là giật mất dòng xác nhận khỏi mắt họ.
+    return state === 'ready' && !demoIsOpen();
+  }
+  function applyPendingReload() {
+    if (reloadPending || !pendingVersion || !isIdleForReload()) return;
+    reloadPending = true;
+    // Tài liệu kiosk trả về no-store (xem web/kiosk.py::_never_cache) nên lần
+    // nạp này lấy HTML mới, và HTML mới mang `?v=` mới cho JS/CSS.
+    window.location.reload();
+  }
   function reloadIfNewVersionAvailable(serverVersion) {
-    if (reloadPending || !serverVersion || !loadedVersion || serverVersion === loadedVersion) return;
+    if (reloadPending || !serverVersion || !loadedVersion || serverVersion === loadedVersion) {
+      // Bằng nhau nghĩa là tab này đã ở đúng bản của máy chủ -- kể cả khi trước
+      // đó từng thấy một bản khác (deploy rồi rollback). Xoá cờ để không còn
+      // lần nạp lại nào bị treo lại mà không có lý do.
+      if (serverVersion && serverVersion === loadedVersion) pendingVersion = '';
+      return;
+    }
     // Never yank the screen mid-task -- a locked-keyboard kiosk an operator
     // can't reach must still finish whatever they're doing; only reload
-    // between tasks (state==='ready'), and check again on the next
-    // heartbeat if it's currently busy.
-    if (state !== 'ready' || demoIsOpen()) return;
-    reloadPending = true;
-    window.location.reload();
+    // between tasks, and remember the new version until then.
+    pendingVersion = serverVersion;
+    applyPendingReload();
   }
   async function sendHeartbeat() {
     try {
@@ -1035,7 +1063,14 @@
     scanOperation: () => scan(operationQr()),
     // Feed an arbitrary payload through the same path a scanner gun uses --
     // the demo selects can only offer QRs that exist in the demo dataset.
-    scan: qr => scan(String(qr || ''))
+    scan: qr => scan(String(qr || '')),
+    // Đưa một con số phiên bản của máy chủ vào ĐÚNG hàm mà heartbeat gọi.
+    // Không có lối này thì bài kiểm tự động cập nhật phải chờ trọn một nhịp
+    // heartbeat (30 giây) cho MỖI lần đo, và "chờ 30 giây rồi xem có gì xảy ra
+    // không" là hình dạng của một bài kiểm chập chờn. Đây là cùng một hàm, cùng
+    // một điều kiện -- không phải một đường tắt bỏ qua luật nào.
+    applyServerVersion: v => reloadIfNewVersionAvailable(String(v || '')),
+    loadedVersion: () => loadedVersion
   };
 
   demoToggle.addEventListener('click', openDemo);
