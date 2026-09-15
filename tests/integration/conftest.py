@@ -149,8 +149,14 @@ def seeded_factory(db):
         cur.execute("DELETE FROM kiosk_idempotency WHERE request_id IN (SELECT start_request_id FROM work_sessions WHERE employee_id=%s) OR request_id IN (SELECT finish_request_id FROM work_sessions WHERE employee_id=%s)", (employee_id, employee_id))
         cur.execute("DELETE FROM operation_adjustments WHERE session_id IN (SELECT id FROM work_sessions WHERE employee_id=%s)", (employee_id,))
         cur.execute("DELETE FROM work_sessions WHERE employee_id=%s", (employee_id,))
-        cur.execute("DELETE FROM operations WHERE id=%s", (operation_id,))
-        cur.execute("DELETE FROM parts WHERE id=%s", (part_id,))
+        # Xoá theo PO chứ không theo đúng một id: từ migration 0054 có test cần
+        # tạo thêm Operation trên cùng PO (một người giữ nhiều việc cùng lúc).
+        # Xoá đúng một id để sót Operation thừa, và chúng giữ khoá ngoại khiến
+        # DELETE parts/production_orders bên dưới thất bại -- teardown hỏng ở
+        # test này làm bẩn luôn test kế tiếp. PO là của riêng fixture nên xoá
+        # theo nó vẫn đúng phạm vi.
+        cur.execute("DELETE FROM operations WHERE production_order_id=%s", (po_id,))
+        cur.execute("DELETE FROM parts WHERE production_order_id=%s", (po_id,))
         cur.execute("DELETE FROM production_orders WHERE id=%s", (po_id,))
         cur.execute("DELETE FROM stations WHERE id=%s", (station_id,))
         cur.execute("DELETE FROM employees WHERE id=%s", (employee_id,))

@@ -85,13 +85,17 @@ def test_ended_before_started_detected(db, seeded_factory):
 def test_multiple_open_per_employee_bypassing_partial_unique_index(db, seeded_factory):
     g = seeded_factory
     _insert_session(db, g, status='OPEN')
-    # uq_open_session_per_employee (migration 0003) would reject a second
-    # OPEN row for the same employee through the normal INSERT path --
-    # dropping the constraint for the duration of this test is the only
-    # way to prove the audit catches a bypass rather than merely restating
-    # what the constraint already guarantees.
+    # uq_open_session_per_employee_operation (migration 0054) would reject a
+    # second OPEN row for the same (employee, Operation) through the normal
+    # INSERT path -- dropping the constraint for the duration of this test is
+    # the only way to prove the audit catches a bypass rather than merely
+    # restating what the constraint already guarantees.
+    #
+    # Khoá đổi ở 0054, nên hai dòng OPEN dưới đây phải nằm trên CÙNG một
+    # Operation mới là bất thường (_insert_session mặc định dùng đúng
+    # g['operation_id'], nên chúng đã cùng Operation sẵn).
     with db.cursor() as cur:
-        cur.execute('DROP INDEX IF EXISTS uq_open_session_per_employee')
+        cur.execute('DROP INDEX IF EXISTS uq_open_session_per_employee_operation')
     try:
         _insert_session(db, g, status='OPEN', started_at=datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc))
         result = audit_integrity()
@@ -100,7 +104,29 @@ def test_multiple_open_per_employee_bypassing_partial_unique_index(db, seeded_fa
     finally:
         with db.cursor() as cur:
             cur.execute("DELETE FROM work_sessions WHERE employee_id=%s AND status='OPEN'", (g['employee_id'],))
-            cur.execute("CREATE UNIQUE INDEX uq_open_session_per_employee ON work_sessions(employee_id) WHERE status='OPEN'")
+            cur.execute("CREATE UNIQUE INDEX uq_open_session_per_employee_operation "
+                        "ON work_sessions(employee_id,operation_id) WHERE status='OPEN'")
+
+
+def test_multi_open_on_different_operations_is_not_an_integrity_finding(db, seeded_factory):
+    """T11/R2: người trông nhiều máy KHÔNG được báo là dữ liệu hỏng.
+
+    Thiếu bài này thì lỗi hồi quy dễ xảy ra nhất của 0054 -- báo cáo toàn vẹn
+    kêu ở trạng thái bình thường -- không ai bắt được cho tới khi nó đã ngập màn
+    hình vận hành, và lúc đó thì người ta đã quen bỏ qua nó."""
+    g = seeded_factory
+    _insert_session(db, g, status='OPEN')
+    with db.cursor() as cur:
+        cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,qr)
+                       VALUES(%s,%s,%s,'Extra op','IN_PROGRESS',%s) RETURNING id""",
+                    (g['po_id'], g['part_id'], f"TEST-OP-{g['suffix']}-X", f"WF|OP|TEST-OP-{g['suffix']}-X"))
+        other_op = cur.fetchone()['id']
+    _insert_session(db, g, status='OPEN', operation_id=other_op,
+                    started_at=datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc))
+
+    result = audit_integrity()
+    assert not [x for x in result['MULTIPLE_OPEN_PER_EMPLOYEE'] if x['employee_id'] == g['employee_id']], \
+        'hai việc khác Operation của cùng một người là hợp lệ từ 0054'
 
 
 def test_operation_completed_session_still_open_detected(db, seeded_factory):

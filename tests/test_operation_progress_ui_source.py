@@ -22,7 +22,8 @@ def test_backend_active_workers_is_filtered_by_open_status():
     fn=_daily_progress_fn()
     assert "FILTER (WHERE ds.status='OPEN') active_workers" in fn
     # DISTINCT is on the whole (employee_id,name) object -- see
-    # uq_open_session_per_employee, an employee can hold at most one OPEN
+    # uq_open_session_per_employee_operation (0054), an employee can hold at
+    # most one OPEN session PER OPERATION -- nhiều Operation cùng lúc thì được
     # session at all, so this is already DISTINCT by employee_id.
     assert "jsonb_agg(DISTINCT jsonb_build_object('employee_id',ds.employee_id,'name',e.name))" in fn
     assert "all_participants" in fn

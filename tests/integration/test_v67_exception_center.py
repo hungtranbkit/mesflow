@@ -26,8 +26,12 @@ def make_employee_conflict(db,g):
     # "Hoàn tất" is the only way to resolve it.
     #
     # Both CLOSED, not OPEN (a real constraint found live writing this
-    # test: uq_open_session_per_employee makes two simultaneously-OPEN
-    # sessions for the same employee impossible at the DB layer -- this
+    # test: uq_open_session_per_employee_operation makes two
+    # simultaneously-OPEN sessions for the same employee ON THE SAME
+    # OPERATION impossible at the DB layer. Từ migration 0054 hai session
+    # OPEN khác Operation là hợp lệ và KHÔNG còn sinh ngoại lệ này -- luật
+    # phát hiện nay đòi cùng operation_id, xem exceptions.py. Vì thế cặp
+    # session dưới đây cố ý nằm trên CÙNG một Operation -- this
     # exception type's real-world trigger is necessarily a historical/
     # corrected-data overlap between two CLOSED sessions, e.g. a manual
     # time edit, never two genuinely-concurrent open ones). A overlaps B

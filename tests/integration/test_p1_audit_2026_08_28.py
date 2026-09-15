@@ -160,9 +160,13 @@ _extra_employee_cache: dict[str, list[int]] = {}
 
 
 def _extra_employee(db, g, i):
-    """One employee per concurrent session in the lock-order test (each
-    session needs its own OPEN slot -- uq_open_session_per_employee would
-    otherwise block the very concurrency this test needs to create)."""
+    """One employee per concurrent session in the lock-order test.
+
+    Từ migration 0054 một người giữ được nhiều session OPEN (khác Operation),
+    nên ràng buộc không còn BẮT BUỘC phải tách người ra như trước. Vẫn giữ mỗi
+    session một nhân viên vì bài này đo THỨ TỰ KHOÁ dòng PO dưới tải đồng thời:
+    tách người giữ cho các luồng độc lập nhau hoàn toàn, không vô tình chia
+    chung một hàng đợi khoá nào khác và làm loãng đúng thứ đang đo."""
     key = g['suffix']
     ids = _extra_employee_cache.setdefault(key, [])
     with db.cursor() as cur:

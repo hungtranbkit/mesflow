@@ -261,8 +261,13 @@ class TestSuccessAlwaysMeansPersisted:
                         (floor['worker']['id'],))
             before = cur.fetchone()['n']
 
-        # Cùng một người không thể mở hai ca (uq_open_session_per_employee).
-        second = _start(api, floor['worker']['id'], floor['twin']['id'], floor['tag'])
+        # Lượt start BỊ TỪ CHỐI phải là cùng CHÍNH Operation vừa mở. Trước
+        # migration 0054 bài này dùng floor['twin'] -- một Operation KHÁC -- vì
+        # khi đó mọi start thứ hai của một người đều bị chặn. Nay điều đó là
+        # hành vi hợp lệ (người trông nhiều máy), nên dùng twin ở đây sẽ kiểm
+        # sai thứ bài này muốn kiểm: bài này nói về "2xx không được phát khi
+        # không ghi được", không phải về luật một-việc-một-người.
+        second = _start(api, floor['worker']['id'], floor['production']['id'], floor['tag'])
         assert second.status_code >= 400, \
             f'start thứ hai báo thành công {second.status_code}: {second.text}'
         assert second.json().get('ok') is not True
@@ -272,9 +277,24 @@ class TestSuccessAlwaysMeansPersisted:
                         (floor['worker']['id'],))
             assert cur.fetchone()['n'] == before, 'ghi thêm session dù đã báo lỗi'
 
+    def test_a_second_operation_for_the_same_worker_is_allowed(self, api, db, floor):
+        """Mặt kia của bài trên, và là lý do tồn tại của 0054: cùng người,
+        Operation KHÁC thì phải mở được, và task phải hiện lên bảng."""
+        first = _scan_then_start(api, floor['worker'], floor['production'], floor['tag'])
+        assert first.status_code == 201, first.text
+
+        second = _start(api, floor['worker']['id'], floor['twin']['id'], floor['tag'])
+        assert second.status_code == 201, second.text
+
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) n FROM work_sessions WHERE employee_id=%s AND status='OPEN'",
+                        (floor['worker']['id'],))
+            assert cur.fetchone()['n'] == 2
+
         board = _board(api, floor['po']['id'])
-        assert int(floor['twin']['id']) not in _task_ids(board), \
-            'task hiện lên cho một lượt start đã bị từ chối'
+        ids = _task_ids(board)
+        assert int(floor['production']['id']) in ids and int(floor['twin']['id']) in ids, \
+            'bảng phải hiện ĐỦ hai việc đang chạy, không gộp mất một'
 
     def test_a_paused_po_cannot_be_started_at_all(self, api, db, floor):
         with db.cursor() as cur:

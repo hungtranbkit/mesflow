@@ -242,7 +242,7 @@ def test_transfer_operation_cross_part_blocked_then_allowed_with_confirmation(db
 
 def test_transfer_operation_cross_po_blocked_for_non_admin_allowed_for_admin(db, seeded_factory, cross_po_operation):
     g = seeded_factory
-    # CLOSED, not OPEN -- uq_open_session_per_employee allows only one OPEN
+    # CLOSED, not OPEN -- uq_open_session_per_employee_operation allows only one OPEN
     # session per employee at a time, and this test needs two independent
     # sessions to exercise both the blocked and the allowed path.
     sid_a = _closed_session(db, g, datetime(2026, 8, 10, 8, 0, tzinfo=HCM), f'XFER-XPO-A-{g["suffix"]}')

@@ -114,9 +114,13 @@ def test_multi_day_stale_session_closes_at_first_valid_boundary_after_start(db, 
 
 def test_employee_can_start_new_session_next_day_after_reconciliation(db, api, seeded_factory):
     """A stale session must not permanently block the SAME employee from
-    starting a new one, once reconciliation has run -- the
-    uq_open_session_per_employee constraint means this would otherwise
-    wedge the employee out until a human manually intervened."""
+    starting a new one on the SAME Operation, once reconciliation has run --
+    the uq_open_session_per_employee_operation constraint means this would
+    otherwise wedge them out of that Operation until a human intervened.
+
+    Từ 0054 phạm vi kẹt hẹp lại đúng một Operation (trước đó một session treo
+    khoá người đó khỏi MỌI việc), nhưng vẫn là kẹt thật và reconciliation vẫn
+    là đường thoát -- nên bài này giữ nguyên giá trị."""
     from datetime import date as _date
     g = seeded_factory
     started_at = datetime(2026, 8, 10, 16, 0, tzinfo=HCM)

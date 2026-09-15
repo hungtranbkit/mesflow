@@ -93,7 +93,7 @@ def test_session_lifecycle_random_sequences_never_corrupt(db, actions):
                     resp = repo.start({'employee_id': g['employee_id'], 'operation_id': g['operation_id'], 'request_id': rid})
                 except ConflictError:
                     # Either the employee already has an OPEN session
-                    # (uq_open_session_per_employee), or a previous AUTO_CLOSE
+                    # (uq_open_session_per_employee_operation -- cùng Operation), or a previous AUTO_CLOSE
                     # in this same sequence used a shift_end in the future,
                     # so "now" (this START's started_at) falls inside that
                     # already-CLOSED session's [started_at,ended_at) range --
