@@ -59,7 +59,13 @@ def audit() -> dict[str, list[dict[str, Any]]]:
         SELECT a.id session_id_a, b.id session_id_b, a.employee_id, e.employee_no, e.name employee_name,
                a.started_at started_at_a, a.ended_at ended_at_a, b.started_at started_at_b, b.ended_at ended_at_b
         FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id>a.id
+            AND b.operation_id=a.operation_id
           JOIN employees e ON e.id=a.employee_id
+        -- b.operation_id=a.operation_id: CÙNG Operation mới là chồng lấn bất
+        -- thường (migration 0054). Một người được giữ nhiều session OPEN trên
+        -- các Operation KHÁC nhau, nên chồng giờ giữa hai Operation khác nhau
+        -- là hành vi đúng chứ không phải phát hiện. Cùng một Operation hai lần
+        -- cùng lúc thì vẫn là dữ liệu sai.
         -- GREATEST(...,started_at) guard: same fix as
         -- db/repositories/exceptions.py's reconcile() query (2026-08-27) --
         -- tstzrange() raises "range lower bound must be less than or equal

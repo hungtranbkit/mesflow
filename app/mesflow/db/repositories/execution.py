@@ -59,13 +59,34 @@ def _json_safe(value: Any):
 
 
 
-def _find_employee_session_overlap(cur, employee_id:int, started_at, ended_at=None, exclude_session_id:int|None=None):
-    """Return one conflicting session using PostgreSQL half-open time ranges [start, end)."""
+def _find_employee_session_overlap(cur, employee_id:int, started_at, ended_at=None, exclude_session_id:int|None=None, operation_id:int|None=None):
+    """Return one conflicting session using PostgreSQL half-open time ranges [start, end).
+
+    `operation_id` THU HẸP phép so về đúng một Operation, và mọi nơi CHẶN đều
+    truyền nó vào.
+
+    Vì sao: từ migration 0054 một nhân viên được giữ nhiều session OPEN, miễn là
+    trên các Operation KHÁC nhau -- người trông 2-3 máy cùng lúc là chuyện bình
+    thường ngoài xưởng. Kể từ đó "hai session của cùng một người chồng giờ nhau"
+    KHÔNG còn là lỗi: đó chính là thứ tính năng này tồn tại để ghi lại. Giữ
+    nguyên phép so trên mọi Operation thì kết thúc OP1 trong lúc OP2 còn mở sẽ
+    bị chính hàm này từ chối -- tính năng tự chặn mình.
+
+    Thứ VẪN là lỗi, và là lý do hàm này còn sống: chồng giờ trên CÙNG một
+    Operation. Một người không thể chạy cùng một công đoạn hai lần cùng lúc, nên
+    đó luôn là dữ liệu sai (sửa tay nhầm giờ, hoặc đồng hồ thiết bị nhảy).
+
+    Gọi KHÔNG kèm `operation_id` giữ nguyên nghĩa cũ -- so với mọi Operation --
+    dành cho nơi muốn LIỆT KÊ chồng lấn để soi, không phải để chặn.
+    """
     params=[employee_id]
     exclude_sql=''
     if exclude_session_id is not None:
         exclude_sql=' AND ws.id<>%s'
         params.append(exclude_session_id)
+    if operation_id is not None:
+        exclude_sql+=' AND ws.operation_id=%s'
+        params.append(operation_id)
     params.extend([started_at,ended_at])
     # GREATEST(...,lower_bound) guard on both sides: same fix as
     # db/repositories/exceptions.py's reconcile() query (2026-08-27) --
@@ -559,13 +580,24 @@ class WorkSessionRepository:
                 started_at_trusted=started_at is not None
                 if started_at is None: started_at=now_at
                 with timer.stage('employee_overlap_query'):
-                    _raise_overlap(_find_employee_session_overlap(cur,employee_id,started_at,None))
+                    # CHỈ so với chính Operation này. Một người đang mở OP2/OP3
+                    # vẫn được bắt đầu OP1 -- đó là toàn bộ điểm của 0054. Thứ
+                    # bị chặn là mở LẠI đúng OP đang mở: tem QR khi đó không còn
+                    # định danh được session nào, và màn hình kiosk buộc phải
+                    # bắt người đứng máy chọn tay.
+                    _raise_overlap(_find_employee_session_overlap(cur,employee_id,started_at,None,operation_id=operation_id))
                 with timer.stage('session_insert'):
                     try:
                         cur.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,start_request_id,started_at,started_at_trusted)
                         VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING *""",(employee_id,operation_id,data.get('station_id'),str(data.get('device_uuid','')),request_id,started_at,started_at_trusted))
                     except Exception as exc:
-                        if getattr(exc,'sqlstate',None)=='23505': raise ConflictError('employee already has an open session') from exc
+                        # 23505 = uq_open_session_per_employee_operation (0054).
+                        # Đây là lưới cuối cho ĐUA: hai máy quét cùng bấm start
+                        # đúng một (nhân viên, Operation) trong cùng mili-giây
+                        # thì cả hai qua được vòng kiểm ở trên, và chỉ một dòng
+                        # INSERT được. Lời nhắn phải nói ra việc CẦN LÀM, vì
+                        # người đọc nó đang đứng ở máy: quét lại để kết thúc.
+                        if getattr(exc,'sqlstate',None)=='23505': raise ConflictError('Nhân viên đang mở Operation này rồi. Quét lại tem Operation để nhập sản lượng và kết thúc.') from exc
                         raise
                     row=cur.fetchone()
                 with timer.stage('reconcile_operation_and_po'):
@@ -653,7 +685,10 @@ class WorkSessionRepository:
             ended_at_trusted=finish_at is not None and finish_at>row['started_at']
             if not ended_at_trusted: finish_at=server_now
             with timer.stage('employee_overlap_query'):
-                _raise_overlap(_find_employee_session_overlap(cur,row['employee_id'],row['started_at'],finish_at,session_id))
+                # operation_id: kết thúc OP1 trong lúc OP2/OP3 của cùng người
+                # còn mở là hợp lệ từ 0054. Không thu hẹp phạm vi ở đây thì
+                # session còn mở kia sẽ chồng giờ và chặn mất lần kết thúc này.
+                _raise_overlap(_find_employee_session_overlap(cur,row['employee_id'],row['started_at'],finish_at,session_id,operation_id=row['operation_id']))
             with timer.stage('record_quantities_and_session_update'):
                 movements=record_quantities(cur,session=row,good=good,defect=defect,rework=rework,actor_id=audit_actor_user_id,
                     actor_name=audit_actor_username,source='SESSION_FINISH',reason=str(data.get('note','')),correlation_id=audit_correlation_id or request_id)
@@ -759,8 +794,10 @@ class WorkSessionRepository:
                 good=int(row.get('good_qty') or 0);defect=int(row.get('defect_qty') or 0);rework=int(row.get('rework_qty') or 0)
                 # Same overlap guard finish() applies -- auto-close must not
                 # silently create a time-range conflict finish() itself
-                # would have refused.
-                _raise_overlap(_find_employee_session_overlap(cur,row['employee_id'],row['started_at'],shift_end_at,session_id))
+                # would have refused. Cùng phạm vi như finish(): chỉ so với
+                # chính Operation này, nếu không thì một người còn N session mở
+                # lúc hết ca sẽ tự chặn nhau và không cái nào đóng được.
+                _raise_overlap(_find_employee_session_overlap(cur,row['employee_id'],row['started_at'],shift_end_at,session_id,operation_id=row['operation_id']))
                 # Mirrors finish()'s own input-consumption upsert (kept
                 # consistent even though quantities aren't changing here) so
                 # an auto-closed session's ledger row is never silently
@@ -957,7 +994,11 @@ class SupervisorRepository:
                     good=good,defect=defect,rework=rework)
                 cur.execute('SELECT %s::timestamptz st,%s::timestamptz en',(started_at,ended_at)); times=cur.fetchone()
                 if times['en'] is not None and times['en'] < times['st']: raise ValueError('Giờ kết thúc phải sau giờ bắt đầu')
-                _raise_overlap(_find_employee_session_overlap(cur,employee_id,times['st'],times['en'],session_id))
+                # Cùng phạm vi như start()/finish(): chỉ chồng giờ trên CHÍNH
+                # Operation này mới là lỗi. Quản trị viên sửa giờ một session
+                # của người đang trông nhiều máy không được bị chặn chỉ vì
+                # session ở máy khác cũng chạy trong khoảng đó.
+                _raise_overlap(_find_employee_session_overlap(cur,employee_id,times['st'],times['en'],session_id,operation_id=operation_id))
                 if status=='CLOSED':
                     _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=operation_id,good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
                 else:

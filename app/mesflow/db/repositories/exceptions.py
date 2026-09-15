@@ -69,8 +69,20 @@ class ExceptionRepository:
           FROM work_sessions ws JOIN operations ox ON ox.id=ws.operation_id WHERE ws.status='OPEN' AND ox.status='COMPLETED'
             AND {reportable_session_sql('ws')}
           UNION ALL SELECT a.id,'EMPLOYEE_SESSION_CONFLICT','CRITICAL','Nhân viên có Session xung đột',
-            'Nhân viên có hai Session chồng thời gian.','Kiểm tra cả hai Session và bằng chứng kiosk.'
+            'Nhân viên có hai Session chồng thời gian trên CÙNG một Operation.','Kiểm tra cả hai Session và bằng chứng kiosk.'
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
+            -- CÙNG Operation mới là xung đột (từ migration 0054).
+            --
+            -- Trước 0054 mọi chồng giờ của một người đều bất khả thi, nên luật
+            -- này không cần lọc theo Operation. Nay một người được giữ nhiều
+            -- session OPEN trên các Operation KHÁC nhau -- người trông 2-3 máy
+            -- cùng lúc. Thiếu dòng dưới đây thì mỗi ca làm bình thường tự sinh
+            -- hàng loạt ngoại lệ CRITICAL giả, và Inbox ngoại lệ -- nơi chỉ nên
+            -- chứa việc thật sự cần người xử lý -- thành vô dụng.
+            --
+            -- Chồng giờ trên CÙNG một Operation thì vẫn luôn sai: không ai chạy
+            -- được một công đoạn hai lần cùng lúc.
+            AND b.operation_id=a.operation_id
             AND {reportable_session_sql('a')} AND {reportable_session_sql('b')}
             -- Real bug found live (2026-08-27 Session Exception Management
             -- task): tstzrange() raises "range lower bound must be less

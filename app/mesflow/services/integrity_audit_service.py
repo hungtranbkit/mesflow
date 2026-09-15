@@ -64,16 +64,22 @@ def _ended_before_started() -> list[dict[str, Any]]:
 
 
 def _multiple_open_per_employee() -> list[dict[str, Any]]:
-    # Defense check for uq_open_session_per_employee (migration 0003: a
-    # partial UNIQUE index on work_sessions(employee_id) WHERE
+    # Defense check for uq_open_session_per_employee_operation (migration 0054:
+    # a partial UNIQUE index on work_sessions(employee_id,operation_id) WHERE
     # status='OPEN'). Should always be empty by construction; a non-empty
     # result means that index was dropped, bypassed by a raw write, or
     # never actually applied against this database.
+    #
+    # Khoá gồm cả operation_id từ 0054. Trước đó một người chỉ được một session
+    # OPEN, nên nhóm theo riêng employee_id là đúng. Nay nhiều OPEN trên các
+    # Operation KHÁC nhau là hành vi được thiết kế -- giữ nguyên câu cũ thì mỗi
+    # người trông 2-3 máy sẽ bị báo là DỮ LIỆU HỎNG, và một báo cáo toàn vẹn
+    # kêu ở trạng thái bình thường là báo cáo không ai còn đọc.
     return fetch_all("""
-        SELECT employee_id,COUNT(*) open_count,array_agg(id ORDER BY id) session_ids
+        SELECT employee_id,operation_id,COUNT(*) open_count,array_agg(id ORDER BY id) session_ids
         FROM work_sessions WHERE status='OPEN'
-        GROUP BY employee_id HAVING COUNT(*)>1
-        ORDER BY employee_id""")
+        GROUP BY employee_id,operation_id HAVING COUNT(*)>1
+        ORDER BY employee_id,operation_id""")
 
 
 def _orphan_employee() -> list[dict[str, Any]]:
