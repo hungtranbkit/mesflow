@@ -131,20 +131,34 @@ test('tên OP thật nằm trên bề mặt, không chỉ trong title=', async (
   await openDashboard(page, 'overview');
   const first = page.locator('#opTimeProgress .op-card').first();
   await expect(first.locator('.row-title')).toHaveText(OP_NAME);
-  await expect(first.locator('.row-code')).toHaveText(OP_CODE);
+  // Dòng mã nay CÓ NHÃN: "Operation: <mã>". Hai Part của cùng một PO có thể
+  // dùng chung một tên công đoạn (đo được trên TEST: op 2416/2418 đều tên
+  // "HÀN ROBOT"), nên một dòng mã trần không nói cho người mới biết nó là gì.
+  await expect(first.locator('.row-code')).toContainText('Operation:');
+  await expect(first.locator('.row-code')).toContainText(OP_CODE);
+  // Và dòng thứ ba nêu Part · PO -- thứ thật sự phân biệt hai thẻ cùng tên.
+  await expect(first.locator('.op-identity-meta')).toContainText('Part:');
+  await expect(first.locator('.op-identity-meta')).toContainText('10025-FB-201');
+  await expect(first.locator('.op-identity-meta')).toContainText('PO:');
 
   await openDashboard(page, 'people');
-  // Chip timeline: TÊN hiện ra, phần metadata giữ giờ/trạng thái/thời lượng/
-  // sản lượng -- và KHÔNG lặp lại mã dài trên cùng một dòng chật.
+  // Chip timeline: TÊN + mã + Part·PO + giờ/trạng thái/sản lượng.
+  //
+  // Bản trước cố ý GIẤU mã trên chip ("không lặp lại mã dài trên một dòng
+  // chật") và chỉ để nó ở title=. Điều đó đảo lại từ bản này, có chủ đích: từ
+  // khi một người giữ nhiều việc cùng lúc (migration 0054) và hai Part dùng
+  // chung một tên công đoạn, ba chip liên tiếp cùng ghi "HÀN ROBOT" là ba dòng
+  // không phân biệt nổi -- và title= thì không đọc được trên màn cảm ứng.
   //
   // Chip được xếp theo started_at, nên chip ĐẦU TIÊN của nhân viên này là
   // session 06:00 chạy trên OP cố ý thiếu tên (nhánh fallback, có bài riêng
   // bên dưới). Chốt đúng chip của session đang chạy 08:22 -- OP có tên thật.
   const chip = page.locator('.employee-session-chips .op-identity.open').first();
   await expect(chip.locator('.row-title')).toHaveText(OP_NAME);
-  await expect(chip.locator('.op-identity-meta')).toContainText('Đang chạy');
-  expect(await chip.innerText()).not.toContain(OP_CODE);
-  // Mã vẫn đối chiếu được: title= của chip mang bản đầy đủ.
+  await expect(chip.locator('.row-code')).toContainText(OP_CODE);
+  await expect(chip.locator('.op-identity-meta')).toContainText('Part:');
+  await expect(chip.locator('.op-identity-when')).toContainText('Đang chạy');
+  // title= vẫn mang bản đầy đủ để soi phần bị cắt.
   expect(await chip.getAttribute('title')).toContain(OP_CODE);
 });
 

@@ -2589,6 +2589,32 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
 .op-identity>small.row-code,.op-identity>small.op-identity-meta{
   display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .op-identity>small.op-identity-meta{font-size:11px;font-weight:600;color:var(--muted)}
+/* Nhãn "Operation:" / "Part:" / "PO:" trên thẻ Operation.
+   Nhẹ hơn chính giá trị đứng sau nó -- nhãn để biết dòng này là cái gì, thứ
+   người ta thật sự đọc là cái mã. Cùng cỡ chữ, chỉ hạ đậm và nhạt màu; đổi cỡ
+   nữa thì ba dòng thành ba cỡ khác nhau và thẻ trông vụn.
+   white-space:nowrap để "Part:" không bao giờ bị tách khỏi dấu hai chấm. */
+.op-identity .op-identity-key{font-weight:500;color:var(--muted);white-space:nowrap}
+/* Dòng thời gian/sản lượng của chip session: xuống dòng RIÊNG, dưới Part·PO.
+   Thứ bậc trên chip là tên > mã > Part·PO > thời gian -- thời gian là thứ đọc
+   sau cùng, và nối nó vào cùng dòng với Part sẽ cho ra một chuỗi dài không
+   ngắt được ở màn hẹp. */
+.op-identity .op-identity-when{display:block;margin-top:1px;font-weight:600;color:var(--text-secondary)}
+/* Nhiều Operation trong một khối tổng hợp: mỗi cái một khối riêng, cách nhau
+   rõ. Trước đây chúng bị nối bằng ' · ' thành một chuỗi -- hai Part dùng chung
+   tên công đoạn cho ra "HÀN ROBOT · HÀN ROBOT" rồi hai mã dính liền nhau, đọc
+   như dữ liệu hỏng. Liệt kê từng cái là cách duy nhất còn phân biệt được. */
+.op-identity.op-identity-stacked{padding:4px 0;border-top:1px solid var(--border-subtle)}
+.op-identity.op-identity-stacked:first-child{padding-top:0;border-top:0}
+.op-identity-more{display:block;margin-top:3px;color:var(--muted);font-size:10px;font-weight:600}
+.op-identity>small.row-code{font-variant-numeric:tabular-nums}
+@media(max-width:560px){
+  /* Ở màn hẹp mã Operation dài hơn cả bề ngang thẻ. Cho phép cắt bằng ellipsis
+     như luật chung, nhưng KHÔNG cho ngắt giữa mã (ngắt ra đọc thành một mã
+     khác) -- bản đầy đủ nằm ở title=. Dòng Part·PO thì ngắt được, vì nó là hai
+     giá trị rời chứ không phải một chuỗi định danh. */
+  .op-identity>small.op-identity-meta{white-space:normal;overflow-wrap:anywhere}
+}
 /* Biến thể compact cho chip timeline: cùng THỨ BẬC (tên nặng hơn chữ phụ),
    chỉ nhỏ hơn. Một chip chỉ rộng vài chục pixel trong cột 300px nên tên lấy
    đúng 1 dòng; phần còn lại vẫn đọc được ở title=. Khai báo ở đây một lần để

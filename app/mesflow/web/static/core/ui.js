@@ -121,7 +121,19 @@ const MFUI=(()=>{
   // CÙNG một dòng, mã thu về một chip nhỏ không làm dày line-box của tên, nên
   // cột Operation cao đúng bằng cột Nhân viên/Thời gian/Sản lượng. Vẫn đúng
   // một thứ bậc với mọi nơi khác: tên là chữ chính, mã là chữ phụ.
-  const opIdentity=({name='',code='',meta='',metaHtml='',compact=false,inline=false,tooltip='',className='',showCode=true}={})=>{
+  // codeLabel: gắn nhãn cho dòng mã ("Operation: 6126-KM-...-OP01").
+  //
+  // Vì sao cần: một PO có nhiều Part, và cùng một công đoạn trên các Part
+  // khác nhau mang ĐÚNG một cái tên. Trên Dashboard, hai thẻ "HÀN ROBOT"
+  // nằm cạnh nhau đọc như dữ liệu bị nhân đôi, dù chúng là hai Operation hợp
+  // lệ khác Part (đo được trên TEST: op 2416 part KM-349170-204 và op 2418
+  // part KM-367170-204, cùng tên, cùng PO 6126). Mã và Part vốn đã hiện sẵn
+  // nhưng không có nhãn, nên người mới không biết dòng thứ hai là cái gì.
+  //
+  // Nhãn là tham số chứ không bật cứng: chip timeline và hàng Quản lý Session
+  // chỉ rộng vài chục pixel, thêm chữ "Operation:" vào đó là cướp mất chỗ của
+  // chính cái mã.
+  const opIdentity=({name='',code='',codeLabel='',meta='',metaHtml='',compact=false,inline=false,tooltip='',className='',showCode=true}={})=>{
     const n=String(name??'').trim(),c=String(code??'').trim();
     const primary=n||c||'—';
     const secondary=n&&showCode?c:'';
@@ -130,7 +142,7 @@ const MFUI=(()=>{
     const cls=['op-identity',compact?'compact':'',inline?'inline':'',String(className||'').trim()].filter(Boolean).join(' ');
     return `<span class="${escHtml(cls)}" title="${escHtml(hint)}">`+
       `<b class="row-title">${escHtml(primary)}</b>`+
-      (secondary?`<small class="row-code">${escHtml(secondary)}</small>`:'')+
+      (secondary?`<small class="row-code">${codeLabel?`<span class="op-identity-key">${escHtml(codeLabel)}:</span> `:''}${escHtml(secondary)}</small>`:'')+
       (metaBody?`<small class="op-identity-meta">${metaBody}</small>`:'')+
     '</span>';
   };
