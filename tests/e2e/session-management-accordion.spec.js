@@ -25,17 +25,24 @@ function sessions() {
     session_id: index + 1,
     employee_id: 201,
     employee_code: `EMP-${String(index + 1).padStart(3, '0')}`,
-    employee_name: index ? `Nhân viên ${index + 1}` : 'Lê Đức Thịnh',
+    employee_name: index ? `Nhân viên ${index + 1}` : 'Lê Đức Thịnh với tên rất dài để kiểm tra ellipsis',
     operation_id: 101,
     operation_code: `OP-${String(index + 1).padStart(3, '0')}`,
     operation_name: index ? `Operation ${index + 1}` : 'Dán keo carton có tên operation rất dài để kiểm tra ellipsis',
     po_id: 1, po_code: 'PO-SESSION-LONG-001', part_id: 11,
     part_code: 'PART-LONG-001', part_name: 'Chi tiết carton tên rất dài',
     station_id: 301, station_code: 'ST-01', station_name: 'Trạm dán keo', device_uuid: 'KIOSK-01',
-    status: index < 2 ? 'OPEN' : 'CLOSED',
+    status: index === 0 ? 'OPEN' : 'CLOSED',
     started_at: new Date(Date.now() - (index + 1) * 3600000).toISOString(),
-    ended_at: index < 2 ? null : new Date(Date.now() - index * 3600000).toISOString(),
-    duration_seconds: 3600, good_qty: 10 + index, defect_qty: 2, rework_qty: 1,
+    ended_at: index === 0 ? null : new Date(Date.now() - index * 3600000).toISOString(),
+    duration_seconds: 3600,
+    good_qty: index === 4 ? 0 : 10 + index,
+    defect_qty: index === 4 ? 0 : 2,
+    rework_qty: index === 3 ? 2 : 0,
+    output_recorded: index !== 4,
+    closed_by_system: index === 1,
+    quantity_confirmed: index !== 1,
+    excluded_from_reports: index === 2,
     note: index === 0 ? 'Kiểm tra keo đầu ca' : ''
   }));
 }
@@ -133,10 +140,50 @@ test('lọc và làm mới giữ bộ lọc và vị trí cuộn, không nhảy 
   expect(Math.abs((await page.evaluate(() => window.scrollY)) - before)).toBeLessThanOrEqual(2);
 });
 
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+const sessionColumns = ['.session-row-employee', '.session-row-operation', '.session-row-time', '.session-row-output', '.session-row-status'];
+
+for (const viewport of [{ width: 2048, height: 1152 }, { width: 1920, height: 1080 }, { width: 1366, height: 768 }]) {
+  test(`5 cột Session thẳng hàng tại ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await openScreen(page, viewport);
+    await expect(page.locator('.session-row-status').nth(1)).toContainText('Chưa xác nhận số liệu');
+    await expect(page.locator('.session-row-status').nth(2)).toContainText('Đã loại khỏi báo cáo');
+    await expect(page.locator('.session-row-output').nth(3)).toContainText('sửa được');
+    await expect(page.locator('.session-row-output').nth(4)).toContainText('Chưa nhập sản lượng');
+
+    const geometry = await page.locator('.session-accordion-trigger').evaluateAll((rows, selectors) => rows.map(row => ({
+      columns: selectors.map(selector => {
+        const rect = row.querySelector(selector).getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      }),
+      overflow: row.scrollWidth - row.clientWidth
+    })), sessionColumns);
+    const expectedStarts = geometry[0].columns.map(column => column.left);
+    for (const row of geometry) {
+      row.columns.forEach((column, index) => expect(Math.abs(column.left - expectedStarts[index])).toBeLessThanOrEqual(1));
+      for (let index = 1; index < row.columns.length; index += 1) {
+        expect(row.columns[index].left).toBeGreaterThanOrEqual(row.columns[index - 1].right - 1);
+      }
+      expect(row.overflow).toBeLessThanOrEqual(1);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: `test-results/session-management-${viewport.width}x${viewport.height}.png`, fullPage: true });
+  });
+}
+
+for (const viewport of [{ width: 768, height: 1024 }, { width: 390, height: 844 }]) {
   test(`không vỡ tại ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await openScreen(page, viewport);
-    await page.locator('.session-accordion-trigger').first().click();
+    const firstRow = page.locator('.session-accordion-trigger').first();
+    const geometry = await firstRow.evaluate((row, selectors) => Object.fromEntries(selectors.map(selector => {
+      const rect = row.querySelector(selector).getBoundingClientRect();
+      return [selector, { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }];
+    })), sessionColumns);
+    expect(geometry['.session-row-status'].top).toBeGreaterThanOrEqual(Math.max(geometry['.session-row-operation'].bottom, geometry['.session-row-output'].bottom) - 1);
+    if (viewport.width === 390) {
+      for (let index = 1; index < sessionColumns.length; index += 1) {
+        expect(geometry[sessionColumns[index]].top).toBeGreaterThanOrEqual(geometry[sessionColumns[index - 1]].bottom - 1);
+      }
+    }
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
     await page.screenshot({ path: `test-results/session-management-${viewport.width}x${viewport.height}.png`, fullPage: true });

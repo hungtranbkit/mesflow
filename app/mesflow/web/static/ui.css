@@ -594,11 +594,11 @@ body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
 /* .session-accordion-panel removed -- Session Management's list now sits
    in the shared .content-panel-body (already min-width:0), not a
    page-specific panel wrapper. */
-.session-accordion-list{display:grid;gap:8px}
+.session-accordion-list{--session-row-columns:minmax(150px,1.15fr) minmax(240px,1.8fr) minmax(180px,1.2fr) minmax(160px,1.05fr) minmax(190px,1.35fr);display:grid;gap:8px}
 .session-accordion-item{overflow:hidden;border:1px solid var(--border-default,#d6dce3);background:var(--surface-default,#fff)}
 .session-accordion-item.open{border-color:color-mix(in srgb,var(--status-success,#177451) 42%,var(--border-default,#d6dce3))}
 .session-accordion-item.expanded{border-color:var(--action-primary,#23658b)}
-.session-accordion-trigger{width:100%;min-height:64px;display:grid;grid-template-columns:minmax(150px,1.15fr) minmax(240px,1.8fr) minmax(180px,1.2fr) minmax(160px,1.05fr) auto;gap:12px;align-items:center;padding:10px 12px;border:0;background:transparent;color:var(--text-primary,#17212b);font:inherit;text-align:left;cursor:pointer}
+.session-accordion-trigger{width:100%;min-height:64px;display:grid;grid-template-columns:var(--session-row-columns);gap:12px;align-items:center;padding:10px 12px;border:0;background:transparent;color:var(--text-primary,#17212b);font:inherit;text-align:left;cursor:pointer}
 .session-accordion-trigger:hover{background:var(--surface-subtle,#f8fafc)}
 .session-accordion-trigger:focus-visible{outline:2px solid var(--action-primary,#23658b);outline-offset:-3px}
 .session-accordion-trigger>span{min-width:0}
@@ -606,14 +606,15 @@ body[data-page="templates"] .workspace-header .legacy-kicker{display:none}
 .session-accordion-trigger b{font-size:13px}
 .session-accordion-trigger small{margin-top:3px;color:var(--text-secondary,#647180);font-size:11px;font-variant-numeric:tabular-nums}
 .session-row-time,.session-row-output{font-variant-numeric:tabular-nums}
-.session-row-status{display:flex;align-items:center;justify-content:flex-end;gap:10px;white-space:nowrap}
+.session-row-status{display:flex;min-width:0;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px 10px;white-space:normal}
+.session-row-status .badge{max-width:100%;white-space:nowrap}
 .session-row-status i{width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg);transition:transform 140ms ease}
 .session-accordion-item.expanded .session-row-status i{transform:rotate(225deg)}
 .session-accordion-detail{padding:14px 16px 16px;border-top:1px solid var(--border-default,#d6dce3);background:var(--surface-subtle,#f8fafc)}
 .session-accordion-detail .kv-grid{background:var(--surface-default,#fff)}
 .session-detail-actions{display:flex;justify-content:flex-end;margin-top:12px}
-@media(max-width:1100px){.session-accordion-trigger{grid-template-columns:minmax(150px,1fr) minmax(240px,1.5fr) minmax(170px,1fr) auto}.session-row-output{grid-column:2}.session-row-status{grid-column:4;grid-row:1/3}}
-@media(max-width:620px){.session-accordion-trigger{min-height:0;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px}.session-row-employee,.session-row-operation,.session-row-time,.session-row-output{grid-column:1}.session-row-status{grid-column:2;grid-row:1/5;align-self:start}.session-row-status .badge{white-space:nowrap}.session-accordion-detail{padding:10px}.session-accordion-detail .kv-grid{grid-template-columns:1fr}.session-accordion-detail .kv-row .kv-label{border-bottom:0;padding-bottom:2px;font-size:11px}.session-accordion-detail .kv-row .kv-value{padding-top:2px}.session-detail-actions .btn{width:100%;min-height:44px}}
+@media(max-width:1100px){.session-accordion-trigger{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)}.session-row-employee{grid-column:1;grid-row:1}.session-row-operation{grid-column:1;grid-row:2}.session-row-time{grid-column:2;grid-row:1}.session-row-output{grid-column:2;grid-row:2}.session-row-status{grid-column:1/-1;grid-row:3;justify-content:flex-start}}
+@media(max-width:620px){.session-accordion-trigger{min-height:0;grid-template-columns:minmax(0,1fr);gap:8px;padding:12px}.session-row-employee,.session-row-operation,.session-row-time,.session-row-output,.session-row-status{grid-column:1;grid-row:auto}.session-row-status{align-self:start;justify-content:flex-start}.session-accordion-detail{padding:10px}.session-accordion-detail .kv-grid{grid-template-columns:1fr}.session-accordion-detail .kv-row .kv-label{border-bottom:0;padding-bottom:2px;font-size:11px}.session-accordion-detail .kv-row .kv-value{padding-top:2px}.session-detail-actions .btn{width:100%;min-height:44px}}
 
 /* Production Order list — plan, find, then operate */
 /* .po-list-panel/.po-list-head/.po-list-summary/.po-list-toolbar/
