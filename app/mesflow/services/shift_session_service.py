@@ -18,7 +18,7 @@ from typing import Any
 
 from mesflow.core.config import settings
 from mesflow.core.time_policy import utc_now
-from mesflow.core.working_calendar import get_work_shifts, resolve_shift_window_for_datetime
+from mesflow.core.working_calendar import get_work_shifts, resolve_session_shift_window
 from mesflow.db.connection import fetch_all
 from mesflow.db.repositories.execution import WorkSessionRepository
 
@@ -46,7 +46,7 @@ class ShiftSessionReconciliationService:
         same detection logic backs both "tell me" and "do it".
 
         A session whose started_at falls in a NO_ACTIVE_SHIFT gap (Phase
-        2/8: resolve_shift_window_for_datetime returns None) is skipped
+        2/8: resolve_session_shift_window returns None) is skipped
         here -- there is no shift boundary to auto-close it against. It
         remains visible via the existing LONG_OPEN_SESSION exception
         (12h+) as a genuine anomaly instead.
@@ -55,10 +55,10 @@ class ShiftSessionReconciliationService:
         grace = timedelta(minutes=grace_minutes if grace_minutes is not None else settings.shift_auto_close_grace_minutes)
         rows = fetch_all("""SELECT id,employee_id,operation_id,started_at FROM work_sessions
             WHERE status='OPEN' ORDER BY started_at""")
-        shifts = get_work_shifts()  # fetched ONCE -- see resolve_shift_window_for_datetime()'s own docstring (N+1-connections bug found live)
+        shifts = get_work_shifts()  # fetched ONCE -- see resolve_session_shift_window()'s own docstring (N+1-connections bug found live)
         candidates = []
         for row in rows:
-            window = resolve_shift_window_for_datetime(row['started_at'], shifts)
+            window = resolve_session_shift_window(row['started_at'], shifts)
             if window is None:
                 continue
             shift, _start, end = window

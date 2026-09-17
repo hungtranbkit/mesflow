@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mesflow.core.working_calendar import get_work_shifts, resolve_shift_window_for_datetime
+from mesflow.core.working_calendar import get_work_shifts, resolve_session_shift_window
 from mesflow.db.connection import fetch_all
 
 
@@ -37,7 +37,7 @@ def audit() -> dict[str, list[dict[str, Any]]]:
     zone = site_zone(settings.timezone_name)
 
     open_rows = _open_sessions()
-    shifts = get_work_shifts()  # fetched once -- see resolve_shift_window_for_datetime()'s own N+1 warning
+    shifts = get_work_shifts()  # fetched once -- see resolve_session_shift_window()'s own N+1 warning
     for row in open_rows:
         item = {k: v for k, v in row.items() if k != 'open_hours'}
         item['open_hours'] = round(float(row['open_hours']), 1)
@@ -49,7 +49,7 @@ def audit() -> dict[str, list[dict[str, Any]]]:
         # closed, regardless of hour count.
         if row['started_at'].astimezone(zone).date() != now.astimezone(zone).date():
             result['CROSS_DAY'].append(item)
-        window = resolve_shift_window_for_datetime(row['started_at'], shifts)
+        window = resolve_session_shift_window(row['started_at'], shifts)
         if window is not None:
             _shift, _start, end = window
             if now >= end:

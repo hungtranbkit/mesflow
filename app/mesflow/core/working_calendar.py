@@ -162,6 +162,26 @@ def resolve_shift_window_for_datetime(moment: datetime, shifts: list[dict[str,An
         if start<=local<end:return shift,start,end
     return None
 
+def resolve_session_shift_window(moment: datetime, shifts: list[dict[str,Any]]|None=None, early_tolerance_minutes: int|None=None) -> tuple[dict[str,Any],datetime,datetime] | None:
+    """Resolve the shift that owns a session start. Strict shift attribution
+    stays unchanged, but kiosk starts a few minutes before the configured
+    anchor are attached to the immediately-upcoming shift so stale-session
+    reconciliation cannot strand them forever in NO_ACTIVE_SHIFT.
+    """
+    resolved=resolve_shift_window_for_datetime(moment,shifts)
+    if resolved is not None:return resolved
+    tolerance=int(early_tolerance_minutes if early_tolerance_minutes is not None else settings.shift_start_early_tolerance_minutes)
+    if tolerance<=0:return None
+    candidates=[]
+    for shift in (shifts if shifts is not None else get_work_shifts()):
+        anchor=_anchor_date_for(moment,shift);start,end=shift_bounds(anchor,shift)
+        local=moment.astimezone(start.tzinfo)
+        if anchor.weekday() in {int(x) for x in shift.get('working_weekdays',[])} and timedelta(0)<=(start-local)<=timedelta(minutes=tolerance):
+            candidates.append((start,shift,end))
+    if not candidates:return None
+    start,shift,end=min(candidates,key=lambda x:x[0])
+    return shift,start,end
+
 def working_seconds_between(start: datetime,end: datetime,cfg: dict[str,Any]|None=None,shift_code: str|None=None) -> int:
     if not start or not end or end<=start:return 0
     shift=get_work_shift(shift_code) if shift_code else (get_work_shift(cfg.get('shift_code')) if cfg and cfg.get('shift_code') else resolve_shift_for_datetime(start))

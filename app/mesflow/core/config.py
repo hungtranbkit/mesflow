@@ -78,6 +78,7 @@ class Settings:
     # the dry-run reconcile output, THEN flip enabled=1/dry_run=0 -- never
     # auto-close a fleet's worth of historical stale sessions unreviewed.
     shift_auto_close_grace_minutes: int = int(os.environ.get("MESFLOW_SHIFT_AUTO_CLOSE_GRACE_MINUTES", "15"))
+    shift_start_early_tolerance_minutes: int = int(os.environ.get("MESFLOW_SHIFT_START_EARLY_TOLERANCE_MINUTES", "30"))
     shift_auto_close_enabled: bool = _bool("MESFLOW_SHIFT_AUTO_CLOSE_ENABLED", "0")
     shift_auto_close_dry_run: bool = _bool("MESFLOW_SHIFT_AUTO_CLOSE_DRY_RUN", "1")
     # SESSION_PAST_SHIFT_END exception fires this many minutes after

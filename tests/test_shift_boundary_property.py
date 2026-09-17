@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from hypothesis import given, example, settings, strategies as st
 
-from mesflow.core.working_calendar import DEFAULT_SHIFTS, resolve_shift_window_for_datetime
+from mesflow.core.working_calendar import DEFAULT_SHIFTS, resolve_shift_window_for_datetime, resolve_session_shift_window
 
 TZ = ZoneInfo('Asia/Ho_Chi_Minh')
 
@@ -48,6 +48,17 @@ def at(hour, minute=0, second=0, day_offset=0):
 
 def test_07_59_59_is_before_day_shift_starts():
     assert resolve_shift_window_for_datetime(at(7, 59, 59), DEFAULT_SHIFTS) is None
+
+
+def test_session_start_five_minutes_early_belongs_to_upcoming_day_shift():
+    resolved = resolve_session_shift_window(at(7, 55), DEFAULT_SHIFTS, early_tolerance_minutes=30)
+    assert resolved is not None and resolved[0]['code'] == 'DAY'
+    assert resolved[1] == at(8, 0)
+    assert resolved[2] == at(17, 0)
+
+
+def test_session_start_too_early_stays_unassigned():
+    assert resolve_session_shift_window(at(7, 29), DEFAULT_SHIFTS, early_tolerance_minutes=30) is None
 
 
 def test_08_00_00_enters_day_shift():

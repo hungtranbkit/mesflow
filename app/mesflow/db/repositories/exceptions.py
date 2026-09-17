@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 from mesflow.core.config import settings
-from mesflow.core.working_calendar import get_work_shifts, resolve_shift_window_for_datetime
+from mesflow.core.working_calendar import get_work_shifts, resolve_session_shift_window
 from mesflow.db.connection import fetch_all, fetch_one, transaction
 from mesflow.db.repositories.base import ConflictError, NotFoundError, reportable_session_sql
 from mesflow.domain.audit import record_audit
@@ -14,7 +14,7 @@ class ExceptionRepository:
     def _session_past_shift_end_ids(self)->set[int]:
         """SESSION_PAST_SHIFT_END is computed in Python,
         not SQL, because it needs the SAME shift-resolution logic
-        ShiftSessionReconciliationService uses (resolve_shift_window_for_datetime,
+        ShiftSessionReconciliationService uses (resolve_session_shift_window,
         per-session's OWN started_at, never "today's" shift) -- duplicating
         that in a raw SQL UNION branch would be exactly the "two parsers/
         two shift-boundary calculations drifting apart" class of bug this
@@ -26,10 +26,10 @@ class ExceptionRepository:
         from datetime import timedelta
         now=utc_now();grace=timedelta(minutes=settings.session_past_shift_end_grace_minutes)
         rows=fetch_all("SELECT id,started_at FROM work_sessions WHERE status='OPEN'")
-        shifts=get_work_shifts()  # fetched ONCE, see resolve_shift_window_for_datetime()'s own docstring on why
+        shifts=get_work_shifts()  # fetched ONCE, see resolve_session_shift_window()'s own docstring on why
         ids=set()
         for row in rows:
-            window=resolve_shift_window_for_datetime(row['started_at'],shifts)
+            window=resolve_session_shift_window(row['started_at'],shifts)
             if window is None: continue
             _shift,_start,end=window
             if now>=end+grace: ids.add(row['id'])
