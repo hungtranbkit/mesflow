@@ -17,6 +17,8 @@
 
 - Docker sandbox riêng `mesflow-session-align` tại `http://127.0.0.1:19087`: health PASS, DB/migration PASS.
 - Playwright container riêng `mesflow-session-align-e2e`: **7 passed**, `--retries=0`.
+- Targeted Python: **10 passed** (`test_v71_ui_foundation.py`, `test_session_management_dependent_filters.py`); preflight/version verify PASS.
+- Required aggregate `COMPOSE_PROJECT_NAME=mesflow-session-align-full ./scripts/projectflow/test.sh` không chạy được vì fixture gitignored `runtime/tutorials` trả `mkdir: Permission denied` ngay sau version verify. Không sửa quyền/hạ tầng ngoài scope; vì vậy không merge `main` và không claim full CI PASS.
 - Fixture bao phủ OPEN/CLOSED, 1 badge, 2 badge, excluded badge, tên/PO/Part/Operation dài, chưa nhập sản lượng và rework.
 - Bounding boxes tại 1366/1920/2048: start-x của từng cột giữa 24 dòng sai số `<=1px`; kiểm tra không overlap và không overflow PASS.
 - Reflow + overflow tại 768/390 PASS.
@@ -36,6 +38,7 @@
 - Deploy TEST qua `scripts/deploy-remote-test.sh 71.0.0.326`: PASS. Chỉ app được recreate; DB/nginx không restart; migration head không đổi.
 - Public smoke: ready/version PASS; `/login` 200; HTML trỏ `/static/ui.css?v=71.0.0.326`; CSS 200 và chứa `--session-row-columns`; `/app` 302 về login; `/api/employees` 401 khi anonymous.
 - Public URL: `https://mesflow.net` — version `71.0.0.326`, commit `565c790868b6`, role `PRODUCTION_TEST`.
+- Branch đã push không force: `origin/agent/codex/session-list-column-align-20260918`; chưa merge `main` do aggregate gate bị chặn như trên.
 
 ## Rollback
 
