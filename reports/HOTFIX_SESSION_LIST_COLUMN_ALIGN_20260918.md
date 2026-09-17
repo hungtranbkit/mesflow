@@ -4,7 +4,7 @@
 
 | Task | Trạng thái | Owner | Branch/base | Phạm vi |
 |---|---|---|---|---|
-| SESSION-LIST-COLUMN-ALIGN-20260918 | LOCAL PASS — chờ release/deploy TEST | Codex (`mes-codex-work`) | `agent/codex/session-list-column-align-20260918` / live TEST `f5263a9` | Chỉ layout danh sách Quản lý Session + regression Playwright; không đổi API/data/nghiệp vụ/migration |
+| SESSION-LIST-COLUMN-ALIGN-20260918 | DEPLOY PASS — TEST | Codex (`mes-codex-work`) | `agent/codex/session-list-column-align-20260918`; hotfix `3cb37cf`; release `565c790` | Chỉ layout danh sách Quản lý Session + regression Playwright; không đổi API/data/nghiệp vụ/migration |
 
 ## Root cause và sửa chữa
 
@@ -30,10 +30,13 @@
 ## Release / deploy checkpoint
 
 - Git fetch qua SSH mặc định bị chặn bởi `/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf` sai owner/permission; baseline được neo trực tiếp theo commit/version public TEST và local ref đã có. Không sửa cấu hình hệ thống.
-- Release/version/artifact: PENDING.
-- Deploy TEST và public smoke: PENDING.
-- Không được báo DONE nếu hai dòng trên chưa có evidence thực tế.
+- Fetch tiếp theo dùng `/home/dell/.ssh/config` hợp lệ, giữ nguyên host-key verification; không sửa/hạ SSH security và không force-push.
+- Ngay trước promote, `https://mesflow.net/api/system/ready` vẫn là `71.0.0.325`, commit `f5263a9dfdae`, role `PRODUCTION_TEST`, migration `0054_multi_open_session_per_employee`; không có release agent khác để ghi đè.
+- Release `71.0.0.326`; source/cache-key commit `565c790868b6`; image digest `sha256:5c609d495d3ab3d3934ceaecfaa474a02f83608174156a1a8176a931d759cd3f`; bundle transfer checksum `88a4638f72ccd937464be2e94a6034b9083d90b1cab7164bf213bf9968810e9c`.
+- Deploy TEST qua `scripts/deploy-remote-test.sh 71.0.0.326`: PASS. Chỉ app được recreate; DB/nginx không restart; migration head không đổi.
+- Public smoke: ready/version PASS; `/login` 200; HTML trỏ `/static/ui.css?v=71.0.0.326`; CSS 200 và chứa `--session-row-columns`; `/app` 302 về login; `/api/employees` 401 khi anonymous.
+- Public URL: `https://mesflow.net` — version `71.0.0.326`, commit `565c790868b6`, role `PRODUCTION_TEST`.
 
 ## Rollback
 
-Hotfix không có migration. Nếu health/UI smoke sau deploy thất bại, chạy lại `scripts/deploy-remote-test.sh 71.0.0.325` để nạp exact image version trước, hoặc đặt `MESFLOW_IMAGE` của remote TEST về digest trước deploy ghi trong `deploy-state.json`, rồi chỉ recreate service app bằng `docker compose --env-file .env up -d --no-deps mesflow`. Không restart PostgreSQL/nginx/service khác.
+Hotfix không có migration. Rollback target là release `71.0.0.325`, digest `sha256:ceceeaa40bbe826504dbd1b25ce5f5454b1d62c9c3bae977eee5f632a22f263a`. Chạy lại `scripts/deploy-remote-test.sh 71.0.0.325`, hoặc đặt `MESFLOW_IMAGE` của remote TEST về digest này rồi chỉ recreate service app bằng `docker compose --env-file .env up -d --no-deps mesflow`. Không restart PostgreSQL/nginx/service khác.
