@@ -135,6 +135,34 @@ test('dashboard ngày vẫn hiển thị session ca tối cùng ngày', async ({
   await expect(nightRow).toContainText('OP-NIGHT');
 });
 
+test('renderer thời gian xử lý đúng biên dưới bằng và vượt định mức', async ({ page }) => {
+  await login(page);
+  const cases = await page.evaluate(() => [59, 60, 61].map(elapsedSeconds => {
+    const timing = expectedTiming({
+      perUnitSeconds: 60, quantity: 1, elapsedSeconds, totalSecondsOverride: 60
+    });
+    return {
+      elapsedSeconds,
+      timing,
+      html: expectedTimingHtml(timing, { showPerUnit: false })
+    };
+  }));
+
+  expect(cases[0].timing.overrunSeconds).toBe(0);
+  expect(cases[0].html).not.toContain('Vượt dự kiến');
+  expect(cases[0].html).not.toContain('Còn lại');
+
+  expect(cases[1].timing.overrunSeconds).toBe(0);
+  expect(cases[1].html).toContain('<small>Đã làm</small><b>1 phút</b>');
+  expect(cases[1].html).toContain('<small>Tổng thời gian dự kiến</small><b>1 phút</b>');
+  expect(cases[1].html).not.toContain('Vượt dự kiến');
+  expect(cases[1].html).not.toContain('Còn lại');
+
+  expect(cases[2].timing.overrunSeconds).toBe(1);
+  expect(cases[2].html).toContain('<small>Vượt dự kiến</small>');
+  expect(cases[2].html).not.toContain('Còn lại');
+});
+
 const dashboardViewports = [
   { width: 1920, height: 1080 },
   { width: 1366, height: 768 },

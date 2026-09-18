@@ -20,6 +20,7 @@ functional change in this pass; the calculation/refresh pipeline itself was
 already correct.
 """
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -216,11 +217,18 @@ def test_case6_session_finish_reduces_running_count_without_losing_time(db, api,
 
 
 def test_variance_zero_wording_not_negative_countdown():
-    """Frontend fix: variance == 0 (actual exactly equals the standard) must
-    say 'Đã dùng hết thời gian định mức', not 'Còn lại 0 giây', and the
-    'Đã vượt'/'Còn lại' branches must never be fed a negative duration."""
-    js = __import__('pathlib').Path(__file__).resolve().parents[2] / 'app/mesflow/web/static/app.js'
+    """Lock the safety invariant used by the browser boundary regression.
+
+    The UI was deliberately refactored from an inline countdown sentence to
+    labelled ``Đã làm`` / ``Tổng thời gian dự kiến`` metrics.  Test the user
+    behaviour in Playwright instead of freezing that old implementation
+    string.  This integration-side guard ensures the shared helper clamps the
+    difference at zero and renders an overrun only when it is positive.
+    """
+    js = Path(__file__).resolve().parents[2] / 'app/mesflow/web/static/app.js'
     src = js.read_text(encoding='utf-8')
-    assert "variance===0?'Đã dùng hết thời gian định mức'" in src
-    assert "Đã vượt ${fmtDuration(variance)}" in src
-    assert "Còn lại ${fmtDuration(-variance)}" in src
+    assert 'elapsed>total?elapsed-total:0' in src
+    assert 'if(t.isOverrun)' in src
+    assert 'isOverrun:overrun>0' in src
+    assert 'Math.max(0,Number(value||0))' in src
+    assert [max(0, elapsed - 60) for elapsed in (59, 60, 61)] == [0, 0, 1]
