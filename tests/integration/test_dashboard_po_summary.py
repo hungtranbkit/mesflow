@@ -5,11 +5,44 @@ def _po(rows, po_id):
     return next(row for row in rows if int(row['po_id']) == int(po_id))
 
 
+def test_po_progress_is_weighted_by_expected_operation_time_not_raw_sum(db, seeded_factory):
+    """Operation output is summed over matching Part plans, never averaged."""
+    g = seeded_factory
+    extra_ids = []
+    extra_part_ids = []
+    try:
+        with db.cursor() as cur:
+            cur.execute("UPDATE parts SET planned_quantity=100 WHERE id=%s", (g['part_id'],))
+            cur.execute("UPDATE operations SET done_qty=50,standard_seconds_per_unit=1,sort_order=1 WHERE id=%s",
+                        (g['operation_id'],))
+            for index, (done, seconds, planned) in enumerate(((20, 2, 50), (80, 3, 100)), start=2):
+                cur.execute("INSERT INTO parts(production_order_id,code,name,planned_quantity) VALUES(%s,%s,%s,%s) RETURNING id",
+                            (g['po_id'], f'TEST-WEIGHT-PART-{g["suffix"]}-{index}', f'Weighted Part {index}', planned))
+                part_id = cur.fetchone()['id']; extra_part_ids.append(part_id)
+                cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,sort_order,qr,
+                    done_qty,standard_seconds_per_unit) VALUES(%s,%s,%s,%s,'IN_PROGRESS',%s,%s,%s,%s) RETURNING id""",
+                    (g['po_id'], part_id, f'TEST-WEIGHT-{g["suffix"]}-{index}', f'Weighted OP {index}', index,
+                     f'WF|OP|TEST-WEIGHT-{g["suffix"]}-{index}', done, seconds))
+                extra_ids.append(cur.fetchone()['id'])
+        row = _po(DashboardRepository().po_progress(500), g['po_id'])
+        # (50 + 20 + 80) / (100 + 50 + 100) = 60.
+        assert float(row['progress_percent']) == 60.0
+        assert row['progress_basis'] == 'SUM_GOOD_OVER_SUM_PLANNED'
+        assert 0 <= float(row['progress_percent']) <= 100
+    finally:
+        with db.cursor() as cur:
+            if extra_ids:
+                cur.execute('DELETE FROM operations WHERE id=ANY(%s)', (extra_ids,))
+            if extra_part_ids:
+                cur.execute('DELETE FROM parts WHERE id=ANY(%s)', (extra_part_ids,))
+
+
 def test_po_summary_uses_terminal_operation_without_sequential_double_count(db, seeded_factory):
     g = seeded_factory
     extra_ids, part_ids = [], []
     try:
         with db.cursor() as cur:
+            cur.execute("UPDATE parts SET planned_quantity=100 WHERE id=%s", (g['part_id'],))
             cur.execute("UPDATE operations SET done_qty=100,defect_qty=0,rework_qty=0,repaired_qty=0,sort_order=10 WHERE id=%s", (g['operation_id'],))
             # rework_qty = declared REPAIRABLE, repaired_qty = recovered (0051).
             cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,sort_order,qr,
@@ -29,11 +62,11 @@ def test_po_summary_uses_terminal_operation_without_sequential_double_count(db, 
         # pieces neither repaired nor written off are PENDING.
         assert (row['scrap_quantity'], row['remaining_quantity']) == (0, 30)
         assert row['repair_pending_quantity'] == (10 - 6) + (8 - 3)
-        assert float(row['progress_percent']) == 70.0
+        assert float(row['progress_percent']) == 83.3
         assert row['good_quantity'] != 250
 
         with db.cursor() as cur:
-            cur.execute("INSERT INTO parts(production_order_id,code,name) VALUES(%s,%s,'Second Part') RETURNING id",
+            cur.execute("INSERT INTO parts(production_order_id,code,name,planned_quantity) VALUES(%s,%s,'Second Part',100) RETURNING id",
                         (g['po_id'], f"TEST-PART2-{g['suffix']}"))
             part2 = cur.fetchone()['id']; part_ids.append(part2)
             cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,sort_order,qr,
@@ -43,11 +76,37 @@ def test_po_summary_uses_terminal_operation_without_sequential_double_count(db, 
         row = _po(DashboardRepository().po_progress(500), g['po_id'])
         assert (row['good_quantity'], row['defect_quantity'], row['repaired_quantity']) == (60, 18, 13)
         assert row['scrap_quantity'] == 0
-        assert float(row['progress_percent']) == 60.0
+        assert float(row['progress_percent']) == 75.0
     finally:
         with db.cursor() as cur:
             if extra_ids: cur.execute('DELETE FROM operations WHERE id=ANY(%s)', (extra_ids,))
             if part_ids: cur.execute('DELETE FROM parts WHERE id=ANY(%s)', (part_ids,))
+
+
+def test_po_progress_excludes_operations_without_part_plan_and_reports_warning(db, seeded_factory):
+    g = seeded_factory
+    extra_ids = []
+    extra_part_ids = []
+    try:
+        with db.cursor() as cur:
+            cur.execute("UPDATE parts SET planned_quantity=100 WHERE id=%s", (g['part_id'],))
+            cur.execute("UPDATE operations SET done_qty=50 WHERE id=%s", (g['operation_id'],))
+            cur.execute("INSERT INTO parts(production_order_id,code,name) VALUES(%s,%s,'No plan') RETURNING id",
+                        (g['po_id'], f"TEST-NO-PLAN-{g['suffix']}"))
+            part_id = cur.fetchone()['id']; extra_part_ids.append(part_id)
+            cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,qr,done_qty)
+                VALUES(%s,%s,%s,'Missing plan','IN_PROGRESS',%s,100) RETURNING id""",
+                (g['po_id'], part_id, f"TEST-NO-PLAN-OP-{g['suffix']}", f"WF|OP|TEST-NO-PLAN-{g['suffix']}"))
+            extra_ids.append(cur.fetchone()['id'])
+        row = _po(DashboardRepository().po_progress(500), g['po_id'])
+        assert float(row['progress_percent']) == 50.0
+        assert row['progress_actual_good_qty'] == 50
+        assert row['progress_planned_qty'] == 100
+        assert row['progress_missing_operation_count'] == 1
+    finally:
+        with db.cursor() as cur:
+            if extra_ids: cur.execute('DELETE FROM operations WHERE id=ANY(%s)', (extra_ids,))
+            if extra_part_ids: cur.execute('DELETE FROM parts WHERE id=ANY(%s)', (extra_part_ids,))
 
 
 def test_po_repair_buckets_are_distinct_and_survive_large_quantities(db, seeded_factory):
@@ -73,6 +132,7 @@ def test_po_repair_buckets_are_distinct_and_survive_large_quantities(db, seeded_
     )
     for defect, repairable, repaired, scrapped, pending, scrap in cases:
         with db.cursor() as cur:
+            cur.execute("UPDATE parts SET planned_quantity=100 WHERE id=%s", (g['part_id'],))
             cur.execute("""UPDATE operations SET done_qty=999999,defect_qty=%s,rework_qty=%s,
                 repaired_qty=%s,scrap_qty=%s WHERE id=%s""",
                 (defect, repairable, repaired, scrapped, g['operation_id']))

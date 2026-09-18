@@ -217,6 +217,28 @@ class DashboardRepository:
           FROM operations WHERE {PRODUCTION_ONLY_BARE} GROUP BY production_order_id
         ), part_rollup AS (
           SELECT production_order_id,COUNT(*) part_count FROM parts GROUP BY production_order_id
+        ), operation_progress AS (
+          -- Production progress is the ratio of actual good output to the
+          -- planned quantity of the same PO/Part operation. Intermediate
+          -- operation output is deliberately not treated as PO finished goods.
+          SELECT o.production_order_id,
+            CASE WHEN COALESCE(p.planned_quantity,0)>0
+              THEN GREATEST(COALESCE(o.done_qty,0),0)::numeric ELSE 0 END actual_good_qty,
+            GREATEST(COALESCE(p.planned_quantity,0),0)::numeric planned_qty
+          FROM operations o JOIN production_orders po ON po.id=o.production_order_id
+            JOIN parts p ON p.id=o.part_id
+          WHERE {PRODUCTION_ONLY_O}
+        ), progress_rollup AS (
+          SELECT production_order_id,
+            CASE WHEN SUM(planned_qty)>0
+              THEN LEAST(GREATEST(ROUND(SUM(actual_good_qty)/SUM(planned_qty)*100,1),0),100)
+              ELSE NULL END progress_percent,
+            SUM(actual_good_qty)::bigint progress_actual_good_qty,
+            SUM(planned_qty)::bigint progress_planned_qty,
+            COUNT(*) FILTER (WHERE planned_qty<=0) progress_missing_operation_count,
+            CASE WHEN SUM(planned_qty)>0 THEN 'SUM_GOOD_OVER_SUM_PLANNED'
+              ELSE 'NO_OPERATION_PLANNED_QUANTITY' END progress_basis
+          FROM operation_progress GROUP BY production_order_id
         ), terminal_rollup AS (
           SELECT production_order_id,COUNT(*) terminal_operation_count,
             ROUND(COALESCE(SUM(done_qty),0)::numeric/NULLIF(COUNT(*),0))::bigint good_quantity,
@@ -280,14 +302,16 @@ class DashboardRepository:
           -- in the repair queue.
           COALESCE(tr.scrapped_quantity,0) scrap_quantity,
           GREATEST(COALESCE(po.planned_quantity,0)-COALESCE(tr.good_quantity,0),0) remaining_quantity,
-          CASE WHEN COALESCE(po.planned_quantity,0)>0 THEN
-            ROUND(LEAST(COALESCE(tr.good_quantity,0)::numeric/po.planned_quantity*100,100),1)
-          ELSE 0 END progress_percent,
-          'TERMINAL_OPERATION_EQUAL_PART_WEIGHT' progress_basis
+          pg.progress_percent progress_percent,
+          COALESCE(pg.progress_basis,'NO_OPERATION_PLANNED_QUANTITY') progress_basis,
+          COALESCE(pg.progress_actual_good_qty,0) progress_actual_good_qty,
+          COALESCE(pg.progress_planned_qty,0) progress_planned_qty,
+          COALESCE(pg.progress_missing_operation_count,0) progress_missing_operation_count
         FROM production_orders po
         LEFT JOIN part_rollup pr ON pr.production_order_id=po.id
         LEFT JOIN operation_rollup op ON op.production_order_id=po.id
         LEFT JOIN terminal_rollup tr ON tr.production_order_id=po.id
+        LEFT JOIN progress_rollup pg ON pg.production_order_id=po.id
         LEFT JOIN repair_rollup rr ON rr.production_order_id=po.id
         ORDER BY po.updated_at DESC LIMIT %s""",(min(max(limit,1),500),))
     def operation_overview(self,limit:int=1000):
