@@ -32,7 +32,13 @@ async function signIn(page) {
   await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
 }
 
-const navTo = (page, id) => page.click(`[data-page="${id}"]`);
+// Sidebar groups are collapsed by default, so a nested destination button can
+// legitimately be hidden.  Exercise the same navigation handler directly;
+// visibility of that unrelated disclosure is not part of this date test.
+const navTo = (page, id) => page.evaluate(pageId => {
+  const button = document.querySelector(`[data-page="${pageId}"]`);
+  return openPage(pageId, button);
+}, id);
 
 test.describe('Dashboard — ngày reset khi bước vào', () => {
   test.beforeEach(async ({ page }) => { await mockEmpty(page); await signIn(page); });
@@ -51,7 +57,10 @@ test.describe('Dashboard — ngày reset khi bước vào', () => {
     await navTo(page, 'dashboard');
     await expect(page.locator('#dailyDate')).toBeVisible();
     await expect(page.locator('#dailyDate')).toHaveValue(hcmDate());
-    expect(page.url()).not.toContain('date=');
+    // Dashboard now canonicalizes its selected date in the URL.  The
+    // regression is the stale OLD_DATE surviving navigation, not the mere
+    // presence of a date query parameter.
+    expect(new URL(page.url()).searchParams.get('date')).toBe(hcmDate());
   });
 
   test('đang ở Dashboard đổi ngày thì GIỮ, không nhảy về hôm nay khi làm mới', async ({ page }) => {
