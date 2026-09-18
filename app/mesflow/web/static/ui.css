@@ -2575,6 +2575,7 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
    đọc, không phải nhãn. Nhãn cột (.overview-op-head) vẫn giữ 10px vì nó là
    nhãn viết hoa, đọc một lần rồi thôi. */
 .overview-op-row small{font-size:11px}
+.overview-po-progress-meta{display:block;margin-top:3px;color:var(--text-secondary);font-size:11px;line-height:1.35;overflow-wrap:anywhere}
 
 /* ==========================================================================
    .op-identity -- khối nhận dạng Operation dùng chung (MFUI.opIdentity)
