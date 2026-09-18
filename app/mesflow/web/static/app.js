@@ -28,7 +28,7 @@ const menu=[
   {label:'Điều hành',items:[
     {page:'session-management',label:'Quản lý phiên làm việc',hint:'50 OP gần nhất, xem phiên làm việc, lọc và chỉnh sửa'},
     {page:'session-exceptions',label:'Phiên làm việc bất thường',hint:'Danh sách cần kiểm tra, xác nhận và theo dõi kết quả xử lý'},
-    {page:'rework-queue',label:'Hàng chờ sửa',hint:'Sản phẩm NG chờ sửa hoặc loại, gom theo Part'},
+    {page:'rework-queue',label:'Hàng chờ sửa',hint:'Sản phẩm lỗi chờ sửa hoặc loại, gom theo Part'},
     {page:'production-schedule',label:'Gantt & Material Flow',hint:'Kế hoạch chi tiết và dòng vật liệu'},
     {page:'kiosk-management',label:'Trạm kiosk',hint:'Đăng ký, sức khỏe, action log và lỗi theo trạm'},
     {page:'employee-productivity',label:'Báo cáo năng suất nhân viên',hint:'Trung bình % hoàn thành phiên làm việc theo từng nhân viên'}

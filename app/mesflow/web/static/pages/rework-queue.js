@@ -49,8 +49,8 @@ function rqRow(item) {
         <small>${esc(item.employee_no || '')} · phiên làm việc #${Number(item.source_session_id)}</small>
       </div>
       <div class="op-card-fact rq-split">
-        <small>NG / đã xử lý</small>
-        <b>NG ${rqNum(item.defect_qty)}</b>
+        <small>Lỗi / đã xử lý</small>
+        <b>Lỗi ${rqNum(item.defect_qty)}</b>
         <!-- "Đã sửa" là repaired_qty, KHÔNG phải rework_qty: rework_qty là KHAI
              BÁO của công nhân về số sửa được -- kích thước của nhóm chờ sửa,
              không phải tiến độ xử lý nhóm đó (0051). Giữ nguyên hai vế như bố
@@ -86,7 +86,7 @@ function rqDraw() {
   document.getElementById('rqList').innerHTML = rows.length
     ? `<div class="op-card-list rq-list">${rows.map(rqRow).join('')}</div>`
     : MFUI.emptyState('Không có sản phẩm chờ sửa',
-        RQ_STATE.items.length ? 'Không có mục nào khớp bộ lọc hiện tại.' : 'Khi một phiên làm việc ghi nhận NG chưa được sửa hoặc loại, mục đó sẽ xuất hiện ở đây.');
+    RQ_STATE.items.length ? 'Không có mục nào khớp bộ lọc hiện tại.' : 'Khi một phiên làm việc ghi nhận lỗi chưa được sửa hoặc loại, mục đó sẽ xuất hiện ở đây.');
   document.querySelectorAll('[data-rq-resolve]').forEach(button => {
     button.onclick = () => rqOpenResolve(Number(button.dataset.rqResolve));
   });
@@ -127,7 +127,7 @@ function rqOpenResolve(sessionId) {
       <div class="rq-resolve-source">
         <b>${esc(item.operation_code || '')} · ${esc(item.operation_name || '')}</b>
         <span>${esc(item.po_code || '')} · ${esc(item.part_code || '')} ${esc(item.part_name || '')}</span>
-        <span>Phiên làm việc #${Number(item.source_session_id)} · ${esc(item.employee_name || '')} · NG ${rqNum(item.defect_qty)}</span>
+        <span>Phiên làm việc #${Number(item.source_session_id)} · ${esc(item.employee_name || '')} · Lỗi ${rqNum(item.defect_qty)}</span>
         <strong>Còn chờ sửa: ${rqNum(pending)}</strong>
       </div>
       <div class="form-grid rq-resolve-grid">
@@ -188,7 +188,7 @@ function rqOpenResolve(sessionId) {
 async function renderReworkQueue() {
   if (dashboardTimer) { clearInterval(dashboardTimer); dashboardTimer = null; }
   title.textContent = 'Hàng chờ sửa';
-  subtitle.textContent = 'Sản phẩm NG chưa được sửa hoặc loại, gom theo Part và Operation phát sinh';
+  subtitle.textContent = 'Sản phẩm lỗi chưa được sửa hoặc loại, gom theo Part và Operation phát sinh';
   const query = new URLSearchParams(location.search);
   content.innerHTML = `<div class="page-shell">
     ${MFUI.filterBar({

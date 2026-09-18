@@ -91,7 +91,7 @@
     const signed=delta==null?'':`${delta>0?'+':''}${N(delta)}`;
     switch(ev.event_type){
       case 'GOOD_QUANTITY_RECORDED':return {action:`cập nhật ${signed} SP đạt`,impact:progressImpact(ev)};
-      case 'DEFECT_QUANTITY_RECORDED':return {action:`ghi nhận ${signed} NG`,impact:''};
+      case 'DEFECT_QUANTITY_RECORDED':return {action:`ghi nhận ${signed} Lỗi`,impact:''};
       case 'REPAIRABLE_DEFECT_RECORDED':return {action:`ghi nhận ${signed} lỗi sửa được`,impact:'vào hàng chờ sửa'};
       case 'SESSION_STARTED':return {action:'nhận việc',impact:'bắt đầu phiên làm việc'};
       case 'SESSION_FINISHED':return {action:'kết thúc việc',impact:''};
@@ -270,7 +270,7 @@
     function paintKpis(k){
       const cards=[
         {label:'Sản lượng đạt hôm nay',value:N(k.day_good_qty),tone:''},
-        {label:'NG hôm nay',value:N(k.day_defect_qty),tone:Number(k.day_defect_qty)>0?'bad':''},
+        {label:'Lỗi hôm nay',value:N(k.day_defect_qty),tone:Number(k.day_defect_qty)>0?'bad':''},
         {label:'Lỗi sửa được',value:N(k.day_rework_qty),tone:Number(k.day_rework_qty)>0?'warn':''},
         {label:'Phiên làm việc đang mở',value:N(k.open_session_count),tone:''},
         {label:'Người đang làm',value:N(k.active_worker_count),tone:''},
@@ -424,8 +424,8 @@
             sub:`${x.operation_code||''} · ${N(x.unconfirmed_count)} phiên làm việc tự động kết thúc khi hết ca · chờ xác nhận sản lượng`});
         const good=Number(x.day_good_qty||0),ng=Number(x.day_defect_qty||0);
         if(ng>0&&good+ng>0&&ng/(good+ng)>=NG_RATIO_ALERT)
-          out.push({sev:1,tag:'Tỉ lệ NG cao',title:x.operation_name||x.operation_code,
-            sub:`${x.operation_code||''} · ${N(ng)} NG / ${N(good+ng)} SP (${Math.round(ng/(good+ng)*100)}%)`});
+          out.push({sev:1,tag:'Tỉ lệ lỗi cao',title:x.operation_name||x.operation_code,
+            sub:`${x.operation_code||''} · ${N(ng)} Lỗi / ${N(good+ng)} SP (${Math.round(ng/(good+ng)*100)}%)`});
       }
       const now=Date.now();
       for(const s0 of sessions||[]){

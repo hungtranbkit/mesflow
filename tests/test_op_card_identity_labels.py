@@ -27,7 +27,7 @@ def test_primitive_supports_an_optional_code_label():
     assert "codeLabel=''" in js, 'opIdentity phải nhận codeLabel'
     # Nhãn là TUỲ CHỌN: chip timeline và hàng Quản lý Session chỉ rộng vài chục
     # pixel, bật cứng "Operation:" ở đó là cướp chỗ của chính cái mã.
-    assert 'codeLabel?' in js, 'codeLabel phải là tuỳ chọn, không bật cứng'
+    assert 'const codeKey=codeLabel' in js, 'codeLabel phải là tuỳ chọn, không bật cứng'
     assert 'op-identity-key' in js
 
 

@@ -165,7 +165,7 @@ async function renderEmployeeProductivity() {
         <td><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
         <td><b>${x.completed_sessions} phiên làm việc</b>${sessionBreakdown(x)}</td>
         <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} phiên làm việc hợp lệ</small></td>
-        <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>NG ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
+        <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>Lỗi ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
         <td>${epDur(x.worked_seconds)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;

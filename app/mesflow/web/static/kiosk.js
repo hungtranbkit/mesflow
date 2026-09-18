@@ -637,8 +637,8 @@
     const rows = isSetup
       ? [['Setup máy','Hoàn tất']]
       : (pendingFinish.hasRework
-        ? [['Đạt',pendingFinish.good],['NG tổng',pendingFinish.defect],['Sửa được',pendingFinish.rework],['Phế',scrap]]
-        : [['Đạt',pendingFinish.good],['NG',pendingFinish.defect]]);
+        ? [['Đạt',pendingFinish.good],['Lỗi tổng',pendingFinish.defect],['Sửa được',pendingFinish.rework],['Phế',scrap]]
+        : [['Đạt',pendingFinish.good],['Lỗi',pendingFinish.defect]]);
     document.getElementById('finish-confirm-summary').innerHTML = rows.map(([label,value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('');
     document.getElementById('finish-submit-error').textContent = '';
     document.getElementById('finish-confirm-ok').hidden = false;
@@ -699,8 +699,8 @@
       openSessions = openSessions.filter(s => Number(s.id) !== Number(openSession.id));
       const scrap = defect - rework;
       document.getElementById('finished-summary').textContent = rework > 0
-        ? `Đạt ${good} · NG ${defect} · Sửa được ${rework} · Phế ${scrap}`
-        : `Đạt ${good} · NG ${defect}`;
+        ? `Đạt ${good} · Lỗi ${defect} · Sửa được ${rework} · Phế ${scrap}`
+        : `Đạt ${good} · Lỗi ${defect}`;
       // Còn việc đang chạy thì phải nói ra, nếu không người đứng máy rời đi
       // trong khi một Operation vẫn đang mở dưới tên mình.
       const finishedNote = document.getElementById('finished-note');
