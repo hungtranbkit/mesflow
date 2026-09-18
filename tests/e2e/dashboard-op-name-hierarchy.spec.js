@@ -4,14 +4,14 @@
 // sửa), nay áp cho hai tab người trực xưởng mở nhiều nhất:
 //
 //   A · Tổng quan Operation   -> .op-time-row
-//   B · Nhân viên / Session   -> .employee-day-row (khối tổng hợp + chip)
+//   B · Nhân viên / Session   -> .employee-day-row (khối tổng hợp + OP row)
 //
 // Hình cũ ở cả hai chỗ là MỘT thẻ <b> ghép mã trước tên:
 //
 //   111-THAN-THUNG-R-01 · CHẤN BƯỚC 1
 //   08:22 – Đang chạy · 5p · 111-THAN-THUNG… · Đạt —
 //
-// Đọc lướt thì gặp một dãy ký tự vô nghĩa trước; ở chip thì tên còn không có
+// Đọc lướt thì gặp một dãy ký tự vô nghĩa trước; ở row thì tên còn không có
 // mặt, chỉ nằm trong title=. Cả hai nay dựng bằng MFUI.opIdentity().
 //
 // Bài test đo TRỌNG LƯỢNG THỊ GIÁC (cỡ chữ/độ đậm/thứ tự đọc) chứ không so
@@ -95,7 +95,7 @@ async function openDashboard(page, tab, width = 1366) {
 const BLOCKS = [
   ['overview', '#opTimeProgress .op-card .op-identity', 'Tổng quan Operation'],
   ['people', '.employee-day-summary .op-identity', 'Nhân viên / Session · khối tổng hợp'],
-  ['people', '.employee-session-chips .op-identity', 'Nhân viên / Session · chip timeline'],
+  ['people', '.emp-op-item.running .op-identity', 'Nhân viên / Session · Operation đang chạy'],
 ];
 
 const measure = el => {
@@ -142,7 +142,7 @@ test('tên OP thật nằm trên bề mặt, không chỉ trong title=', async (
   await expect(first.locator('.op-identity-meta')).toContainText('PO:');
 
   await openDashboard(page, 'people');
-  // Chip timeline: TÊN + mã + Part·PO + giờ/trạng thái/sản lượng.
+  // Operation row: TÊN + mã + Part·PO + giờ/trạng thái/sản lượng.
   //
   // Bản trước cố ý GIẤU mã trên chip ("không lặp lại mã dài trên một dòng
   // chật") và chỉ để nó ở title=. Điều đó đảo lại từ bản này, có chủ đích: từ
@@ -150,16 +150,15 @@ test('tên OP thật nằm trên bề mặt, không chỉ trong title=', async (
   // chung một tên công đoạn, ba chip liên tiếp cùng ghi "HÀN ROBOT" là ba dòng
   // không phân biệt nổi -- và title= thì không đọc được trên màn cảm ứng.
   //
-  // Chip được xếp theo started_at, nên chip ĐẦU TIÊN của nhân viên này là
-  // session 06:00 chạy trên OP cố ý thiếu tên (nhánh fallback, có bài riêng
-  // bên dưới). Chốt đúng chip của session đang chạy 08:22 -- OP có tên thật.
-  const chip = page.locator('.employee-session-chips .op-identity.open').first();
-  await expect(chip.locator('.row-title')).toHaveText(OP_NAME);
-  await expect(chip.locator('.row-code')).toContainText(OP_CODE);
-  await expect(chip.locator('.op-identity-meta')).toContainText('Part:');
-  await expect(chip.locator('.op-identity-when')).toContainText('Đang chạy');
+  // Chốt đúng row của Operation đang chạy 08:22 -- OP có tên thật.
+  const runningItem = page.locator('.emp-op-item.running').first();
+  const identity = runningItem.locator('.op-identity');
+  await expect(identity.locator('.row-title')).toHaveText(OP_NAME);
+  await expect(identity.locator('.row-code')).toContainText(OP_CODE);
+  await expect(identity.locator('.op-identity-meta')).toContainText('Part:');
+  await expect(runningItem.locator('.emp-op-facts')).toContainText(/đang chạy/i);
   // title= vẫn mang bản đầy đủ để soi phần bị cắt.
-  expect(await chip.getAttribute('title')).toContain(OP_CODE);
+  expect(await identity.getAttribute('title')).toContain(OP_CODE);
 });
 
 test('thiếu operation_name thì mã lên làm chữ chính, không để trống', async ({ page }) => {
