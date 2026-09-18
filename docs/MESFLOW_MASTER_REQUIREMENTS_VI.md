@@ -1483,6 +1483,26 @@ không bao giờ ở bên ngoài.
 
 ### REQ-DASH-002 — Lọc theo tầng (cascading) và bảo vệ chống response cũ (stale)
 
+#### Quy ước KPI sản lượng trên Tổng quan (canonical, 2026-09-18)
+
+- **Tiến độ sản lượng theo công đoạn** là một chỉ số riêng: với từng PO và
+  toàn bộ các PO đang hiển thị, tính `SUM(actual good qty)` của các Operation
+  sản xuất có `planned_qty > 0`, chia cho `SUM(planned_qty)` của đúng các
+  Operation đó, nhân 100 và giới hạn trong 0..100. Đây là tổng có trọng số
+  theo số lượng, không phải trung bình phần trăm. Operation SETUP/REWORK bị
+  loại theo quy tắc `PRODUCTION_ONLY`; Operation thiếu định mức bị loại khỏi
+  cả tử và mẫu và phải có cảnh báo/số đếm. Mẫu số bằng 0 hiển thị “Chưa có
+  định mức sản lượng”. Bộ lọc PO phải áp dụng lại cùng công thức trên tập PO
+  còn lại.
+- **Thành phẩm** (hoặc nhãn actual finished-product hiện hữu) lấy đúng field
+  thành phẩm đã có trong hệ thống (`good_quantity` của nguồn báo cáo hiện
+  tại). Không suy diễn thành phẩm từ việc một Operation hoàn thành, không
+  thêm “final/completion Operation”, không migration hay cấu hình mới cho
+  quy tắc này.
+- Hai KPI trên không bắt buộc bằng nhau. “Còn lại” chỉ được giữ nếu field
+  hiện hữu đã định nghĩa nó theo thành phẩm; không được tính lại từ tiến độ
+  Operation. Không gọi tiến độ theo công đoạn là “Thành phẩm hoàn tất”.
+
 - **Mô-đun**: Dashboard / Quản lý Session (mẫu dùng chung)
 - **Mục đích**: Chọn filter PO/Part phải thu hẹp dropdown con chỉ còn con của đúng cha đó, và một thay đổi filter không bao giờ được phép render một response cũ hơn lựa chọn mới nhất của người dùng.
 - **Đối tượng thực hiện**: bất kỳ role nào có quyền xem màn hình đang lọc.

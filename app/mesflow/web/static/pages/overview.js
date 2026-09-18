@@ -27,8 +27,12 @@ async function renderOverview(){
     // a visible, honest count, never folded into the qty KPIs above (those
     // already count its real 0/0 until someone corrects it).
     const unconfirmed=Number(overview.summary?.unconfirmed_quantity_sessions||0);
-    const totalPlan=sum('planned_quantity'),totalCompleted=sum('good_quantity'),totalProgressCopy=totalPlan>0?`${Math.min(100,Math.max(0,totalCompleted/totalPlan*100)).toLocaleString('vi-VN',{maximumFractionDigits:1})}%`:'Chưa có kế hoạch sản lượng',missingProgress=rows.some(x=>Number(x.progress_missing_operation_count)>0);
-    document.getElementById('ovKpis').innerHTML=values.map(([l,v,u])=>`<article><span>${l}</span><strong>${N(v)}</strong><small>${u}</small></article>`).join('')+`<article><span>Tiến độ sản lượng tổng</span><strong>${totalProgressCopy}</strong><small>${missingProgress?'Có công đoạn chưa có định mức · ':''}Thành phẩm hoàn tất / kế hoạch PO</small></article>`+`<button class="repair-summary" id="ovRepairOnly"><span>CHỜ SỬA</span><strong>${N(pending)} SP</strong><small>${repairPos} PO · ${unconfigured?'CHƯA ĐỦ ĐỊNH MỨC':work(estimated)}</small></button>`;
+    // Progress is an operation-output metric, separate from the existing
+    // finished-product/result field (good_quantity).  Aggregate quantities,
+    // never average per-PO percentages and never infer finished goods from
+    // an operation's completion state.
+    const progressPlan=sum('progress_planned_qty'),progressActual=sum('progress_actual_good_qty'),totalProgressCopy=progressPlan>0?`${Math.min(100,Math.max(0,progressActual/progressPlan*100)).toLocaleString('vi-VN',{maximumFractionDigits:1})}%`:'Chưa có định mức sản lượng',missingProgress=rows.some(x=>Number(x.progress_missing_operation_count)>0);
+    document.getElementById('ovKpis').innerHTML=values.map(([l,v,u])=>`<article><span>${l}</span><strong>${N(v)}</strong><small>${u}</small></article>`).join('')+`<article><span>Tiến độ sản lượng theo công đoạn</span><strong>${totalProgressCopy}</strong><small>${missingProgress?'Có công đoạn chưa có định mức · ':''}Đạt / định mức của các công đoạn sản xuất</small></article>`+`<button class="repair-summary" id="ovRepairOnly"><span>CHỜ SỬA</span><strong>${N(pending)} SP</strong><small>${repairPos} PO · ${unconfigured?'CHƯA ĐỦ ĐỊNH MỨC':work(estimated)}</small></button>`;
     const totalProgressCard=document.querySelector('#ovKpis article:nth-child(7) span');
     // Bug found live (2026-09-02, user-reported UI review): this used to be
     // an 8th item squeezed into .overview-summary's 7-column grid -- it has
