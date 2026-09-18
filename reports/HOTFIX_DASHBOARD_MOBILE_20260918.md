@@ -48,7 +48,9 @@
 ## Merge / deploy checkpoint
 
 - Version source đã bump cache/release key sang `71.0.0.328`, nhưng chưa build artifact vì required gate chưa xanh.
-- Merge/push/deploy `.328`: BLOCKED_GATE; không force/bypass và không deploy source chưa merge.
+- Commits: checkpoint `.327` `7e0abeb10e7c93a9bc78f5e7913b60ed128a0005`; completion `.328` `b56b3b2df324efd112c6d10c8584cd8dd5b7c432`.
+- Branch đã push tới `origin/agent/codex/dashboard-mobile-tab-font-20260918`. Không mở/merge PR vào `origin/main`: remote main `10ac299` đang thấp hơn lineage live 215 commit, nên PR sẽ kéo thay đổi ngoài scope; local required gate cũng đang đỏ như trên.
+- Merge/deploy `.328`: BLOCKED_GATE; không force/bypass và không deploy source chưa merge.
 - TEST hiện tiếp tục chạy exact `.327`/`7e0abeb` artifact, healthy; không redeploy/restart vì live đã có đúng artifact checkpoint và `.328` chưa đủ gate.
 
 ## Rollback placeholder
