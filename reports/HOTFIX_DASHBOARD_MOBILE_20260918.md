@@ -58,6 +58,19 @@
 
 Không có migration. Previous exact artifact trước `.327`: image digest `127.0.0.1:5000/mesflow-app@sha256:5c609d495d3ab3d3934ceaecfaa474a02f83608174156a1a8176a931d759cd3f` (`71.0.0.326`). Nếu `.328` sau này được gate và deploy nhưng smoke fail, dùng artifact `.327` digest `sha256:aadba58d969634ae312de62067cd69dc148978c689247ddcf4e73122b864e694` và chỉ recreate app service; không restart PostgreSQL/nginx/service khác.
 
+## DEV exception deploy 2026-09-18 07:09Z
+
+- Owner-approved one-time DEV exception: deploy from clean hotfix branch despite full CI timeout and known pre-existing Part assertion; default gates remain unchanged and are reported honestly.
+- Verified route: `dev.mesflow.net` Cloudflare tunnel ingress → `http://localhost:8310` → Docker project `mesflow-dev`, service/container `app`/`mesflow-dev-app`; compose file `/home/dell/workspace/mesflow-dev/compose.dev.yml`. Only `app` was recreated with `docker compose -p mesflow-dev ... up -d --no-deps app`; PostgreSQL container/volume and tunnel were untouched.
+- Previous DEV: `mesflow-app:71.0.0.323`, image digest `sha256:958c456ea238cc080e451d559386c600aa3b9c47729ab8738166b5d6edf8f0a6`, DB container id `d8534c8c45352883f499b23f670940aa5832ec377ef2b4112e62404a112ee113`. Rollback: set `MESFLOW_IMAGE=mesflow-app:71.0.0.323` in `/home/dell/workspace/mesflow-dev/.env`, then run the same `up -d --no-deps app` command.
+- Deployed immutable candidate `71.0.0.328`, source `42be6c7f7d1c933e7ccd02e065aedba94044afb0`, image digest `sha256:81616c9bdba8a188795084932baa0b5a4c35646785c5297ff057cfb503cf46dd`; migration head unchanged `0054_multi_open_session_per_employee`.
+- HTTPS ready after deploy: version `71.0.0.328`, `ok:true`, app healthy. HTTPS `/static/ui.css` SHA-256 `1723e168375b39e36b598f9a6481ba55bb07b1be7d5b60a043bdbb9b3a99681e`, exactly equals source CSS.
+- Container Playwright smoke with real DEV login and synthetic dashboard fixture: Chromium, 390x844, Operation and Nhân viên/Session tabs `2/2 PASS`, no body/document horizontal overflow; screenshots:
+  - `/home/dell/workspace/mesflow/artifacts/evidence/MF-DASH-MOBILE-20260918/dev-71.0.0.328-dashboard-operation-390x844.png`
+  - `/home/dell/workspace/mesflow/artifacts/evidence/MF-DASH-MOBILE-20260918/dev-71.0.0.328-dashboard-people-390x844.png`
+  Safari/iPhone hardware chưa chạy.
+- Full CI remains `cancelled` by the documented 20-minute workflow timeout; Part primitive fails identically on baseline/candidate (`44.015625px`) and remains out of scope. DEV deployment is complete under the owner exception; this does not authorize production/`mesflow.net` deployment.
+
 ## Recheck 2026-09-18 06:25Z — exact blocker, no redeploy
 
 - No-cache `https://mesflow.net/api/system/ready` vẫn `ready`, role `PRODUCTION_TEST`, version `71.0.0.327`, commit API `unknown`; live CSS SHA-256 `979d2d4b9bd712211d4bf8e180431c96cee2443b355d6292091568194df05243`. Candidate source `.328` CSS hash vẫn `1723e168375b39e36b598f9a6481ba55bb07b1be7d5b60a043bdbb9b3a99681e`, chưa có artifact/promote.
