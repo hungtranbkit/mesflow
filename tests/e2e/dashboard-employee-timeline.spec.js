@@ -36,8 +36,30 @@ function sessionsFor(date) {
     operation_name: index === 0 ? 'Operation có tên rất dài để kiểm tra không làm vỡ timeline ngày công' : `Operation ${index + 1}`,
     po_code: 'PO-E2E', part_code: 'PART-E2E', good_qty: 0, defect_qty: 0
   }));
-  sessions.push({ ...sessions[0], session_id: 100, session_status: 'CLOSED', started_at: at(date, 6, 0), ended_at: at(date, 7, 30), operation_id: 100, operation_code: 'OP-CLOSED' });
+  sessions.push({ ...sessions[0], session_id: 100, session_status: 'CLOSED', started_at: at(date, 6, 0), ended_at: at(date, 7, 30) });
   return sessions;
+}
+
+function operationsFor() {
+  return [{
+    operation_id: 1,
+    operation_code: 'OP-CAT-LASER-WITH-A-VERY-LONG-CODE-001',
+    operation_name: 'Setup CAT LASER / CAT LASER với tên Operation rất dài',
+    po_code: 'PO-E2E-WITH-A-VERY-LONG-CODE',
+    part_code: 'PART-E2E-WITH-A-VERY-LONG-CODE',
+    part_name: 'Chi tiết CAT LASER',
+    day_work_seconds: 3000,
+    planned_work_seconds: 6000,
+    planned_quantity: 200,
+    total_good_qty: 0,
+    day_good_qty: 0,
+    day_defect_qty: 0,
+    day_rework_qty: 0,
+    session_count: 2,
+    open_session_count: 1,
+    day_state: 'RUNNING',
+    active_workers: [{ employee_id: 1, employee_name: 'Nhân viên có tên rất dài để kiểm tra' }]
+  }];
 }
 
 async function mockDashboard(page, date) {
@@ -51,7 +73,7 @@ async function mockDashboard(page, date) {
   await page.route('**/api/dashboard/day?**', route => {
     const sessions = sessionsFor(date);
     sessions.push({ ...sessions[1], session_id: 101, employee_id: 21, employee_code: 'EMP-021', employee_name: 'Nhân viên ca tối', started_at: at(date, 19), operation_id: 201, operation_code: 'OP-NIGHT' });
-    route.fulfill({ json: { ok: true, items: [], activity: [], sessions } });
+    route.fulfill({ json: { ok: true, items: operationsFor(), activity: [], sessions } });
   });
 }
 
@@ -83,6 +105,10 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   // The date dashboard uses one full-day timeline, so sessions are not
   // split by a selected shift's break window.
   await expect(page.locator('.employee-day-row').first().locator('.employee-session-segment')).toHaveCount(2);
+  await expect(page.locator('.emp-op-toggle').first()).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('.emp-op-toggle').first().click();
+  await expect(page.locator('.emp-op-toggle').first()).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.emp-op-sessions').first().locator('.emp-op-session')).toHaveCount(2);
 
   await page.locator('#dailyEmployeeSort').selectOption('name');
   await expect(page.locator('.employee-day-person b').first()).toHaveText('Nhân viên 01');
@@ -107,17 +133,44 @@ test('dashboard ngày vẫn hiển thị session ca tối cùng ngày', async ({
   await expect(page.locator('.employee-day-row', { hasText: 'Nhân viên ca tối' }).locator('.employee-session-chips span.open')).toContainText('Đang chạy');
 });
 
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+for (const viewport of [{ width: 1366, height: 768 }, { width: 768, height: 900 }, { width: 428, height: 926 }, { width: 390, height: 844 }]) {
   test(`timeline không vỡ tại ${viewport.width}x${viewport.height}`, async ({ page }) => {
     const date = hcmDate();
     await page.setViewportSize(viewport);
     await login(page);
     await mockDashboard(page, date);
     await page.evaluate(() => openPage('dashboard'));
+    await expect(page.locator('.op-card')).toHaveCount(1);
+    const operationFonts = await page.locator('.op-card .op-identity').first().evaluate(el => ({
+      title: getComputedStyle(el.querySelector('.row-title')).fontSize,
+      code: getComputedStyle(el.querySelector('.row-code')).fontSize,
+      meta: getComputedStyle(el.querySelector('.op-identity-meta')).fontSize
+    }));
+    await page.screenshot({ path: `test-results/dashboard-operation-${viewport.width}x${viewport.height}.png`, fullPage: true });
     await page.locator('[data-dashboard-tab="people"]').click();
     await expect(page.locator('.session-timeline-panel')).toBeVisible();
-    const overflow = await page.locator('body').evaluate(body => body.scrollWidth > body.clientWidth);
-    expect(overflow).toBe(false);
-    await page.screenshot({ path: `test-results/dashboard-timeline-${viewport.width}x${viewport.height}.png`, fullPage: true });
+    const peopleFonts = await page.locator('.emp-op-item .op-identity').first().evaluate(el => ({
+      title: getComputedStyle(el.querySelector('.row-title')).fontSize,
+      code: getComputedStyle(el.querySelector('.row-code')).fontSize,
+      meta: getComputedStyle(el.querySelector('.op-identity-meta')).fontSize
+    }));
+    const layout = await page.evaluate(() => {
+      const row = document.querySelector('.employee-day-row').getBoundingClientRect();
+      const summary = document.querySelector('.employee-day-summary').getBoundingClientRect();
+      const scroller = document.querySelector('.employee-day-track-scroll');
+      return {
+        rootOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        rowRight: row.right,
+        summaryRight: summary.right,
+        viewport: document.documentElement.clientWidth,
+        timelineScrollable: scroller.scrollWidth > scroller.clientWidth
+      };
+    });
+    expect(layout.rootOverflow).toBe(false);
+    expect(layout.rowRight).toBeLessThanOrEqual(layout.viewport + 0.5);
+    expect(layout.summaryRight).toBeLessThanOrEqual(layout.viewport + 0.5);
+    if (viewport.width <= 768) expect(layout.timelineScrollable).toBe(true);
+    if (viewport.width <= 768) expect(peopleFonts).toEqual(operationFonts);
+    await page.screenshot({ path: `test-results/dashboard-people-${viewport.width}x${viewport.height}.png`, fullPage: true });
   });
 }
