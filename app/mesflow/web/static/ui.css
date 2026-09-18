@@ -3806,9 +3806,9 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
    luôn nằm trong bề rộng card. 100% ngăn autosize theo khối, không tắt zoom hay
    pinch-zoom của trang. */
 body[data-page="dashboard"] .dashboard-tab-pane{
-  --dashboard-card-title:16px;
+  --dashboard-card-title:13px;
   --dashboard-body:14px;
-  --dashboard-meta:12px;
+  --dashboard-meta:11px;
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;
 }
@@ -3817,20 +3817,30 @@ body[data-page="dashboard"] .dashboard-tab-pane{
    header của từng Operation card, cộng với gap 8px thành khoảng trắng 30px
    trước hai thanh tiến độ. Card header không phải page header. */
 body[data-page="dashboard"] .op-card-head{margin-bottom:0}
+body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>b.row-title{
+  font-size:var(--dashboard-card-title);line-height:1.35;
+}
+body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>small.row-code,
+body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>small.op-identity-meta,
+body[data-page="dashboard"] :is(.op-card-aside,.emp-op-facts)>small{
+  font-size:var(--dashboard-meta);line-height:1.4;
+}
+body[data-page="dashboard"] :is(.op-card-aside,.emp-op-facts)>b,
+body[data-page="dashboard"] .op-card-fact>b{
+  font-size:var(--dashboard-body);line-height:1.4;
+}
 
 @media(max-width:820px){
-  body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>b.row-title,
+  body[data-page="dashboard"] .dashboard-tab-pane{
+    --dashboard-card-title:16px;
+    --dashboard-meta:12px;
+  }
   body[data-page="dashboard"] .employee-day-person>b{
     font-size:var(--dashboard-card-title);line-height:1.35;
   }
-  body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>small.row-code,
-  body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>small.op-identity-meta,
-  body[data-page="dashboard"] .employee-day-person>small,
-  body[data-page="dashboard"] :is(.op-card-aside,.emp-op-facts)>small{
+  body[data-page="dashboard"] .employee-day-person>small{
     font-size:var(--dashboard-meta);line-height:1.4;
   }
-  body[data-page="dashboard"] :is(.op-card-aside,.emp-op-facts)>b,
-  body[data-page="dashboard"] .op-card-fact>b,
   body[data-page="dashboard"] .employee-day-person>strong,
   body[data-page="dashboard"] .employee-day-person>em{
     font-size:var(--dashboard-body);line-height:1.4;

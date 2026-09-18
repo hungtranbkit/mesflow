@@ -166,10 +166,10 @@ for (const [employee, expected, label] of PEOPLE_CASES) {
     await openDashboard(page, 'people');
     const row = page.locator('.employee-day-row', { hasText: employee });
     await expect(row).toBeVisible({ timeout: 15000 });
-    // Dòng tổng của nhân viên
-    await expect(row.locator('.employee-day-summary > small')).toHaveText(expected);
-    // Và chính con chip của session đó
-    await expect(row.locator('.employee-session-chips .op-identity-meta').first()).toContainText(expected.replace('Đạt ', 'Đạt '));
+    // Từ .323, một hàng Operation là nguồn duy nhất; danh sách chip trùng lặp
+    // đã bị bỏ và sản lượng tổng nằm trong facts của chính Operation row.
+    await expect(row.locator('.emp-op-facts > small').first()).toHaveText(expected);
+    await expect(row.locator('.employee-session-chips')).toHaveCount(0);
   });
 }
 
@@ -213,13 +213,13 @@ test('payload cũ không có output_recorded thì lùi về luật của backend
   });
   // OPEN chưa nhập -> vẫn "—" nhờ (status + quantity_confirmed), không phải 0.
   await expect(page.locator('.employee-day-row', { hasText: 'An Chưa Nhập' })
-    .locator('.employee-day-summary > small')).toHaveText('Đạt — · NG —');
+    .locator('.emp-op-facts > small').first()).toHaveText('Đạt — · NG —');
   // CLOSED + quantity_confirmed=false -> vẫn "—".
   await expect(page.locator('.employee-day-row', { hasText: 'Dũng Tự Đóng' })
-    .locator('.employee-day-summary > small')).toHaveText('Đạt — · NG —');
+    .locator('.emp-op-facts > small').first()).toHaveText('Đạt — · NG —');
   // CLOSED + đã xác nhận, số 0 -> vẫn phải ra "0".
   await expect(page.locator('.employee-day-row', { hasText: 'Bình Chốt Không' })
-    .locator('.employee-day-summary > small')).toHaveText('Đạt 0 · NG 0');
+    .locator('.emp-op-facts > small').first()).toHaveText('Đạt 0 · NG 0');
 });
 
 test('"—" và "0" không chỉ khác chữ mà còn khác trọng lượng thị giác', async ({ page }) => {

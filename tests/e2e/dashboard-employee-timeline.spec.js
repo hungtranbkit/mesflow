@@ -248,6 +248,11 @@ for (const viewport of dashboardViewports) {
       if (process.env.MF_DASH_BASELINE_CAPTURE !== '1') {
         expect(Math.abs(operationLayout.progressWidth - operationLayout.bodyWidth)).toBeLessThanOrEqual(1);
       }
+    } else if (process.env.MF_DASH_BASELINE_CAPTURE !== '1') {
+      expect(operationFonts).toEqual({ title: '13px', code: '11px', meta: '11px' });
+      expect(peopleFonts).toEqual(operationFonts);
+      expect(operationLayout.bodyFont).toBe('14px');
+      expect(layout.factBody).toBe('14px');
     }
     if (process.env.MF_DASH_BASELINE_CAPTURE !== '1') expect(operationLayout.progressGap).toBeLessThanOrEqual(16);
     expect(operationLayout.rootOverflow).toBe(false);
