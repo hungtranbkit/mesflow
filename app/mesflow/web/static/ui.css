@@ -3806,26 +3806,34 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
    luôn nằm trong bề rộng card. 100% ngăn autosize theo khối, không tắt zoom hay
    pinch-zoom của trang. */
 body[data-page="dashboard"] .dashboard-tab-pane{
+  --dashboard-card-title:16px;
+  --dashboard-body:14px;
+  --dashboard-meta:12px;
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;
 }
 .employee-day-track-scroll{min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain}
+/* `header{margin-bottom:22px}` là rule legacy cấp trang. Nó từng lọt vào
+   header của từng Operation card, cộng với gap 8px thành khoảng trắng 30px
+   trước hai thanh tiến độ. Card header không phải page header. */
+body[data-page="dashboard"] .op-card-head{margin-bottom:0}
 
 @media(max-width:820px){
   body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>b.row-title,
   body[data-page="dashboard"] .employee-day-person>b{
-    font-size:var(--ui-fs-body);line-height:1.35;
+    font-size:var(--dashboard-card-title);line-height:1.35;
   }
   body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>small.row-code,
   body[data-page="dashboard"] :is(.op-card-identity,.emp-op-item) .op-identity>small.op-identity-meta,
   body[data-page="dashboard"] .employee-day-person>small,
   body[data-page="dashboard"] :is(.op-card-aside,.emp-op-facts)>small{
-    font-size:var(--ui-fs-meta);line-height:1.35;
+    font-size:var(--dashboard-meta);line-height:1.4;
   }
   body[data-page="dashboard"] :is(.op-card-aside,.emp-op-facts)>b,
+  body[data-page="dashboard"] .op-card-fact>b,
   body[data-page="dashboard"] .employee-day-person>strong,
   body[data-page="dashboard"] .employee-day-person>em{
-    font-size:var(--ui-fs-body);line-height:1.35;
+    font-size:var(--dashboard-body);line-height:1.4;
   }
   body[data-page="dashboard"] .employee-day-row{
     min-width:0;max-width:100%;overflow:visible;padding:var(--ui-space-3);
@@ -3833,6 +3841,12 @@ body[data-page="dashboard"] .dashboard-tab-pane{
   body[data-page="dashboard"] :is(.employee-day-person,.employee-day-summary,.emp-op-item,.emp-op-head){
     min-width:0;max-width:100%;
   }
+  body[data-page="dashboard"] :is(.employee-day-person>small,.emp-op-facts>small){
+    white-space:normal;overflow-wrap:anywhere;
+  }
+  body[data-page="dashboard"] .emp-op-head{gap:var(--ui-space-2) var(--ui-space-3);padding:var(--ui-space-3)}
+  body[data-page="dashboard"] .emp-op-sessions{padding:0 var(--ui-space-3) var(--ui-space-3)}
+  body[data-page="dashboard"] .emp-op-session{font-size:var(--dashboard-meta);line-height:1.4}
   body[data-page="dashboard"] .employee-day-track-scroll{width:100%}
   body[data-page="dashboard"] .employee-day-track{min-width:720px}
 }

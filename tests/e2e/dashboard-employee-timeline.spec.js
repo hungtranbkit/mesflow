@@ -98,9 +98,7 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   await expect(page.locator('#dailyEmployeeSort')).toHaveValue('start');
   await expect(page.locator('.running-session-card')).toHaveCount(0);
   await expect(page.locator('.employee-day-row')).toHaveCount(21);
-  await expect(page.locator('.employee-session-chips span.open').first()).toContainText('Đang chạy');
-  // v71.0.0.235: duration shortened from "X giờ Y phút" to "Xg Yp".
-  await expect(page.locator('.employee-session-chips span.open').first()).toContainText(/\dp\b/);
+  await expect(page.locator('.emp-op-item.running')).toHaveCount(21);
   await expect(page.locator('#dailySessionStatus')).toContainText('21 session đang chạy');
   // The date dashboard uses one full-day timeline, so sessions are not
   // split by a selected shift's break window.
@@ -109,6 +107,8 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   await page.locator('.emp-op-toggle').first().click();
   await expect(page.locator('.emp-op-toggle').first()).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('.emp-op-sessions').first().locator('.emp-op-session')).toHaveCount(2);
+  // v71.0.0.235: duration shortened from "X giờ Y phút" to "Xg Yp".
+  await expect(page.locator('.emp-op-sessions').first().locator('.emp-op-session.open .emp-op-dur')).toContainText(/\dp\b/);
 
   await page.locator('#dailyEmployeeSort').selectOption('name');
   await expect(page.locator('.employee-day-person b').first()).toHaveText('Nhân viên 01');
@@ -130,23 +130,56 @@ test('dashboard ngày vẫn hiển thị session ca tối cùng ngày', async ({
   await page.locator('[data-dashboard-tab="people"]').click();
   await expect(page.locator('#dailyShift')).toHaveCount(0);
   await expect(page.locator('.employee-day-person b', { hasText: 'Nhân viên ca tối' })).toBeVisible();
-  await expect(page.locator('.employee-day-row', { hasText: 'Nhân viên ca tối' }).locator('.employee-session-chips span.open')).toContainText('Đang chạy');
+  const nightRow = page.locator('.employee-day-row', { hasText: 'Nhân viên ca tối' });
+  await expect(nightRow.locator('.emp-op-item.running')).toHaveCount(1);
+  await expect(nightRow).toContainText('OP-NIGHT');
 });
 
-for (const viewport of [{ width: 1366, height: 768 }, { width: 768, height: 900 }, { width: 428, height: 926 }, { width: 390, height: 844 }]) {
+const dashboardViewports = [
+  { width: 1920, height: 1080 },
+  { width: 1366, height: 768 },
+  { width: 414, height: 896 },
+  { width: 390, height: 844 },
+  { width: 375, height: 812 }
+];
+
+for (const viewport of dashboardViewports) {
   test(`timeline không vỡ tại ${viewport.width}x${viewport.height}`, async ({ page }) => {
     const date = hcmDate();
     await page.setViewportSize(viewport);
     await login(page);
     await mockDashboard(page, date);
     await page.evaluate(() => openPage('dashboard'));
-    await expect(page.locator('.op-card')).toHaveCount(1);
-    const operationFonts = await page.locator('.op-card .op-identity').first().evaluate(el => ({
+    const overview = page.locator('[data-dashboard-pane="overview"]');
+    const operationCard = overview.locator('.op-card').first();
+    await expect(operationCard).toBeVisible();
+    const operationFonts = await operationCard.locator('.op-identity').evaluate(el => ({
       title: getComputedStyle(el.querySelector('.row-title')).fontSize,
       code: getComputedStyle(el.querySelector('.row-code')).fontSize,
       meta: getComputedStyle(el.querySelector('.op-identity-meta')).fontSize
     }));
-    await page.screenshot({ path: `test-results/dashboard-operation-${viewport.width}x${viewport.height}.png`, fullPage: true });
+    const operationLayout = await operationCard.evaluate(card => {
+      const rect = element => element.getBoundingClientRect();
+      const cardBox = rect(card);
+      const headBox = rect(card.querySelector('.op-card-head'));
+      const progressBox = rect(card.querySelector('.op-dual-progress'));
+      const bodyBox = rect(card.querySelector('.op-card-body'));
+      const factBody = card.querySelector('.op-card-fact>b');
+      return {
+        bodyFont: getComputedStyle(factBody).fontSize,
+        cardRight: cardBox.right,
+        progressGap: progressBox.top - headBox.bottom,
+        progressWidth: progressBox.width,
+        bodyWidth: bodyBox.width,
+        viewport: document.documentElement.clientWidth,
+        rootOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+      };
+    });
+    await expect(operationCard).toContainText('Tiến độ thời gian');
+    await expect(operationCard).toContainText('Tiến độ sản phẩm');
+    await expect(operationCard.locator('.op-identity')).toHaveAttribute('title', /OP-CAT-LASER-WITH-A-VERY-LONG-CODE-001/);
+    const shotPrefix = process.env.MF_DASH_SCREENSHOT_PREFIX || 'after';
+    await page.screenshot({ path: `test-results/${shotPrefix}-dashboard-operation-${viewport.width}x${viewport.height}.png`, fullPage: true });
     await page.locator('[data-dashboard-tab="people"]').click();
     await expect(page.locator('.session-timeline-panel')).toBeVisible();
     const peopleFonts = await page.locator('.emp-op-item .op-identity').first().evaluate(el => ({
@@ -158,19 +191,38 @@ for (const viewport of [{ width: 1366, height: 768 }, { width: 768, height: 900 
       const row = document.querySelector('.employee-day-row').getBoundingClientRect();
       const summary = document.querySelector('.employee-day-summary').getBoundingClientRect();
       const scroller = document.querySelector('.employee-day-track-scroll');
+      const employee = document.querySelector('.employee-day-person');
+      const firstOp = document.querySelector('.emp-op-item');
       return {
         rootOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
         rowRight: row.right,
         summaryRight: summary.right,
         viewport: document.documentElement.clientWidth,
-        timelineScrollable: scroller.scrollWidth > scroller.clientWidth
+        timelineScrollable: scroller.scrollWidth > scroller.clientWidth,
+        employeeTitle: getComputedStyle(employee.querySelector('b')).fontSize,
+        employeeMeta: getComputedStyle(employee.querySelector('small')).fontSize,
+        factBody: getComputedStyle(firstOp.querySelector('.emp-op-facts b')).fontSize
       };
     });
     expect(layout.rootOverflow).toBe(false);
     expect(layout.rowRight).toBeLessThanOrEqual(layout.viewport + 0.5);
     expect(layout.summaryRight).toBeLessThanOrEqual(layout.viewport + 0.5);
-    if (viewport.width <= 768) expect(layout.timelineScrollable).toBe(true);
-    if (viewport.width <= 768) expect(peopleFonts).toEqual(operationFonts);
-    await page.screenshot({ path: `test-results/dashboard-people-${viewport.width}x${viewport.height}.png`, fullPage: true });
+    console.log(JSON.stringify({ viewport, operationFonts, peopleFonts, operationLayout, peopleLayout: layout }));
+    await page.screenshot({ path: `test-results/${shotPrefix}-dashboard-people-${viewport.width}x${viewport.height}.png`, fullPage: true });
+    if (viewport.width <= 820) {
+      expect(layout.timelineScrollable).toBe(true);
+      if (process.env.MF_DASH_BASELINE_CAPTURE !== '1') {
+        expect(operationFonts).toEqual({ title: '16px', code: '12px', meta: '12px' });
+        expect(peopleFonts).toEqual(operationFonts);
+        expect(operationLayout.bodyFont).toBe('14px');
+        expect(layout).toMatchObject({ employeeTitle: '16px', employeeMeta: '12px', factBody: '14px' });
+      }
+      if (process.env.MF_DASH_BASELINE_CAPTURE !== '1') {
+        expect(Math.abs(operationLayout.progressWidth - operationLayout.bodyWidth)).toBeLessThanOrEqual(1);
+      }
+    }
+    if (process.env.MF_DASH_BASELINE_CAPTURE !== '1') expect(operationLayout.progressGap).toBeLessThanOrEqual(16);
+    expect(operationLayout.rootOverflow).toBe(false);
+    expect(operationLayout.cardRight).toBeLessThanOrEqual(operationLayout.viewport + 0.5);
   });
 }
