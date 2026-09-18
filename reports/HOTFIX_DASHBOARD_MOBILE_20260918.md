@@ -57,3 +57,10 @@
 ## Rollback placeholder
 
 Không có migration. Previous exact artifact trước `.327`: image digest `127.0.0.1:5000/mesflow-app@sha256:5c609d495d3ab3d3934ceaecfaa474a02f83608174156a1a8176a931d759cd3f` (`71.0.0.326`). Nếu `.328` sau này được gate và deploy nhưng smoke fail, dùng artifact `.327` digest `sha256:aadba58d969634ae312de62067cd69dc148978c689247ddcf4e73122b864e694` và chỉ recreate app service; không restart PostgreSQL/nginx/service khác.
+
+## Recheck 2026-09-18 06:25Z — exact blocker, no redeploy
+
+- No-cache `https://mesflow.net/api/system/ready` vẫn `ready`, role `PRODUCTION_TEST`, version `71.0.0.327`, commit API `unknown`; live CSS SHA-256 `979d2d4b9bd712211d4bf8e180431c96cee2443b355d6292091568194df05243`. Candidate source `.328` CSS hash vẫn `1723e168375b39e36b598f9a6481ba55bb07b1be7d5b60a043bdbb9b3a99681e`, chưa có artifact/promote.
+- `gh run view 35314540641 --json ...` (không `--watch`): exact head `c5902fd487318786d8af697d2347ab30734b2cb2`, `PostgreSQL Docker Tests`, status `in_progress`, conclusion rỗng; chưa đủ điều kiện promote.
+- `part-block-primitive` là fixture/mocked API, test file không đổi từ baseline. Đã thử chạy riêng đúng case `nút xoá Operation căn giữa...` với cùng Chromium/1366 trên deployed `.327` container; runner Chromium local/container đều crash GPU trước mở page (không phải assertion), nên không coi đó là bằng chứng pass/fail baseline. Existing full-gate evidence vẫn ghi assertion thật `offCentre=44.015625px` trên baseline UI. Candidate không có diff selector `.part-block`, `.op-row`, `.template-old-*`, `.po-*`; toàn bộ CSS hotfix mới đều scoped `body[data-page="dashboard"]` hoặc `.employee-day-track-scroll`, vì vậy không có đường rò selector Dashboard sang Part. Do đó blocker được phân loại pre-existing/out-of-scope, không sửa UI Part và không nới test.
+- Evidence limitation được ghi rõ: chưa có ảnh before/after riêng cho Part-block; các ảnh Dashboard before/after hiện có giữ nguyên đường dẫn ở mục Browser evidence. Không claim DONE/deploy.
