@@ -1502,6 +1502,10 @@ không bao giờ ở bên ngoài.
 - Hai KPI trên không bắt buộc bằng nhau. “Còn lại” chỉ được giữ nếu field
   hiện hữu đã định nghĩa nó theo thành phẩm; không được tính lại từ tiến độ
   Operation. Không gọi tiến độ theo công đoạn là “Thành phẩm hoàn tất”.
+- Overview không hiển thị số thành phẩm/“còn lại” nếu không có nguồn nghiệp vụ
+  thành phẩm hoàn tất được xác định rõ. Thẻ PO chỉ hiển thị mã/tên, hạn, phần
+  trăm tiến độ theo công đoạn và cảnh báo thiếu định mức khi cần; không đưa
+  tử/mẫu kỹ thuật vào copy người dùng.
 
 - **Mô-đun**: Dashboard / Quản lý Session (mẫu dùng chung)
 - **Mục đích**: Chọn filter PO/Part phải thu hẹp dropdown con chỉ còn con của đúng cha đó, và một thay đổi filter không bao giờ được phép render một response cũ hơn lựa chọn mới nhất của người dùng.
