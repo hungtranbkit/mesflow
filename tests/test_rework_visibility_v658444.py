@@ -12,7 +12,7 @@ def test_overview_rework_visible():
     ui = text('app/mesflow/web/static/pages/overview.js')
     assert 'total_rework_qty' in repo and 'rework_qty' in repo
     assert 'Lỗi tổng' in ui and 'CHỜ SỬA' in ui and 'Phế' in ui
-    assert 'TERMINAL_OPERATION_EQUAL_PART_WEIGHT' in repo and 'remaining_quantity' in ui
+    assert 'SUM_GOOD_OVER_SUM_PLANNED' in repo and 'remaining_quantity' in ui
 
 
 def test_daily_rework_visible():
