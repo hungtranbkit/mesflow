@@ -140,9 +140,12 @@ const MFUI=(()=>{
     const hint=String(tooltip||'').trim()||opIdentityText({name,code});
     const metaBody=metaHtml||(meta?escHtml(meta):'');
     const cls=['op-identity',compact?'compact':'',inline?'inline':'',String(className||'').trim()].filter(Boolean).join(' ');
+    const codeKey=codeLabel
+      ? `<span class="op-identity-key" aria-hidden="true"><span class="op-key-wide">${escHtml(codeLabel)}:</span><span class="op-key-narrow">OP:</span></span><span class="sr-only">${escHtml(codeLabel)}:</span> `
+      : '';
     return `<span class="${escHtml(cls)}" title="${escHtml(hint)}">`+
       `<b class="row-title">${escHtml(primary)}</b>`+
-      (secondary?`<small class="row-code">${codeLabel?`<span class="op-identity-key">${escHtml(codeLabel)}:</span> `:''}${escHtml(secondary)}</small>`:'')+
+      (secondary?`<small class="row-code">${codeKey}${escHtml(secondary)}</small>`:'')+
       (metaBody?`<small class="op-identity-meta">${metaBody}</small>`:'')+
     '</span>';
   };
@@ -173,8 +176,8 @@ const MFUI=(()=>{
     const n=Number(value);
     return Number.isFinite(n)?n.toLocaleString('vi-VN'):QTY_UNKNOWN;
   };
-  // Đạt/NG luôn hiện cả hai khi đã chốt -- "Đạt 32" trơ trọi không nói được
-  // NG vắng mặt vì bằng 0 hay vì chưa biết. Sửa/Phế chỉ hiện khi > 0: chúng
+  // Đạt/Lỗi luôn hiện cả hai khi đã chốt -- "Đạt 32" trơ trọi không nói được
+  // Lỗi vắng mặt vì bằng 0 hay vì chưa biết. Sửa/Phế chỉ hiện khi > 0: chúng
   // là ngoại lệ của sản xuất, không phải cặp chỉ số đọc hằng ngày.
   // plain=true trả chữ trần cho title= (thuộc tính này in thẳng markup ra
   // thành chữ nếu nhận HTML).
@@ -184,7 +187,7 @@ const MFUI=(()=>{
       return plain?text:`<span class="qty-empty">${text}</span>`;
     }
     const num=v=>Number(v||0);
-    const parts=[['qty-good',`Đạt ${qtyValue(good,true)}`],['qty-ng',`NG ${qtyValue(defect,true)}`]];
+    const parts=[['qty-good',`Đạt ${qtyValue(good,true)}`],['qty-ng',`Lỗi ${qtyValue(defect,true)}`]];
     if(num(rework)>0)parts.push(['qty-fix',`Sửa ${qtyValue(rework,true)}`]);
     if(num(scrap)>0)parts.push(['qty-scrap',`Phế ${qtyValue(scrap,true)}`]);
     return plain

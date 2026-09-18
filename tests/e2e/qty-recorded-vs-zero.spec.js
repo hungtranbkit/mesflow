@@ -2,12 +2,12 @@
 //
 // good_qty/defect_qty trong CSDL là NOT NULL DEFAULT 0 (migration 0003), nên
 // một session vừa mở và một session người thật chốt đúng 0/0 mang y hệt con
-// số. Tầng hiển thị trước đây in cả hai thành "Đạt 0 · NG 0": quản đốc đọc
-// "NG 0" của ca đang chạy thành "đã kiểm, không có hàng lỗi".
+// số. Tầng hiển thị trước đây in cả hai thành "Đạt 0 · Lỗi 0": quản đốc đọc
+// "Lỗi 0" của ca đang chạy thành "đã kiểm, không có hàng lỗi".
 //
 // Ba trạng thái phải phân biệt được:
 //   (1) chưa nhập        -> "Chưa ghi nhận sản lượng"
-//   (2) đã chốt bằng 0   -> "Đạt 0 · NG 0"
+//   (2) đã chốt bằng 0   -> "Đạt 0 · Lỗi 0"
 //   (3) đã chốt, > 0     -> số thật
 //
 // Nguồn sự thật là output_recorded / recorded_session_count do API trả về
@@ -139,10 +139,10 @@ test('MFUI.qtyValue/qtyLine: chưa nhập, chốt 0 và số dương ra ba kết
   expect(r.lineUnknown).toBe('Chưa ghi nhận sản lượng');
   // Đạt và NG luôn đi cùng nhau khi đã chốt: "Đạt 32" trơ trọi không nói được
   // NG vắng mặt vì bằng 0 hay vì chưa biết.
-  expect(r.lineZero).toBe('Đạt 0 · NG 0');
-  expect(r.linePositive).toBe('Đạt 32 · NG 2');
-  expect(r.lineRework).toBe('Đạt 5 · NG 1 · Sửa 3');
-  expect(r.lineScrap).toBe('Đạt 5 · NG 4 · Phế 4');
+  expect(r.lineZero).toBe('Đạt 0 · Lỗi 0');
+  expect(r.linePositive).toBe('Đạt 32 · Lỗi 2');
+  expect(r.lineRework).toBe('Đạt 5 · Lỗi 1 · Sửa 3');
+  expect(r.lineScrap).toBe('Đạt 5 · Lỗi 4 · Phế 4');
 
   expect(r.foundationStaysBusinessFree, 'luật nghiệp vụ lọt vào tầng nền core/ui.js').toBe(true);
   expect(r.openNeverEntered, 'session đang chạy chưa nhập gì -> chưa chốt').toBe(false);
@@ -156,8 +156,8 @@ test('MFUI.qtyValue/qtyLine: chưa nhập, chốt 0 và số dương ra ba kết
 // --- B. Bốn trạng thái trên đúng bề mặt người dùng nhìn -------------------
 const PEOPLE_CASES = [
   ['An Chưa Nhập', 'Chưa ghi nhận sản lượng', 'đang chạy, chưa nhập'],
-  ['Bình Chốt Không', 'Đạt 0 · NG 0', 'đã chốt đúng 0'],
-  ['Cường Ba Hai', 'Đạt 32 · NG 2', 'đã chốt số thật'],
+  ['Bình Chốt Không', 'Đạt 0 · Lỗi 0', 'đã chốt đúng 0'],
+  ['Cường Ba Hai', 'Đạt 32 · Lỗi 2', 'đã chốt số thật'],
   ['Dũng Tự Đóng', 'Chưa ghi nhận sản lượng', 'máy tự đóng, chưa xác nhận'],
 ];
 
@@ -182,11 +182,11 @@ test('tab Tổng quan Operation: chưa chốt ra "—", chốt-bằng-0 ra "0"',
   // của tab A, không dựa vào việc class từng là duy nhất của một tab.
   const rowOf = name => page.locator('#opTimeProgress .op-card', { hasText: name });
   await expect(rowOf('CHẤN BƯỚC 1')).toContainText('Trong ca: Chưa ghi nhận sản lượng');
-  await expect(rowOf('HÀN GÓC')).toContainText('Trong ca: Đạt 0 · NG 0');
-  await expect(rowOf('SƠN TĨNH ĐIỆN')).toContainText('Trong ca: Đạt 32 · NG 2');
+  await expect(rowOf('HÀN GÓC')).toContainText('Trong ca: Đạt 0 · Lỗi 0');
+  await expect(rowOf('SƠN TĨNH ĐIỆN')).toContainText('Trong ca: Đạt 32 · Lỗi 2');
   // Và phần bóc tách theo từng người phải nói cùng một chuyện.
   await expect(rowOf('CHẤN BƯỚC 1').locator('.op-worker-line')).toContainText('An Chưa Nhập: Chưa ghi nhận sản lượng');
-  await expect(rowOf('HÀN GÓC').locator('.op-worker-line')).toContainText('Bình Chốt Không: Đạt 0 · NG 0');
+  await expect(rowOf('HÀN GÓC').locator('.op-worker-line')).toContainText('Bình Chốt Không: Đạt 0 · Lỗi 0');
 });
 
 test('KPI ngày: chưa session nào chốt số thì không in ra 0', async ({ page }) => {
@@ -219,7 +219,7 @@ test('payload cũ không có output_recorded thì lùi về luật của backend
     .locator('.emp-op-facts > small').first()).toHaveText('Chưa ghi nhận sản lượng');
   // CLOSED + đã xác nhận, số 0 -> vẫn phải ra "0".
   await expect(page.locator('.employee-day-row', { hasText: 'Bình Chốt Không' })
-    .locator('.emp-op-facts > small').first()).toHaveText('Đạt 0 · NG 0');
+    .locator('.emp-op-facts > small').first()).toHaveText('Đạt 0 · Lỗi 0');
 });
 
 test('"—" và "0" không chỉ khác chữ mà còn khác trọng lượng thị giác', async ({ page }) => {
@@ -251,6 +251,24 @@ for (const width of [390, 1366]) {
     await page.locator('[data-dashboard-tab="overview"]').click();
     await expect(page.locator('#opTimeProgress .op-card', { hasText: 'CHẤN BƯỚC 1' }))
       .toContainText('Trong ca: Chưa ghi nhận sản lượng');
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `tràn ngang ${overflow}px ở viewport ${width}`).toBeLessThanOrEqual(1);
+  });
+}
+
+for (const width of [390, 414, 1366]) {
+  test(`Operation label compact ở ${width}px nhưng giữ nguyên mã`, async ({ page }) => {
+    await openDashboard(page, 'overview', { width });
+    const code = page.locator('#opTimeProgress .op-card', { hasText: 'CHẤN BƯỚC 1' }).locator('.row-code').first();
+    await expect(code).toContainText('OP-A-01');
+    if (width <= 820) {
+      await expect(code.locator('.op-key-narrow')).toHaveText('OP:');
+      await expect(code.locator('.op-key-wide')).toBeHidden();
+    } else {
+      await expect(code.locator('.op-key-wide')).toHaveText('Operation:');
+      await expect(code.locator('.op-key-narrow')).toBeHidden();
+    }
     const overflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `tràn ngang ${overflow}px ở viewport ${width}`).toBeLessThanOrEqual(1);

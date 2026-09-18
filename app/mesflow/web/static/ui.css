@@ -2601,6 +2601,7 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
    nữa thì ba dòng thành ba cỡ khác nhau và thẻ trông vụn.
    white-space:nowrap để "Part:" không bao giờ bị tách khỏi dấu hai chấm. */
 .op-identity .op-identity-key{font-weight:500;color:var(--muted);white-space:nowrap}
+.op-key-narrow{display:none}
 /* Dòng thời gian/sản lượng của chip session: xuống dòng RIÊNG, dưới Part·PO.
    Thứ bậc trên chip là tên > mã > Part·PO > thời gian -- thời gian là thứ đọc
    sau cùng, và nối nó vào cùng dòng với Part sẽ cho ra một chuỗi dài không
@@ -2620,6 +2621,13 @@ small.row-code,.row-code{font-size:11px;font-weight:600;color:var(--text-seconda
      khác) -- bản đầy đủ nằm ở title=. Dòng Part·PO thì ngắt được, vì nó là hai
      giá trị rời chứ không phải một chuỗi định danh. */
   .op-identity>small.op-identity-meta{white-space:normal;overflow-wrap:anywhere}
+}
+@media(max-width:820px){
+  /* Mobile keeps the full operation code, but shortens only its explanatory
+     label. The accessible Operation text remains in .sr-only. */
+  .op-identity .op-key-wide{display:none}
+  .op-identity .op-key-narrow{display:inline}
+  .op-identity>small.row-code{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
 }
 /* Biến thể compact cho chip timeline: cùng THỨ BẬC (tên nặng hơn chữ phụ),
    chỉ nhỏ hơn. Một chip chỉ rộng vài chục pixel trong cột 300px nên tên lấy
