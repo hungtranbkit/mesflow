@@ -50,26 +50,26 @@ class ExceptionRepository:
         past_shift_end_ids=self._session_past_shift_end_ids()
         rows=fetch_all(f"""WITH flags AS (
           SELECT ws.id session_id,'LONG_OPEN_SESSION' exception_type,'HIGH' severity,
-            'Session mở quá lâu' title,'Session đã mở quá 12 giờ và cần được kiểm tra.' message,
-            'Kiểm tra Session và xác nhận trạng thái.' recommended_action
+            'Phiên làm việc mở quá lâu' title,'Phiên làm việc đã mở quá 12 giờ và cần được kiểm tra.' message,
+            'Kiểm tra phiên làm việc và xác nhận trạng thái.' recommended_action
           FROM work_sessions ws WHERE ws.status='OPEN' AND ws.started_at<CURRENT_TIMESTAMP-INTERVAL '12 hours'
             AND {reportable_session_sql('ws')}
           UNION ALL SELECT ws.id,'ZERO_QUANTITY_LONG','MEDIUM','Sản lượng bằng 0',
-            'Session kéo dài trên 4 giờ nhưng được đóng với sản lượng bằng 0.','Đối chiếu sản lượng và xác nhận hoặc sửa Session.'
+            'Phiên làm việc kéo dài trên 4 giờ nhưng được đóng với sản lượng bằng 0.','Đối chiếu sản lượng và xác nhận hoặc sửa phiên làm việc.'
           FROM work_sessions ws WHERE ws.status='CLOSED' AND ws.ended_at-ws.started_at>INTERVAL '4 hours'
             AND COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)=0 AND {reportable_session_sql('ws')}
           UNION ALL SELECT ws.id,'MISSING_STATION','LOW','Thiếu thông tin trạm',
-            'Session không ghi nhận trạm hoặc kiosk.','Xác nhận nguồn thao tác của Session.'
+            'Phiên làm việc không ghi nhận trạm hoặc kiosk.','Xác nhận nguồn thao tác của phiên làm việc.'
           FROM work_sessions ws WHERE ws.station_id IS NULL AND COALESCE(ws.device_uuid,'')='' AND {reportable_session_sql('ws')}
-          UNION ALL SELECT ws.id,'INVALID_DURATION','CRITICAL','Thời gian Session không hợp lệ',
-            'Giờ kết thúc trước giờ bắt đầu.','Mở Session, kiểm tra bằng chứng và sửa qua quy trình hiện có.'
+          UNION ALL SELECT ws.id,'INVALID_DURATION','CRITICAL','Thời gian phiên làm việc không hợp lệ',
+            'Giờ kết thúc trước giờ bắt đầu.','Mở phiên làm việc, kiểm tra bằng chứng và sửa qua quy trình hiện có.'
           FROM work_sessions ws WHERE ws.ended_at IS NOT NULL AND ws.ended_at<ws.started_at AND {reportable_session_sql('ws')}
-          UNION ALL SELECT ws.id,'OPERATION_COMPLETED_SESSION_OPEN','HIGH','Operation đã hoàn tất nhưng Session còn mở',
-            'Operation đã hoàn tất trong khi Session liên quan vẫn OPEN.','Kiểm tra Session trước khi xác nhận trạng thái Operation.'
+          UNION ALL SELECT ws.id,'OPERATION_COMPLETED_SESSION_OPEN','HIGH','Operation đã hoàn tất nhưng phiên làm việc còn mở',
+            'Operation đã hoàn tất trong khi phiên làm việc liên quan vẫn OPEN.','Kiểm tra phiên làm việc trước khi xác nhận trạng thái Operation.'
           FROM work_sessions ws JOIN operations ox ON ox.id=ws.operation_id WHERE ws.status='OPEN' AND ox.status='COMPLETED'
             AND {reportable_session_sql('ws')}
-          UNION ALL SELECT a.id,'EMPLOYEE_SESSION_CONFLICT','CRITICAL','Nhân viên có Session xung đột',
-            'Nhân viên có hai Session chồng thời gian trên CÙNG một Operation.','Kiểm tra cả hai Session và bằng chứng kiosk.'
+          UNION ALL SELECT a.id,'EMPLOYEE_SESSION_CONFLICT','CRITICAL','Nhân viên có phiên làm việc xung đột',
+            'Nhân viên có hai phiên làm việc chồng thời gian trên CÙNG một Operation.','Kiểm tra cả hai phiên làm việc và bằng chứng kiosk.'
           FROM work_sessions a JOIN work_sessions b ON b.employee_id=a.employee_id AND b.id<a.id
             -- CÙNG Operation mới là xung đột (từ migration 0054).
             --
@@ -97,9 +97,9 @@ class ExceptionRepository:
             -- crashing detection for everyone.
             AND tstzrange(a.started_at,GREATEST(COALESCE(a.ended_at,'infinity'::timestamptz),a.started_at),'[)')
               && tstzrange(b.started_at,GREATEST(COALESCE(b.ended_at,'infinity'::timestamptz),b.started_at),'[)')
-          UNION ALL SELECT ws.id,'SESSION_PAST_SHIFT_END','MEDIUM','Session quá giờ kết thúc ca',
-            'Session vẫn còn OPEN sau khi ca làm việc đã kết thúc. Hệ thống sẽ tự động đóng ca sau ít phút nếu không có thao tác thủ công.',
-            'Kết thúc Session thủ công, hoặc chờ hệ thống tự động đóng ca.'
+          UNION ALL SELECT ws.id,'SESSION_PAST_SHIFT_END','MEDIUM','Phiên làm việc quá giờ kết thúc ca',
+            'Phiên làm việc vẫn còn OPEN sau khi ca làm việc đã kết thúc. Hệ thống sẽ tự động đóng ca sau ít phút nếu không có thao tác thủ công.',
+            'Kết thúc phiên làm việc thủ công, hoặc chờ hệ thống tự động đóng ca.'
           FROM work_sessions ws WHERE ws.status='OPEN' AND ws.id=ANY(%s) AND {reportable_session_sql('ws')}
         ) SELECT f.*,ws.employee_id,ws.operation_id,o.production_order_id,o.part_id,
           ws.started_at,ws.ended_at,ws.status session_status,ws.good_qty,ws.defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
@@ -150,8 +150,8 @@ class ExceptionRepository:
         title = 'Quét thẻ mới trong khi chưa nhập số liệu'
         message = (f"{row['employee_name']} ({row['employee_code']}) quét thẻ để nhập số lượng cho "
                    f"{row['operation_code']} nhưng chưa nhập thì {interrupted_by_employee_name} đã quét thẻ khác vào Kiosk. "
-                   f"Session vẫn đang mở, số liệu chưa bị mất.")
-        recommended_action = ('Nhờ nhân viên quét lại thẻ để nhập số lượng, hoặc sửa trực tiếp số lượng/kết thúc Session '
+                   f"Phiên làm việc vẫn đang mở, số liệu chưa bị mất.")
+        recommended_action = ('Nhờ nhân viên quét lại thẻ để nhập số lượng, hoặc sửa trực tiếp số lượng/kết thúc phiên làm việc '
                               'nếu nhân viên đã rời ca.')
         metadata = {'exception_type': 'INTERRUPTED_QUANTITY_ENTRY', 'severity': 'MEDIUM', 'session_id': session_id,
                     'interrupted_by_employee_name': interrupted_by_employee_name}

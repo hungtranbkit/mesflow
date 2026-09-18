@@ -31,23 +31,23 @@ from typing import Any
 # ---------------------------------------------------------------------
 
 ACTION_CATALOG: dict[str, dict[str, str]] = {
-    'SESSION_STARTED': {'label': 'Bắt đầu Session', 'category': 'session'},
-    'SESSION_FINISHED': {'label': 'Kết thúc Session', 'category': 'session'},
+    'SESSION_STARTED': {'label': 'Bắt đầu phiên làm việc', 'category': 'session'},
+    'SESSION_FINISHED': {'label': 'Kết thúc phiên làm việc', 'category': 'session'},
     # A SEPARATE action from
     # SESSION_FINISHED on purpose -- an auto-closed session must never be
     # presented as if an operator manually finished it (audit_actor_username
     # is always 'SYSTEM' for this action, never a real user).
     'SESSION_AUTO_CLOSED': {'label': 'Tự động đóng ca (quá giờ)', 'category': 'session'},
-    'SESSION_EDIT': {'label': 'Chỉnh sửa Session', 'category': 'session'},
-    'SESSION_ADJUST': {'label': 'Điều chỉnh sản lượng Session', 'category': 'quantity'},
+    'SESSION_EDIT': {'label': 'Chỉnh sửa phiên làm việc', 'category': 'session'},
+    'SESSION_ADJUST': {'label': 'Điều chỉnh sản lượng phiên làm việc', 'category': 'quantity'},
     # Session Management upgrade (spec section 6/7): dedicated actions,
     # separate from SESSION_EDIT, so a Business Audit Trail reader can tell
     # "Operation was reassigned" / "this session's data was excluded from
     # reporting" apart from an ordinary field correction at a glance.
-    'SESSION_OPERATION_TRANSFER': {'label': 'Chuyển Operation cho Session', 'category': 'session'},
-    'SESSION_EXCLUDE': {'label': 'Loại Session khỏi báo cáo', 'category': 'session'},
-    'SESSION_RESTORE': {'label': 'Khôi phục Session vào báo cáo', 'category': 'session'},
-    'SESSION_EXCEPTION_WORKFLOW_UPDATE': {'label': 'Xử lý Session bất thường', 'category': 'exception'},
+    'SESSION_OPERATION_TRANSFER': {'label': 'Chuyển Operation cho phiên làm việc', 'category': 'session'},
+    'SESSION_EXCLUDE': {'label': 'Loại phiên làm việc khỏi báo cáo', 'category': 'session'},
+    'SESSION_RESTORE': {'label': 'Khôi phục phiên làm việc vào báo cáo', 'category': 'session'},
+    'SESSION_EXCEPTION_WORKFLOW_UPDATE': {'label': 'Xử lý phiên làm việc bất thường', 'category': 'exception'},
     # Inline Session Exception Resolution modal (2026-08-28): distinct from
     # both SESSION_EDIT (the full Session Management editor) and
     # SESSION_EXCEPTION_WORKFLOW_UPDATE (the retired workflow's own action)
@@ -55,7 +55,7 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
     # through the exception modal's narrow, exception-type-scoped field
     # whitelist" apart from an ordinary full-form Session edit, even though
     # both ultimately call the same SupervisorRepository.edit_session().
-    'SESSION_EXCEPTION_CORRECT_SESSION': {'label': 'Sửa Session từ màn hình xử lý ngoại lệ', 'category': 'exception'},
+    'SESSION_EXCEPTION_CORRECT_SESSION': {'label': 'Sửa phiên làm việc từ danh sách bất thường', 'category': 'exception'},
     'REWORK_RESOLVED': {'label': 'Xử lý hàng chờ sửa', 'category': 'quantity'},
     'EXCEPTION_ACKNOWLEDGED': {'label': 'Xác nhận ngoại lệ', 'category': 'exception'},
     'EXCEPTION_RESOLVED': {'label': 'Giải quyết ngoại lệ', 'category': 'exception'},
@@ -76,7 +76,7 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
 }
 
 CATEGORY_LABELS: dict[str, str] = {
-    'session': 'Session', 'quantity': 'Sản lượng', 'po': 'PO', 'operation': 'Công đoạn',
+    'session': 'Phiên làm việc', 'quantity': 'Sản lượng', 'po': 'PO', 'operation': 'Công đoạn',
     'calendar': 'Lịch làm việc', 'employee': 'Nhân viên', 'exception': 'Xử lý bất thường', 'admin': 'Quản trị',
 }
 
@@ -111,7 +111,7 @@ FIELD_LABELS: dict[str, str] = {
     'assigned_to': 'Người xử lý', 'workflow_status': 'Trạng thái xử lý',
     'resolution': 'Kết quả xử lý', 'note': 'Ghi chú', 'reason': 'Lý do',
     'severity': 'Mức độ', 'exception_type': 'Loại bất thường', 'exception_code': 'Loại bất thường',
-    'production_order_id': 'Lệnh sản xuất (PO)', 'part_id': 'Part', 'session_id': 'Session',
+    'production_order_id': 'Lệnh sản xuất (PO)', 'part_id': 'Part', 'session_id': 'Phiên làm việc',
     'resolved_by': 'Người xử lý', 'row_version': 'Phiên bản dữ liệu',
     'code': 'Mã', 'name': 'Tên', 'anchor_start': 'Giờ bắt đầu', 'anchor_end': 'Giờ kết thúc',
     'cross_midnight': 'Qua đêm', 'target_minutes': 'Thời lượng mục tiêu (phút)',
@@ -144,8 +144,8 @@ ENUM_LABELS: dict[str, dict[str, str]] = {
     },
     # session_exception_reviews exception_code (legacy inline workflow).
     'exception_code': {
-        'OPEN_TOO_LONG': 'Session mở quá lâu', 'OVERLAP': 'Chồng thời gian với session khác',
-        'ZERO_QTY_LONG': 'Đóng session lâu nhưng sản lượng bằng 0',
+        'OPEN_TOO_LONG': 'Phiên làm việc mở quá lâu', 'OVERLAP': 'Chồng thời gian với phiên làm việc khác',
+        'ZERO_QTY_LONG': 'Đóng phiên làm việc lâu nhưng sản lượng bằng 0',
         'MISSING_STATION': 'Thiếu trạm/kiosk', 'INVALID_TIME': 'Giờ kết thúc trước giờ bắt đầu',
     },
     # exception_records.exception_type (V67 Exception Center) -- reuses the
@@ -153,13 +153,13 @@ ENUM_LABELS: dict[str, dict[str, str]] = {
     # (pages/exception-center.js `labels`), so the audit trail and the
     # Exception Center itself never disagree on terminology.
     'exception_type': {
-        'LONG_OPEN_SESSION': 'Session mở quá lâu', 'ZERO_QUANTITY_LONG': 'Sản lượng bất thường',
+        'LONG_OPEN_SESSION': 'Phiên làm việc mở quá lâu', 'ZERO_QUANTITY_LONG': 'Sản lượng bất thường',
         'MISSING_STATION': 'Thiếu thông tin trạm', 'INVALID_DURATION': 'Thời gian không hợp lệ',
-        'OPERATION_COMPLETED_SESSION_OPEN': 'Operation hoàn tất nhưng Session còn mở',
-        'EMPLOYEE_SESSION_CONFLICT': 'Session xung đột',
+        'OPERATION_COMPLETED_SESSION_OPEN': 'Operation hoàn tất nhưng phiên làm việc còn mở',
+        'EMPLOYEE_SESSION_CONFLICT': 'Phiên làm việc xung đột',
     },
     'resolution': {
-        'DATA_CORRECTED': 'Đã chỉnh dữ liệu', 'SESSION_CLOSED': 'Đã đóng Session',
+        'DATA_CORRECTED': 'Đã chỉnh dữ liệu', 'SESSION_CLOSED': 'Đã đóng phiên làm việc',
         'VALID_EXCEPTION': 'Trường hợp hợp lệ', 'DUPLICATE_ALERT': 'Cảnh báo trùng', 'OTHER': 'Khác',
     },
     'severity': {'CRITICAL': 'Nghiêm trọng', 'HIGH': 'Cao', 'MEDIUM': 'Trung bình', 'LOW': 'Thấp'},
@@ -321,9 +321,9 @@ def _present_session_edit(row: dict, details: dict, *, employees: dict, operatio
     changes = diff_fields(old, new, enum_domains=_SESSION_ENUM_DOMAINS, include=_SESSION_DIFF_FIELDS)
     _resolve_ref_changes(changes, employees, operations, stations)
     context = _session_context(new or old, employees, operations, stations)
-    summary = f"{row.get('actor_username') or 'Hệ thống'} đã chỉnh sửa Session #{session_id}"
+    summary = f"{row.get('actor_username') or 'Hệ thống'} đã chỉnh sửa phiên làm việc #{session_id}"
     return {
-        'title': f'Chỉnh sửa Session #{session_id}', 'summary': summary, 'context': context,
+        'title': f'Chỉnh sửa phiên làm việc #{session_id}', 'summary': summary, 'context': context,
         'reason': details.get('reason') or '', 'changes': changes, 'session_id': _to_int(session_id),
         'no_change_note': 'Không có trường nghiệp vụ nào thay đổi.' if not changes else '',
     }
@@ -331,11 +331,11 @@ def _present_session_edit(row: dict, details: dict, *, employees: dict, operatio
 
 def _present_session_adjust(row: dict, details: dict, *, employees: dict, operations: dict, stations: dict) -> dict:
     session_id = row.get('entity_id') or ''
-    summary = f"{row.get('actor_username') or 'Hệ thống'} đã điều chỉnh sản lượng Session #{session_id}"
+    summary = f"{row.get('actor_username') or 'Hệ thống'} đã điều chỉnh sản lượng phiên làm việc #{session_id}"
     fields = ['good_qty', 'defect_qty', 'rework_qty', 'note']
     extra = [{'field': f, 'label': field_label(f), 'value': details.get(f)} for f in fields if details.get(f) not in (None, '')]
     return {
-        'title': f'Điều chỉnh sản lượng Session #{session_id}', 'summary': summary,
+        'title': f'Điều chỉnh sản lượng phiên làm việc #{session_id}', 'summary': summary,
         'context': {}, 'reason': details.get('reason') or '', 'changes': [], 'extra': extra,
         'session_id': _to_int(session_id),
     }
@@ -345,7 +345,7 @@ def _present_session_started_finished(row: dict, action: str, before: dict, afte
                                        employees: dict, operations: dict, stations: dict) -> dict:
     session_id = row.get('entity_id') or ''
     verb = 'bắt đầu' if action == 'SESSION_STARTED' else 'kết thúc'
-    summary = f"{row.get('actor_username') or 'Hệ thống'} đã {verb} Session #{session_id}"
+    summary = f"{row.get('actor_username') or 'Hệ thống'} đã {verb} phiên làm việc #{session_id}"
     changes = diff_fields(before, after, enum_domains=_SESSION_ENUM_DOMAINS, include=_SESSION_DIFF_FIELDS) if before else []
     _resolve_ref_changes(changes, employees, operations, stations)
     context = _session_context(after or before, employees, operations, stations)
@@ -364,7 +364,7 @@ def _present_exception_workflow_update(row: dict, details: dict, *, employees: d
     if len(items) <= 1:
         session_id = items[0].get('session_id') if items else ''
         exception_code = items[0].get('exception_code') if items else ''
-        summary = f"{actor} đã {verb} Session #{session_id}" if session_id else f"{actor} đã {verb}"
+        summary = f"{actor} đã {verb} phiên làm việc #{session_id}" if session_id else f"{actor} đã {verb}"
         session_row = sessions.get(_to_int(session_id)) if session_id else None
         context = _session_context(session_row, employees, operations, stations)
         extra = [
@@ -376,7 +376,7 @@ def _present_exception_workflow_update(row: dict, details: dict, *, employees: d
         if details.get('resolution'):
             extra.append({'field': 'resolution', 'label': 'Kết quả xử lý', 'value': enum_label('resolution', details['resolution'])})
         return {
-            'title': 'Xử lý Session bất thường', 'summary': summary, 'context': context,
+            'title': 'Xử lý phiên làm việc bất thường', 'summary': summary, 'context': context,
             'reason': details.get('note') or '', 'changes': [], 'extra': extra,
             'session_id': _to_int(session_id) if session_id else None,
             'affected_sessions': [{'session_id': _to_int(session_id), **_session_context(session_row, employees, operations, stations)}] if session_id else [],
@@ -388,14 +388,14 @@ def _present_exception_workflow_update(row: dict, details: dict, *, employees: d
         session_row = sessions.get(sid) if sid else None
         affected.append({'session_id': sid, 'exception_code': enum_label('exception_code', it.get('exception_code')),
                           **_session_context(session_row, employees, operations, stations)})
-    summary = f"Đã cập nhật xử lý {len(items)} Session bất thường"
+    summary = f"Đã cập nhật xử lý {len(items)} phiên làm việc bất thường"
     extra = [{'field': 'workflow_status', 'label': 'Trạng thái', 'value': enum_label('workflow_status', workflow_status)}]
     if details.get('assigned_to'):
         extra.append({'field': 'assigned_to', 'label': 'Người xử lý', 'value': details['assigned_to']})
     if details.get('resolution'):
         extra.append({'field': 'resolution', 'label': 'Kết quả xử lý', 'value': enum_label('resolution', details['resolution'])})
     return {
-        'title': 'Xử lý Session bất thường', 'summary': summary, 'context': {},
+        'title': 'Xử lý phiên làm việc bất thường', 'summary': summary, 'context': {},
         'reason': details.get('note') or '', 'changes': [], 'extra': extra,
         'session_id': None, 'affected_sessions': affected,
     }
@@ -413,7 +413,7 @@ def _present_exception_record_transition(row: dict, action: str, before: dict, a
     ref = after or before or {}
     exception_id = row.get('entity_id') or ''
     session_id = metadata.get('session_id') or ref.get('session_id')
-    summary = f"{actor} đã {verb} ngoại lệ" + (f" (Session #{session_id})" if session_id else f" #{exception_id}")
+    summary = f"{actor} đã {verb} trường hợp bất thường" + (f" (phiên làm việc #{session_id})" if session_id else f" #{exception_id}")
     session_row = sessions.get(_to_int(session_id)) if session_id else None
     context = _session_context(session_row, employees, operations, stations)
     changes = diff_fields(before, after, enum_domains=_EXCEPTION_RECORD_ENUM_DOMAINS, include=_EXCEPTION_RECORD_DIFF_FIELDS)

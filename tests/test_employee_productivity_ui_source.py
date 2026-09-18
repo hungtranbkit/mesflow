@@ -78,7 +78,7 @@ def test_report_never_renders_realtime_worker_state():
 
 def test_kpis_match_the_four_required_completed_session_cards():
     js = _js()
-    for label in ('Nhân viên có dữ liệu', 'Tổng Session đã kết thúc', 'Năng suất trung bình', 'Tổng sản lượng đạt'):
+    for label in ('Nhân viên có dữ liệu', 'Tổng phiên làm việc đã kết thúc', 'Năng suất trung bình', 'Tổng sản lượng đạt'):
         assert label in js
 
 

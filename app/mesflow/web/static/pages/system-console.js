@@ -16,7 +16,7 @@ async function renderSystemOverview(){
   const env=String(d.environment||'').toUpperCase()||'KHÔNG RÕ';
   const envTone=env==='PRODUCTION'?'danger':(env==='TEST'?'warning':'neutral');
   const compRow=c=>{
-    const label={MESFLOW:'MESFlow Application',POSTGRESQL:'Database',DEPLOY_AGENT:'Deploy Agent',QA_CENTER:'QA Center',SERVER:'Server / Docker',DOCKER:'Docker',KIOSK_FLEET:'Kiosk Fleet',JOBS:'Background Jobs',SESSION_LIFECYCLE:'Session Lifecycle'}[c.component]||c.component;
+    const label={MESFLOW:'MESFlow Application',POSTGRESQL:'Database',DEPLOY_AGENT:'Deploy Agent',QA_CENTER:'QA Center',SERVER:'Server / Docker',DOCKER:'Docker',KIOSK_FLEET:'Kiosk Fleet',JOBS:'Background Jobs',SESSION_LIFECYCLE:'Vòng đời phiên làm việc'}[c.component]||c.component;
     if(!c.configured)return `<tr><td>${esc(label)}</td><td>${MFUI.statusBadge('UNKNOWN','Không khả dụng')}</td><td class="sc-muted">Chưa cấu hình</td></tr>`;
     return `<tr><td>${esc(label)}</td><td>${MFUI.statusBadge(c.status)}</td><td>${esc(c.message||'')}</td></tr>`;
   };
@@ -34,7 +34,7 @@ async function renderSystemOverview(){
 }
 
 async function renderSystemErrors(){
-  title.textContent='Lỗi hệ thống';subtitle.textContent='HTTP 500, kết nối DB, dịch vụ gián đoạn — khác với NG sản phẩm và ngoại lệ Session (không dùng chung).';
+  title.textContent='Lỗi hệ thống';subtitle.textContent='HTTP 500, lỗi kết nối DB hoặc dịch vụ gián đoạn — không phải NG sản phẩm hay phiên làm việc bất thường.';
   content.innerHTML=`${MFUI.filterBar({content:'',actions:'<button class="btn" id="scErrLoad">Làm mới</button>'})}<div id="scErrRows">${MFUI.loadingState()}</div>`;
   const rows=document.getElementById('scErrRows');
   async function run(){

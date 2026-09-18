@@ -25,7 +25,7 @@ def test_running_dot_css_removed():
 
 def test_kpis_match_the_four_required_completed_session_cards():
     js = _js()
-    for label in ('Năng suất trung bình', 'Nhân viên có dữ liệu', 'Session đã kết thúc', 'Tổng sản lượng đạt'):
+    for label in ('Năng suất trung bình', 'Nhân viên có dữ liệu', 'Phiên làm việc đã kết thúc', 'Tổng sản lượng đạt'):
         assert label in js
 
 

@@ -176,7 +176,7 @@ class SessionLifecycleProvider(Provider):
   else:status=HealthStatus.HEALTHY;msg='Không có phiên đang mở'
   return self.r(status,msg,details=details)
 SEVERITY_ORDER={'CRITICAL':0,'HIGH':1,'MEDIUM':2,'LOW':3}
-LABELS={'MESFLOW':'MESFlow','POSTGRESQL':'Database','SERVER':'Server','DOCKER':'Docker','DEPLOY_AGENT':'Deploy Agent','QA_CENTER':'QA Center','KIOSK_FLEET':'Kiosk Fleet','SESSION_LIFECYCLE':'Session Lifecycle'}
+LABELS={'MESFLOW':'MESFlow','POSTGRESQL':'Database','SERVER':'Server','DOCKER':'Docker','DEPLOY_AGENT':'Deploy Agent','QA_CENTER':'QA Center','KIOSK_FLEET':'Kiosk Fleet','SESSION_LIFECYCLE':'Vòng đời phiên làm việc'}
 class SystemHealthService:
  def providers(self):
   fetch=DeployAgentFetch().fetch()

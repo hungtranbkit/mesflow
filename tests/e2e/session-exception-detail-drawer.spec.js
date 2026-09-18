@@ -5,7 +5,7 @@
 // Rewritten again in full (2026-08-28, Inline Session Exception Resolution
 // modal task): the drawer used to be a read-only viewer that opened
 // /api/sessions/:id/context + /api/exceptions/:id/history separately and
-// only let a supervisor "Mở Session #<id>" away to Session Management to
+// only let a supervisor "Mở phiên làm việc #<id>" away to Session Management to
 // actually fix anything (window.prompt() for the resolve/ignore reason).
 // The field complaint that started that whole task ("chỉ có tính năng xem
 // rồi đóng, chưa giải quyết triệt để") was only half-fixed by that
@@ -41,7 +41,7 @@ function exceptionItems() {
       session_id: 500 + i,
       exception_type: 'LONG_OPEN_SESSION',
       severity: i === 0 ? 'HIGH' : 'MEDIUM',
-      title: 'Session mở quá lâu',
+      title: 'Phiên làm việc mở quá lâu',
       message: 'Session đang mở quá 12 giờ',
       recommended_action: 'Kiểm tra Session và xác nhận trạng thái.',
       detected_at: new Date(Date.now() - (17 - i * 0.1) * 3600000).toISOString(),
@@ -128,10 +128,10 @@ test('Mở ngoại lệ trong modal tại chỗ, không điều hướng, không
   await expect(page.locator('.ec-resolution')).toBeVisible();
   expect(page.url()).toContain(urlBefore.split('?')[0]);
   expect(page.url()).not.toContain('session-management');
-  await expect(page.locator('#pageTitle')).toHaveText('Trung tâm ngoại lệ');
+  await expect(page.locator('#pageTitle')).toHaveText('Các phiên làm việc bất thường');
   await expect(page.locator('.ec-resolution header')).toContainText('Nhân viên Test 5');
-  await expect(page.locator('.ec-resolution header')).toContainText('SESSION #504');
-  await expect(page.locator('.ec-drawer-body')).toContainText('Session mở quá lâu');
+  await expect(page.locator('.ec-resolution header')).toContainText('Phiên làm việc #504');
+  await expect(page.locator('.ec-drawer-body')).toContainText('Phiên làm việc mở quá lâu');
   await expect(page.locator('.ec-drawer-body')).toContainText('Trạm cắt laser 07');
   await expect(page.locator('.ec-modal-tabs button')).toHaveCount(4);
   for (const label of ['Tổng quan', 'Điều chỉnh', 'Kiểm tra', 'Lịch sử'])
@@ -226,14 +226,14 @@ test('Ngoại lệ vẫn còn sau khi lưu điều chỉnh thì Hoàn tất bị
   await page.route(/\/api\/session-exceptions\/\d+\/correct-session$/, route => route.fulfill({
     json: {
       ok: true, old: {}, item: { ...target, status: 'OPEN' },
-      exception: { ...target, status: 'OPEN', message: 'Session vẫn đang mở quá 12 giờ.', row_version: 2 },
+      exception: { ...target, status: 'OPEN', message: 'Phiên làm việc vẫn đang mở quá 12 giờ.', row_version: 2 },
       cleared: false
     }
   }));
   await page.locator('[data-action="save"]').click();
 
   await expect(page.locator('.ec-banner.warn')).toContainText('vẫn còn');
-  await expect(page.locator('.ec-banner.warn')).toContainText('Session vẫn đang mở quá 12 giờ');
+  await expect(page.locator('.ec-banner.warn')).toContainText('Phiên làm việc vẫn đang mở quá 12 giờ');
   await expect(page.locator('[data-action="resolve"]')).toBeDisabled();
 });
 
@@ -362,17 +362,17 @@ test('Mở Session đầy đủ vẫn là phương án dự phòng, giữ ngữ 
 
   await page.evaluate(() => openPage('session-exceptions'));
   await page.locator(`.ec-card[data-id="${target.id}"]`).click();
-  await expect(page.locator('.ec-resolution')).toContainText(`SESSION #${target.session_id}`);
+  await expect(page.locator('.ec-resolution')).toContainText(`Phiên làm việc #${target.session_id}`);
 
   // Secondary/fallback action -- not the primary "Xử lý" path, but still
   // deep-links to the exact Session, same mechanism as before.
-  await page.getByRole('button', { name: 'Mở Session đầy đủ' }).click();
+  await page.getByRole('button', { name: 'Mở phiên làm việc đầy đủ' }).click();
 
-  await expect(page.locator('#pageTitle')).toHaveText('Quản lý Session');
-  await expect(page.locator('.session-exception-context')).toContainText(`Session #${target.session_id}`);
-  await expect(page.locator('.session-exception-context')).toContainText('Session mở quá lâu');
+  await expect(page.locator('#pageTitle')).toHaveText('Quản lý phiên làm việc');
+  await expect(page.locator('.session-exception-context')).toContainText(`phiên làm việc #${target.session_id}`);
+  await expect(page.locator('.session-exception-context')).toContainText('Phiên làm việc mở quá lâu');
 
   await page.locator('[data-nav-back]').click();
-  await expect(page.locator('#pageTitle')).toHaveText('Trung tâm ngoại lệ');
+  await expect(page.locator('#pageTitle')).toHaveText('Các phiên làm việc bất thường');
   await expect(page.locator('.ec-card')).toHaveCount(items.length);
 });

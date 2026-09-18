@@ -128,9 +128,9 @@ class ReworkQueueRepository:
                   WHERE ws.id=%s FOR UPDATE OF ws""", (source_session_id,))
                 source = cur.fetchone()
                 if not source:
-                    raise NotFoundError('source session not found')
+                    raise NotFoundError('Không tìm thấy phiên làm việc nguồn')
                 if source['status'] != 'CLOSED' or not is_production(source.get('operation_type')):
-                    raise ConflictError('Session nguồn không hợp lệ cho hàng chờ sửa')
+                    raise ConflictError('Phiên làm việc nguồn không hợp lệ cho hàng chờ sửa')
                 # Chờ sửa = nhóm CÔNG NHÂN KHAI LÀ SỬA ĐƯỢC (rework_qty) trừ
                 # đi phần đã xử lý -- KHÔNG phải defect-rework-scrap, vốn là
                 # số hàng khai là KHÔNG sửa được (0051_repair_pending_semantics).

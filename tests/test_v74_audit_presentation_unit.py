@@ -43,8 +43,8 @@ def test_session_edit_577_shows_only_the_one_changed_field():
                 'good_qty': 10, 'defect_qty': 1, 'rework_qty': 0, 'note': '', 'updated_at': '2026-08-09T11:05:00+00:00'},
     })
     p = present(row, employees=EMPLOYEES, operations=OPERATIONS)
-    assert p['title'] == 'Chỉnh sửa Session #577'
-    assert p['summary'] == 'admin đã chỉnh sửa Session #577'
+    assert p['title'] == 'Chỉnh sửa phiên làm việc #577'
+    assert p['summary'] == 'admin đã chỉnh sửa phiên làm việc #577'
     assert p['reason'] == 'ok'
     assert len(p['changes']) == 1
     change = p['changes'][0]
@@ -76,10 +76,10 @@ def test_session_exception_workflow_update_single_session():
     })
     sessions = {572: {'employee_id': 3, 'operation_id': 75, 'station_id': None}}
     p = present(row, employees=EMPLOYEES, operations=OPERATIONS, sessions=sessions)
-    assert p['title'] == 'Xử lý Session bất thường'
-    assert p['summary'] == 'admin đã nhận xử lý Session #572'
+    assert p['title'] == 'Xử lý phiên làm việc bất thường'
+    assert p['summary'] == 'admin đã nhận xử lý phiên làm việc #572'
     values = {e['field']: e['value'] for e in p['extra']}
-    assert values['exception_code'] == 'Session mở quá lâu'
+    assert values['exception_code'] == 'Phiên làm việc mở quá lâu'
     assert values['workflow_status'] == 'Đang xử lý'
     # the raw technical vocabulary must never leak into the normal-view payload
     dump = json.dumps(p, ensure_ascii=False)
@@ -94,7 +94,7 @@ def test_session_exception_workflow_update_bulk_lists_affected_sessions():
         'items': items,
     })
     p = present(row)
-    assert p['summary'] == 'Đã cập nhật xử lý 5 Session bất thường'
+    assert p['summary'] == 'Đã cập nhật xử lý 5 phiên làm việc bất thường'
     assert len(p['affected_sessions']) == 5
     assert {e['field']: e['value'] for e in p['extra']}['resolution'] == 'Đã chỉnh dữ liệu'
 
@@ -191,7 +191,7 @@ def test_task_enum_translations_present():
     assert enum_label('workflow_status', 'IN_PROGRESS') == 'Đang xử lý'
     assert enum_label('workflow_status', 'RESOLVED') == 'Đã xử lý'
     assert enum_label('workflow_status', 'IGNORED') == 'Đã bỏ qua'
-    assert enum_label('exception_code', 'OPEN_TOO_LONG') == 'Session mở quá lâu'
+    assert enum_label('exception_code', 'OPEN_TOO_LONG') == 'Phiên làm việc mở quá lâu'
 
 
 def test_enum_domains_do_not_collide_status_means_different_things():

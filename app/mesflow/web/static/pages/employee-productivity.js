@@ -50,7 +50,7 @@ function epTimeShort(iso) {
 
 async function renderEmployeeProductivity() {
   title.textContent = 'Báo cáo năng suất nhân viên';
-  subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các Session đã kết thúc của từng nhân viên trong khoảng ngày.';
+  subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các phiên làm việc đã kết thúc của từng nhân viên trong khoảng ngày.';
   content.innerHTML = `<div class="page-shell">
     ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epReload">Làm mới</button>' })}
     <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
@@ -71,7 +71,7 @@ async function renderEmployeeProductivity() {
                 <option value="productivity_desc">Năng suất giảm dần</option>
                 <option value="productivity_asc">Năng suất tăng dần</option>
                 <option value="name_asc">Tên A→Z</option>
-                <option value="sessions_desc">Số session giảm dần</option>
+                <option value="sessions_desc">Số phiên làm việc giảm dần</option>
               </select></label>
               <label><span>Số nhân viên / trang</span><select id="epWbEmployeesPerPage">
                 <option value="10">10</option><option value="12">12</option><option value="16">16</option>
@@ -138,33 +138,33 @@ async function renderEmployeeProductivity() {
     // no realtime "who's working right now" card of any kind, and the
     // backend summary for this endpoint no longer computes any such field.
     document.getElementById('epKpis').innerHTML = [
-      ['Nhân viên có dữ liệu', summary.employee_count || 0, (summary.completed_sessions || 0) + ' session đã kết thúc'],
+      ['Nhân viên có dữ liệu', summary.employee_count || 0, (summary.completed_sessions || 0) + ' phiên làm việc đã kết thúc'],
       // 'Thiếu định mức' is the actionable number (an Operation missing its
       // standard time). Repair sessions on the SỬA HÀNG bench have no
       // production standard by nature, so they are named, not lumped in.
-      ['Tổng Session đã kết thúc', summary.completed_sessions || 0,
+      ['Tổng phiên làm việc đã kết thúc', summary.completed_sessions || 0,
         [(summary.completed_invalid_sessions || 0) + ' thiếu định mức',
          summary.repair_sessions ? summary.repair_sessions + ' ca sửa hàng' : ''].filter(Boolean).join(' · ')],
-      ['Năng suất trung bình', productivityText(summary.avg_employee_productivity_percent), 'Trung bình của từng nhân viên, không phải trung bình mọi session'],
+      ['Năng suất trung bình', productivityText(summary.avg_employee_productivity_percent), 'Trung bình của từng nhân viên, không phải trung bình mọi phiên làm việc'],
       ['Tổng sản lượng đạt', summary.total_good_qty || 0, 'Lỗi ' + Number(summary.total_defect_qty || 0).toLocaleString('vi-VN')],
     ].map((x, i) => `<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${typeof x[1] === 'number' ? Number(x[1]).toLocaleString('vi-VN') : x[1]}</strong><span>${x[2]}</span></article>`).join('');
   };
 
   const drawTable = () => {
     const host = document.getElementById('epTableHost');
-    if (!rows.length) { host.innerHTML = '<div class="empty">Không có Session hoàn thành trong khoảng ngày đã chọn.</div>'; return; }
+    if (!rows.length) { host.innerHTML = '<div class="empty">Không có phiên làm việc hoàn thành trong khoảng ngày đã chọn.</div>'; return; }
     const arrow = key => sortKey === key ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
     host.innerHTML = `<div class="table-wrap"><table class="ep-table"><thead><tr>
       <th data-sort="employee_name" class="sortable">Nhân viên${arrow('employee_name')}</th>
-      <th data-sort="session" class="sortable">Session đã kết thúc${arrow('session')}</th>
+      <th data-sort="session" class="sortable">Phiên làm việc đã kết thúc${arrow('session')}</th>
       <th data-sort="productivity_percent" class="sortable">Năng suất trung bình${arrow('productivity_percent')}</th>
       <th data-sort="good_qty" class="sortable">Sản lượng đạt / lỗi${arrow('good_qty')}</th>
       <th data-sort="worked_seconds" class="sortable">Tổng thời gian làm việc${arrow('worked_seconds')}</th>
     </tr></thead><tbody>${rows.map(x => {
       return `<tr class="ep-row" data-employee="${x.employee_id}" tabindex="0" role="button">
         <td><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
-        <td><b>${x.completed_sessions} session</b>${sessionBreakdown(x)}</td>
-        <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} session hợp lệ</small></td>
+        <td><b>${x.completed_sessions} phiên làm việc</b>${sessionBreakdown(x)}</td>
+        <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} phiên làm việc hợp lệ</small></td>
         <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>NG ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
         <td>${epDur(x.worked_seconds)}</td>
       </tr>`;
@@ -330,7 +330,7 @@ async function openEmployeeProductivityDetail(employeeId, from, to) {
     const d = await api(`/api/reports/employee-productivity/${employeeId}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     const emp = d.employee;
     box.querySelector('#epdTitle').textContent = `${emp.employee_name} · ${emp.employee_code}`;
-    box.querySelector('#epdRange').textContent = `${epDateShort(d.from)} → ${epDateShort(d.to)} · Năng suất trung bình: ${productivityText(d.productivity_percent)} (${d.valid_session_count} session hợp lệ)`;
+    box.querySelector('#epdRange').textContent = `${epDateShort(d.from)} → ${epDateShort(d.to)} · Năng suất trung bình: ${productivityText(d.productivity_percent)} (${d.valid_session_count} phiên làm việc hợp lệ)`;
     // Only completed sessions are ever returned here (backend filters to
     // status='CLOSED' AND ended_at IS NOT NULL) -- there is no running
     // session to special-case any more, so "Trạng thái" now reports
@@ -343,8 +343,8 @@ async function openEmployeeProductivityDetail(employeeId, from, to) {
         <td>${Number(x.good_qty).toLocaleString('vi-VN')}</td><td>${Number(x.defect_qty).toLocaleString('vi-VN')}</td>
         <td>${x.completion_percent === null ? `<span class="badge neutral">${x.is_repair ? 'Không tính điểm' : 'Không đủ dữ liệu'}</span>` : productivityText(x.completion_percent)}</td>
         <td>${x.completion_percent === null ? (x.is_repair ? 'Đã kết thúc · ca sửa hàng, không có định mức' : 'Đã kết thúc · thiếu dữ liệu định mức') : 'Đã kết thúc · hợp lệ'}</td>
-      </tr>`).join('')}</tbody></table></div><p class="ep-detail-footnote">Trung bình: ${productivityText(d.productivity_percent)} trên ${d.valid_session_count} session hợp lệ (session đang chạy đã bị loại từ query, không chỉ từ công thức; session thiếu dữ liệu định mức cũng không tính vào trung bình).</p>`
-      : '<div class="empty">Không có Session đã kết thúc trong khoảng ngày đã chọn.</div>';
+      </tr>`).join('')}</tbody></table></div><p class="ep-detail-footnote">Trung bình: ${productivityText(d.productivity_percent)} trên ${d.valid_session_count} phiên làm việc hợp lệ. Không tính các phiên đang chạy hoặc thiếu dữ liệu định mức.</p>`
+      : '<div class="empty">Không có phiên làm việc đã kết thúc trong khoảng ngày đã chọn.</div>';
   } catch (e) {
     box.querySelector('#epdBody').innerHTML = `<div class="empty danger">${esc(e.message)}</div>`;
   }

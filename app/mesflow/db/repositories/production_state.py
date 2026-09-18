@@ -281,7 +281,7 @@ def lock_startable_operation(cur, operation_id: int):
     operation = cur.fetchone()
     status = str(operation.get('status') or '').upper()
     if status in TERMINAL_OPERATION_STATUSES:
-        raise ConflictError(f"Operation {operation.get('code') or operation_id} đang ở trạng thái {status}, không thể Start session")
+        raise ConflictError(f"Operation {operation.get('code') or operation_id} đang ở trạng thái {status}, không thể bắt đầu phiên làm việc")
     # SỬA HÀNG is a workbench, not a routing step, and the repair queue is keyed
     # by SOURCE SESSION: resolve() has to know whose defects are being repaired
     # to credit the original operation and decrement that session's pending. A

@@ -45,9 +45,9 @@ def _error(exc):
         code = 'SES-409'
         action = 'Quét lại thẻ nhân viên. Nếu vẫn lỗi, báo quản đốc kiểm tra phiên đang mở.'
         if 'chưa bắt đầu session' in lowered or 'start session op nguồn' in lowered:
-            code, action = 'DEP-409', 'Start session của OP nguồn trước, sau đó quét lại OP hiện tại.'
+            code, action = 'DEP-409', 'Bắt đầu phiên làm việc của OP nguồn trước, sau đó quét lại OP hiện tại.'
         elif 'input' in lowered or 'available' in lowered or 'sản lượng' in lowered or 'đầu vào' in lowered:
-            code, action = 'QTY-409', 'Kết thúc session OP nguồn và nhập đủ sản lượng, hoặc giảm số lượng OP hiện tại.'
+            code, action = 'QTY-409', 'Kết thúc phiên làm việc của OP nguồn và nhập đủ sản lượng, hoặc giảm số lượng của OP hiện tại.'
         return jsonify(ok=False, error='CONFLICT', error_code=code, message=message, action=action), 409
     if isinstance(exc, PermissionDeniedError):
         return jsonify(ok=False, error='FORBIDDEN', error_code='AUTH-403', message=message,

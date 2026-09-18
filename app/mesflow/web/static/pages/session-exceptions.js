@@ -1,8 +1,8 @@
 async function renderSessionExceptions(){
   if(dashboardTimer){clearInterval(dashboardTimer);dashboardTimer=null}
   const el=id=>document.getElementById(id);
-  title.textContent='Phiên làm việc bất thường';
-  subtitle.textContent='Danh sách việc cần kiểm tra: xem nguyên nhân → sửa Session nếu cần → xác nhận kết quả';
+  title.textContent='Các phiên làm việc bất thường';
+  subtitle.textContent='Kiểm tra nguyên nhân, điều chỉnh phiên làm việc khi cần và xác nhận kết quả xử lý';
 
   content.innerHTML=`
   <section class="panel se-workspace">
@@ -20,8 +20,8 @@ async function renderSessionExceptions(){
         </select>
         <select id="seSessionStatus">
           <option value="">OPEN + CLOSED</option>
-          <option value="OPEN">Session đang mở</option>
-          <option value="CLOSED">Session đã đóng</option>
+          <option value="OPEN">Phiên làm việc đang mở</option>
+          <option value="CLOSED">Phiên làm việc đã kết thúc</option>
         </select>
         <button class="btn" id="seRefresh">Làm mới</button>
       </div>
@@ -37,7 +37,7 @@ async function renderSessionExceptions(){
       <label>Từ ngày<input id="seHistoryFrom" type="date"></label>
       <label>Nhân viên<input id="seHistoryEmployee" placeholder="Mã hoặc tên"></label>
       <label>PO<input id="seHistoryPo" placeholder="Mã PO"></label>
-      <label>Loại lỗi<select id="seHistoryType"><option value="">Tất cả</option></select></label>
+      <label>Loại bất thường<select id="seHistoryType"><option value="">Tất cả</option></select></label>
       <label>Kết quả<select id="seHistoryResult"><option value="">Tất cả</option><option value="RESOLVED">Đã xử lý</option><option value="IGNORED">Bỏ qua</option></select></label>
       <label>Người xử lý<input id="seHistoryHandler" placeholder="Tài khoản"></label>
     </div>
@@ -46,7 +46,7 @@ async function renderSessionExceptions(){
       <div class="se-queue">
         <div class="se-queue-head">
           <b id="seCount">0 mục</b>
-          <input id="seSearch" placeholder="Tìm nhân viên, PO, công đoạn, mã Session">
+          <input id="seSearch" placeholder="Tìm nhân viên, PO, công đoạn, mã phiên làm việc">
         </div>
         <div id="seList" class="se-list"></div>
       </div>
@@ -78,7 +78,7 @@ async function renderSessionExceptions(){
           <select id="seResolution">
             <option value="">Chọn kết quả</option>
             <option value="DATA_CORRECTED">Đã chỉnh dữ liệu</option>
-            <option value="SESSION_CLOSED">Đã đóng Session</option>
+            <option value="SESSION_CLOSED">Đã kết thúc phiên làm việc</option>
             <option value="VALID_EXCEPTION">Trường hợp hợp lệ</option>
             <option value="DUPLICATE_ALERT">Cảnh báo trùng</option>
             <option value="OTHER">Khác</option>
@@ -161,7 +161,7 @@ async function renderSessionExceptions(){
     return `<article class="se-card ${selected?'selected':''} ${inactive?'inactive':''}" data-key="${esc(itemKey(x))}">
       <button class="se-card-trigger" type="button" data-key="${esc(itemKey(x))}">
         <div class="se-card-header">
-          <div class="se-card-who"><b>${esc(x.employee_name||'—')}</b><small>${esc(x.employee_code||'—')} · Session #${x.session_id}</small></div>
+          <div class="se-card-who"><b>${esc(x.employee_name||'—')}</b><small>${esc(x.employee_code||'—')} · phiên làm việc #${x.session_id}</small></div>
           <div class="se-card-badges">
             <span class="workflow-badge ${String(x.workflow_status||'NEW').toLowerCase()}">${esc(workflowLabels[x.workflow_status]||x.workflow_status)}</span>
             ${inactive?'<span class="se-fixed-badge">Không còn phát hiện</span>':`<span class="log-level ${String(x.severity||'').toLowerCase()}">${esc(severityLabels[x.severity]||x.severity)}</span>`}
@@ -178,7 +178,7 @@ async function renderSessionExceptions(){
         <span class="se-card-actions">
           ${!done?`<button class="btn primary se-card-act" data-act="process" data-key="${esc(itemKey(x))}" type="button">Xử lý</button>`:''}
           ${!done?`<button class="btn se-card-act" data-act="ignore" data-key="${esc(itemKey(x))}" type="button">Bỏ qua</button>`:''}
-          <button class="btn se-card-act" data-act="view" data-key="${esc(itemKey(x))}" type="button">Xem session</button>
+          <button class="btn se-card-act" data-act="view" data-key="${esc(itemKey(x))}" type="button">Xem phiên làm việc</button>
         </span>
       </div>
     </article>`;
@@ -192,16 +192,16 @@ async function renderSessionExceptions(){
     return `
       <div class="se-detail-head">
         <div>
-          <span class="se-eyebrow">${esc(workflowLabels[x.workflow_status]||x.workflow_status)} · Session #${x.session_id}</span>
+          <span class="se-eyebrow">${esc(workflowLabels[x.workflow_status]||x.workflow_status)} · phiên làm việc #${x.session_id}</span>
           <h3>${esc(labels[x.exception_code]||x.exception_code)}</h3>
-          <p>${esc(inactive?'Hệ thống hiện không còn phát hiện lỗi này sau khi Session được thay đổi. Có thể xác nhận hoàn tất nếu dữ liệu đã đúng.':x.exception_message||'')}</p>
+          <p>${esc(inactive?'Hệ thống không còn phát hiện bất thường này sau khi dữ liệu phiên làm việc thay đổi. Có thể xác nhận hoàn tất nếu dữ liệu hiện tại đã đúng.':x.exception_message||'')}</p>
         </div>
         ${inactive?'<span class="se-fixed-badge strong">Đã hết bất thường</span>':`<span class="log-level ${String(x.severity||'').toLowerCase()}">${esc(severityLabels[x.severity]||x.severity)}</span>`}
       </div>
 
       <div class="se-guidance">
         <b>Nên làm gì?</b>
-        <span>${esc(hints[x.exception_code]||'Kiểm tra Session và bằng chứng liên quan trước khi thay đổi dữ liệu.')}</span>
+        <span>${esc(hints[x.exception_code]||'Kiểm tra phiên làm việc và bằng chứng liên quan trước khi thay đổi dữ liệu.')}</span>
       </div>
 
       <div class="se-detail-grid">
@@ -222,7 +222,7 @@ async function renderSessionExceptions(){
 
       <div class="se-steps">
         <div class="${x.workflow_status!=='NEW'?'done':''}"><b>1</b><span><strong>Nhận xử lý</strong><small>Ghi người phụ trách nếu cần.</small></span>${canStart?'<button class="btn" id="seStartOne">Nhận xử lý</button>':'<span class="se-step-ok">✓</span>'}</div>
-        <div class="${inactive?'done':''}"><b>2</b><span><strong>Kiểm tra / sửa Session</strong><small>Mở đúng Session #${x.session_id}, chỉnh dữ liệu có bằng chứng và lưu.</small></span><button class="btn primary" id="seOpenSession">Mở Session #${x.session_id}</button></div>
+        <div class="${inactive?'done':''}"><b>2</b><span><strong>Kiểm tra / sửa phiên làm việc</strong><small>Mở đúng phiên làm việc #${x.session_id}, chỉnh dữ liệu có bằng chứng và lưu.</small></span><button class="btn primary" id="seOpenSession">Mở phiên làm việc #${x.session_id}</button></div>
         <div class="${isDone(x)?'done':''}"><b>3</b><span><strong>Xác nhận kết quả</strong><small>${inactive?'Bất thường đã biến mất; xác nhận để đóng việc.':'Chỉ hoàn tất sau khi đã kiểm tra hoặc sửa xong.'}</small></span>${canFinish?'<button class="btn" id="seResolveOne">Hoàn tất</button>':'<span class="se-step-ok">✓</span>'}</div>
       </div>
 
@@ -268,7 +268,7 @@ async function renderSessionExceptions(){
   const draw=()=>{
     drawSummary();
     el('seCount').textContent=`${visible.length} mục`;
-    el('seList').innerHTML=visible.length?visible.map(queueCard).join(''):'<div class="control-clear-state"><b>Không có mục phù hợp</b><span>Không còn việc trong bộ lọc hiện tại.</span></div>';
+    el('seList').innerHTML=visible.length?visible.map(queueCard).join(''):'<div class="control-clear-state"><b>Không có phiên làm việc bất thường</b><span>Không còn trường hợp nào trong bộ lọc hiện tại.</span></div>';
     el('seDetail').innerHTML=detailHtml(current);
     document.querySelectorAll('.se-card-trigger').forEach(b=>b.onclick=()=>{current=visible.find(x=>itemKey(x)===b.dataset.key)||null;draw()});
     document.querySelectorAll('.se-card-act').forEach(b=>b.onclick=e=>{
@@ -292,7 +292,7 @@ async function renderSessionExceptions(){
     applyFilters();
   };
 
-  const issueSummary=x=>`<div class="se-modal-issue-main"><div><small>Bất thường</small><b>${esc(labels[x.exception_code]||x.exception_code)}</b></div><div><small>Session</small><b>#${x.session_id}</b></div><div><small>Nhân viên</small><b>${esc(x.employee_code||'')} · ${esc(x.employee_name||'')}</b></div><div><small>Công đoạn</small><b>${esc(x.operation_code||'')} · ${esc(x.operation_name||'')}</b></div></div><p>${esc(x.exception_message||'')}</p>`;
+  const issueSummary=x=>`<div class="se-modal-issue-main"><div><small>Bất thường</small><b>${esc(labels[x.exception_code]||x.exception_code)}</b></div><div><small>Phiên làm việc</small><b>#${x.session_id}</b></div><div><small>Nhân viên</small><b>${esc(x.employee_code||'')} · ${esc(x.employee_name||'')}</b></div><div><small>Công đoạn</small><b>${esc(x.operation_code||'')} · ${esc(x.operation_name||'')}</b></div></div><p>${esc(x.exception_message||'')}</p>`;
 
   const openWorkflow=status=>{
     if(!current){toast('Chưa chọn bất thường');return}
@@ -300,11 +300,11 @@ async function renderSessionExceptions(){
     const isReceive=status==='IN_PROGRESS',isFinish=status==='RESOLVED',isIgnore=status==='IGNORED';
     const currentUser=String(window.MESFLOW_USER?.username||'').trim();
     const info={
-      IN_PROGRESS:['Nhận xử lý','Xác nhận người phụ trách. Sau đó có thể mở ngay Session để kiểm tra và sửa dữ liệu.'],
-      RESOLVED:['Hoàn tất xử lý','Xác nhận kết quả sau khi đã kiểm tra hoặc sửa Session.'],
+      IN_PROGRESS:['Nhận xử lý','Xác nhận người phụ trách. Sau đó có thể mở ngay phiên làm việc để kiểm tra và sửa dữ liệu.'],
+      RESOLVED:['Hoàn tất xử lý','Xác nhận kết quả sau khi đã kiểm tra hoặc sửa phiên làm việc.'],
       IGNORED:['Bỏ qua có lý do','Chỉ dùng khi đã kiểm tra và xác nhận đây là trường hợp hợp lệ hoặc cảnh báo không cần sửa.']
     }[status];
-    el('seModalKicker').textContent=`${labels[current.exception_code]||current.exception_code} · Session #${current.session_id}`;
+    el('seModalKicker').textContent=`${labels[current.exception_code]||current.exception_code} · phiên làm việc #${current.session_id}`;
     el('seModalTitle').textContent=info[0];
     el('seModalHelp').textContent=info[1];
     el('seModalIssue').innerHTML=issueSummary(current);
@@ -319,10 +319,10 @@ async function renderSessionExceptions(){
     el('seNote').value=isReceive?'':current.review_note||'';
     el('seNote').placeholder=isReceive?'Ví dụ: Đang kiểm tra lại giờ kết thúc với tổ trưởng.':isIgnore?'Bắt buộc ghi rõ vì sao không cần xử lý.':'Ghi ngắn đã kiểm tra/sửa gì và kết quả.';
     el('seNoteHint').textContent=isReceive?'Không bắt buộc. Chỉ ghi khi cần bàn giao hoặc lưu ý.':isIgnore?'Bắt buộc ghi lý do bỏ qua.':isFinish?'Bắt buộc ghi kết quả xử lý.':'';
-    el('seModalNext').innerHTML=isReceive?`<b>Bước tiếp theo</b><span>Sau khi nhận, nên mở Session #${current.session_id} để kiểm tra. Bạn có thể làm ngay bằng nút bên dưới.</span>`:isFinish?`<b>Kiểm tra trước khi hoàn tất</b><span>${current.is_active===false?'Hệ thống không còn phát hiện bất thường này. Hãy xác nhận dữ liệu hiện tại là đúng.':'Bất thường vẫn đang được phát hiện. Chỉ hoàn tất nếu đã kiểm tra và có lý do rõ ràng.'}</span>`:'<b>Lưu ý</b><span>Bỏ qua không sửa dữ liệu. Lý do sẽ được lưu trong nhật ký xử lý.</span>';
+    el('seModalNext').innerHTML=isReceive?`<b>Bước tiếp theo</b><span>Sau khi nhận, nên mở phiên làm việc #${current.session_id} để kiểm tra. Bạn có thể làm ngay bằng nút bên dưới.</span>`:isFinish?`<b>Kiểm tra trước khi hoàn tất</b><span>${current.is_active===false?'Hệ thống không còn phát hiện bất thường này. Hãy xác nhận dữ liệu hiện tại là đúng.':'Bất thường vẫn đang được phát hiện. Chỉ hoàn tất nếu đã kiểm tra và có lý do rõ ràng.'}</span>`:'<b>Lưu ý</b><span>Bỏ qua không sửa dữ liệu. Lý do sẽ được lưu trong nhật ký xử lý.</span>';
     el('seModalSave').textContent=isReceive?'Chỉ nhận xử lý':isFinish?'Xác nhận hoàn tất':'Xác nhận bỏ qua';
     el('seModalSecondary').hidden=!isReceive;
-    el('seModalSecondary').textContent='Nhận và mở Session';
+    el('seModalSecondary').textContent='Nhận và mở phiên làm việc';
     el('seModalSecondary').className='btn primary';
     el('seModalSave').className=isReceive?'btn':'btn primary';
     el('seAssignMe').onclick=()=>{el('seAssigned').value=currentUser;el('seAssigned').focus()};

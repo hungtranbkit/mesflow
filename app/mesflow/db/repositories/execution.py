@@ -111,7 +111,7 @@ def _find_employee_session_overlap(cur, employee_id:int, started_at, ended_at=No
 def _raise_overlap(conflict):
     if conflict:
         label=conflict.get('operation_code') or conflict.get('operation_name') or conflict.get('id')
-        raise ConflictError(f"Thời gian session bị chồng với Session #{conflict['id']} ({label}). Hãy điều chỉnh giờ bắt đầu/kết thúc.")
+        raise ConflictError(f"Khoảng thời gian này trùng với phiên làm việc #{conflict['id']} ({label}). Hãy điều chỉnh giờ bắt đầu hoặc giờ kết thúc.")
 
 
 
@@ -427,16 +427,16 @@ def _guard_rework_ledger(cur,session_id,*,rework,repaired,scrap):
     reworked,scrapped=_rework_ledger_floor(cur,session_id)
     if repaired<reworked:
         raise ConflictError(
-            f'Session này đã ghi nhận {reworked} sản phẩm sửa được qua Hàng chờ sửa. '
+            f'Phiên làm việc này đã ghi nhận {reworked} sản phẩm sửa được qua Hàng chờ sửa. '
             f'Không thể đặt số đã sửa xuống {repaired}.')
     if rework<reworked+scrapped:
         raise ConflictError(
-            f'Session này đã xử lý {reworked+scrapped} sản phẩm qua Hàng chờ sửa '
+            f'Phiên làm việc này đã xử lý {reworked+scrapped} sản phẩm qua Hàng chờ sửa '
             f'({reworked} sửa được, {scrapped} phế). Số "Lỗi sửa được" không thể '
             f'thấp hơn tổng đó -- đang đặt {rework}.')
     if scrap<scrapped:
         raise ConflictError(
-            f'Session này đã ghi nhận {scrapped} sản phẩm phế qua Hàng chờ sửa. '
+            f'Phiên làm việc này đã ghi nhận {scrapped} sản phẩm phế qua Hàng chờ sửa. '
             f'Không thể đặt số phế xuống {scrap}.')
 
 
@@ -474,7 +474,7 @@ def _guard_support_operation_quantity(cur, operation_id, *, good=0, defect=0, re
         return
     label = 'bàn SỬA HÀNG' if operation_type == REWORK_TYPE else 'OP setup'
     raise ConflictError(
-        f'Session này có {carried} sản phẩm đã ghi nhận, không thể gắn vào '
+        f'Phiên làm việc này có {carried} sản phẩm đã ghi nhận, không thể gắn vào '
         f'{label} {operation_code or operation_id} ({operation_type}): '
         'OP phụ không tính vào sản lượng nên số này sẽ biến mất khỏi tiến độ PO. '
         'Hãy dùng một Operation sản xuất, hoặc chỉnh số lượng về 0 trước.')
@@ -613,7 +613,7 @@ class WorkSessionRepository:
                     record_audit(cur,action='SESSION_STARTED',entity_type='work_session',entity_id=str(row['id']),
                         actor_username=audit_actor_username,actor_user_id=audit_actor_user_id,employee_id=employee_id,
                         correlation_id=audit_correlation_id or request_id,after=response['session'],source='mesflow.web')
-                    record_event(cur,event_type='SESSION_STARTED',category='SESSION',title='Session bắt đầu',operation_id=operation_id,
+                    record_event(cur,event_type='SESSION_STARTED',category='SESSION',title='Bắt đầu phiên làm việc',operation_id=operation_id,
                         session_id=row['id'],actor_id=audit_actor_user_id,actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,
                         metadata={'employee_id':employee_id,'request_id':request_id})
                 timer.emit(request_id=request_id,session_id=row['id'],operation_id=operation_id,idempotent_replay=False)
@@ -659,8 +659,8 @@ class WorkSessionRepository:
                 if pre: lock_production_order_for_operation_first(cur,pre['operation_id'])
             with timer.stage('lock_session_and_input_consumption'):
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
-                if not row: raise NotFoundError('session not found')
-                if row['status']!='OPEN': raise ConflictError('session already closed')
+                if not row: raise NotFoundError('Không tìm thấy phiên làm việc')
+                if row['status']!='OPEN': raise ConflictError('Phiên làm việc đã kết thúc')
                 # SETUP (chuẩn bị máy) rides on the ordinary session flow so the
                 # ESP terminal needs no new screen: the worker scans the SETUP
                 # label, scans their card again, and submits on the SAME
@@ -718,7 +718,7 @@ class WorkSessionRepository:
                     record_event(cur,event_type={'GOOD':'GOOD_QUANTITY_RECORDED','DEFECT':'DEFECT_QUANTITY_RECORDED','REPAIRABLE':'REPAIRABLE_DEFECT_RECORDED'}[movement['movement_type']],
                       category={'GOOD':'QUANTITY','DEFECT':'DEFECT','REPAIRABLE':'REWORK'}[movement['movement_type']],title={'GOOD':'Ghi nhận sản lượng đạt','DEFECT':'Ghi nhận sản lượng lỗi','REPAIRABLE':'Ghi nhận lỗi sửa được'}[movement['movement_type']],
                       operation_id=row['operation_id'],session_id=session_id,actor_id=audit_actor_user_id,actor_name=audit_actor_username,quantity_delta=movement['delta'],correlation_id=audit_correlation_id or request_id,metadata={'movement_id':movement['id']})
-                record_event(cur,event_type='SESSION_FINISHED',category='SESSION',title='Session kết thúc',operation_id=row['operation_id'],session_id=session_id,
+                record_event(cur,event_type='SESSION_FINISHED',category='SESSION',title='Kết thúc phiên làm việc',operation_id=row['operation_id'],session_id=session_id,
                     actor_id=audit_actor_user_id,actor_name=audit_actor_username,correlation_id=audit_correlation_id or request_id,occurred_at=finish_at,
                     metadata={'good':good,'defect':defect,'repairable':rework,'request_id':request_id})
             timer.emit(request_id=request_id,session_id=session_id,operation_id=row['operation_id'],idempotent_replay=False)
@@ -824,7 +824,7 @@ class WorkSessionRepository:
                     actor_username='SYSTEM',actor_user_id=None,employee_id=row['employee_id'],correlation_id=correlation_id,
                     before=_json_safe(dict(row)),after=response['session'],source='shift-reconciliation',
                     metadata={'shift_end_at':shift_end_at.isoformat() if hasattr(shift_end_at,'isoformat') else str(shift_end_at)})
-                record_event(cur,event_type='SESSION_AUTO_CLOSED',category='SESSION',title='Session tự động đóng ca',
+                record_event(cur,event_type='SESSION_AUTO_CLOSED',category='SESSION',title='Phiên làm việc đã được hệ thống đóng khi hết ca',
                     operation_id=row['operation_id'],session_id=session_id,actor_name='SYSTEM',correlation_id=correlation_id,
                     occurred_at=shift_end_at,metadata={'close_reason':'AUTO_SHIFT_END','good':good,'defect':defect,'rework':rework})
                 return response
@@ -834,7 +834,7 @@ class QCRepository:
         with transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT id,operation_id FROM work_sessions WHERE id=%s FOR SHARE',(int(data['session_id']),)); session=cur.fetchone()
-                if not session: raise NotFoundError('session not found')
+                if not session: raise NotFoundError('Không tìm thấy phiên làm việc')
                 cur.execute('INSERT INTO qc_inspections(session_id,operation_id,inspector_user_id) VALUES(%s,%s,%s) RETURNING *',(session['id'],session['operation_id'],user_id)); return cur.fetchone()
     def complete(self,inspection_id,data):
         with transaction() as conn:
@@ -862,7 +862,7 @@ class SupervisorRepository:
                 cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
                 if pre: lock_production_order_for_operation_first(cur,pre['operation_id'])
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); row=cur.fetchone()
-                if not row: raise NotFoundError('session not found')
+                if not row: raise NotFoundError('Không tìm thấy phiên làm việc')
                 _guard_quantity_shape(good=good,defect=defect,rework=rework,repaired=int(row.get('repaired_qty') or 0),scrap=int(row.get('scrap_qty') or 0))
                 # Một session cũ có thể đã nằm sẵn trên OP phụ (dữ liệu có
                 # trước guard này). Điều chỉnh số lượng lên đó là ghi thêm sản
@@ -886,12 +886,12 @@ class SupervisorRepository:
                 reconcile_operation_and_po(cur,row['operation_id'])
                 cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,old_defect_qty,new_defect_qty,old_rework_qty,new_rework_qty,reason,adjusted_by)
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",(session_id,row['operation_id'],row['good_qty'],good,row['defect_qty'],defect,int(row.get('rework_qty') or 0),rework,reason,user_id)); result=_json_safe(dict(cur.fetchone()))
-                record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Điều chỉnh sản lượng Session',description=reason,operation_id=row['operation_id'],session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'adjustment_id':result['id'],'movements':[x['id'] for x in movements]})
+                record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Điều chỉnh sản lượng phiên làm việc',description=reason,operation_id=row['operation_id'],session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'adjustment_id':result['id'],'movements':[x['id'] for x in movements]})
                 if request_id:cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_ADJUST',Jsonb(result)))
                 return result
     def edit_session(self,session_id,data,user_id,expected_updated_at=None):
         reason=str(data.get('reason') or '').strip()
-        if not reason: raise ValueError('Phải nhập lý do chỉnh sửa session')
+        if not reason: raise ValueError('Phải nhập lý do chỉnh sửa phiên làm việc')
         request_id=str(data.get('request_id') or '').strip()
         with transaction() as conn:
             if request_id:
@@ -922,14 +922,14 @@ class SupervisorRepository:
                 # in ascending PO-id order, matching transfer_operation()'s
                 # own established pattern for the same two-PO case.
                 cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
-                if not pre: raise NotFoundError('session not found')
+                if not pre: raise NotFoundError('Không tìm thấy phiên làm việc')
                 op_ids=sorted({int(pre['operation_id']),int(data.get('operation_id') or pre['operation_id'])})
                 cur.execute('SELECT DISTINCT production_order_id FROM operations WHERE id=ANY(%s) ORDER BY production_order_id',(op_ids,))
                 for po_row in cur.fetchall():
                     cur.execute('SELECT id FROM production_orders WHERE id=%s FOR UPDATE',(po_row['production_order_id'],))
 
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
-                if not old: raise NotFoundError('session not found')
+                if not old: raise NotFoundError('Không tìm thấy phiên làm việc')
                 # §11 of the 2026-08-28 Session Exception Resolution modal
                 # task: optional, opt-in concurrency guard -- expected_
                 # updated_at is None for every pre-existing caller (Session
@@ -964,13 +964,13 @@ class SupervisorRepository:
                     mismatch=False
                 if mismatch:
                     raise SessionChangedError(
-                        'Session đã được người khác thay đổi. Vui lòng xem lại dữ liệu mới nhất.',
+                        'Phiên làm việc đã được người khác thay đổi. Vui lòng xem lại dữ liệu mới nhất.',
                         current=_json_safe(dict(old)))
                 employee_id=int(data.get('employee_id') or old['employee_id'])
                 operation_id=int(data.get('operation_id') or old['operation_id'])
                 station_id=data.get('station_id',old['station_id']); station_id=int(station_id) if station_id not in (None,'') else None
                 status=str(data.get('status') or old['status']).upper()
-                if status not in ('OPEN','CLOSED'): raise ValueError('Trạng thái session không hợp lệ')
+                if status not in ('OPEN','CLOSED'): raise ValueError('Trạng thái phiên làm việc không hợp lệ')
                 started_at=data.get('started_at') or old['started_at']
                 ended_at=data.get('ended_at')
                 if status=='OPEN': ended_at=None
@@ -983,7 +983,7 @@ class SupervisorRepository:
                 cur.execute(f'SELECT o.status,o.code,{TYPE_VALUE_O} operation_type FROM operations o WHERE o.id=%s FOR UPDATE',(operation_id,)); target_operation=cur.fetchone()
                 if not target_operation: raise ValueError('Operation không tồn tại')
                 if status=='OPEN' and target_operation and str(target_operation.get('status') or '').upper()=='CANCELLED':
-                    raise ConflictError(f"Operation {target_operation.get('code') or operation_id} đã CANCELLED, không thể reopen session")
+                    raise ConflictError(f"Operation {target_operation.get('code') or operation_id} đã CANCELLED, không thể mở lại phiên làm việc")
                 # Cùng luật với transfer_operation(): edit_session() cũng đổi
                 # được operation_id VÀ số lượng trong một lệnh, nên nó phải qua
                 # đúng guard đó chứ không phải một luật riêng (hoặc không có
@@ -1014,7 +1014,7 @@ class SupervisorRepository:
                 if int(old['operation_id'])!=operation_id:
                     reconcile_operation_and_po(cur,operation_id)
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
-                record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Chỉnh sửa Session',description=reason,operation_id=operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'before':_json_safe(dict(old)),'after':_json_safe(dict(new)),'movement_ids':[x['id'] for x in movements]})
+                record_event(cur,event_type='VALUE_CHANGED',category='CHANGE',title='Chỉnh sửa phiên làm việc',description=reason,operation_id=operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,metadata={'before':_json_safe(dict(old)),'after':_json_safe(dict(new)),'movement_ids':[x['id'] for x in movements]})
                 if request_id:cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_EDIT',Jsonb(result)))
                 return result
 
@@ -1048,9 +1048,9 @@ class SupervisorRepository:
                 if replay is not None:return replay
             with conn.cursor() as cur:
                 cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
-                if not pre: raise NotFoundError('session not found')
+                if not pre: raise NotFoundError('Không tìm thấy phiên làm việc')
                 cur.execute('SELECT production_order_id FROM operations WHERE id=%s',(pre['operation_id'],)); src_ref=cur.fetchone()
-                if not src_ref: raise NotFoundError('session not found')
+                if not src_ref: raise NotFoundError('Không tìm thấy phiên làm việc')
                 cur.execute('SELECT production_order_id FROM operations WHERE id=%s',(new_operation_id,)); tgt_ref=cur.fetchone()
                 if not tgt_ref: raise ValueError('Operation không tồn tại')
                 # Lock every PO involved, in a FIXED (ascending id) order --
@@ -1061,7 +1061,7 @@ class SupervisorRepository:
                 for po_id in sorted({src_ref['production_order_id'],tgt_ref['production_order_id']}):
                     cur.execute('SELECT id FROM production_orders WHERE id=%s FOR UPDATE',(po_id,))
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
-                if not old: raise NotFoundError('session not found')
+                if not old: raise NotFoundError('Không tìm thấy phiên làm việc')
                 if int(old['operation_id'])==new_operation_id: raise ValueError('Operation mới trùng Operation hiện tại')
                 cur.execute("""SELECT o.id,o.code,o.name,o.status,o.part_id,o.production_order_id,p.code part_code,
                     po.code po_code FROM operations o JOIN parts p ON p.id=o.part_id
@@ -1122,7 +1122,7 @@ class SupervisorRepository:
                     'from_operation':{'id':source_op['id'],'code':source_op['code'],'name':source_op['name']},
                     'to_operation':{'id':target_op['id'],'code':target_op['code'],'name':target_op['name']}})
                 record_event(cur,event_type='OPERATION_TRANSFERRED',category='CHANGE',
-                    title='Chuyển Operation cho Session',description=reason,
+                    title='Chuyển Operation cho phiên làm việc',description=reason,
                     operation_id=new_operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,
                     correlation_id=request_id,
                     metadata={'from_operation_id':source_op['id'],'from_operation_code':source_op['code'],
@@ -1136,15 +1136,15 @@ class SupervisorRepository:
         quantity/KPI/progress reporting stops (reconcile_operation() filters
         excluded_from_reports=TRUE out at the source, see migration 0042)."""
         reason=str(data.get('reason') or '').strip()
-        if not reason: raise ValueError('Phải chọn lý do khi loại Session khỏi báo cáo')
+        if not reason: raise ValueError('Phải chọn lý do khi loại phiên làm việc khỏi báo cáo')
         with transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
-                if not pre: raise NotFoundError('session not found')
+                if not pre: raise NotFoundError('Không tìm thấy phiên làm việc')
                 lock_production_order_for_operation_first(cur,pre['operation_id'])
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
-                if not old: raise NotFoundError('session not found')
-                if old['excluded_from_reports']: raise ConflictError('Session đã được loại khỏi báo cáo')
+                if not old: raise NotFoundError('Không tìm thấy phiên làm việc')
+                if old['excluded_from_reports']: raise ConflictError('Phiên làm việc đã được loại khỏi báo cáo')
                 cur.execute("""UPDATE work_sessions SET excluded_from_reports=TRUE,exclusion_reason=%s,
                     excluded_by=%s,excluded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                     WHERE id=%s RETURNING *""",(reason,actor_username,session_id)); new=cur.fetchone()
@@ -1160,7 +1160,7 @@ class SupervisorRepository:
                 cur.execute('DELETE FROM operation_input_consumptions WHERE session_id=%s',(session_id,))
                 reconcile_operation_and_po(cur,int(old['operation_id']))
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
-                record_event(cur,event_type='SESSION_EXCLUDED',category='CHANGE',title='Loại Session khỏi báo cáo',
+                record_event(cur,event_type='SESSION_EXCLUDED',category='CHANGE',title='Loại phiên làm việc khỏi báo cáo',
                     description=reason,operation_id=old['operation_id'],session_id=session_id,actor_id=user_id,
                     actor_name=actor_username,metadata={'reason':reason})
                 return result
@@ -1170,15 +1170,15 @@ class SupervisorRepository:
         again from the next reconcile onward. Requires a reason for the same
         auditability reason exclude itself does."""
         reason=str(data.get('reason') or '').strip()
-        if not reason: raise ValueError('Phải nhập lý do khôi phục Session vào báo cáo')
+        if not reason: raise ValueError('Phải nhập lý do khôi phục phiên làm việc vào báo cáo')
         with transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT operation_id FROM work_sessions WHERE id=%s',(session_id,)); pre=cur.fetchone()
-                if not pre: raise NotFoundError('session not found')
+                if not pre: raise NotFoundError('Không tìm thấy phiên làm việc')
                 lock_production_order_for_operation_first(cur,pre['operation_id'])
                 cur.execute('SELECT * FROM work_sessions WHERE id=%s FOR UPDATE',(session_id,)); old=cur.fetchone()
-                if not old: raise NotFoundError('session not found')
-                if not old['excluded_from_reports']: raise ConflictError('Session hiện không bị loại khỏi báo cáo')
+                if not old: raise NotFoundError('Không tìm thấy phiên làm việc')
+                if not old['excluded_from_reports']: raise ConflictError('Phiên làm việc hiện không bị loại khỏi báo cáo')
                 cur.execute("""UPDATE work_sessions SET excluded_from_reports=FALSE,exclusion_reason='',
                     excluded_by='',excluded_at=NULL,updated_at=CURRENT_TIMESTAMP
                     WHERE id=%s RETURNING *""",(session_id,)); new=cur.fetchone()
@@ -1194,7 +1194,7 @@ class SupervisorRepository:
                         origin='RESTORE')
                 reconcile_operation_and_po(cur,int(old['operation_id']))
                 result=_json_safe({'old':dict(old),'item':dict(new),'reason':reason})
-                record_event(cur,event_type='SESSION_RESTORED',category='CHANGE',title='Khôi phục Session vào báo cáo',
+                record_event(cur,event_type='SESSION_RESTORED',category='CHANGE',title='Khôi phục phiên làm việc vào báo cáo',
                     description=reason,operation_id=old['operation_id'],session_id=session_id,actor_id=user_id,
                     actor_name=actor_username,metadata={'reason':reason,'previous_exclusion_reason':old.get('exclusion_reason')})
                 return result

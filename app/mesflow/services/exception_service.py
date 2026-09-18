@@ -79,7 +79,7 @@ class ExceptionService:
         current=self.repository.get(command.exception_id)
         if current['condition_active'] and current['status'] in ('OPEN','ACKNOWLEDGED'):
             raise ConflictError(
-                'Bất thường vẫn còn tồn tại sau khi kiểm tra lại -- hãy mở Session và sửa dữ liệu trước, '
+                'Bất thường vẫn còn tồn tại sau khi kiểm tra lại -- hãy mở phiên làm việc và sửa dữ liệu trước, '
                 'hoặc chọn Bỏ qua nếu không cần thay đổi dữ liệu.')
         return self._transition(command,'RESOLVED','RESOLVED')
     def ignore(self,command): return self._transition(command,'MANUAL_IGNORED','IGNORED')

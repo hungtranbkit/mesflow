@@ -195,7 +195,7 @@ test('thẻ danh sách của 4 nhóm màn hp3 dùng chung một mặt', async ({
     }, sel);
   };
   await read('/app?page=session-management', '.session-accordion-item', 'Quản lý Session');
-  await read('/app?page=session-exceptions', '.ec-card', 'Trung tâm ngoại lệ');
+  await read('/app?page=session-exceptions', '.ec-card', 'Các phiên làm việc bất thường');
   await read('/app?page=business-audit', '.ba-card', 'Nhật ký nghiệp vụ');
   await read('/app?page=dashboard&tab=overview', '.daily-kpi', 'Dashboard theo ngày (KPI)');
   await read('/app?page=dashboard&tab=overview', '.op-card', 'Dashboard theo ngày (thẻ Operation)');
@@ -245,7 +245,7 @@ test('mọi surface trên 4 nhóm màn lấy bo góc từ thang canonical', asyn
     ['dashboard&tab=people', 'Dashboard ngày — tab B'],
     ['dashboard&tab=output', 'Dashboard ngày — tab C'],
     ['session-management', 'Quản lý Session'],
-    ['session-exceptions', 'Trung tâm ngoại lệ'],
+    ['session-exceptions', 'Các phiên làm việc bất thường'],
     ['business-audit', 'Nhật ký nghiệp vụ'],
   ];
   const offenders = [];

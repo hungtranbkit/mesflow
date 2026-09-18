@@ -11,7 +11,7 @@ def test_session_timeline_scroll_is_scoped_to_the_timeline_region():
     app = APP_JS.read_text(encoding='utf-8')
     assert 'class="employee-day-track-scroll"' in app
     assert 'role="region"' in app
-    assert 'aria-label="Timeline session trong ngày"' in app
+    assert 'aria-label="Timeline phiên làm việc trong ngày"' in app
 
     css = UI_CSS.read_text(encoding='utf-8')
     assert '.employee-day-track-scroll{min-width:0;max-width:100%;overflow-x:auto' in css

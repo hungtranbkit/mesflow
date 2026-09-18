@@ -225,7 +225,7 @@
     'OP-001':'Kiểm tra QR Operation hoặc tạo lại QR từ PO.',
     'OP-002':'Tem này trùng mã với một Operation khác. In lại tem QR cho Operation này rồi quét lại.',
     'PO-001':'Nhờ quản đốc Start/Tiếp tục PO.',
-    'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra session đang mở.',
+    'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra phiên làm việc đang mở.',
     'QTY-409':'Giảm số lượng hoặc kiểm tra sản lượng OP nguồn.',
     'NET-001':'Kiểm tra Wi-Fi/LAN và địa chỉ máy chủ.',
     'AUTH_REQUIRED':'Màn hình này không cần đăng nhập. Nếu vẫn báo lỗi, chụp màn hình và báo quản trị viên.',

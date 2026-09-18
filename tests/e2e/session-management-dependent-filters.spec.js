@@ -49,7 +49,7 @@ async function mockSessionApis(page, { delayed = false } = {}) {
 
 async function openSessionManagement(page) {
   await page.evaluate(() => renderSessionManagement());
-  await expect(page.locator('#smSessionCount')).toContainText('0 session');
+  await expect(page.locator('#smSessionCount')).toContainText('0 phiên làm việc');
 }
 
 test('filter hiển thị trực tiếp và dependent PO → Part → Operation không giữ stale value', async ({ page }) => {

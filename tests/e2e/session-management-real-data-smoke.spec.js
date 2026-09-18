@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-test('Quản lý Session dependent filters với dữ liệu DEV thật', async ({ page }) => {
+test('Quản lý phiên làm việc dependent filters với dữ liệu DEV thật', async ({ page }) => {
   test.skip(process.env.MESFLOW_REAL_DATA_SMOKE !== '1', 'Chỉ chạy trên DEV dataset đã preflight');
   const screenshotDir = process.env.MESFLOW_SMOKE_SCREENSHOT_DIR || '/tmp/mesflow-session-filter-smoke';
   fs.mkdirSync(screenshotDir, { recursive: true });
@@ -14,7 +14,7 @@ test('Quản lý Session dependent filters với dữ liệu DEV thật', async 
   await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.goto('/app');
   await page.evaluate(() => renderSessionManagement());
-  await expect(page.locator('#smSessionCount')).toContainText('session');
+  await expect(page.locator('#smSessionCount')).toContainText('phiên làm việc');
 
   const catalogResponse = await page.request.get('/api/session-management/operations?activity=recent&limit=1');
   expect(catalogResponse.ok()).toBe(true);

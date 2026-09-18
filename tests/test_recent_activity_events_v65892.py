@@ -10,5 +10,5 @@ def test_recent_activity_has_start_and_quantity_events():
 
 def test_dashboard_labels_both_event_types():
     text=(ROOT/'app/mesflow/web/static/app.js').read_text(encoding='utf-8')
-    assert 'Bắt đầu session' in text
+    assert 'Bắt đầu phiên làm việc' in text
     assert 'Nhập sản lượng' in text

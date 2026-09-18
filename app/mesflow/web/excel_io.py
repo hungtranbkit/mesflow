@@ -300,7 +300,7 @@ def import_operations():
             try:
                 row = _normalize_item(item, index)
                 if row['done_qty'] or row['defect_qty'] or row['status'] not in {'','PLANNED'}:
-                    raise ValueError(f'Dòng {index}: done, defect và status là dữ liệu production tự tính; hãy sửa Session nguồn rồi reconcile.')
+                    raise ValueError(f'Dòng {index}: done, defect và status là dữ liệu production tự tính; hãy sửa phiên làm việc nguồn rồi reconcile.')
                 if row['code'] in seen:
                     raise ValueError(f'Dòng {index}: trùng operation_id {row["code"]}.')
                 seen.add(row['code'])
@@ -334,7 +334,7 @@ def import_operations():
                     (SELECT COUNT(*) FROM operation_input_consumptions c JOIN operations o ON o.id=c.target_operation_id
                      WHERE o.production_order_id=ANY(%s)) ledgers''',(scope_ids,scope_ids)).fetchone()
                 if int(counts.get('sessions') or 0)>0 or int(counts.get('ledgers') or 0)>0:
-                    raise ConflictError('Không thể Replace cấu trúc Operation khi PO trong file đã có Session hoặc lịch sử cấp đầu vào. Hãy dùng Merge hoặc tạo PO mới.')
+                    raise ConflictError('Không thể Replace cấu trúc Operation khi PO trong file đã có phiên làm việc hoặc lịch sử cấp đầu vào. Hãy dùng Merge hoặc tạo PO mới.')
                 conn.execute('DELETE FROM operations WHERE production_order_id=ANY(%s)',(scope_ids,))
                 conn.execute('DELETE FROM parts WHERE production_order_id=ANY(%s)',(scope_ids,))
             for row in normalized:
@@ -434,7 +434,7 @@ def import_operations():
                             f"Operation {row['code']} đang thuộc PO {owner['po_code']}"
                             f" (Part {owner.get('part_code') or '?'}), không phải {row['po_code']}. "
                             'Mã Operation là duy nhất trên toàn hệ thống, nên nhập file này sẽ chuyển '
-                            'Operation đó sang PO khác cùng toàn bộ sản lượng và Session của nó. '
+                            'Operation đó sang PO khác cùng toàn bộ sản lượng và phiên làm việc của nó. '
                             'Hãy sửa cột po cho đúng, hoặc đặt mã khác cho Operation mới.')
                 if existing and not is_production(existing['operation_type']):
                     # Một file xuất TRƯỚC bản vá vẫn còn dòng OP phụ trong đó.

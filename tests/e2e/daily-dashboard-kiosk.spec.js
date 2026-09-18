@@ -247,7 +247,7 @@ test.describe('Kiosk điều hành', () => {
     await login(page);
     await openKiosk(page, date);
 
-    await expect(page.locator('#kioskAttention')).toContainText('Session chưa xác nhận');
+    await expect(page.locator('#kioskAttention')).toContainText('Phiên làm việc chưa xác nhận');
     await expect(page.locator('#kioskAttention')).toContainText('Tỉ lệ NG cao');
     await expect(page.locator('#kioskAttentionFoot')).toContainText('chưa có nguồn dữ liệu');
     await expect(page.locator('#kioskChartNote')).toContainText('SP đạt trong ngày');

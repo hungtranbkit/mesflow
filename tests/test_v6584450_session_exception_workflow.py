@@ -34,7 +34,7 @@ def test_compact_master_detail_ui():
 
 def test_real_session_fix_is_part_of_workflow():
     s=(R/"app/mesflow/web/static/pages/session-exceptions.js").read_text()
-    assert "Mở Session #" in s
+    assert "Mở phiên làm việc #" in s
     assert "MESFLOW_SESSION_EXCEPTION_CONTEXT" in s
     assert "openPage('session-management'" in s
     assert "Hoàn tất" in s
@@ -50,7 +50,7 @@ def test_session_management_focus_and_back():
     # that sent you here" outcome.
     assert 'scrollIntoView({behavior:\'smooth\',block:\'center\'})' in block
     assert "returnContext.sessionId" in block
-    assert "Quay lại bất thường" in block
+    assert "Quay lại danh sách bất thường" in block
 
 def test_css_limits_queue_height():
     s=(R/"app/mesflow/web/static/ui.css").read_text()

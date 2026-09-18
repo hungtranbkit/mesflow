@@ -25,7 +25,7 @@ def test_admin_edit_rejects_overlapping_session(db, api, seeded_factory):
         'reason': 'Docker E2E overlap check',
     }, timeout=10)
     assert response.status_code == 409, response.text
-    assert f'Session #{first}' in response.json()['message']
+    assert f'phiên làm việc #{first}' in response.json()['message']
 
 
 def test_half_open_boundary_allows_adjacent_sessions(db, api, seeded_factory):

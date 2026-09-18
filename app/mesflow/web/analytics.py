@@ -201,7 +201,7 @@ def session_management_operations():
     try:
         role=str(session.get('role') or '').lower()
         if role not in ('admin','manager','supervisor'):
-            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền quản lý session'),403
+            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền quản lý phiên làm việc'),403
         value=lambda name: int(request.args[name]) if request.args.get(name,'').strip() else None
         report=ReportRepository().recent_session_operations(value('po_id'),value('part_id'),value('operation_id'),value('employee_id'),request.args.get('activity','recent'),int(request.args.get('limit',50)))
         return jsonify(ok=True,**report)
@@ -213,7 +213,7 @@ def session_management():
     try:
         role=str(session.get('role') or '').lower()
         if role not in ('admin','manager','supervisor'):
-            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền quản lý session'),403
+            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền quản lý phiên làm việc'),403
         value=lambda name: int(request.args[name]) if request.args.get(name,'').strip() else None
         report=ReportRepository().session_management(value('po_id'),value('part_id'),value('operation_id'),value('employee_id'),request.args.get('status'),request.args.get('from'),request.args.get('to'),int(request.args.get('limit',3000)))
         return jsonify(ok=True,**report)
@@ -229,7 +229,7 @@ def session_detail(session_id):
     try:
         role=str(session.get('role') or '').lower()
         if role not in ('admin','manager','supervisor'):
-            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem chi tiết session'),403
+            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem chi tiết phiên làm việc'),403
         return jsonify(ok=True,**ReportRepository().session_detail(session_id))
     except NotFoundError as exc: return jsonify(ok=False,error='NOT_FOUND',message=str(exc)),404
     except Exception as exc: return error(exc)
@@ -240,7 +240,7 @@ def session_exceptions():
     try:
         role=str(session.get('role') or '').lower()
         if role not in ('admin','manager','supervisor'):
-            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem session bất thường'),403
+            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem phiên làm việc bất thường'),403
         employee_id=int(request.args['employee_id']) if request.args.get('employee_id','').strip() else None
         view=str(request.args.get('view') or 'inbox').lower()
         # Reconcile deterministic auto-ignore rules on every read (idempotent,
@@ -259,7 +259,7 @@ def update_session_exception_workflow():
     try:
         role=str(session.get('role') or '').lower()
         if role not in ('admin','manager','supervisor'):
-            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xử lý session bất thường'),403
+            return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xử lý phiên làm việc bất thường'),403
         body=request.get_json(silent=True) or {}
         target_status=str(body.get('workflow_status') or '').strip().upper()
         current_actor=actor()

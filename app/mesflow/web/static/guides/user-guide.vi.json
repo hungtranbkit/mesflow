@@ -15,7 +15,7 @@
       "content": [
         {
           "type": "p",
-          "text": "MESFlow là hệ thống điều hành sản xuất của KIMEX: quản lý Production Order, Part, Operation, Work Session, sản lượng, tiến độ, ngoại lệ và các trạm Kiosk."
+          "text": "MESFlow là hệ thống điều hành sản xuất của KIMEX: quản lý Production Order, Part, Operation, phiên làm việc, sản lượng, tiến độ, ngoại lệ và các trạm Kiosk."
         },
         {
           "type": "h3",
@@ -25,7 +25,7 @@
           "type": "list",
           "items": [
             "Công nhân: thao tác tại Kiosk bằng QR nhân viên và QR Operation; bắt đầu/kết thúc công việc và nhập GOOD/DEFECT/REWORK.",
-            "Quản đốc / Quản lý sản xuất: theo dõi Tổng quan, Dashboard, PO, Session, Ngoại lệ, Production Trace, Gantt & Material Flow và báo cáo năng suất.",
+            "Quản đốc / Quản lý sản xuất: theo dõi Tổng quan, Dashboard, PO, phiên làm việc, Ngoại lệ, Production Trace, Gantt & Material Flow và báo cáo năng suất.",
             "Admin: quản lý thêm Template, Nhân viên, QR, Thiết bị, Người dùng & quyền, Lịch làm việc, Trạm Kiosk, Nhật ký nghiệp vụ và Nhật ký ứng dụng."
           ]
         },
@@ -40,12 +40,12 @@
             "Production Order (PO): lệnh sản xuất thực tế, được tạo từ Template.",
             "Part: chi tiết/cụm chi tiết trong PO.",
             "Operation: một công đoạn sản xuất thuộc Part.",
-            "Work Session: một lần một nhân viên làm một Operation, từ Start đến khi nhập sản lượng và kết thúc."
+            "Phiên làm việc: một lần một nhân viên làm một Operation, từ Start đến khi nhập sản lượng và kết thúc."
           ]
         },
         {
           "type": "note",
-          "text": "Sản lượng và thời gian thực tế phải đi từ Work Session. Không sửa tay số tổng hợp ở Operation/PO để thay thế dữ liệu Session."
+          "text": "Sản lượng và thời gian thực tế phải đi từ phiên làm việc. Không sửa tay số tổng hợp ở Operation/PO để thay thế dữ liệu phiên làm việc."
         },
         {
           "type": "h3",
@@ -61,7 +61,7 @@
         },
         {
           "type": "note",
-          "text": "Hết hạn phiên chỉ đăng xuất khỏi web/kiosk; Work Session sản xuất đang chạy không tự đóng chỉ vì phiên đăng nhập hết hạn — việc đóng Work Session theo ca làm việc được mô tả riêng ở mục Work Session & Quản lý Session."
+          "text": "Hết hạn phiên chỉ đăng xuất khỏi web/kiosk; phiên làm việc sản xuất đang chạy không tự đóng chỉ vì phiên đăng nhập hết hạn — việc đóng phiên làm việc theo ca làm việc được mô tả riêng ở mục phiên làm việc & Quản lý phiên làm việc."
         }
       ]
     },
@@ -115,7 +115,7 @@
             ],
             [
               "Điều hành",
-              "Quản lý Session; Trung tâm ngoại lệ; Production Trace; Nhật ký nghiệp vụ"
+              "Quản lý phiên làm việc; Phiên làm việc bất thường; Production Trace; Nhật ký nghiệp vụ"
             ],
             [
               "Kiosk",
@@ -215,7 +215,7 @@
       "content": [
         {
           "type": "p",
-          "text": "Theo dõi hoạt động theo ngày/ca: nhân viên có hoạt động, người đang làm, GOOD/DEFECT và timeline Work Session."
+          "text": "Theo dõi hoạt động theo ngày/ca: nhân viên có hoạt động, người đang làm, GOOD/DEFECT và timeline phiên làm việc."
         },
         {
           "type": "table",
@@ -226,23 +226,23 @@
           "rows": [
             [
               "Nhân viên có hoạt động",
-              "Có ít nhất một Session trong phạm vi đang xem."
+              "Có ít nhất một phiên làm việc trong phạm vi đang xem."
             ],
             [
               "Đang làm việc",
-              "Hiện còn Session OPEN."
+              "Hiện còn phiên làm việc OPEN."
             ],
             [
               "Sản lượng đạt",
-              "Tổng GOOD từ Session."
+              "Tổng GOOD từ phiên làm việc."
             ],
             [
               "Sản lượng lỗi",
-              "Tổng DEFECT từ Session."
+              "Tổng DEFECT từ phiên làm việc."
             ],
             [
               "Timeline",
-              "Khoảng thời gian thực tế của từng Session."
+              "Khoảng thời gian thực tế của từng phiên làm việc."
             ]
           ]
         },
@@ -252,7 +252,7 @@
             "Chọn ngày.",
             "Chọn ca nếu cần.",
             "Xem KPI đầu trang.",
-            "Kiểm tra bảng Tiến độ theo Operation và danh sách Session để drill-down."
+            "Kiểm tra bảng Tiến độ theo Operation và danh sách phiên làm việc để drill-down."
           ]
         },
         {
@@ -361,7 +361,7 @@
             "Tạo PO từ Template.",
             "Kiểm tra số lượng, hạn giao và kế hoạch.",
             "Start PO trước khi cho Kiosk chạy Operation.",
-            "Theo dõi Part/Operation, Session, Gantt và Trace.",
+            "Theo dõi Part/Operation, phiên làm việc, Gantt và Trace.",
             "Pause/Resume/Complete theo đúng điều kiện nghiệp vụ."
           ]
         },
@@ -392,8 +392,8 @@
           "items": [
             "Mã Part/Operation phải xác định rõ đối tượng trong PO.",
             "Operation có thể phụ thuộc đầu vào từ Operation trước.",
-            "Sản lượng GOOD/DEFECT/REWORK và thời gian thực tế của Operation được tổng hợp từ Session.",
-            "Không dùng trường tổng hợp Operation như nguồn dữ liệu nhập tay thay cho Session."
+            "Sản lượng GOOD/DEFECT/REWORK và thời gian thực tế của Operation được tổng hợp từ phiên làm việc.",
+            "Không dùng trường tổng hợp Operation như nguồn dữ liệu nhập tay thay cho phiên làm việc."
           ]
         }
       ]
@@ -420,10 +420,10 @@
           "items": [
             "Quét QR nhân viên.",
             "Quét QR Operation.",
-            "Xác nhận bắt đầu để tạo Work Session OPEN.",
+            "Xác nhận bắt đầu để tạo phiên làm việc OPEN.",
             "Khi kết thúc, quét lại thẻ nhân viên.",
             "Nhập GOOD, DEFECT và REWORK nếu có.",
-            "Xác nhận để đóng Session."
+            "Xác nhận để đóng phiên làm việc."
           ]
         },
         {
@@ -442,8 +442,8 @@
               "Từ chối Start Operation và nêu lý do."
             ],
             [
-              "Nhân viên đã có Session OPEN",
-              "Không tạo Session thứ hai; lỗi SES-409 / Đã có Session đang mở."
+              "Nhân viên đã có phiên làm việc OPEN",
+              "Không tạo phiên làm việc thứ hai; lỗi SES-409 / Đã có phiên làm việc đang mở."
             ],
             [
               "REWORK > DEFECT",
@@ -457,7 +457,7 @@
         },
         {
           "type": "note",
-          "text": "Offline sync không được biến một request đã bị server từ chối hợp lệ thành Session thành công giả."
+          "text": "Offline sync không được biến một request đã bị server từ chối hợp lệ thành phiên làm việc thành công giả."
         },
         {
           "type": "h3",
@@ -468,14 +468,14 @@
           "items": [
             "Khi Kiosk đồng bộ lại sau khi mất mạng, hệ thống ưu tiên dùng đúng thời điểm công nhân thao tác trên thiết bị (nếu đồng hồ thiết bị đáng tin cậy), không mặc định lấy thời điểm server nhận được dữ liệu.",
             "Nếu đồng hồ thiết bị không rõ ràng, không đồng bộ hoặc chênh lệch bất thường so với server, hệ thống dùng thời điểm server nhận dữ liệu thay thế — không suy đoán một mốc thời gian không chắc chắn.",
-            "Điều này ảnh hưởng tới giờ bắt đầu/kết thúc Session hiển thị sau khi đồng bộ offline; lệch giờ đồng hồ thiết bị quá lớn nên được kiểm tra qua Quản lý trạm Kiosk."
+            "Điều này ảnh hưởng tới giờ bắt đầu/kết thúc phiên làm việc hiển thị sau khi đồng bộ offline; lệch giờ đồng hồ thiết bị quá lớn nên được kiểm tra qua Quản lý trạm Kiosk."
           ]
         }
       ]
     },
     {
       "id": "work-session",
-      "title": "9. Work Session & Quản lý Session",
+      "title": "9. Phiên làm việc và cách quản lý",
       "keywords": [
         "session",
         "work session",
@@ -487,7 +487,7 @@
       "content": [
         {
           "type": "p",
-          "text": "Work Session là nguồn dữ liệu gốc của thời gian và sản lượng. Màn Quản lý Session dùng để tìm, xem chi tiết và khi có quyền phù hợp thì sửa dữ liệu Session sai."
+          "text": "Phiên làm việc là nguồn dữ liệu gốc của thời gian và sản lượng. Màn Quản lý phiên làm việc dùng để tìm, xem chi tiết và khi có quyền phù hợp thì sửa dữ liệu phiên làm việc sai."
         },
         {
           "type": "table",
@@ -509,31 +509,31 @@
         {
           "type": "steps",
           "items": [
-            "Lọc/tìm Operation hoặc Session cần kiểm tra.",
-            "Mở Session Detail để đối chiếu nhân viên, PO/Part/Operation, trạm, thời gian và sản lượng.",
-            "Chỉ sửa Session gốc khi đã xác định dữ liệu sai và có quyền.",
+            "Lọc/tìm Operation hoặc phiên làm việc cần kiểm tra.",
+            "Mở Chi tiết phiên làm việc để đối chiếu nhân viên, PO/Part/Operation, trạm, thời gian và sản lượng.",
+            "Chỉ sửa phiên làm việc gốc khi đã xác định dữ liệu sai và có quyền.",
             "Sau sửa, kiểm tra các projection/tổng hợp liên quan và audit trail."
           ]
         },
         {
           "type": "note",
-          "text": "Một nhân viên chỉ được có tối đa một Session OPEN tại một thời điểm. Mọi chỉnh sửa nghiệp vụ quan trọng cần để lại audit phù hợp."
+          "text": "Một nhân viên chỉ được có tối đa một phiên làm việc OPEN tại một thời điểm. Mọi chỉnh sửa nghiệp vụ quan trọng cần để lại audit phù hợp."
         },
         {
           "type": "h3",
-          "text": "Session quên đóng và tự động đóng ca"
+          "text": "Phiên làm việc quên đóng và tự động đóng ca"
         },
         {
           "type": "p",
-          "text": "Nếu công nhân quên quét thẻ để kết thúc, Session không bị bỏ mặc ở trạng thái OPEN mãi mãi. Hệ thống tự động rà soát và đóng những Session còn mở quá giờ kết thúc ca làm việc của chính Session đó."
+          "text": "Nếu công nhân quên quét thẻ để kết thúc, phiên làm việc không bị bỏ mặc ở trạng thái OPEN mãi mãi. Hệ thống tự động rà soát và đóng những phiên làm việc còn mở quá giờ kết thúc ca làm việc của chính phiên làm việc đó."
         },
         {
           "type": "list",
           "items": [
             "Việc tự động đóng chỉ xảy ra sau khi đã qua thời điểm kết thúc ca một khoảng thời gian ngắn (không đóng ngay khi vừa hết giờ), để công nhân còn kịp quét thẻ kết thúc bình thường.",
             "Sản lượng GOOD/DEFECT/REWORK khi tự động đóng luôn giữ nguyên số đã ghi nhận trước đó — hệ thống không tự bịa hoặc đoán thêm sản lượng.",
-            "Session được tự động đóng luôn có lý do đóng riêng biệt (đóng do hết ca) và được đánh dấu do hệ thống thực hiện, không hiển thị lẫn với việc công nhân tự kết thúc bình thường.",
-            "Nhật ký nghiệp vụ ghi lại rõ Session nào bị tự động đóng, đóng vào lúc nào theo ranh giới ca thực tế."
+            "Phiên làm việc được tự động đóng luôn có lý do đóng riêng biệt (đóng do hết ca) và được đánh dấu do hệ thống thực hiện, không hiển thị lẫn với việc công nhân tự kết thúc bình thường.",
+            "Nhật ký nghiệp vụ ghi lại rõ phiên làm việc nào bị tự động đóng, đóng vào lúc nào theo ranh giới ca thực tế."
           ]
         },
         {
@@ -543,9 +543,9 @@
         {
           "type": "list",
           "items": [
-            "Nếu hệ thống tạm ngưng hoạt động (bảo trì, khởi động lại) trong lúc có Session quá giờ ca, việc rà soát và đóng Session tự động vẫn chạy lại và đóng đúng vào ranh giới ca thực tế đã qua, không đóng nhầm vào thời điểm hệ thống vừa khởi động lại.",
-            "Một Session chỉ bị đóng tự động đúng một lần dù có nhiều lần rà soát chạy gần nhau hoặc chạy đồng thời — không tạo hai lần đóng hoặc nhân đôi sản lượng.",
-            "Sau khi Session cũ của một nhân viên đã được đóng (dù đóng tay hay tự động), nhân viên đó có thể Start Session mới bình thường ở ca tiếp theo."
+            "Nếu hệ thống tạm ngưng hoạt động (bảo trì, khởi động lại) trong lúc có phiên làm việc quá giờ ca, việc rà soát và đóng phiên làm việc tự động vẫn chạy lại và đóng đúng vào ranh giới ca thực tế đã qua, không đóng nhầm vào thời điểm hệ thống vừa khởi động lại.",
+            "Một phiên làm việc chỉ bị đóng tự động đúng một lần dù có nhiều lần rà soát chạy gần nhau hoặc chạy đồng thời — không tạo hai lần đóng hoặc nhân đôi sản lượng.",
+            "Sau khi phiên làm việc cũ của một nhân viên đã được đóng (dù đóng tay hay tự động), nhân viên đó có thể Start phiên làm việc mới bình thường ở ca tiếp theo."
           ]
         }
       ]
@@ -568,17 +568,17 @@
         {
           "type": "list",
           "items": [
-            "Người đang làm chỉ gồm nhân viên có Session OPEN trên Operation tại thời điểm xem.",
-            "Session đã đóng vẫn thuộc lịch sử nhưng không được tính là đang làm.",
+            "Người đang làm chỉ gồm nhân viên có phiên làm việc OPEN trên Operation tại thời điểm xem.",
+            "Phiên làm việc đã kết thúc vẫn thuộc lịch sử nhưng không được tính là đang làm.",
             "Tiến độ sản phẩm dựa trên GOOD so với số lượng kế hoạch.",
-            "Tiến độ thời gian dựa trên thời gian Session so với định mức; thiếu định mức phải hiển thị là chưa đủ dữ liệu, không giả thành 0%."
+            "Tiến độ thời gian dựa trên thời gian phiên làm việc so với định mức; thiếu định mức phải hiển thị là chưa đủ dữ liệu, không giả thành 0%."
           ]
         }
       ]
     },
     {
       "id": "exceptions",
-      "title": "11. Trung tâm ngoại lệ",
+      "title": "11. Phiên làm việc bất thường",
       "keywords": [
         "ngoại lệ",
         "exception",
@@ -601,19 +601,19 @@
           "rows": [
             [
               "OVERLAP",
-              "Session cùng nhân viên chồng thời gian."
+              "Phiên làm việc cùng nhân viên chồng thời gian."
             ],
             [
               "OPEN_TOO_LONG",
-              "Session mở quá lâu (quá 12 giờ) — dấu hiệu bất thường cần người kiểm tra, khác với việc chỉ đơn thuần quá giờ ca."
+              "Phiên làm việc mở quá lâu (quá 12 giờ) — dấu hiệu bất thường cần người kiểm tra, khác với việc chỉ đơn thuần quá giờ ca."
             ],
             [
               "SESSION_PAST_SHIFT_END",
-              "Session đã qua giờ kết thúc ca một khoảng ngắn nhưng chưa đóng — cảnh báo sớm, xuất hiện trước khi hệ thống tự động đóng Session đó."
+              "Phiên làm việc đã qua giờ kết thúc ca một khoảng ngắn nhưng chưa đóng — cảnh báo sớm, xuất hiện trước khi hệ thống tự động đóng phiên làm việc đó."
             ],
             [
               "ZERO_QTY_LONG",
-              "Session đóng lâu nhưng không có sản lượng."
+              "Phiên làm việc đóng lâu nhưng không có sản lượng."
             ],
             [
               "MISSING_STATION",
@@ -633,7 +633,7 @@
           "type": "steps",
           "items": [
             "Lọc ngoại lệ cần xử lý.",
-            "Mở chi tiết và evidence/Session liên quan.",
+            "Mở chi tiết và evidence/phiên làm việc liên quan.",
             "Chuyển NEW → IN_PROGRESS → RESOLVED hoặc IGNORED.",
             "Ghi lý do khi xử lý hoặc bỏ qua."
           ]
@@ -649,8 +649,8 @@
         {
           "type": "list",
           "items": [
-            "Việc phát hiện và tự động bỏ qua các ngoại lệ đã hết hiệu lực chạy định kỳ theo lịch của hệ thống, không phụ thuộc vào việc có ai đang mở Trung tâm ngoại lệ hay không — một ngoại lệ vẫn được phát hiện dù không ai xem màn hình vào lúc đó.",
-            "Khi một Session SESSION_PAST_SHIFT_END được hệ thống tự động đóng theo ca, ngoại lệ tương ứng cũng tự động chuyển sang đã xử lý, ghi rõ do hệ thống xử lý — không cần thao tác tay để đóng ngoại lệ đó."
+            "Hệ thống định kỳ phát hiện các trường hợp bất thường và tự động bỏ qua những trường hợp đã hết hiệu lực, ngay cả khi không có ai mở màn hình Phiên làm việc bất thường.",
+            "Khi hệ thống đóng một phiên làm việc SESSION_PAST_SHIFT_END theo ca, trường hợp bất thường tương ứng cũng tự chuyển sang đã xử lý và ghi rõ tác nhân là hệ thống — người dùng không cần thao tác đóng thủ công."
           ]
         }
       ]
@@ -668,7 +668,7 @@
       "content": [
         {
           "type": "p",
-          "text": "Tra cứu dòng thời gian của một PO: lifecycle PO, Session, sản lượng và các sự kiện liên quan theo thứ tự thời gian."
+          "text": "Tra cứu dòng thời gian của một PO: lifecycle PO, phiên làm việc, sản lượng và các sự kiện liên quan theo thứ tự thời gian."
         },
         {
           "type": "steps",
@@ -676,12 +676,12 @@
             "Mở Production Trace từ menu Điều hành hoặc ngữ cảnh PO.",
             "Chọn/định vị PO cần tra cứu.",
             "Đọc timeline theo thời gian và tải thêm khi lịch sử dài.",
-            "Dùng Session Detail/Nhật ký nghiệp vụ khi cần biết sâu hơn ai thay đổi gì."
+            "Mở Chi tiết phiên làm việc hoặc Nhật ký nghiệp vụ khi cần biết ai đã thay đổi dữ liệu nào."
           ]
         },
         {
           "type": "note",
-          "text": "Production Trace trả lời 'đã xảy ra những gì với PO'; Trung tâm ngoại lệ trả lời 'việc bất thường nào cần xử lý'; Nhật ký nghiệp vụ trả lời 'ai đã thay đổi gì, khi nào và vì sao'."
+          "text": "Production Trace cho biết những gì đã xảy ra với PO; Phiên làm việc bất thường cho biết trường hợp nào cần xử lý; Nhật ký nghiệp vụ cho biết ai đã thay đổi gì, khi nào và vì sao."
         }
       ]
     },
@@ -698,7 +698,7 @@
       "content": [
         {
           "type": "p",
-          "text": "Theo dõi các thay đổi có ý nghĩa nghiệp vụ đối với Session, sản lượng, PO, Operation, lịch làm việc, nhân viên, ngoại lệ và thao tác quản trị."
+          "text": "Theo dõi các thay đổi có ý nghĩa nghiệp vụ đối với phiên làm việc, sản lượng, PO, Operation, lịch làm việc, nhân viên, ngoại lệ và thao tác quản trị."
         },
         {
           "type": "steps",
@@ -878,7 +878,7 @@
         },
         {
           "type": "note",
-          "text": "Nhân viên ngừng hoạt động phải giữ lịch sử Session nhưng không được Start Session mới."
+          "text": "Nhân viên ngừng hoạt động phải giữ lịch sử phiên làm việc nhưng không được Start phiên làm việc mới."
         }
       ]
     },
@@ -1017,7 +1017,7 @@
         },
         {
           "type": "note",
-          "text": "Ca đêm qua 00:00 phải được tính như một ca liên tục theo cấu hình, không tùy tiện cắt Session chỉ vì đổi ngày dương lịch."
+          "text": "Ca đêm qua 00:00 phải được tính như một ca liên tục theo cấu hình, không tùy tiện cắt phiên làm việc chỉ vì đổi ngày dương lịch."
         },
         {
           "type": "h3",
@@ -1027,7 +1027,7 @@
           "type": "list",
           "items": [
             "Hệ thống có sẵn ca Ngày và ca Đêm mặc định; xưởng có thể khai báo thêm ca riêng với khung giờ khác, kể cả ca qua nửa đêm theo nhu cầu thực tế.",
-            "Một khoảng thời gian không thuộc bất kỳ ca nào đã khai báo được xem là ngoài ca làm việc — hệ thống không tự gán bừa khoảng đó vào ca gần nhất; các tính năng dựa trên ca (Dashboard, tự động đóng Session theo ca...) coi đây là không có ca đang hoạt động."
+            "Một khoảng thời gian không thuộc bất kỳ ca nào đã khai báo được xem là ngoài ca làm việc — hệ thống không tự gán bừa khoảng đó vào ca gần nhất; các tính năng dựa trên ca (Dashboard, tự động đóng phiên làm việc theo ca...) coi đây là không có ca đang hoạt động."
           ]
         }
       ]
@@ -1095,19 +1095,19 @@
             ],
             [
               "Không Start được Operation",
-              "PO đã Start chưa, dependency đầu vào, Session OPEN hiện tại và mã lỗi."
+              "PO đã Start chưa, dependency đầu vào, phiên làm việc OPEN hiện tại và mã lỗi."
             ],
             [
-              "Session không kết thúc",
+              "Phiên làm việc không kết thúc",
               "GOOD/DEFECT/REWORK, mạng và trạng thái sync."
             ],
             [
               "Sản lượng không đúng",
-              "Đối chiếu Session gốc, không sửa số tổng hợp."
+              "Đối chiếu phiên làm việc gốc, không sửa số tổng hợp."
             ],
             [
               "Dashboard trống",
-              "Ngày/ca, Session thực tế và event Kiosk."
+              "Ngày/ca, phiên làm việc thực tế và event Kiosk."
             ],
             [
               "Không thấy menu",
@@ -1125,7 +1125,7 @@
         },
         {
           "type": "note",
-          "text": "Khi báo lỗi cho Admin/QA, luôn kèm thời điểm, user/nhân viên, PO/Operation/Session hoặc kiosk liên quan và mã lỗi/trace nếu có."
+          "text": "Khi báo lỗi cho Admin/QA, luôn kèm thời điểm, user/nhân viên, PO/Operation/phiên làm việc hoặc kiosk liên quan và mã lỗi/trace nếu có."
         }
       ]
     },
@@ -1145,10 +1145,10 @@
             "Chuẩn bị Template và kiểm tra Part/Operation/định mức/dependency.",
             "Tạo Production Order từ Template và xác nhận kế hoạch.",
             "Start PO.",
-            "Nhân viên dùng Kiosk quét thẻ → Operation để mở Session.",
-            "Kết thúc Session và ghi GOOD/DEFECT/REWORK.",
+            "Nhân viên dùng Kiosk quét thẻ → Operation để mở phiên làm việc.",
+            "Kết thúc phiên làm việc và ghi GOOD/DEFECT/REWORK.",
             "Quản đốc theo dõi Tổng quan/Dashboard/Tiến độ/Gantt.",
-            "Xử lý ngoại lệ và sửa Session gốc khi có evidence/phân quyền phù hợp.",
+            "Xử lý ngoại lệ và sửa phiên làm việc gốc khi có evidence/phân quyền phù hợp.",
             "Dùng Production Trace và Nhật ký nghiệp vụ để truy vết khi cần.",
             "Admin theo dõi Trạm Kiosk và Nhật ký ứng dụng khi có sự cố kỹ thuật.",
             "Hoàn tất PO theo rule nghiệp vụ và đối chiếu báo cáo."
@@ -1156,7 +1156,7 @@
         },
         {
           "type": "diagram",
-          "text": "Template → PO → Part → Operation → Work Session → GOOD/DEFECT/REWORK\n                                  ↓\n       Overview / Dashboard / Progress / Gantt / Reports\n                                  ↓\n Exception Center / Production Trace / Business Audit"
+          "text": "Template → PO → Part → Operation → phiên làm việc → GOOD/DEFECT/REWORK\n                                  ↓\n       Overview / Dashboard / Progress / Gantt / Reports\n                                  ↓\n Exception Center / Production Trace / Business Audit"
         }
       ]
     },
@@ -1173,19 +1173,19 @@
       "content": [
         {
           "type": "p",
-          "text": "Đánh giá năng suất theo Work Session đã kết thúc trong khoảng ngày, tách khỏi hồ sơ Nhân viên vì đây là báo cáo vận hành."
+          "text": "Đánh giá năng suất theo phiên làm việc đã kết thúc trong khoảng ngày, tách khỏi hồ sơ Nhân viên vì đây là báo cáo vận hành."
         },
         {
           "type": "example",
-          "text": "% Session = thời gian chuẩn cho sản lượng đã làm / thời gian thực tế. Năng suất nhân viên = trung bình % của các Session đủ dữ liệu trong phạm vi đang xem."
+          "text": "% phiên làm việc = thời gian chuẩn cho sản lượng đã làm / thời gian thực tế. Năng suất nhân viên = trung bình % của các phiên làm việc đủ dữ liệu trong phạm vi đang xem."
         },
         {
           "type": "list",
           "items": [
-            "Session đang chạy không được dùng để chốt điểm trung bình.",
-            "Session thiếu định mức/dữ liệu phải thể hiện là không đủ dữ liệu, không ép thành 0%.",
+            "Phiên làm việc đang chạy không được dùng để chốt điểm trung bình.",
+            "Phiên làm việc thiếu định mức/dữ liệu phải thể hiện là không đủ dữ liệu, không ép thành 0%.",
             "Có thể vượt 100% nếu nhanh hơn định mức.",
-            "Số Session phải hiển thị để người đọc biết mức độ đại diện của điểm trung bình."
+            "Số phiên làm việc phải hiển thị để người đọc biết mức độ đại diện của điểm trung bình."
           ]
         },
         {
@@ -1194,7 +1194,7 @@
             "Chọn khoảng ngày.",
             "Lọc nhân viên/bộ phận.",
             "Xem KPI tổng quan và bảng nhân viên.",
-            "Mở chi tiết từng Session để kiểm chứng con số trước khi đưa ra kết luận."
+            "Mở chi tiết từng phiên làm việc để kiểm chứng con số trước khi đưa ra kết luận."
           ]
         },
         {
@@ -1297,11 +1297,11 @@
         },
         {
           "type": "note",
-          "text": "NEVER_RUN không được hiển thị lẫn với HEALTHY. Một tác vụ nền quan trọng (như tự động đóng Session theo ca) chưa từng chạy lần nào là một vấn đề cần xử lý ngay, không phải trạng thái \"chưa có gì để báo lỗi\"."
+          "text": "NEVER_RUN không được hiển thị lẫn với HEALTHY. Một tác vụ nền quan trọng (như tự động đóng phiên làm việc theo ca) chưa từng chạy lần nào là một vấn đề cần xử lý ngay, không phải trạng thái \"chưa có gì để báo lỗi\"."
         },
         {
           "type": "note",
-          "text": "Ba khái niệm KHÔNG được gộp chung: (1) NG sản phẩm (Đạt/NG) là dữ liệu sản xuất bình thường, NG > 0 không phải lỗi hệ thống; (2) Ngoại lệ Session (session bỏ ngỏ, số lượng bất thường, cần Quản đốc xác nhận) thuộc Trung tâm ngoại lệ; (3) Lỗi hệ thống (HTTP 500, mất kết nối DB, dịch vụ gián đoạn) chỉ nằm ở trang \"Lỗi hệ thống\" của Super Admin."
+          "text": "Ba khái niệm KHÔNG được gộp chung: (1) NG sản phẩm (Đạt/NG) là dữ liệu sản xuất bình thường, NG > 0 không phải lỗi hệ thống; (2) phiên làm việc bất thường, như phiên còn mở quá lâu hoặc có số lượng cần xác nhận, được xử lý tại màn hình \"Phiên làm việc bất thường\"; (3) lỗi hệ thống, như HTTP 500, mất kết nối DB hoặc dịch vụ gián đoạn, chỉ xuất hiện tại trang \"Lỗi hệ thống\" của Super Admin."
         },
         {
           "type": "note",
@@ -1333,7 +1333,7 @@
       "content": [
         {
           "type": "p",
-          "text": "Nơi xử lý sản phẩm NG chưa được quyết định: sửa lại được bao nhiêu, phải loại bỏ bao nhiêu. Một Session ghi nhận NG sẽ tự xuất hiện ở đây cho tới khi toàn bộ số NG đó được xử lý hết."
+          "text": "Nơi xử lý sản phẩm NG chưa được quyết định: sửa lại được bao nhiêu, phải loại bỏ bao nhiêu. Một phiên làm việc ghi nhận NG sẽ tự xuất hiện ở đây cho tới khi toàn bộ số NG đó được xử lý hết."
         },
         {
           "type": "table",
@@ -1344,7 +1344,7 @@
           "rows": [
             [
               "NG",
-              "Tổng số sản phẩm lỗi mà Session gốc đã ghi nhận."
+              "Tổng số sản phẩm lỗi mà phiên làm việc gốc đã ghi nhận."
             ],
             [
               "Đã sửa",

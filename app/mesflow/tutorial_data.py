@@ -267,7 +267,7 @@ def seed():
             sess("INVALID","TUT-E04","TUT39-QC","TUT-ST-CUT","TUT-KIOSK-QC","CLOSED",
                  "CURRENT_TIMESTAMP-INTERVAL '1 hour'","CURRENT_TIMESTAMP-INTERVAL '2 hours'",5,0,0,"INVALID_TIME: giờ kết thúc trước bắt đầu")
             sess("LONG","TUT-E01","TUT39-BEND","TUT-ST-BEND","TUT-KIOSK-LONG","OPEN",
-                 "CURRENT_TIMESTAMP-INTERVAL '13 hours'","NULL",0,0,0,"OPEN_TOO_LONG: quên kết thúc session")
+                 "CURRENT_TIMESTAMP-INTERVAL '13 hours'","NULL",0,0,0,"OPEN_TOO_LONG: quên kết thúc phiên làm việc")
 
             # Aggregate operation quantities for dashboard/material-flow.
             cur.execute("""UPDATE operations SET done_qty=26,defect_qty=2,rework_qty=1 WHERE id=%s""",(operations["TUT39-CUT"],))
@@ -279,7 +279,7 @@ def seed():
             cur.execute("""INSERT INTO session_exception_reviews(session_id,exception_code,exception_fingerprint,workflow_status,note,
                 assigned_to,started_by,started_at,updated_at)
                 VALUES(%s,'OPEN_TOO_LONG','OPEN_TOO_LONG:0','IN_PROGRESS',
-                'Đang xác minh với tổ trưởng vì công nhân quên kết thúc session','Quản đốc ca A','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
+                'Đang xác minh với tổ trưởng vì công nhân quên kết thúc phiên làm việc','Quản đốc ca A','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
                 (sessions["LONG"],))
             cur.execute("""INSERT INTO session_exception_reviews(session_id,exception_code,exception_fingerprint,workflow_status,resolution,note,
                 assigned_to,started_by,started_at,resolved_by,resolved_at,updated_at)
@@ -289,7 +289,7 @@ def seed():
             cur.execute("""INSERT INTO session_exception_reviews(session_id,exception_code,exception_fingerprint,workflow_status,resolution,note,
                 assigned_to,resolved_by,resolved_at,updated_at)
                 VALUES(%s,'MISSING_STATION','MISSING_STATION:0','IGNORED','DEMO_CASE',
-                'Session đào tạo cố ý không gắn trạm để minh họa cảnh báo','IT MESFlow','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
+                'Phiên làm việc đào tạo cố ý không gắn trạm để minh họa cảnh báo','IT MESFlow','admin',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
                 (sessions["MISSING"],))
 
             # QC examples.
@@ -304,7 +304,7 @@ def seed():
                 old_rework_qty,new_rework_qty,reason)
                 VALUES(%s,%s,23,24,3,2,1,1,'TUT39: Đối chiếu lại phiếu QC')""",(sessions["NORMAL"],operations["TUT39-CUT"]))
             cur.execute("""INSERT INTO penalty_tickets(employee_id,operation_id,session_id,points,reason,status)
-                VALUES(%s,%s,%s,1,'TUT39: Quên đóng session, chỉ dùng cho video đào tạo','OPEN')""",
+                VALUES(%s,%s,%s,1,'TUT39: Quên đóng phiên làm việc, chỉ dùng cho video đào tạo','OPEN')""",
                 (employees["TUT-E01"],operations["TUT39-BEND"],sessions["LONG"]))
 
             # Kiosk events: normal, warning, open error, resolved error.
@@ -338,10 +338,10 @@ def seed():
             # Notifications and logs make admin/system-log screens meaningful.
             cur.execute("""INSERT INTO notifications(source_type,source_id,severity,title,message,status,target_role)
                 VALUES('TUTORIAL','TUT39-N01','WARNING','Kiosk mạng yếu','Kiosk Tutorial còn 3 sự kiện chờ đồng bộ','UNREAD','manager'),
-                      ('TUTORIAL','TUT39-N02','ERROR','Session mở quá lâu','Session tutorial đã mở quá 12 giờ','UNREAD','supervisor')""")
+                      ('TUTORIAL','TUT39-N02','ERROR','Phiên làm việc mở quá lâu','Phiên làm việc tutorial đã mở quá 12 giờ','UNREAD','supervisor')""")
             cur.execute("""INSERT INTO audit_logs(actor_username,action,entity_type,entity_id,details_json)
                 VALUES('admin','TUTORIAL_SESSION_REVIEW','work_session','TUT39-REVIEW',
-                '{"note":"Đối chiếu session bất thường trong video hướng dẫn"}')""")
+                '{"note":"Đối chiếu phiên làm việc bất thường trong video hướng dẫn"}')""")
             cur.execute("""INSERT INTO action_logs(trace_id,actor_username,actor_role,source_type,device_uuid,station_code,method,path,
                 endpoint,action_name,http_status,duration_ms,outcome,error_type,error_message,request_json,response_json,context_json,
                 traceback_text,client_ip,user_agent,resolved,resolved_note)

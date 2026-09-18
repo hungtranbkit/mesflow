@@ -44,9 +44,9 @@ function rqRow(item) {
     </header>
     <div class="op-card-body">
       <div class="op-card-fact rq-who">
-        <small>Người làm / Session</small>
+        <small>Người làm / phiên làm việc</small>
         <b>${esc(item.employee_name || '—')}</b>
-        <small>${esc(item.employee_no || '')} · Session #${Number(item.source_session_id)}</small>
+        <small>${esc(item.employee_no || '')} · phiên làm việc #${Number(item.source_session_id)}</small>
       </div>
       <div class="op-card-fact rq-split">
         <small>NG / đã xử lý</small>
@@ -80,13 +80,13 @@ function rqDraw() {
   const pending = rows.reduce((n, x) => n + Number(x.pending_qty || 0), 0);
   const parts = new Set(rows.map(x => x.part_id)).size;
   document.getElementById('rqStats').innerHTML = [
-    ['sản phẩm chờ sửa', rqNum(pending)], ['Session', rqNum(rows.length)], ['Part', rqNum(parts)],
+    ['sản phẩm chờ sửa', rqNum(pending)], ['Phiên làm việc', rqNum(rows.length)], ['Part', rqNum(parts)],
   ].map(([label, value]) => `<span><b>${value}</b> ${label}</span>`).join('');
   document.getElementById('rqCount').textContent = `${rows.length} kết quả`;
   document.getElementById('rqList').innerHTML = rows.length
     ? `<div class="op-card-list rq-list">${rows.map(rqRow).join('')}</div>`
     : MFUI.emptyState('Không có sản phẩm chờ sửa',
-        RQ_STATE.items.length ? 'Không có mục nào khớp bộ lọc hiện tại.' : 'Khi một Session ghi nhận NG chưa được sửa hoặc loại, mục đó sẽ xuất hiện ở đây.');
+        RQ_STATE.items.length ? 'Không có mục nào khớp bộ lọc hiện tại.' : 'Khi một phiên làm việc ghi nhận NG chưa được sửa hoặc loại, mục đó sẽ xuất hiện ở đây.');
   document.querySelectorAll('[data-rq-resolve]').forEach(button => {
     button.onclick = () => rqOpenResolve(Number(button.dataset.rqResolve));
   });
@@ -127,7 +127,7 @@ function rqOpenResolve(sessionId) {
       <div class="rq-resolve-source">
         <b>${esc(item.operation_code || '')} · ${esc(item.operation_name || '')}</b>
         <span>${esc(item.po_code || '')} · ${esc(item.part_code || '')} ${esc(item.part_name || '')}</span>
-        <span>Session #${Number(item.source_session_id)} · ${esc(item.employee_name || '')} · NG ${rqNum(item.defect_qty)}</span>
+        <span>Phiên làm việc #${Number(item.source_session_id)} · ${esc(item.employee_name || '')} · NG ${rqNum(item.defect_qty)}</span>
         <strong>Còn chờ sửa: ${rqNum(pending)}</strong>
       </div>
       <div class="form-grid rq-resolve-grid">

@@ -11,7 +11,7 @@ from mesflow.web.errors import api_error_response
 bp=Blueprint('exceptions',__name__,url_prefix='/api')
 
 def _allowed(): return str(session.get('role') or '').lower() in ('admin','manager','supervisor')
-def _forbidden(): return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền sử dụng Trung tâm ngoại lệ'),403
+def _forbidden(): return jsonify(ok=False,error='FORBIDDEN',message='Không có quyền xem các phiên làm việc bất thường'),403
 def _int(name): return int(request.args[name]) if request.args.get(name,'').strip() else None
 
 # §3 of the 2026-08-28 Session Exception Resolution modal task: "Do NOT
@@ -157,9 +157,9 @@ def correct_session(exception_id):
         item=ExceptionRepository().get(exception_id)
         session_id=item.get('session_id')
         if not session_id:
-            raise ValueError('Ngoại lệ này không gắn với một Session cụ thể để sửa.')
+            raise ValueError('Trường hợp bất thường này không gắn với một phiên làm việc cụ thể để sửa.')
         if item['status'] not in ('OPEN','ACKNOWLEDGED'):
-            raise ConflictError('Ngoại lệ đã được xử lý, không thể sửa Session qua đây nữa.')
+            raise ConflictError('Trường hợp bất thường này đã được xử lý; không thể sửa phiên làm việc từ màn hình này nữa.')
         allowed=EDITABLE_FIELDS_BY_EXCEPTION_TYPE.get(item['exception_type'],())
         body=request.get_json(silent=True) or {}
         # §3: only the fields this exception_type's own real detector cares

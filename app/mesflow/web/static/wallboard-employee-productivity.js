@@ -126,7 +126,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
   function drawKpis(summary) {
     // Completed-session-only wallboard (2026-08-22 revision): same 4 KPIs
-    // as the Report screen, all from completed sessions -- no realtime
+    // as the Report screen, all from completed phiên làm việc -- no realtime
     // "who's working right now" card, no online/live indicator anywhere
     // on this screen (Section 7). It only ever shows finished results.
     const host = document.getElementById('wbKpis');
@@ -134,7 +134,7 @@ if (typeof module !== 'undefined' && module.exports) {
     host.innerHTML = [
       ['Năng suất trung bình', pctText(summary.avg_employee_productivity_percent)],
       ['Nhân viên có dữ liệu', Number(summary.employee_count || 0).toLocaleString('vi-VN')],
-      ['Session đã kết thúc', Number(summary.completed_sessions || 0).toLocaleString('vi-VN')],
+      ['Phiên làm việc đã kết thúc', Number(summary.completed_sessions || 0).toLocaleString('vi-VN')],
       ['Tổng sản lượng đạt', Number(summary.total_good_qty || 0).toLocaleString('vi-VN')],
     ].map(([label, value]) => `<article class="wb-kpi"><small>${esc(label)}</small><strong>${value}</strong></article>`).join('');
   }
@@ -156,7 +156,7 @@ if (typeof module !== 'undefined' && module.exports) {
     const rankNo = String(rank).padStart(2, '0');
     // Sample size stays next to the percent even without the bar -- a lone
     // 100%/1-session score must never read the same as a well-sampled one.
-    const sampleNote = pct === null ? 'Không đủ dữ liệu' : `${x.completed_sessions} session`;
+    const sampleNote = pct === null ? 'Không đủ dữ liệu' : `${x.completed_sessions} phiên làm việc`;
     return `<article class="wb-card">
       <div class="wb-card-top">
         <span class="wb-card-rank">#${rankNo}</span>

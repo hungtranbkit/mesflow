@@ -158,7 +158,7 @@ class ProductionOrderRepository(BaseRepository):
             EXISTS(SELECT 1 FROM operation_adjustments a JOIN operations o ON o.id=a.operation_id WHERE o.production_order_id=%s) has_adjustments,
             EXISTS(SELECT 1 FROM qc_inspections q JOIN operations o ON o.id=q.operation_id WHERE o.production_order_id=%s) has_qc''',(entity_id,entity_id,entity_id,entity_id,entity_id,entity_id))
         info=rows[0] if rows else {}
-        found=[label for key,label in {'has_sessions':'Session','has_ledgers':'ledger','has_output':'sản lượng','has_events':'event','has_adjustments':'điều chỉnh','has_qc':'QC'}.items() if info.get(key)]
+        found=[label for key,label in {'has_sessions':'Phiên làm việc','has_ledgers':'ledger','has_output':'sản lượng','has_events':'event','has_adjustments':'điều chỉnh','has_qc':'QC'}.items() if info.get(key)]
         if found:
             raise ConflictError('Không thể xóa Production Order vì đã có production history: '+', '.join(found)+'.')
         return super().delete(entity_id)
@@ -179,7 +179,7 @@ class PartRepository(BaseRepository):
             COUNT(*) FILTER (WHERE EXISTS(SELECT 1 FROM qc_inspections q WHERE q.operation_id=o.id)) qc_ops
             FROM operations o WHERE o.part_id=%s''',(entity_id,))
         info=rows[0] if rows else {}
-        found=[label for key,label in {'session_ops':'Session','ledger_ops':'ledger','output_ops':'sản lượng','event_ops':'event','adjustment_ops':'điều chỉnh','qc_ops':'QC'}.items() if int(info.get(key) or 0)>0]
+        found=[label for key,label in {'session_ops':'Phiên làm việc','ledger_ops':'ledger','output_ops':'sản lượng','event_ops':'event','adjustment_ops':'điều chỉnh','qc_ops':'QC'}.items() if int(info.get(key) or 0)>0]
         if found:
             raise ConflictError('Không thể xóa Part vì đã có production history: '+', '.join(found)+'.')
         return super().delete(entity_id)
@@ -316,7 +316,7 @@ class OperationRepository(BaseRepository):
                        int(clean.get('rework_qty',current.get('rework_qty') or 0) or 0))
             actual=(int(current.get('done_qty') or 0),int(current.get('defect_qty') or 0),int(current.get('rework_qty') or 0))
             if requested!=actual:
-                raise ConflictError('Không thể sửa trực tiếp aggregate của Operation đã có production history. Hãy điều chỉnh Session với lý do để giữ audit.')
+                raise ConflictError('Không thể sửa trực tiếp aggregate của Operation đã có production history. Hãy điều chỉnh phiên làm việc với lý do để giữ audit.')
         if 'status' in clean:
             requested_status=str(clean.get('status') or '').upper()
             if requested_status != str(current.get('status') or '').upper():
@@ -333,7 +333,7 @@ class OperationRepository(BaseRepository):
         old_kind=str(current.get('input_source_kind') or 'GOOD')
         new_kind=str(merged.get('input_source_kind') or 'GOOD')
         if (old_source != new_source or old_kind != new_kind) and ledger_target>0:
-            raise ConflictError(f'Không thể đổi OP nguồn vì Operation đã tiêu thụ {ledger_target} sản phẩm. Hãy hoàn tác/điều chỉnh các Session liên quan trước.')
+            raise ConflictError(f'Không thể đổi OP nguồn vì Operation đã tiêu thụ {ledger_target} sản phẩm. Hãy hoàn tác/điều chỉnh các phiên làm việc liên quan trước.')
         if 'done_qty' in clean and int(clean.get('done_qty') or 0)<good_allocated:
             raise ConflictError(f'Không thể giảm sản lượng đạt xuống dưới {good_allocated} vì số lượng này đã được phân bổ cho các OP đích.')
         if 'rework_qty' in clean:
@@ -386,7 +386,7 @@ class OperationRepository(BaseRepository):
         if history and any(history[0].get(key) for key in ('has_events','has_adjustments','has_qc')):
             raise ConflictError('Không thể xóa Operation vì đã có event/audit thực thi.')
         if rows and int(rows[0].get('n') or 0)>0:
-            raise ConflictError('Không thể xóa Operation vì đã phát sinh Session.')
+            raise ConflictError('Không thể xóa Operation vì đã phát sinh phiên làm việc.')
         refs=fetch_all('SELECT code FROM operations WHERE input_source_operation_id=%s LIMIT 5',(entity_id,))
         if refs:
             raise ConflictError('Không thể xóa Operation vì đang là nguồn đầu vào của: '+', '.join(str(x.get('code')) for x in refs))

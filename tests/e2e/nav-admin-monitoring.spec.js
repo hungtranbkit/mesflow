@@ -61,7 +61,7 @@ test('ba mục đã rời khỏi nhóm Điều hành', async ({ page }) => {
     await expect(dieuHanh.locator('.sidebar-sub-item', { hasText: label })).toHaveCount(0);
   }
   // các mục vận hành vẫn ở nguyên chỗ cũ
-  await expect(dieuHanh.locator('.sidebar-sub-item', { hasText: 'Quản lý Session' })).toHaveCount(1);
+  await expect(dieuHanh.locator('.sidebar-sub-item', { hasText: 'Quản lý phiên làm việc' })).toHaveCount(1);
   await expect(dieuHanh.locator('.sidebar-sub-item', { hasText: 'Hàng chờ sửa' })).toHaveCount(1);
 });
 

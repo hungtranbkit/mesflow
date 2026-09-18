@@ -36,7 +36,7 @@ class ProductionTraceService:
           e.id employee_id,e.name employee_name,o.id operation_id,o.code operation_code,p.id part_id,p.code part_code,po.id po_id,po.code po_code
           FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id JOIN parts p ON p.id=o.part_id
           JOIN production_orders po ON po.id=o.production_order_id WHERE ws.id=%s''',(id,))
-        if not row:raise NotFoundError('Không tìm thấy Session')
+        if not row:raise NotFoundError('Không tìm thấy phiên làm việc')
         return row,'t.session_id=%s',[id]
     @staticmethod
     def _event(row,source=None):
@@ -74,8 +74,8 @@ class ProductionTraceService:
         # Explicitly labelled inference for pre-V68 rows only.
         native_types={x.event_type for x in events if x.source=='NATIVE'}
         if kind=='session':
-            if 'SESSION_STARTED' not in native_types:events.append(TraceEvent(f'legacy:start:{id}','SESSION_STARTED','SESSION',context['started_at'],None,'',context['po_id'],context['part_id'],context['operation_id'],id,'Session bắt đầu','Suy ra từ started_at của dữ liệu trước V68',None,{},context.get('start_request_id') or '','', 'LEGACY_DERIVED'))
-            if context.get('ended_at') and 'SESSION_FINISHED' not in native_types:events.append(TraceEvent(f'legacy:finish:{id}','SESSION_FINISHED','SESSION',context['ended_at'],None,'',context['po_id'],context['part_id'],context['operation_id'],id,'Session kết thúc','Suy ra từ ended_at của dữ liệu trước V68',None,{},context.get('finish_request_id') or '','', 'LEGACY_DERIVED'))
+            if 'SESSION_STARTED' not in native_types:events.append(TraceEvent(f'legacy:start:{id}','SESSION_STARTED','SESSION',context['started_at'],None,'',context['po_id'],context['part_id'],context['operation_id'],id,'Bắt đầu phiên làm việc','Suy ra từ started_at của dữ liệu trước V68',None,{},context.get('start_request_id') or '','', 'LEGACY_DERIVED'))
+            if context.get('ended_at') and 'SESSION_FINISHED' not in native_types:events.append(TraceEvent(f'legacy:finish:{id}','SESSION_FINISHED','SESSION',context['ended_at'],None,'',context['po_id'],context['part_id'],context['operation_id'],id,'Kết thúc phiên làm việc','Suy ra từ ended_at của dữ liệu trước V68',None,{},context.get('finish_request_id') or '','', 'LEGACY_DERIVED'))
         if cursor_time:
             events=[x for x in events if (x.occurred_at.isoformat(),x.id)<(cursor_time,cursor_id)]
         if categories:events=[x for x in events if x.category in categories]

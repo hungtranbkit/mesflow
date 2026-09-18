@@ -239,7 +239,7 @@ def unused_field_sections(parsed):
         'field': 'Ngày/Tháng/Năm · Nhân viên Setup · Nhân viên SX · Nhân viên QC · '
                  'Hàng đạt · Hàng lỗi · Tổng số lượng sản xuất · Xác nhận',
         'sheet': '(mọi block)', 'cell': 'cột A', 'raw': '(đang trống)',
-        'reason': 'Trường VẬN HÀNH — MESFlow thu thập qua Session/QC/duyệt. '
+        'reason': 'Trường VẬN HÀNH — MESFlow thu thập qua phiên làm việc/QC/duyệt. '
                   'Không tạo dữ liệu thực tế giả khi nhập.'})
 
     warnings = list(parsed.get('notes') or [])

@@ -99,7 +99,7 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   await expect(page.locator('.running-session-card')).toHaveCount(0);
   await expect(page.locator('.employee-day-row')).toHaveCount(21);
   await expect(page.locator('.emp-op-item.running')).toHaveCount(21);
-  await expect(page.locator('#dailySessionStatus')).toContainText('21 session đang chạy');
+  await expect(page.locator('#dailySessionStatus')).toContainText('21 phiên làm việc đang chạy');
   // The date dashboard uses one full-day timeline, so sessions are not
   // split by a selected shift's break window.
   await expect(page.locator('.employee-day-row').first().locator('.employee-session-segment')).toHaveCount(2);

@@ -93,9 +93,9 @@
       case 'GOOD_QUANTITY_RECORDED':return {action:`cập nhật ${signed} SP đạt`,impact:progressImpact(ev)};
       case 'DEFECT_QUANTITY_RECORDED':return {action:`ghi nhận ${signed} NG`,impact:''};
       case 'REPAIRABLE_DEFECT_RECORDED':return {action:`ghi nhận ${signed} lỗi sửa được`,impact:'vào hàng chờ sửa'};
-      case 'SESSION_STARTED':return {action:'nhận việc',impact:'bắt đầu session'};
+      case 'SESSION_STARTED':return {action:'nhận việc',impact:'bắt đầu phiên làm việc'};
       case 'SESSION_FINISHED':return {action:'kết thúc việc',impact:''};
-      case 'SESSION_AUTO_CLOSED':return {action:'tự đóng session cuối ca',impact:'chưa xác nhận số liệu'};
+      case 'SESSION_AUTO_CLOSED':return {action:'tự đóng phiên làm việc cuối ca',impact:'chưa xác nhận số liệu'};
       case 'OPERATION_COMPLETED':return {action:'hoàn thành',impact:progressImpact(ev)};
       case 'OPERATION_STARTED':return {action:'bắt đầu chạy',impact:''};
       case 'SETUP_COMPLETED':return {action:'hoàn tất setup máy',impact:''};
@@ -272,7 +272,7 @@
         {label:'Sản lượng đạt hôm nay',value:N(k.day_good_qty),tone:''},
         {label:'NG hôm nay',value:N(k.day_defect_qty),tone:Number(k.day_defect_qty)>0?'bad':''},
         {label:'Lỗi sửa được',value:N(k.day_rework_qty),tone:Number(k.day_rework_qty)>0?'warn':''},
-        {label:'Session đang mở',value:N(k.open_session_count),tone:''},
+        {label:'Phiên làm việc đang mở',value:N(k.open_session_count),tone:''},
         {label:'Người đang làm',value:N(k.active_worker_count),tone:''},
         {label:'Operation của PO',value:N(k.operation_count),tone:''},
       ];
@@ -381,7 +381,7 @@
       const others=(S.options||[]).filter(o=>Number(o.id)!==Number(S.poId)&&Number(o.open_sessions||0)>0).slice(0,3);
       box.innerHTML=others.length
         ?others.map(o=>`<button class="kiosk-btn" type="button" data-goto="${o.id}">${E(o.code)} · ${o.open_sessions} đang làm</button>`).join('')
-        :'<span class="kiosk-empty-note">Hiện không có PO nào đang có session mở.</span>';
+        :'<span class="kiosk-empty-note">Hiện không có PO nào đang có phiên làm việc mở.</span>';
       box.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>switchPo(Number(b.dataset.goto)));
     }
 
@@ -400,7 +400,7 @@
         buckets[h].good+=Number(s0.good_qty||0);buckets[h].ng+=Number(s0.defect_qty||0);
         total+=Number(s0.good_qty||0);
       }
-      if(!total){box.innerHTML='<div class="kiosk-empty"><b>Chưa có sản lượng ghi nhận</b><span>Cột giờ hiện khi có session đầu tiên kết thúc.</span></div>';if(note)note.textContent='';return}
+      if(!total){box.innerHTML='<div class="kiosk-empty"><b>Chưa có sản lượng ghi nhận</b><span>Cột giờ hiện khi có phiên làm việc đầu tiên kết thúc.</span></div>';if(note)note.textContent='';return}
       const peak=Math.max(...buckets.map(b=>b.good),1);
       if(note)note.textContent=`Tổng ${N(total)} SP đạt trong ngày`;
       box.innerHTML=`<div class="kiosk-chart-plot">${buckets.map((b,h)=>`
@@ -420,8 +420,8 @@
       const out=[];
       for(const x of tasks||[]){
         if(Number(x.unconfirmed_count||0)>0)
-          out.push({sev:0,tag:'Session chưa xác nhận',title:x.operation_name||x.operation_code,
-            sub:`${x.operation_code||''} · ${N(x.unconfirmed_count)} session tự đóng chưa xác nhận số liệu`});
+          out.push({sev:0,tag:'Phiên làm việc chưa xác nhận',title:x.operation_name||x.operation_code,
+            sub:`${x.operation_code||''} · ${N(x.unconfirmed_count)} phiên làm việc tự đóng chưa xác nhận số liệu`});
         const good=Number(x.day_good_qty||0),ng=Number(x.day_defect_qty||0);
         if(ng>0&&good+ng>0&&ng/(good+ng)>=NG_RATIO_ALERT)
           out.push({sev:1,tag:'Tỉ lệ NG cao',title:x.operation_name||x.operation_code,
@@ -434,7 +434,7 @@
         if(Number.isNaN(started))continue;
         const hours=(now-started)/3600000;
         if(hours>=LONG_OPEN_HOURS)
-          out.push({sev:1,tag:'Session mở quá lâu',title:s0.employee_name||s0.operation_name||'—',
+          out.push({sev:1,tag:'Phiên làm việc mở quá lâu',title:s0.employee_name||s0.operation_name||'—',
             sub:`${s0.operation_code||''} · mở ${Math.round(hours)} giờ`});
       }
       return out.sort((a,b)=>a.sev-b.sev);

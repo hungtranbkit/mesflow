@@ -20,9 +20,9 @@ EXPECTED_TOC = [
     ('production-order', 'Production Order'),
     ('part-operation', 'Part và Operation'),
     ('kiosk', 'Kiosk cho công nhân'),
-    ('work-session', 'Work Session & Quản lý Session'),
+    ('work-session', 'Phiên làm việc và cách quản lý'),
     ('operation-progress', 'Tiến độ theo Operation'),
-    ('exceptions', 'Trung tâm ngoại lệ'),
+    ('exceptions', 'Phiên làm việc bất thường'),
     ('production-trace', 'Production Trace'),
     ('business-audit', 'Nhật ký nghiệp vụ'),
     ('gantt-material-flow', 'Gantt & Material Flow'),
@@ -158,5 +158,5 @@ def test_kiosk_section_reflects_real_error_catalog():
     kiosk_js = (ROOT / 'app/mesflow/web/static/kiosk.js').read_text(encoding='utf-8')
     assert "'SES-409'" in kiosk_js
     text = json.dumps(kiosk['content'], ensure_ascii=False)
-    assert 'Work Session' in text
-    assert 'Đã có Session đang mở' in text
+    assert 'phiên làm việc' in text
+    assert 'Đã có phiên làm việc đang mở' in text

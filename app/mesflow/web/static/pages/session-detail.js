@@ -15,12 +15,12 @@ const MF_EXCEPTION_LABELS={
   AUTO_CLOSED_UNCONFIRMED:'Quá giờ · Chưa nhập sản lượng'
 };
 const MF_EXCEPTION_HINTS={
-  OVERLAP:'Kiểm tra hai Session trùng giờ. Thường cần sửa thời gian hoặc Session ghi nhầm.',
-  OPEN_TOO_LONG:'Kiểm tra công nhân đã kết thúc công việc chưa. Nếu quên đóng, sửa Session và nhập giờ kết thúc đúng.',
+  OVERLAP:'Kiểm tra hai phiên làm việc trùng giờ. Thường cần sửa thời gian hoặc phiên làm việc ghi nhầm.',
+  OPEN_TOO_LONG:'Kiểm tra công nhân đã kết thúc công việc chưa. Nếu quên đóng, sửa phiên làm việc và nhập giờ kết thúc đúng.',
   ZERO_QTY_LONG:'Đối chiếu phiếu sản xuất. Chỉ nhập sản lượng khi có bằng chứng; nếu thực tế không sản xuất, ghi rõ lý do.',
   MISSING_STATION:'Xác minh công nhân làm tại trạm nào. Chỉ bổ sung trạm nếu có căn cứ.',
   INVALID_TIME:'Giờ kết thúc đang trước giờ bắt đầu. Cần sửa lại thời gian đúng trước khi hoàn tất xử lý.',
-  AUTO_CLOSED_UNCONFIRMED:'Hệ thống đã tự động kết thúc Session này sau giờ ca. Nhập số lượng thực tế (đạt/lỗi) để hoàn tất, hoặc sửa lại giờ kết thúc nếu công nhân đã dừng sớm hơn.'
+  AUTO_CLOSED_UNCONFIRMED:'Hệ thống đã tự động kết thúc phiên làm việc này sau giờ ca. Nhập số lượng thực tế (đạt/lỗi) để hoàn tất, hoặc sửa lại giờ kết thúc nếu công nhân đã dừng sớm hơn.'
 };
 const MF_WORKFLOW_LABELS={NEW:'Mới',IN_PROGRESS:'Đang xử lý',RESOLVED:'Đã xử lý',IGNORED:'Bỏ qua'};
 const MF_SEVERITY_LABELS={CRITICAL:'Nghiêm trọng',ERROR:'Cần xử lý',WARNING:'Cảnh báo',INFO:'Đã thay đổi'};
@@ -69,7 +69,7 @@ function sessionCoreFieldRows(x){
   // in ra giống hệt nhau -- xem chú thích của hàm đó.
   const recorded=mfOutputRecorded(x);
   return [
-    {label:'Session ID',value:`#${esc(x.session_id)}`},
+    {label:'Mã phiên làm việc',value:`#${esc(x.session_id)}`},
     {label:'Nhân viên',value:esc(x.employee_name||'—')},
     {label:'Mã nhân viên',value:esc(x.employee_code||'—')},
     {label:'Production Order',value:esc(x.po_code||'—')},
@@ -105,12 +105,12 @@ function technicalDetailsHtml(x){
 }
 
 function activityTimelineHtml(activity){
-  if(!activity||!activity.length) return '<p class="drawer-empty">Chưa có hoạt động kiosk ghi nhận cho Session này.</p>';
+  if(!activity||!activity.length) return '<p class="drawer-empty">Chưa có hoạt động kiosk ghi nhận cho phiên làm việc này.</p>';
   return `<div class="drawer-timeline">${activity.map(e=>`<div class="drawer-timeline-item"><time>${esc(fmt(e.occurred_at))}</time><div><b>${esc(e.event_type||'—')}</b>${e.message?`<small>${esc(e.message)}</small>`:''}</div></div>`).join('')}</div>`;
 }
 
 function exceptionHistoryHtml(exceptions){
-  if(!exceptions||!exceptions.length) return '<p class="drawer-empty">Session này chưa từng phát sinh bất thường.</p>';
+  if(!exceptions||!exceptions.length) return '<p class="drawer-empty">Phiên làm việc này chưa từng phát sinh bất thường.</p>';
   return `<div class="drawer-timeline">${exceptions.map(x=>`<div class="drawer-timeline-item"><time>${esc(fmt(x.started_at))}</time><div><b>${esc(MF_EXCEPTION_LABELS[x.exception_code]||x.exception_code)} <span class="workflow-badge ${String(x.workflow_status||'NEW').toLowerCase()}">${esc(MF_WORKFLOW_LABELS[x.workflow_status]||x.workflow_status)}</span></b><small>${esc(x.exception_message||'')}</small></div></div>`).join('')}</div>`;
 }
 
@@ -149,7 +149,7 @@ const SessionDetailDrawer=(()=>{
     const panel=drawer.panel;
     drawer.header.innerHTML=`
       <div>
-        <h2>Session #${esc(x.session_id)}</h2>
+        <h2>Phiên làm việc #${esc(x.session_id)}</h2>
         <p>${esc(x.employee_name||'')} · ${esc(MFUI.opIdentityText({name:x.operation_name,code:x.operation_code}))}</p>
         <div class="drawer-badges">${sourceBadgeHtml(x.data_source)}${x.status==='OPEN'?'<span class="badge warning">Đang chạy</span>':'<span class="badge success">Đã kết thúc</span>'}${activeException?`<span class="workflow-badge ${String(activeException.workflow_status||'NEW').toLowerCase()}">${esc(MF_WORKFLOW_LABELS[activeException.workflow_status]||activeException.workflow_status)}</span>`:''}</div>
       </div>
@@ -161,12 +161,12 @@ const SessionDetailDrawer=(()=>{
           <b>${esc(MF_EXCEPTION_LABELS[activeException.exception_code]||activeException.exception_code)}</b>
           <p>${esc(activeException.exception_message||'')}</p>
           <p>${esc(MF_IMPACT_LABELS[activeException.exception_code]||'')}</p>
-          <p>${esc(MF_EXCEPTION_HINTS[activeException.exception_code]||'Kiểm tra Session và bằng chứng liên quan trước khi thay đổi dữ liệu.')}</p>
+          <p>${esc(MF_EXCEPTION_HINTS[activeException.exception_code]||'Kiểm tra phiên làm việc và bằng chứng liên quan trước khi thay đổi dữ liệu.')}</p>
         </div>
       </section>`:'';
     drawer.body.innerHTML=`
       ${currentExceptionSection}
-      <section class="drawer-section"><h3>Thông tin Session</h3>${kvGrid(sessionCoreFieldRows(x))}</section>
+      <section class="drawer-section"><h3>Thông tin phiên làm việc</h3>${kvGrid(sessionCoreFieldRows(x))}</section>
       <section class="drawer-section"><h3>Dòng thời gian hoạt động</h3>${activityTimelineHtml(data.activity)}</section>
       <section class="drawer-section"><h3>Production Trace · V68</h3>${traceTimelineHtml(data.trace?.events||[])}</section>
       <section class="drawer-section"><h3>Lịch sử bất thường</h3>${exceptionHistoryHtml(data.exceptions)}</section>
@@ -176,7 +176,7 @@ const SessionDetailDrawer=(()=>{
     drawer.footer.classList.add('drawer-actions');
     drawer.footer.innerHTML=`
       <div class="drawer-actions-primary">${actionButtonsHtml({...opts,exceptionStatus})}</div>
-      ${opts.onOpenManagement?'<button class="btn" id="sdActOpenManagement" type="button">Mở trong Quản lý Session</button>':''}`;
+      ${opts.onOpenManagement?'<button class="btn" id="sdActOpenManagement" type="button">Mở trong Quản lý phiên làm việc</button>':''}`;
     panel.querySelector('#sdClose').onclick=close;
     const claim=panel.querySelector('#sdActClaim');if(claim)claim.onclick=()=>opts.onClaim(activeException);
     const resolve=panel.querySelector('#sdActResolve');if(resolve)resolve.onclick=()=>opts.onResolve(activeException);
@@ -186,14 +186,14 @@ const SessionDetailDrawer=(()=>{
   const open=async(sessionId,opts={})=>{
     sessionId=Number(sessionId);
     openSessionId=sessionId;
-    drawer=MFUI.openDrawer({id:'sessionDetail',size:'LG',title:`Session #${sessionId}`,subtitle:'Đang tải chi tiết…',content:MFUI.loadingState('Đang tải chi tiết Session…'),urlParam:'session',urlValue:sessionId,onClose:()=>{openSessionId=null;drawer=null}});
+    drawer=MFUI.openDrawer({id:'sessionDetail',size:'LG',title:`Phiên làm việc #${sessionId}`,subtitle:'Đang tải chi tiết…',content:MFUI.loadingState('Đang tải chi tiết phiên làm việc…'),urlParam:'session',urlValue:sessionId,onClose:()=>{openSessionId=null;drawer=null}});
     try{
       const [data,trace]=await Promise.all([api(`/api/session-management/${sessionId}`),api(`/api/sessions/${sessionId}/trace?limit=100`)]);data.trace=trace;
       if(openSessionId!==sessionId)return; // a newer open() superseded this one
       render(data,opts);
     }catch(e){
       if(openSessionId!==sessionId)return;
-      drawer.body.innerHTML=MFUI.errorState(e.message||'Không tải được Session.','sdRetry');
+      drawer.body.innerHTML=MFUI.errorState(e.message||'Không tải được phiên làm việc.','sdRetry');
       drawer.body.querySelector('#sdRetry').onclick=()=>open(sessionId,opts);
     }
   };

@@ -124,7 +124,7 @@ test('MFUI.qtyValue/qtyLine: chưa nhập, chốt 0 và số dương ra ba kết
     autoClosedUnconfirmed: mfOutputRecorded({ session_status: 'CLOSED', good_qty: 0, defect_qty: 0, quantity_confirmed: false }),
     openButAdjusted: mfOutputRecorded({ session_status: 'OPEN', good_qty: 7, defect_qty: 0, quantity_confirmed: true }),
     fieldWins: mfOutputRecorded({ session_status: 'OPEN', good_qty: 0, defect_qty: 0, output_recorded: true }),
-    // status (Quản lý Session) và session_status (Dashboard) là cùng một cột,
+    // status (Quản lý phiên làm việc) và session_status (Dashboard) là cùng một cột,
     // hai endpoint đặt tên khác nhau -- hàm phải hiểu cả hai.
     statusAliasWorks: mfOutputRecorded({ status: 'CLOSED', good_qty: 0, defect_qty: 0, quantity_confirmed: true }),
   }));
@@ -150,7 +150,7 @@ test('MFUI.qtyValue/qtyLine: chưa nhập, chốt 0 và số dương ra ba kết
   expect(r.autoClosedUnconfirmed, 'máy tự đóng cuối ca -> chưa ai xác nhận').toBe(false);
   expect(r.openButAdjusted, 'đã có số dương thì phải hiện số thật').toBe(true);
   expect(r.fieldWins, 'có field của API thì field thắng, không suy đoán').toBe(true);
-  expect(r.statusAliasWorks, 'không nhận ra cột status của Quản lý Session').toBe(true);
+  expect(r.statusAliasWorks, 'không nhận ra cột status của Quản lý phiên làm việc').toBe(true);
 });
 
 // --- B. Bốn trạng thái trên đúng bề mặt người dùng nhìn -------------------
@@ -197,7 +197,7 @@ test('KPI ngày: chưa session nào chốt số thì không in ra 0', async ({ p
   const kpis = page.locator('.daily-kpi');
   await expect(kpis.nth(2)).toContainText('Sản lượng đạt');
   await expect(kpis.nth(2).locator('strong')).toHaveText('—');
-  await expect(kpis.nth(2)).toContainText('Chưa session nào chốt số');
+  await expect(kpis.nth(2)).toContainText('Chưa có phiên làm việc nào chốt số');
   await expect(kpis.nth(3).locator('strong')).toHaveText('—');
   // Hai KPI đếm người/đếm session thì 0 vẫn là 0 thật -- đếm được, không phụ
   // thuộc ai đã nhập gì.

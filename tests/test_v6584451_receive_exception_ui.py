@@ -26,7 +26,7 @@ def test_version():
 
 def test_receive_modal_is_action_focused():
  s=(R/"app/mesflow/web/static/pages/session-exceptions.js").read_text()
- assert "Nhận và mở Session" in s
+ assert "Nhận và mở phiên làm việc" in s
  assert "Chỉ nhận xử lý" in s
  assert "Tôi xử lý" in s
  assert "Bước tiếp theo" in s

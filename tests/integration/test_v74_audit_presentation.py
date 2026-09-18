@@ -46,7 +46,7 @@ def test_session_edit_audit_row_shows_human_presentation_over_http(api, db, seed
     items = r.json()['items']
     row = next(x for x in items if x['action'] == 'SESSION_EDIT')
     p = row['presentation']
-    assert p['title'] == f'Chỉnh sửa Session #{session_id}'
+    assert p['title'] == f'Chỉnh sửa phiên làm việc #{session_id}'
     assert p['context']['employee']['name'] == 'Docker Test Worker'
     assert p['context']['operation']['name'] == 'Docker Test Operation'
     assert len(p['changes']) == 1 and p['changes'][0]['field'] == 'started_at'
@@ -73,11 +73,11 @@ def test_session_exception_workflow_update_resolves_employee_and_operation_via_s
     assert r.status_code == 200, r.text
     row = r.json()['items'][0]
     p = row['presentation']
-    assert p['title'] == 'Xử lý Session bất thường'
-    assert f'Session #{session_id}' in p['summary']
+    assert p['title'] == 'Xử lý phiên làm việc bất thường'
+    assert f'phiên làm việc #{session_id}' in p['summary']
     assert p['context']['employee']['name'] == 'Docker Test Worker'
     values = {e['field']: e['value'] for e in p['extra']}
-    assert values['exception_code'] == 'Session mở quá lâu'
+    assert values['exception_code'] == 'Phiên làm việc mở quá lâu'
     # normal-view payload text must never contain the raw fingerprint/code pair
     dump = json.dumps(p, ensure_ascii=False)
     assert 'exception_fingerprint' not in dump

@@ -521,7 +521,7 @@ def cancel_operation(operation_id):
             if not operation:raise NotFoundError('operation not found')
             if str(operation.get('status') or '').upper()=='COMPLETED':raise ConflictError('Operation đã COMPLETED, phải dùng workflow rework thay vì Cancel')
             opened=conn.execute("SELECT COUNT(*) n FROM work_sessions WHERE operation_id=%s AND status='OPEN'",(operation_id,)).fetchone()['n']
-            if int(opened or 0):raise ConflictError('Operation còn Session OPEN; hãy đóng Session trước khi Cancel')
+            if int(opened or 0):raise ConflictError('Operation vẫn có phiên làm việc đang mở; hãy kết thúc phiên làm việc trước khi hủy Operation')
             conn.execute("UPDATE operations SET status='CANCELLED',updated_at=CURRENT_TIMESTAMP WHERE id=%s",(operation_id,))
             with conn.cursor() as cur:po=reconcile_production_order(cur,int(operation['production_order_id']))
         AuditRepository().log(str(session.get('username') or ''),'OPERATION_CANCEL','operation',str(operation_id),{'previous_status':operation['status']})
@@ -564,7 +564,7 @@ def force_delete_production_order(po_id):
                     (a.entity_type IN ('production_order','production_orders') AND a.entity_id=%s::text) OR
                     (a.entity_type IN ('operation','operations') AND a.entity_id IN (SELECT o.id::text FROM operations o WHERE o.production_order_id=%s))) has_audit''',
                 (po_id,po_id,po_id,po_id,po_id,po_id,po_id,po_id)).fetchone() or {}
-            labels={'has_sessions':'Session','has_output':'sản lượng','has_ledger':'ledger dòng vật tư',
+            labels={'has_sessions':'Phiên làm việc','has_output':'sản lượng','has_ledger':'ledger dòng vật tư',
                     'has_events':'event thực thi','has_adjustments':'lịch sử điều chỉnh','has_qc':'QC','has_audit':'audit'}
             found=[label for key,label in labels.items() if history.get(key)]
             if found and not qa_cleanup:

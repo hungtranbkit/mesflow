@@ -445,7 +445,7 @@ class DashboardRepository:
             elif str(row.get('status'))=='PAUSED':
                 health='WARNING'; label='Tạm dừng'; reason='PO đang tạm dừng'
             elif str(row.get('status')) in ('RELEASED','IN_PROGRESS','PAUSED') and int(row.get('active_sessions') or 0)==0:
-                health='WARNING'; label='Không có người làm'; reason='PO đang chạy nhưng không có session mở'
+                health='WARNING'; label='Không có người làm'; reason='PO đang chạy nhưng không có phiên làm việc mở'
             elif due and 0 <= (due-today).days <= 1 and row['progress_percent']<80:
                 health='WARNING'; label='Nguy cơ trễ'; reason='Sắp đến hạn nhưng tiến độ dưới 80%'
             elif int(row.get('unconfigured_cycle_count') or 0)>0:
@@ -489,7 +489,7 @@ class DashboardRepository:
           LEFT JOIN kiosk_status ks ON ks.device_uuid=ws.device_uuid WHERE ws.status='OPEN' AND {reportable_session_sql('ws')}
         ) SELECT * FROM (
           SELECT 'CRITICAL' severity,'KIOSK_OFFLINE' alert_type,po_id,part_id,operation_id,session_id,
-            po_code||' · '||operation_code title,'Kiosk mất heartbeat khi session đang chạy: '||employee_name message,started_at occurred_at
+            po_code||' · '||operation_code title,'Kiosk mất heartbeat khi phiên làm việc đang chạy: '||employee_name message,started_at occurred_at
           FROM active WHERE last_heartbeat_at IS NULL OR last_heartbeat_at<CURRENT_TIMESTAMP-INTERVAL '2 minutes'
           UNION ALL
           SELECT CASE WHEN po.due_date<CURRENT_DATE THEN 'CRITICAL' ELSE 'WARNING' END,'PO_RISK',po.id,NULL,NULL,NULL,
@@ -511,7 +511,7 @@ class DashboardRepository:
                 alerts.append({'severity':'CRITICAL' if elapsed>=14400 else 'WARNING','alert_type':'SESSION_LONG',
                   'po_id':None,'part_id':None,'operation_id':None,'session_id':session_row['id'],
                   'title':f"{session_row.get('po_code','')} · {session_row.get('operation_code','')}",
-                  'message':f"Session của {session_row.get('employee_name','')} đã làm thực tế {round(elapsed/3600,1)} giờ (đã trừ giờ nghỉ)",
+                  'message':f"Phiên làm việc của {session_row.get('employee_name','')} đã làm thực tế {round(elapsed/3600,1)} giờ (đã trừ giờ nghỉ)",
                   'occurred_at':session_row.get('started_at')})
         for row in po_health:
             if row['health'] in ('CRITICAL','WARNING') and not any(a.get('po_id')==row['id'] and a.get('alert_type')=='PO_RISK' for a in alerts):
@@ -1255,7 +1255,7 @@ class ReportRepository:
         params.append(min(max(limit,1),5000))
         rows=fetch_all(f"""WITH overlap_flags AS (
           SELECT a.id session_id,b.id conflict_session_id,'OVERLAP' exception_code,'CRITICAL' severity,
-            'Chồng thời gian với session #'||b.id exception_message,
+            'Chồng thời gian với phiên làm việc #'||b.id exception_message,
             (
               (COALESCE(a.good_qty,0)+COALESCE(a.defect_qty,0)+COALESCE(a.rework_qty,0)=0
                 AND EXTRACT(EPOCH FROM (COALESCE(a.ended_at,CURRENT_TIMESTAMP)-a.started_at))<300)
@@ -1296,7 +1296,7 @@ class ReportRepository:
           -- one (ambiguous-forgotten-finish -> CONFIRMATION), vs a genuine orphan
           -- with no later activity at all (-> ACTION_REQUIRED). See classify().
           SELECT ws.id session_id,NULL::bigint conflict_session_id,'OPEN_TOO_LONG' exception_code,'ERROR' severity,
-            'Session đang mở quá 12 giờ' exception_message,
+            'Phiên làm việc đang mở quá 12 giờ' exception_message,
             EXISTS(
               SELECT 1 FROM work_sessions later
               WHERE later.employee_id=ws.employee_id AND later.id<>ws.id AND later.started_at>ws.started_at
@@ -1304,11 +1304,11 @@ class ReportRepository:
           FROM work_sessions ws
             WHERE ws.status='OPEN' AND ws.started_at<CURRENT_TIMESTAMP-INTERVAL '12 hours'
           UNION ALL
-          SELECT ws.id,NULL,'ZERO_QTY_LONG','WARNING','Session đóng trên 4 giờ nhưng sản lượng bằng 0',false
+          SELECT ws.id,NULL,'ZERO_QTY_LONG','WARNING','Phiên làm việc kéo dài hơn 4 giờ, đã kết thúc nhưng sản lượng bằng 0',false
             FROM work_sessions ws WHERE ws.status='CLOSED' AND COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)=0
               AND ws.ended_at-ws.started_at>INTERVAL '4 hours'
           UNION ALL
-          SELECT ws.id,NULL,'MISSING_STATION','WARNING','Session không có trạm/kiosk',false
+          SELECT ws.id,NULL,'MISSING_STATION','WARNING','Phiên làm việc không có trạm/kiosk',false
             FROM work_sessions ws WHERE ws.station_id IS NULL AND COALESCE(ws.device_uuid,'')=''
           UNION ALL
           SELECT ws.id,NULL,'INVALID_TIME','CRITICAL','Giờ kết thúc trước giờ bắt đầu',false
@@ -1325,7 +1325,7 @@ class ReportRepository:
           -- including a short shift where the operator genuinely forgot to
           -- press finish.
           SELECT ws.id,NULL,'AUTO_CLOSED_UNCONFIRMED','ERROR',
-            'Session được tự động đóng khi hết giờ ca và chưa có ai xác nhận số liệu',false
+            'Phiên làm việc đã được hệ thống đóng khi hết giờ ca nhưng chưa có ai xác nhận số liệu',false
             FROM work_sessions ws WHERE ws.status='CLOSED' AND ws.closed_by_system
               AND NOT ws.quantity_confirmed
         ), kiosk_reconcile_flags AS (
@@ -1404,7 +1404,7 @@ class ReportRepository:
         ), review_only AS (
           SELECT r.session_id,NULL::bigint conflict_session_id,r.exception_code,
             'INFO'::text severity,
-            'Bất thường không còn được phát hiện sau khi dữ liệu Session thay đổi'::text exception_message,
+            'Bất thường không còn được phát hiện sau khi dữ liệu phiên làm việc thay đổi'::text exception_message,
             false secondary_evidence,
             r.exception_fingerprint,false is_active
           FROM session_exception_reviews r
@@ -1577,7 +1577,7 @@ class ReportRepository:
             raise ValueError('Không thể mở lại lịch sử; bất thường tái phát sẽ tạo một lần xử lý mới')
         if target in ('RESOLVED','IGNORED') and not (note or '').strip():
             raise ValueError('Phải nhập ghi chú khi kết thúc xử lý')
-        if not items: raise ValueError('Chưa chọn Session Exception')
+        if not items: raise ValueError('Chưa chọn phiên làm việc bất thường cần xử lý')
         result=[]
         with transaction() as conn:
             with conn.cursor() as cur:
@@ -1585,9 +1585,9 @@ class ReportRepository:
                     session_id=int(item.get('session_id'))
                     code=str(item.get('exception_code') or '').strip().upper()
                     fingerprint=str(item.get('exception_fingerprint') or '').strip()
-                    if not code or not fingerprint: raise ValueError('Thiếu định danh Session Exception')
+                    if not code or not fingerprint: raise ValueError('Thiếu định danh của trường hợp bất thường')
                     cur.execute('SELECT id FROM work_sessions WHERE id=%s',(session_id,))
-                    if not cur.fetchone(): raise NotFoundError(f'Không tìm thấy Session #{session_id}')
+                    if not cur.fetchone(): raise NotFoundError(f'Không tìm thấy phiên làm việc #{session_id}')
                     if target in ('RESOLVED','IGNORED'):
                         cur.execute('SELECT workflow_status FROM session_exception_reviews WHERE session_id=%s AND exception_fingerprint=%s FOR UPDATE',(session_id,fingerprint))
                         review=cur.fetchone()
@@ -1673,7 +1673,7 @@ class ReportRepository:
           'yield_percent':yield_percent,'defect_percent':round(defect/total_qty*100,2) if total_qty else 0,
           'units_per_hour':round(good/(total_seconds/3600),2) if total_seconds else 0,
           'expected_seconds':round(expected_seconds),'efficiency_percent':efficiency,'operation_count':len(op_rows),
-          'enough_data':enough_data,'data_note':'' if enough_data else 'Chưa đủ dữ liệu để xếp loại; cần ít nhất 5 session hoàn tất, 3 session có sản lượng và 20 sản phẩm.'}
+          'enough_data':enough_data,'data_note':'' if enough_data else 'Chưa đủ dữ liệu để xếp loại; cần ít nhất 5 phiên làm việc hoàn tất, 3 phiên làm việc có sản lượng và 20 sản phẩm.'}
         return {'employees':employees,'sessions':sessions,'operations':op_rows,'summary':summary}
 
     # "Session completion %" source-of-truth: reused verbatim from
@@ -1923,7 +1923,7 @@ class ReportRepository:
         FROM work_sessions ws JOIN employees e ON e.id=ws.employee_id JOIN operations o ON o.id=ws.operation_id
         JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
         LEFT JOIN stations s ON s.id=ws.station_id WHERE ws.id=%s""",(session_id,))
-        if not row: raise NotFoundError(f'Không tìm thấy Session #{session_id}')
+        if not row: raise NotFoundError(f'Không tìm thấy phiên làm việc #{session_id}')
         if str(row.get('data_source') or '').upper()=='UNKNOWN' and (row.get('start_request_id') or row.get('finish_request_id')):
             row['data_source']='REAL_USER'
         row['data_source']='TUTORIAL' if row.get('data_source')=='TUTORIAL_DEMO' else row.get('data_source')

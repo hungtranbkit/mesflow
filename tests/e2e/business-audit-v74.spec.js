@@ -89,7 +89,7 @@ test('business audit trail: category filter chips work and stay Vietnamese',asyn
  await login(page);
  await page.evaluate(()=>openPage('business-audit'));
  const chips=await page.locator('.ba-chip').allInnerTexts();
- expect(chips).toEqual(['Tất cả','Session','Sản lượng','PO','Công đoạn','Lịch làm việc','Nhân viên','Xử lý bất thường','Quản trị']);
+ expect(chips).toEqual(['Tất cả','Phiên làm việc','Sản lượng','PO','Công đoạn','Lịch làm việc','Nhân viên','Xử lý bất thường','Quản trị']);
  await page.locator('.ba-chip',{hasText:'Quản trị'}).click();
  await expect(page.locator('.ba-chip.active')).toHaveText('Quản trị');
  await page.waitForTimeout(300);

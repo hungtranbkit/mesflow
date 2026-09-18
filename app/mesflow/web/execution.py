@@ -554,7 +554,7 @@ def legacy_group_start():
         operation_qrs=list(body.get('operation_qrs') or [])
         if len(operation_qrs)>1:
             raise ConflictError(
-                'Một nhân viên chỉ có thể có một Session đang mở -- không thể Start nhiều Operation cùng lúc cho một nhân viên. '
+                'Một nhân viên chỉ có thể có một phiên làm việc đang mở -- không thể Start nhiều Operation cùng lúc cho một nhân viên. '
                 'Hãy Start từng Operation một lượt.'
             )
         identity=_legacy_kiosk_identity(body)
@@ -568,7 +568,7 @@ def legacy_group_start():
             if not op: raise NotFoundError('operation not found')
             out=WorkSessionRepository().start({'request_id':group if idx==0 else f'{group}-{idx}','employee_id':emp['id'],'operation_id':op['id'],'station_id':station['id'] if station else None,'device_uuid':device})
             ids.append(out['session']['id'])
-            KioskEventRepository().ingest({'event_uuid':f'{group}-{idx}-START','device_uuid':device or 'LEGACY','station_id':station['id'] if station else None,'event_type':'SESSION_START','severity':'INFO','message':f"Bắt đầu session OP {op['code']}",'session_id':out['session']['id'],'operation_id':op['id'],'employee_id':emp['id'],'payload':body})
+            KioskEventRepository().ingest({'event_uuid':f'{group}-{idx}-START','device_uuid':device or 'LEGACY','station_id':station['id'] if station else None,'event_type':'SESSION_START','severity':'INFO','message':f"Bắt đầu phiên làm việc cho OP {op['code']}",'session_id':out['session']['id'],'operation_id':op['id'],'employee_id':emp['id'],'payload':body})
         return jsonify(ok=True,group_id=group,session_ids=ids)
     except Exception as exc:return err(exc)
 
