@@ -1506,6 +1506,9 @@ không bao giờ ở bên ngoài.
   thành phẩm hoàn tất được xác định rõ. Thẻ PO chỉ hiển thị mã/tên, hạn, phần
   trăm tiến độ theo công đoạn và cảnh báo thiếu định mức khi cần; không đưa
   tử/mẫu kỹ thuật vào copy người dùng.
+- Bố cục Overview nhiều PO dùng một hàng compact cho mỗi PO; ẩn Lỗi/Phế khi
+  bằng 0 và hiển thị “Chờ sửa <n> SP” trên một dòng, không dựng lại một block
+  aggregate nhiều tầng chỉ để biểu diễn số PO.
 
 - **Mô-đun**: Dashboard / Quản lý Session (mẫu dùng chung)
 - **Mục đích**: Chọn filter PO/Part phải thu hẹp dropdown con chỉ còn con của đúng cha đó, và một thay đổi filter không bao giờ được phép render một response cũ hơn lựa chọn mới nhất của người dùng.
