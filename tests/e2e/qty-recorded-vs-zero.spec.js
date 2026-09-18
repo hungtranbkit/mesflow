@@ -6,7 +6,7 @@
 // "NG 0" của ca đang chạy thành "đã kiểm, không có hàng lỗi".
 //
 // Ba trạng thái phải phân biệt được:
-//   (1) chưa nhập        -> "Đạt — · NG —"
+//   (1) chưa nhập        -> "Chưa ghi nhận sản lượng"
 //   (2) đã chốt bằng 0   -> "Đạt 0 · NG 0"
 //   (3) đã chốt, > 0     -> số thật
 //
@@ -136,7 +136,7 @@ test('MFUI.qtyValue/qtyLine: chưa nhập, chốt 0 và số dương ra ba kết
   expect(r.recordedPositive).toBe('32');
   expect(r.recordedThousand).toBe((1234).toLocaleString('vi-VN'));
 
-  expect(r.lineUnknown).toBe('Đạt — · NG —');
+  expect(r.lineUnknown).toBe('Chưa ghi nhận sản lượng');
   // Đạt và NG luôn đi cùng nhau khi đã chốt: "Đạt 32" trơ trọi không nói được
   // NG vắng mặt vì bằng 0 hay vì chưa biết.
   expect(r.lineZero).toBe('Đạt 0 · NG 0');
@@ -155,10 +155,10 @@ test('MFUI.qtyValue/qtyLine: chưa nhập, chốt 0 và số dương ra ba kết
 
 // --- B. Bốn trạng thái trên đúng bề mặt người dùng nhìn -------------------
 const PEOPLE_CASES = [
-  ['An Chưa Nhập', 'Đạt — · NG —', 'đang chạy, chưa nhập'],
+  ['An Chưa Nhập', 'Chưa ghi nhận sản lượng', 'đang chạy, chưa nhập'],
   ['Bình Chốt Không', 'Đạt 0 · NG 0', 'đã chốt đúng 0'],
   ['Cường Ba Hai', 'Đạt 32 · NG 2', 'đã chốt số thật'],
-  ['Dũng Tự Đóng', 'Đạt — · NG —', 'máy tự đóng, chưa xác nhận'],
+  ['Dũng Tự Đóng', 'Chưa ghi nhận sản lượng', 'máy tự đóng, chưa xác nhận'],
 ];
 
 for (const [employee, expected, label] of PEOPLE_CASES) {
@@ -181,11 +181,11 @@ test('tab Tổng quan Operation: chưa chốt ra "—", chốt-bằng-0 ra "0"',
   // khớp thẻ ở cả hai tab. Bài này nói về tab A nên phải neo vào container
   // của tab A, không dựa vào việc class từng là duy nhất của một tab.
   const rowOf = name => page.locator('#opTimeProgress .op-card', { hasText: name });
-  await expect(rowOf('CHẤN BƯỚC 1')).toContainText('Trong ca: Đạt — · NG —');
+  await expect(rowOf('CHẤN BƯỚC 1')).toContainText('Trong ca: Chưa ghi nhận sản lượng');
   await expect(rowOf('HÀN GÓC')).toContainText('Trong ca: Đạt 0 · NG 0');
   await expect(rowOf('SƠN TĨNH ĐIỆN')).toContainText('Trong ca: Đạt 32 · NG 2');
   // Và phần bóc tách theo từng người phải nói cùng một chuyện.
-  await expect(rowOf('CHẤN BƯỚC 1').locator('.op-worker-line')).toContainText('An Chưa Nhập: Đạt — · NG —');
+  await expect(rowOf('CHẤN BƯỚC 1').locator('.op-worker-line')).toContainText('An Chưa Nhập: Chưa ghi nhận sản lượng');
   await expect(rowOf('HÀN GÓC').locator('.op-worker-line')).toContainText('Bình Chốt Không: Đạt 0 · NG 0');
 });
 
@@ -213,10 +213,10 @@ test('payload cũ không có output_recorded thì lùi về luật của backend
   });
   // OPEN chưa nhập -> vẫn "—" nhờ (status + quantity_confirmed), không phải 0.
   await expect(page.locator('.employee-day-row', { hasText: 'An Chưa Nhập' })
-    .locator('.emp-op-facts > small').first()).toHaveText('Đạt — · NG —');
+    .locator('.emp-op-facts > small').first()).toHaveText('Chưa ghi nhận sản lượng');
   // CLOSED + quantity_confirmed=false -> vẫn "—".
   await expect(page.locator('.employee-day-row', { hasText: 'Dũng Tự Đóng' })
-    .locator('.emp-op-facts > small').first()).toHaveText('Đạt — · NG —');
+    .locator('.emp-op-facts > small').first()).toHaveText('Chưa ghi nhận sản lượng');
   // CLOSED + đã xác nhận, số 0 -> vẫn phải ra "0".
   await expect(page.locator('.employee-day-row', { hasText: 'Bình Chốt Không' })
     .locator('.emp-op-facts > small').first()).toHaveText('Đạt 0 · NG 0');
@@ -242,3 +242,17 @@ test('"—" và "0" không chỉ khác chữ mà còn khác trọng lượng th�
   expect(weights.unknown.weight).toBeLessThan(weights.zero.weight);
   expect(weights.unknown.color).not.toBe(weights.zero.color);
 });
+
+for (const width of [390, 1366]) {
+  test(`Dashboard output wording không tràn ở ${width}px`, async ({ page }) => {
+    await openDashboard(page, 'people', { width });
+    const row = page.locator('.employee-day-row', { hasText: 'An Chưa Nhập' });
+    await expect(row.locator('.emp-op-facts > small').first()).toHaveText('Chưa ghi nhận sản lượng');
+    await page.locator('[data-dashboard-tab="overview"]').click();
+    await expect(page.locator('#opTimeProgress .op-card', { hasText: 'CHẤN BƯỚC 1' }))
+      .toContainText('Trong ca: Chưa ghi nhận sản lượng');
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `tràn ngang ${overflow}px ở viewport ${width}`).toBeLessThanOrEqual(1);
+  });
+}

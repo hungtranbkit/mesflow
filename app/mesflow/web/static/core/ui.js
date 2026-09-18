@@ -149,7 +149,7 @@ const MFUI=(()=>{
 
   // --- Ba trạng thái của một con số sản lượng ----------------------------
   //
-  // (1) CHƯA nhập / chưa chốt  -> "—"
+  // (1) CHƯA nhập / chưa chốt  -> "Chưa ghi nhận sản lượng"
   // (2) ĐÃ chốt và bằng 0      -> "0"
   // (3) ĐÃ chốt và lớn hơn 0   -> số thật
   //
@@ -180,7 +180,7 @@ const MFUI=(()=>{
   // thành chữ nếu nhận HTML).
   const qtyLine=({good,defect,rework,scrap,recorded=true,plain=false}={})=>{
     if(!recorded){
-      const text=`Đạt ${QTY_UNKNOWN} · NG ${QTY_UNKNOWN}`;
+      const text='Chưa ghi nhận sản lượng';
       return plain?text:`<span class="qty-empty">${text}</span>`;
     }
     const num=v=>Number(v||0);

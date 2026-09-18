@@ -303,9 +303,9 @@ th{background:#edf1f4;color:#354352;text-align:left;border-bottom:1px solid #ccd
    nhưng hiếm hơn, nên lấy màu trung tính-tối chứ không tranh sắc đỏ với NG,
    vốn là con số đọc hằng ngày. */
 .qty-scrap{color:#7a2f2f}
-/* "Đạt — · NG —" = CHƯA nhập số lượng, khác hẳn "Đạt 0 · NG 0" (đã chốt và
-   bằng 0). Muted + không in đậm để mắt lướt qua không đọc nhầm thành một
-   con số đã xác nhận. */
+/* Chưa ghi nhận sản lượng = chưa nhập số lượng, khác hẳn "Đạt 0 · NG 0"
+   (đã chốt và bằng 0). Muted + không in đậm để mắt lướt qua không đọc nhầm
+   thành một con số đã xác nhận. */
 .qty-empty{color:var(--muted);font-weight:500}.op-time-meter{height:8px;border-radius:999px;background:#e9eef3;overflow:hidden;margin-bottom:6px}.op-time-meter i{display:block;height:100%;border-radius:inherit;background:#337eb0}
 
 /* v65.8.16 employee performance report */
