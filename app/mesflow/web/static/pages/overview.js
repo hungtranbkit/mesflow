@@ -27,10 +27,9 @@ async function renderOverview(){
     // a visible, honest count, never folded into the qty KPIs above (those
     // already count its real 0/0 until someone corrects it).
     const unconfirmed=Number(overview.summary?.unconfirmed_quantity_sessions||0);
-    const progressPlanned=sum('progress_planned_qty'),progressActual=sum('progress_actual_good_qty'),progressCopy=progressPlanned>0?`${Math.min(100,Math.max(0,progressActual/progressPlanned*100)).toLocaleString('vi-VN',{maximumFractionDigits:1})}%`:'Chưa có định mức sản lượng',missingProgress=rows.some(x=>Number(x.progress_missing_operation_count)>0);
-    document.getElementById('ovKpis').innerHTML=values.map(([l,v,u])=>`<article><span>${l}</span><strong>${N(v)}</strong><small>${u}</small></article>`).join('')+`<article><span>Tiến độ sản lượng PO</span><strong>${progressCopy}</strong><small>${missingProgress?'Có công đoạn chưa có định mức':'Tổng Đạt / tổng định mức theo Operation'}</small></article>`+`<button class="repair-summary" id="ovRepairOnly"><span>CHỜ SỬA</span><strong>${N(pending)} SP</strong><small>${repairPos} PO · ${unconfigured?'CHƯA ĐỦ ĐỊNH MỨC':work(estimated)}</small></button>`;
+    const totalPlan=sum('planned_quantity'),totalCompleted=sum('good_quantity'),totalProgressCopy=totalPlan>0?`${Math.min(100,Math.max(0,totalCompleted/totalPlan*100)).toLocaleString('vi-VN',{maximumFractionDigits:1})}%`:'Chưa có kế hoạch sản lượng',missingProgress=rows.some(x=>Number(x.progress_missing_operation_count)>0);
+    document.getElementById('ovKpis').innerHTML=values.map(([l,v,u])=>`<article><span>${l}</span><strong>${N(v)}</strong><small>${u}</small></article>`).join('')+`<article><span>Tiến độ sản lượng tổng</span><strong>${totalProgressCopy}</strong><small>${missingProgress?'Có công đoạn chưa có định mức · ':''}Thành phẩm hoàn tất / kế hoạch PO</small></article>`+`<button class="repair-summary" id="ovRepairOnly"><span>CHỜ SỬA</span><strong>${N(pending)} SP</strong><small>${repairPos} PO · ${unconfigured?'CHƯA ĐỦ ĐỊNH MỨC':work(estimated)}</small></button>`;
     const totalProgressCard=document.querySelector('#ovKpis article:nth-child(7) span');
-    if(totalProgressCard)totalProgressCard.textContent='Tiến độ sản lượng tổng';
     // Bug found live (2026-09-02, user-reported UI review): this used to be
     // an 8th item squeezed into .overview-summary's 7-column grid -- it has
     // no column of its own, so it wrapped onto a lone second row at a
