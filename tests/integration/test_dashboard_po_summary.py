@@ -15,6 +15,14 @@ def test_po_progress_is_weighted_by_expected_operation_time_not_raw_sum(db, seed
             cur.execute("UPDATE parts SET planned_quantity=100 WHERE id=%s", (g['part_id'],))
             cur.execute("UPDATE operations SET done_qty=50,standard_seconds_per_unit=1,sort_order=1 WHERE id=%s",
                         (g['operation_id'],))
+            # SETUP is time-tracked only. Even if a bad/imported row carries
+            # quantity-like values, it must not enter production progress.
+            cur.execute("""INSERT INTO operations(production_order_id,part_id,code,name,status,sort_order,qr,
+                operation_type,parent_operation_id,done_qty,standard_seconds_per_unit)
+                VALUES(%s,%s,%s,'SETUP','IN_PROGRESS',99,%s,'SETUP',%s,999,999) RETURNING id""",
+                (g['po_id'], g['part_id'], f'TEST-SETUP-{g["suffix"]}',
+                 f'WF|OP|TEST-SETUP-{g["suffix"]}', g['operation_id']))
+            extra_ids.append(cur.fetchone()['id'])
             for index, (done, seconds, planned) in enumerate(((20, 2, 50), (80, 3, 100)), start=2):
                 cur.execute("INSERT INTO parts(production_order_id,code,name,planned_quantity) VALUES(%s,%s,%s,%s) RETURNING id",
                             (g['po_id'], f'TEST-WEIGHT-PART-{g["suffix"]}-{index}', f'Weighted Part {index}', planned))
@@ -25,7 +33,7 @@ def test_po_progress_is_weighted_by_expected_operation_time_not_raw_sum(db, seed
                      f'WF|OP|TEST-WEIGHT-{g["suffix"]}-{index}', done, seconds))
                 extra_ids.append(cur.fetchone()['id'])
         row = _po(DashboardRepository().po_progress(500), g['po_id'])
-        # (50 + 20 + 80) / (100 + 50 + 100) = 60.
+        # (50 + 20 + 80) / (100 + 50 + 100) = 60; SETUP(999/999) excluded.
         assert float(row['progress_percent']) == 60.0
         assert row['progress_basis'] == 'SUM_GOOD_OVER_SUM_PLANNED'
         assert 0 <= float(row['progress_percent']) <= 100
