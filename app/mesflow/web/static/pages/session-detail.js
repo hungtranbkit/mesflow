@@ -12,7 +12,7 @@ const MF_EXCEPTION_LABELS={
   ZERO_QTY_LONG:'Không có sản lượng',
   MISSING_STATION:'Thiếu trạm',
   INVALID_TIME:'Sai thời gian',
-  AUTO_CLOSED_UNCONFIRMED:'Quá giờ · Chưa nhập sản lượng'
+  AUTO_CLOSED_UNCONFIRMED:'Tự động kết thúc khi hết ca · Chờ xác nhận sản lượng'
 };
 const MF_EXCEPTION_HINTS={
   OVERLAP:'Kiểm tra hai phiên làm việc trùng giờ. Thường cần sửa thời gian hoặc phiên làm việc ghi nhầm.',

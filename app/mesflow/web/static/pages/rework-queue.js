@@ -148,7 +148,7 @@ function rqOpenResolve(sessionId) {
   const preview = () => {
     const left = pending - repaired() - scrapped();
     document.getElementById('rqPreview').innerHTML = left < 0
-      ? `<b class="danger">Vượt quá số chờ sửa ${rqNum(pending)}</b>`
+      ? `<b class="danger">Số lượng nhập vượt số đang chờ sửa: ${rqNum(pending)}</b>`
       : `Sau khi lưu: <b>+${rqNum(repaired())}</b> vào sản lượng đạt của Operation gốc · <b>${rqNum(scrapped())}</b> vào phế · còn lại <b>${rqNum(left)}</b> chờ sửa.`;
   };
   document.getElementById('rqRepaired').oninput = preview;
@@ -160,7 +160,7 @@ function rqOpenResolve(sessionId) {
     error.classList.add('hidden');
     const total = repaired() + scrapped();
     if (total <= 0) { error.textContent = 'Nhập số lượng sửa được hoặc loại.'; error.classList.remove('hidden'); return; }
-    if (total > pending) { error.textContent = `Tổng ${total} vượt quá số chờ sửa (${pending}).`; error.classList.remove('hidden'); return; }
+    if (total > pending) { error.textContent = `Tổng ${total} vượt số đang chờ sửa (${pending}).`; error.classList.remove('hidden'); return; }
     save.disabled = true; save.textContent = 'Đang lưu…';
     try {
       await api(`/api/rework/queue/${Number(sessionId)}/resolve`, {

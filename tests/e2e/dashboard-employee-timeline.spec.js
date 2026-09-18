@@ -159,7 +159,7 @@ test('renderer thời gian xử lý đúng biên dưới bằng và vượt đ�
   expect(cases[1].html).not.toContain('Còn lại');
 
   expect(cases[2].timing.overrunSeconds).toBe(1);
-  expect(cases[2].html).toContain('<small>Vượt dự kiến</small>');
+  expect(cases[2].html).toContain('<small>Chậm hơn dự kiến</small>');
   expect(cases[2].html).not.toContain('Còn lại');
 });
 

@@ -417,7 +417,7 @@ async function renderDashboard(){
   // as a derived "Có lỗi" warning by itself (see analytics.py's
   // daily_progress()). NEEDS_REVIEW is a real actionable exception (an
   // auto-closed session nobody has confirmed the numbers for yet).
-  const stateLabel=x=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý ngoại lệ',UPDATED:'Đã cập nhật',IDLE:'Không có người đang làm'}[x]||x);
+  const stateLabel=x=>({RUNNING:'Đang chạy',NEEDS_REVIEW:'Cần xử lý',UPDATED:'Đã cập nhật',IDLE:'Không có người đang làm'}[x]||x);
   // Mỗi Operation là một THẺ độc lập, không phải một hàng của bảng dài: tên là
   // chữ chính, mã/PO/Part là chữ phụ, trạng thái + session/thời gian nằm bên
   // phải, phần còn lại là các dữ kiện trong thân thẻ. Xem ui.css (.op-card) để
@@ -923,7 +923,7 @@ function expectedTimingHtml(t,{showTotal=true,showPerUnit=true}={}){
   if(t.hasElapsed)parts.push(`<span class="time-metric actual"><small>Đã làm</small><b>${fmtDuration(t.elapsedSeconds)}</b></span>`);
   if(showPerUnit)parts.push(expectedPerUnitHtml(t));
   if(showTotal)parts.push(expectedTotalHtml(t));
-  if(t.isOverrun)parts.push(`<span class="time-metric overrun"><small>Vượt dự kiến</small><b>${fmtDuration(t.overrunSeconds)}</b></span>`);
+  if(t.isOverrun)parts.push(`<span class="time-metric overrun"><small>Chậm hơn dự kiến</small><b>${fmtDuration(t.overrunSeconds)}</b></span>`);
   return `<span class="time-metrics">${parts.join('')}</span>`;
 }
 function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hours=Math.floor(seconds/3600),minutes=Math.floor((seconds%3600)/60),secs=Math.floor(seconds%60);if(hours)return `${hours}g ${String(minutes).padStart(2,'0')}p`;if(minutes)return `${minutes} phút`;return `${secs} giây`}

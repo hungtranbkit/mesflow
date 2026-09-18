@@ -95,7 +95,7 @@
       case 'REPAIRABLE_DEFECT_RECORDED':return {action:`ghi nhận ${signed} lỗi sửa được`,impact:'vào hàng chờ sửa'};
       case 'SESSION_STARTED':return {action:'nhận việc',impact:'bắt đầu phiên làm việc'};
       case 'SESSION_FINISHED':return {action:'kết thúc việc',impact:''};
-      case 'SESSION_AUTO_CLOSED':return {action:'tự đóng phiên làm việc cuối ca',impact:'chưa xác nhận số liệu'};
+      case 'SESSION_AUTO_CLOSED':return {action:'tự động kết thúc khi hết ca',impact:'chờ xác nhận sản lượng'};
       case 'OPERATION_COMPLETED':return {action:'hoàn thành',impact:progressImpact(ev)};
       case 'OPERATION_STARTED':return {action:'bắt đầu chạy',impact:''};
       case 'SETUP_COMPLETED':return {action:'hoàn tất setup máy',impact:''};
@@ -421,7 +421,7 @@
       for(const x of tasks||[]){
         if(Number(x.unconfirmed_count||0)>0)
           out.push({sev:0,tag:'Phiên làm việc chưa xác nhận',title:x.operation_name||x.operation_code,
-            sub:`${x.operation_code||''} · ${N(x.unconfirmed_count)} phiên làm việc tự đóng chưa xác nhận số liệu`});
+            sub:`${x.operation_code||''} · ${N(x.unconfirmed_count)} phiên làm việc tự động kết thúc khi hết ca · chờ xác nhận sản lượng`});
         const good=Number(x.day_good_qty||0),ng=Number(x.day_defect_qty||0);
         if(ng>0&&good+ng>0&&ng/(good+ng)>=NG_RATIO_ALERT)
           out.push({sev:1,tag:'Tỉ lệ NG cao',title:x.operation_name||x.operation_code,
