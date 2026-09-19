@@ -1,0 +1,28 @@
+services:
+  patroni-hp:
+    image: mesflow-patroni:4.1.5-pg17.10
+    container_name: mesflow-patroni-hp
+    restart: unless-stopped
+    env_file:
+    - /home/kimex/.config/mesflow-ha/patroni.env
+    volumes:
+    - mesflow-ha-postgres-data:/var/lib/postgresql/data
+    - /home/kimex/.config/mesflow-ha/patroni-hp.yml:/etc/patroni/patroni.yml:ro
+    ports:
+    - 100.67.53.117:5432:5432
+    - 100.67.53.117:8008:8008
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fsS
+      - http://127.0.0.1:8008/health
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 60s
+volumes:
+  mesflow-ha-postgres-data:
+    external: true
+    name: mesflow-ha-postgres-data
