@@ -1,0 +1,54 @@
+scope: mesflow-patroni-lab-EXAMPLE
+namespace: /mesflow-ha/
+name: mesflow-lab-dell
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: mesflow-patroni-lab:8008
+
+etcd3:
+  hosts:
+    - 100.127.10.29:2379
+    - 100.67.53.117:2379
+    - 100.117.214.87:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 16777216
+    check_timeline: true
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: 'on'
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 256MB
+        max_slot_wal_keep_size: 4096MB
+        wal_log_hints: 'on'
+  pg_hba:
+    - host replication replicator 127.0.0.1/32 scram-sha-256
+    - host all all 127.0.0.1/32 scram-sha-256
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: mesflow-patroni-lab:5432
+  data_dir: /var/lib/postgresql/data
+  authentication:
+    replication:
+      username: replicator
+    superuser:
+      username: postgres
+  parameters:
+    unix_socket_directories: /tmp
+  remove_data_directory_on_rewind_failure: false
+  remove_data_directory_on_diverged_timelines: false
+
+tags:
+  noloadbalance: false
+  clonefrom: false
+  nostream: false
