@@ -26,3 +26,6 @@
 
 ## Next gate
 - Gate 1: isolated Patroni existing-PGDATA takeover lab. No public routing, loopback-only ports, separate DCS scope.
+
+## TEST Patroni takeover (Gate 2)
+The exact preflight/takeover/rollback contract is recorded in `checkpoints/PRE_TEST_PATRONI_TAKEOVER_20260919.md`. The application is stopped during first takeover to quiesce writes. Legacy `mesflow-postgres` must be `restart=no` and stopped before Patroni touches the same PGDATA. Rollback must stop Patroni completely before starting the legacy container.

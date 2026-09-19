@@ -1,7 +1,7 @@
 # MESFlow HA State
 
 - Updated: 2026-09-19 13:12 +07
-- Current phase: Phase 3 - live Patroni configuration design / pre-takeover audit
+- Current phase: Phase 4 - Gate 2 TEST Patroni takeover ready
 - Last successful gates: Gate 0 PASS; Phase 1 pg_rewind prerequisite PASS; Gate 1 isolated Patroni takeover lab PASS
 - Current live DB leader: TEST standalone Docker PostgreSQL (`mesflow-postgres`), not Patroni-managed yet
 - Current live replica: HP `mesflow-ha-postgres-standby`
@@ -15,4 +15,5 @@
 - pg_rewind prerequisite: PASS; TEST wal_log_hints=on, pg_rewind 17.10
 - Gate 1 lab: PASS with Patroni 4.1.5; same lab system ID before/after adoption; no initdb; REST/patronictl/lifecycle/HBA/single-manager checks PASS
 - Automatic failover: OFF
-- Next: compare live PostgreSQL GUCs/config/connectivity against Patroni-managed settings, write live configs + rollback, then Gate 2 TEST takeover
+- Live TEST Patroni config/compose validated and image staged; exact rollback checkpoint written.
+- Next: final preflight then controlled Gate 2 TEST takeover

@@ -1,0 +1,29 @@
+services:
+  patroni-test:
+    image: mesflow-patroni:4.1.5-pg17.10
+    container_name: mesflow-patroni-test
+    restart: unless-stopped
+    env_file:
+      - /opt/mesflow/ha/patroni.env
+    volumes:
+      - /opt/mesflow/runtime/postgres-v65:/var/lib/postgresql/data
+      - /opt/mesflow/ha/patroni-test.yml:/etc/patroni/patroni.yml:ro
+    ports:
+      - 100.127.10.29:5432:5432
+      - 100.127.10.29:8008:8008
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8008/primary"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 60s
+    networks:
+      mesflow_network:
+        aliases:
+          - postgres
+          - mesflow-postgres
+networks:
+  mesflow_network:
+    external: true
+    name: mesflow_network

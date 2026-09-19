@@ -1,0 +1,61 @@
+scope: mesflow-pg
+namespace: /mesflow-ha/
+name: mesflow-test
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: 100.127.10.29:8008
+
+etcd3:
+  hosts:
+    - 100.127.10.29:2379
+    - 100.67.53.117:2379
+    - 100.117.214.87:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 16777216
+    check_timeline: true
+    synchronous_mode: false
+    failsafe_mode: false
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: 'on'
+        max_connections: 100
+        max_wal_senders: 10
+        max_replication_slots: 10
+        max_worker_processes: 8
+        max_locks_per_transaction: 64
+        max_prepared_transactions: 0
+        track_commit_timestamp: 'off'
+        wal_keep_size: 256MB
+        max_slot_wal_keep_size: 4096MB
+        wal_log_hints: 'on'
+        archive_mode: 'off'
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: 100.127.10.29:5432
+  data_dir: /var/lib/postgresql/data
+  authentication:
+    superuser:
+      username: mesflow
+    replication:
+      username: mesflow_replica
+  remove_data_directory_on_rewind_failure: false
+  remove_data_directory_on_diverged_timelines: false
+
+watchdog:
+  mode: 'off'
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nostream: false
