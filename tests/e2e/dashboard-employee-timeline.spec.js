@@ -277,14 +277,29 @@ test('session OPEN xuyên trưa dừng cộng công trong 11:30–13:00 rồi ti
   await page.clock.setFixedTime(new Date(`${date}T11:30:00+07:00`));
   await page.goto('/app?page=dashboard&tab=people');
   const work=page.locator('.emp-op-facts b').first();
-  await expect(work).toHaveText('30p');
+  await expect(work).toHaveText('30p · đang chạy');
   for(const clock of ['12:15','13:00']){
     await page.clock.setFixedTime(new Date(`${date}T${clock}:00+07:00`));
     await page.locator('#dailyRefresh').click();
-    await expect(work).toHaveText('30p');
+    await expect(work).toHaveText('30p · đang chạy');
   }
   await page.clock.setFixedTime(new Date(`${date}T13:15:00+07:00`));
   await page.locator('#dailyRefresh').click();
-  await expect(work).toHaveText('45p');
+  await expect(work).toHaveText('45p · đang chạy');
   await expect(page.locator('.employee-session-segment')).toHaveCount(2);
+});
+
+test('ngày không có giờ làm vẫn hiện session với 0 phút công', async ({page}) => {
+  const date=hcmDate();
+  await login(page);
+  await page.clock.setFixedTime(new Date(`${date}T14:00:00+07:00`));
+  await page.route('**/api/dashboard/day?**', route=>route.fulfill({json:{
+    ok:true,context:{date,target_minutes:480,intervals:[
+      {interval_type:'BREAK',start_minute:0,end_minute:1440,sort_order:0,label:'Ngoài lịch làm việc'}
+    ]},items:[],activity:[],sessions:[sessionsFor(date)[0]]
+  }}));
+  await page.goto('/app?page=dashboard&tab=people');
+  await expect(page.locator('.employee-day-row')).toHaveCount(1);
+  await expect(page.locator('.emp-op-facts b').first()).toHaveText('0p · đang chạy');
+  await expect(page.locator('.employee-session-segment')).toHaveCount(0);
 });
