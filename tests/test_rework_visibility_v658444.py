@@ -12,7 +12,9 @@ def test_overview_rework_visible():
     ui = text('app/mesflow/web/static/pages/overview.js')
     assert 'total_rework_qty' in repo and 'rework_qty' in repo
     assert 'Lỗi tổng' in ui and 'CHỜ SỬA' in ui and 'Phế' in ui
-    assert 'SUM_GOOD_OVER_SUM_PLANNED' in repo and 'remaining_quantity' in ui
+    # Remaining quantity stays in the API; compact PO UI now shows operation progress.
+    assert 'SUM_GOOD_OVER_SUM_PLANNED' in repo and 'remaining_quantity' in repo
+    assert 'poProgressText' in ui and 'progress_missing_operation_count' in ui
 
 
 def test_daily_rework_visible():

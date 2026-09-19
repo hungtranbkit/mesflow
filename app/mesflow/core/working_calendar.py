@@ -207,12 +207,16 @@ def working_seconds_between(start: datetime,end: datetime,cfg: dict[str,Any]|Non
         anchor+=timedelta(days=1)
     return max(0,int(total))
 
-def all_shift_working_seconds_between(start:datetime,end:datetime)->int:
-    """Allocate a long session across every configured shift without double counting overlaps."""
-    if not start or not end or end<=start:return 0
+def working_intervals_between(start:datetime,end:datetime,shifts:list[dict[str,Any]]|None=None)->list[tuple[datetime,datetime]]:
+    """Configured WORK windows clipped to the range and merged across shifts.
+
+    Calendar-day visibility does not make breaks or off-shift hours work.
+    Keep this shared by live session duration and day dashboard/timeline.
+    """
+    if not start or not end or end<=start:return []
     if start.tzinfo is None or end.tzinfo is None:raise ValueError('naive datetime is not allowed in working-time logic')
     spans=[]
-    for shift in get_work_shifts():
+    for shift in (shifts if shifts is not None else get_work_shifts()):
         zone=ZoneInfo(shift.get('timezone') or settings.timezone_name);left=start.astimezone(zone);right=end.astimezone(zone)
         anchor=_anchor_date_for(left,shift)-timedelta(days=1);last=_anchor_date_for(right,shift)+timedelta(days=1)
         weekdays={int(x) for x in shift.get('working_weekdays',[])}
@@ -228,4 +232,8 @@ def all_shift_working_seconds_between(start:datetime,end:datetime)->int:
     for left,right in spans:
         if merged and left<=merged[-1][1]:merged[-1]=(merged[-1][0],max(merged[-1][1],right))
         else:merged.append((left,right))
-    return int(sum((right-left).total_seconds() for left,right in merged))
+    return merged
+
+def all_shift_working_seconds_between(start:datetime,end:datetime)->int:
+    """Allocate a session across configured shifts, excluding breaks/overlaps."""
+    return int(sum((right-left).total_seconds() for left,right in working_intervals_between(start,end)))

@@ -13,7 +13,7 @@ from typing import Any
 from mesflow.db.connection import transaction, fetch_all, fetch_one
 from .base import (NotFoundError, ConflictError, reportable_session_sql,
                    repair_pending_sql, scrap_total_sql)
-from mesflow.core.working_calendar import get_working_calendar, get_work_shift, shift_bounds, resolve_shift_context, working_seconds_between,all_shift_working_seconds_between
+from mesflow.core.working_calendar import get_working_calendar, get_work_shift, shift_bounds, resolve_shift_context, working_seconds_between,all_shift_working_seconds_between,working_intervals_between,get_work_shifts
 from mesflow.core.time_policy import coerce_utc,utc_now,business_date,business_date_start_utc
 from mesflow.db.repositories.scheduling import priority_for_operation,priority_sort_key
 from mesflow.core.config import settings
@@ -146,8 +146,23 @@ class DashboardRepository:
         ctx=dict(ctx)
         ctx['range_start']=ctx['day_start']
         ctx['range_end']=ctx['day_end']
-        ctx['intervals']=[{'interval_type':'WORK','start_minute':0,'end_minute':1440,
-          'start_at':ctx['day_start'],'end_at':ctx['day_end']}]
+        # The date window selects sessions; only configured WORK windows
+        # count towards duration. A 24h WORK interval silently counted lunch.
+        start,end=ctx['day_start'],ctx['day_end']
+        intervals=[]
+        cursor=start
+        def append(kind,left,right):
+            if right<=left:return
+            intervals.append({'interval_type':kind,'start_at':left,'end_at':right,
+              'start_minute':int((left-start).total_seconds()/60),
+              'end_minute':int((right-start).total_seconds()/60),
+              'sort_order':len(intervals),'label':'Nghỉ / ngoài ca' if kind=='BREAK' else 'Làm việc'})
+        for left,right in working_intervals_between(start,end):
+            append('BREAK',cursor,left)
+            append('WORK',left,right)
+            cursor=right
+        append('BREAK',cursor,end)
+        ctx['intervals']=intervals
         return ctx
 
     def summary(self):
@@ -1127,6 +1142,8 @@ class DashboardRepository:
         ctx=self._calendar_day_context(shift_date)
         return {'context':{'date':ctx['shift_date'].isoformat(),'timezone':ctx['shift']['timezone'],
           'day_start':ctx['day_start'].isoformat(),'day_end':ctx['day_end'].isoformat(),
+          'target_minutes':int(ctx['shift'].get('target_minutes') or 0),
+          'intervals':[{**iv,'start_at':iv['start_at'].isoformat(),'end_at':iv['end_at'].isoformat()} for iv in ctx['intervals']],
           'po_id':int(po_id) if po_id else None},
           'items':self.daily_progress(shift_date,limit,calendar_day=True,po_id=po_id,
                                       operation_types=operation_types),
@@ -1887,6 +1904,15 @@ class ReportRepository:
             'sessions':sessions,
         }
 
+    @staticmethod
+    def _attach_work_durations(rows):
+        if not rows:return
+        shifts=get_work_shifts()
+        now=utc_now()
+        for row in rows:
+            row['work_duration_seconds']=int(sum((right-left).total_seconds()
+              for left,right in working_intervals_between(row['started_at'],row.get('ended_at') or now,shifts)))
+
     def session_management(self,po_id=None,part_id=None,operation_id=None,employee_id=None,status=None,date_from=None,date_to=None,limit=3000):
         conditions=['1=1']; params=[]
         if po_id: conditions.append('po.id=%s'); params.append(int(po_id))
@@ -1916,6 +1942,7 @@ class ReportRepository:
           'employees':fetch_all("SELECT id,employee_no,name FROM employees WHERE active=TRUE ORDER BY employee_no"),
           'stations':fetch_all("SELECT id,code,name FROM stations WHERE active=TRUE ORDER BY code")
         }
+        self._attach_work_durations(items)
         return {'items':items,'filters':filters}
 
     def session_detail(self,session_id:int):
@@ -1948,6 +1975,7 @@ class ReportRepository:
         JOIN production_orders po ON po.id=o.production_order_id JOIN parts p ON p.id=o.part_id
         LEFT JOIN stations s ON s.id=ws.station_id WHERE ws.id=%s""",(session_id,))
         if not row: raise NotFoundError(f'Không tìm thấy phiên làm việc #{session_id}')
+        self._attach_work_durations([row])
         if str(row.get('data_source') or '').upper()=='UNKNOWN' and (row.get('start_request_id') or row.get('finish_request_id')):
             row['data_source']='REAL_USER'
         row['data_source']='TUTORIAL' if row.get('data_source')=='TUTORIAL_DEMO' else row.get('data_source')

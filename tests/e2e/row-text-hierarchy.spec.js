@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./helpers/day-calendar-fixture');
 // Trong hàng nghiệp vụ, TÊN tiếng Việt là chữ chính, MÃ là chữ phụ.
 //
 // Quy ước đã chốt từ đợt QR/Operation list: người vận hành tìm việc theo tên
@@ -78,7 +79,7 @@ async function mockDashboardDay(page) {
     intervals: [{ interval_type: 'WORK', start_minute: 0, end_minute: 1439, sort_order: 0 }],
   }] } }));
   await page.route('**/api/dashboard/day?**', r => r.fulfill({ json: {
-    ok: true,
+    ok: true, context: fullDayContext,
     items: [{
       po_id: 1, po_code: 'PO-111', part_id: 11, part_code: '10025-FB-201', part_name: 'Thân thùng rác',
       operation_id: 101, operation_code: DASH_OP_CODE, operation_name: DASH_OP_NAME,

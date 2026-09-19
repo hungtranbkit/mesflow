@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./helpers/day-calendar-fixture');
 const { test, expect } = require('@playwright/test');
 
 // BƯỚC VÀO Dashboard = xem HÔM NAY.
@@ -19,7 +20,7 @@ const hcmDate = () => new Intl.DateTimeFormat('en-CA', {
 
 async function mockEmpty(page) {
   await page.route('**/api/dashboard/day?*', route => route.fulfill({
-    json: { ok: true, context: { date: hcmDate(), timezone: 'Asia/Ho_Chi_Minh', po_id: null,
+    json: { ok: true, context: { ...fullDayContext, date: hcmDate(), timezone: 'Asia/Ho_Chi_Minh', po_id: null,
       day_start: new Date().toISOString(), day_end: new Date().toISOString() },
       items: [], sessions: [], activity: [] },
   }));

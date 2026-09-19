@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./helpers/day-calendar-fixture');
 // Thang giờ của timeline "Ngày công theo nhân viên": nhãn không được đè nhau.
 //
 // Lỗi gốc không phải chuyện CSS chật chỗ. Bản cũ chỉ lấy mốc từ BIÊN các
@@ -59,7 +60,7 @@ async function openTimeline(page, { width, height = 900, dataset = 'dense' }) {
   await page.waitForURL(/\/app/, { timeout: 20000 }).catch(() => {});
   await page.route('**/api/settings/work-shifts', r => r.fulfill({ json: { ok: true, items: SHIFTS } }));
   await page.route('**/api/dashboard/day?**', r => r.fulfill({ json: {
-    ok: true, items: [], activity: [], sessions: DATASETS[dataset](date),
+    ok: true, context: fullDayContext, items: [], activity: [], sessions: DATASETS[dataset](date),
   } }));
   await page.goto('/app?page=dashboard&tab=people');
   await page.waitForTimeout(1500);

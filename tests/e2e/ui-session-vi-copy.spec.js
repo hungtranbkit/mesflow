@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./helpers/day-calendar-fixture');
 const { test, expect } = require('@playwright/test');
 
 async function login(page) {
@@ -18,7 +19,7 @@ async function mockDashboard(page) {
     intervals: [{ interval_type: 'WORK', start_minute: 0, end_minute: 1439, sort_order: 0 }]
   }] } }));
   await page.route('**/api/dashboard/day?**', route => route.fulfill({ json: {
-    ok: true,
+    ok: true, context: fullDayContext,
     items: [{
       operation_id: 7, operation_code: 'OP-CAT-LASER-WITH-A-VERY-LONG-CODE-001',
       operation_name: 'Setup CAT LASER / CAT LASER với tên công đoạn rất dài',

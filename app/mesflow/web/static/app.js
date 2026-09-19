@@ -393,7 +393,7 @@ async function renderDashboard(){
   const dashTabActive=t=>t===initialDashboardTab;
   const currentCtx={date:initialDashboardDate};
   const shiftReference=workShifts.map(x=>`${esc(x.name)} · ${esc(x.anchor_start)}–${esc(x.anchor_end)}`).join(' &nbsp;·&nbsp; ');
-  const dayView={id:'CALENDAR_DAY',target_minutes:1440,intervals:[{interval_type:'WORK',start_minute:0,end_minute:1440,sort_order:0}]};
+  const dayView={id:'CALENDAR_DAY',target_minutes:480,intervals:[]};
   content.innerHTML=`<div class="page-shell">
   ${MFUI.filterBar({content:`<label class="daily-date-picker"><span>Ngày làm việc</span><input type="date" id="dailyDate" value="${currentCtx.date}"></label><label class="daily-po-picker"><span>Production Order</span><select id="dailyPo"><option value="">Tất cả PO</option></select><small class="daily-po-note" id="dailyPoNote"></small></label><span class="daily-shift-reference"><b>Phạm vi dữ liệu</b><span>Toàn bộ ngày đã chọn · không lọc theo ca</span><small>${shiftReference||'Ca ngày · 07:30–17:00 · Ca tối · 18:00–00:00'}</small></span>`,actions:'<button class="btn daily-kiosk-button" id="dailyOpenKiosk" type="button">Mở màn hình lớn</button><button class="btn daily-list-button" id="dailyOpenAll">Danh sách Operation</button><button class="btn primary daily-refresh" id="dailyRefresh"><i aria-hidden="true"></i>Làm mới dữ liệu</button>'})}
   <section class="daily-kpis" id="dailyKpis" aria-live="polite"></section>
@@ -435,11 +435,11 @@ async function renderDashboard(){
     const atMinute=m=>baseStart+Number(m)*60000;
     const intervals=(cfg.intervals||[]).slice().sort((a,b)=>Number(a.sort_order||0)-Number(b.sort_order||0));
     const workWindows=intervals.filter(x=>x.interval_type==='WORK').map(x=>[atMinute(x.start_minute),atMinute(x.end_minute)]);
-    if(!workWindows.length)return '<div class="empty danger">Ca chưa có khoảng làm việc.</div>';
+    if(!intervals.length)return '<div class="empty danger">Chưa tải được lịch làm việc.</div>';
     const breaks=intervals.filter(x=>x.interval_type==='BREAK').map(x=>[atMinute(x.start_minute),atMinute(x.end_minute),x.label||'Nghỉ giữa ca']);
     const viewStart=atMinute(Math.max(0,Math.min(...intervals.map(x=>Number(x.start_minute)))-60));
     const viewEnd=atMinute(Math.max(...intervals.map(x=>Number(x.end_minute)))+60);
-    const shiftEnd=workWindows[workWindows.length-1][1];
+    const shiftEnd=workWindows.length?workWindows[workWindows.length-1][1]:atMinute(1440);
     const isLiveShift=date===todayHcm();
     const now=isLiveShift?Date.now():shiftEnd;
     const pct=t=>Math.max(0,Math.min(100,(t-viewStart)/(viewEnd-viewStart)*100));
@@ -613,7 +613,7 @@ async function renderDashboard(){
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
       const percent=Math.min(100,Math.round(g.seconds/target*100)),remaining=Math.max(0,target-g.seconds),over=Math.max(0,g.seconds-target),ops=[...new Map(g.sessions.map(x=>[x.operation_id||x.operation_code,x])).values()];
       const staleOpen=g.sessions.some(x=>x.session_status==='OPEN'&&now>=shiftEnd);
-      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} phiên làm việc${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Phiên làm việc mở quá cuối ca</mark>':''}</div><div class="employee-day-track-scroll" tabindex="0" role="region" aria-label="Timeline phiên làm việc trong ngày"><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows[0][0])-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>`<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${Math.max(.5,pct(b)-pct(a))}%" title="Khoảng hở ${duration((b-a)/1000)}"></i>`).join('')}${(()=>{const lanes=assignLanes(ordered),laneCount=Math.max(1,...lanes.map(n=>n+1));
+      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} phiên làm việc${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Phiên làm việc mở quá cuối ca</mark>':''}</div><div class="employee-day-track-scroll" tabindex="0" role="region" aria-label="Timeline phiên làm việc trong ngày"><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows.length?workWindows[0][0]:viewStart)-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>`<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${Math.max(.5,pct(b)-pct(a))}%" title="Khoảng hở ${duration((b-a)/1000)}"></i>`).join('')}${(()=>{const lanes=assignLanes(ordered),laneCount=Math.max(1,...lanes.map(n=>n+1));
       // Một tầng: giữ nguyên top/height của CSS (không đặt inline) để hàng
       // không chồng trông y hệt bản trước. Nhiều tầng thì chia đều chiều cao
       // sẵn có, chừa 2px giữa các tầng.
@@ -634,6 +634,9 @@ async function renderDashboard(){
     // một chỗ: request mới vào slot tự đẩy request cũ ra và request cũ chết
     // im lặng, không dựng khối lỗi nào.
     const data=await api(`/api/dashboard/day?date=${encodeURIComponent(date)}&limit=1000${poId?`&po_id=${encodeURIComponent(poId)}`:''}`,{slot:'dashboard-day'});
+    // Use the same calendar windows as backend totals, including lunch.
+    shiftId.intervals=data.context?.intervals||[];
+    shiftId.target_minutes=Number(data.context?.target_minutes||480);
     // Stale-render guard (live bug, reproduced via Playwright against
     // mesflow.net 2026-09-09): this fetch can resolve after the user has
     // already navigated to a different page -- Back/Forward and rapid nav
@@ -2421,7 +2424,7 @@ async function renderSessionManagement(){
   const localInput=v=>{if(!v)return '';const d=new Date(v);if(Number.isNaN(d.getTime()))return '';return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(d).replace(' ','T').slice(0,16)};
   const toIso=v=>v?new Date(v+':00+07:00').toISOString():null;
   const hm=v=>new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(v));
-  const displayDuration=x=>{const seconds=x.status==='OPEN'?Math.max(0,(Date.now()-new Date(x.started_at).getTime())/1000):Number(x.duration_seconds||0),minutes=Math.floor(seconds/60);return `${Math.floor(minutes/60)}h ${String(minutes%60).padStart(2,'0')}m`};
+  const displayDuration=x=>{const seconds=Number(x.work_duration_seconds??x.duration_seconds??0),minutes=Math.floor(seconds/60);return `${Math.floor(minutes/60)}h ${String(minutes%60).padStart(2,'0')}m`};
   const setOptions=(select,placeholder,rows,label,value)=>{select.innerHTML=`<option value="">${placeholder}</option>`+rows.map(x=>`<option value="${x.id}">${label(x)}</option>`).join('');select.value=rows.some(x=>String(x.id)===String(value))?String(value):'';return select.value};
   const fillFilters=(requested={})=>{const f=opsReport.filters||{},po=el('smPo'),part=el('smPart'),op=el('smOp'),emp=el('smEmp');const normalized={};normalized.po=setOptions(po,'Tất cả PO',f.production_orders||[],x=>`${esc(x.code)} · ${esc(x.product||'')}`,requested.po??po.value);normalized.part=setOptions(part,'Tất cả Part',f.parts||[],x=>`${esc(x.code)} · ${esc(x.name||'')}`,requested.part??part.value);normalized.operation=setOptions(op,'Tất cả OP',f.operations||[],x=>`${esc(x.code)} · ${esc(x.name)}`,requested.operation??op.value);normalized.employee=setOptions(emp,'Tất cả công nhân',f.employees||[],x=>`${esc(x.employee_no)} · ${esc(x.name)}`,requested.employee??emp.value);return normalized};
   // Uses the shared kv-grid primitive from session-detail.js (same layout

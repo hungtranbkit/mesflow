@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./helpers/day-calendar-fixture');
 // "Chưa nhập sản lượng" KHÁC "đã chốt và bằng 0".
 //
 // good_qty/defect_qty trong CSDL là NOT NULL DEFAULT 0 (migration 0003), nên
@@ -72,7 +73,7 @@ function payload(date) {
       day_contributors: [{ employee_id: 3, name: 'Cường Ba Hai', good_qty: 32, defect_qty: 2, rework_qty: 0, scrap_qty: 0, recorded_sessions: 1 }],
       active_workers: [], all_participants: [] },
   ];
-  return { ok: true, items, sessions, activity: [] };
+  return { ok: true, context: fullDayContext, items, sessions, activity: [] };
 }
 
 async function openDashboard(page, tab, { width = 1440, transform } = {}) {
