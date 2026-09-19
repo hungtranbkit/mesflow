@@ -49,12 +49,23 @@
      thật -- lúc đó không ai làm gì. Chúng chỉ được phép là nền yên; màu đặc
      dành riêng cho thanh việc thật. Đổi giá trị ở đây là đổi cả ba, đó là
      chủ đích. */
-  --timeline-quiet-fill:#eef1f4;
-  --timeline-quiet-stripe:#dde3e9;
-  --timeline-quiet-border:#c8d0d8;
-  --timeline-quiet-border-strong:#aab5c0;
+  /* (B) Nghỉ theo LỊCH: ngoài ca và nghỉ giữa ca. Không ai phải làm gì với
+     nó, nên nó chỉ được là nền xám lạnh, yên, không nhắc ai cả. */
+  --timeline-quiet-fill:#e7ebef;
+  --timeline-quiet-stripe:#d5dce3;
+  --timeline-quiet-border:#c2cbd4;
   --timeline-quiet-text:#5b6773;
   --timeline-quiet-pattern:repeating-linear-gradient(135deg,var(--timeline-quiet-stripe) 0 5px,var(--timeline-quiet-fill) 5px 10px);
+  /* (C) TRỐNG VIỆC trong ca: đang giờ làm mà không việc nào chạy. Đây là việc
+     của quản lý nên nó ĐƯỢC nhắc -- nhưng bằng vàng rất nhạt và viền đứt,
+     không bao giờ bằng mảng đặc: mảng đặc là ngôn ngữ của thanh việc thật,
+     mượn nó là nói dối rằng có người đang làm. */
+  --timeline-idle-fill:#fdf7ec;
+  --timeline-idle-stripe:#f7ecd8;
+  --timeline-idle-border:#d9b878;
+  --timeline-idle-border-strong:#c69a4a;
+  --timeline-idle-text:#7a5c22;
+  --timeline-idle-pattern:repeating-linear-gradient(135deg,var(--timeline-idle-stripe) 0 5px,var(--timeline-idle-fill) 5px 10px);
   /* Trạng thái */
   --status-info:#2563a6;
   --status-success:#177451;
@@ -337,7 +348,7 @@ th{background:#edf1f4;color:#354352;text-align:left;border-bottom:1px solid #ccd
    số mốc thay đổi theo bề rộng, nên "cột thứ 2/3/4" không còn nghĩa gì. Gỡ
    hẳn thay vì để đó: đúng loại luật chết đã một lần khiến người sửa tin rằng
    mình đang chỉnh cái đang có tác dụng. */
-.employee-day-scale{font-weight:500;text-transform:none}.employee-day-list{display:grid;gap:8px}.employee-day-row{display:grid;grid-template-columns:220px minmax(420px,1fr) 300px;gap:12px;align-items:center;border:1px solid #dfe6ec;border-left:5px solid #94a3b8;border-radius:var(--radius-surface-row);padding:11px 12px;background:#fff}.employee-day-row.open{border-left-color:#22a06b;background:#f7fcf9}.employee-day-row.complete{border-left-color:#397da9}.employee-day-person b,.employee-day-summary b{display:block;color:#243746}.employee-day-person small,.employee-day-summary small{display:block;color:#6d7985;margin-top:3px}.employee-day-person strong{display:inline-block;margin-top:5px;font-size:13px}.employee-day-person em{font-style:normal;color:#667684;font-size:11px;margin-left:7px}.employee-day-progress{height:5px;background:#e8edf1;border-radius:var(--radius-surface-row);overflow:hidden;margin-top:7px}.employee-day-progress i{display:block;height:100%;background:#397da9;border-radius:var(--radius-surface-row)}.employee-day-row.open .employee-day-progress i{background:#22a06b}.employee-day-track{position:relative;height:36px;background:#edf2f5;border-radius:var(--radius-surface-row);overflow:hidden}.employee-session-segment{position:absolute;top:7px;height:22px;min-width:4px;border-radius:var(--radius-control);z-index:2;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-style:normal;font-weight:700;overflow:hidden;white-space:nowrap}.employee-session-segment.tone-1{background:#397da9}.employee-session-segment.tone-2{background:#7b61a8}.employee-session-segment.tone-3{background:#c47b2a}.employee-session-segment.tone-4{background:#238b8e}.employee-session-segment.tone-5{background:#af5571}.employee-session-segment.tone-6{background:#667b3d}.employee-session-segment.open{background:#22a06b;box-shadow:0 0 0 2px #bfe8d1 inset}.employee-session-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}.employee-session-chips>span{padding:3px 6px;border-radius:999px;background:#eef3f6;color:#51606d;font-size:10px}.employee-session-chips>span.open{background:#daf4e5;color:#187647;font-weight:700}@media(max-width:1150px){.employee-day-head{display:none}.employee-day-row{grid-template-columns:190px minmax(300px,1fr)}.employee-day-summary{grid-column:1/-1;padding-left:202px}}@media(max-width:720px){.employee-day-row{grid-template-columns:1fr}.employee-day-summary{grid-column:auto;padding-left:0}.employee-day-track{height:31px}}
+.employee-day-scale{font-weight:500;text-transform:none}.employee-day-list{display:grid;gap:8px}.employee-day-row{display:grid;grid-template-columns:220px minmax(420px,1fr) 300px;gap:12px;align-items:center;border:1px solid #dfe6ec;border-left:5px solid #94a3b8;border-radius:var(--radius-surface-row);padding:11px 12px;background:#fff}.employee-day-row.open{border-left-color:#22a06b;background:#f7fcf9}.employee-day-row.complete{border-left-color:#397da9}.employee-day-person b,.employee-day-summary b{display:block;color:#243746}.employee-day-person small,.employee-day-summary small{display:block;color:#6d7985;margin-top:3px}.employee-day-person strong{display:inline-block;margin-top:5px;font-size:13px}.employee-day-person em{font-style:normal;color:#667684;font-size:11px;margin-left:7px}.employee-day-progress{height:5px;background:#e8edf1;border-radius:var(--radius-surface-row);overflow:hidden;margin-top:7px}.employee-day-progress i{display:block;height:100%;background:#397da9;border-radius:var(--radius-surface-row)}.employee-day-row.open .employee-day-progress i{background:#22a06b}.employee-day-track{position:relative;height:36px;background:#edf2f5;border-radius:var(--radius-surface-row);overflow:hidden}.employee-session-segment{position:absolute;top:7px;height:22px;min-width:4px;border-radius:var(--radius-control);z-index:2;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-style:normal;font-weight:700;overflow:hidden;white-space:nowrap}.employee-session-segment.tone-1{background:#3f78a2}.employee-session-segment.tone-2{background:#9f663e}.employee-session-segment.tone-3{background:#398132}.employee-session-segment.tone-4{background:#af49b8}.employee-session-segment.tone-5{background:#2d6a56}.employee-session-segment.tone-6{background:#9a425f}.employee-session-segment.tone-7{background:#5a642b}.employee-session-segment.tone-8{background:#604fb4}.employee-session-segment.open{box-shadow:0 0 0 2px #fff inset,0 0 0 1px #16794f}.employee-session-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}.employee-session-chips>span{padding:3px 6px;border-radius:999px;background:#eef3f6;color:#51606d;font-size:10px}.employee-session-chips>span.open{background:#daf4e5;color:#187647;font-weight:700}@media(max-width:1150px){.employee-day-head{display:none}.employee-day-row{grid-template-columns:190px minmax(300px,1fr)}.employee-day-summary{grid-column:1/-1;padding-left:202px}}@media(max-width:720px){.employee-day-row{grid-template-columns:1fr}.employee-day-summary{grid-column:auto;padding-left:0}.employee-day-track{height:31px}}
 
 /* v65.8.23 shift-aware employee session timeline */
 /* HOTFIX -- thời gian không-làm-việc chỉ có MỘT diện mạo.
@@ -348,15 +359,19 @@ th{background:#edf1f4;color:#354352;text-align:left;border-bottom:1px solid #ccd
    Mọi thứ không-phải-việc lấy nền từ ĐÚNG quy tắc này; các quy tắc bên dưới
    chỉ còn lo hình học (vị trí, viền, bo góc). Ô chú giải nằm chung selector
    để chú giải không bao giờ lệch khỏi thanh nó đang giải thích. */
-.employee-gap,.shift-off,.shift-lunch,.legend-gap,.legend-lunch,.legend-off{
+.shift-off,.shift-lunch,.legend-lunch,.legend-off{
   background:var(--timeline-quiet-pattern)}
-.legend-gap,.legend-lunch,.legend-off{border:1px solid var(--timeline-quiet-border)}
-.employee-day-legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 12px 12px;color:#5d6c78;font-size:11px}.employee-day-legend span{display:flex;align-items:center;gap:6px}.employee-day-legend i{width:18px;height:8px;border-radius:3px;display:inline-block}.legend-session{background:#397da9}.shift-scale{position:relative;height:18px;min-width:0}.shift-scale-mark{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;text-align:center!important}
+.legend-lunch,.legend-off{border:1px solid var(--timeline-quiet-border)}
+/* (C) Trống việc trong ca -- nguồn DUY NHẤT của diện mạo nhắc việc. */
+.employee-gap,.legend-gap{
+  background:var(--timeline-idle-pattern);
+  border:1px dashed var(--timeline-idle-border)}
+.employee-day-legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 12px 12px;color:#5d6c78;font-size:11px}.employee-day-legend span{display:flex;align-items:center;gap:6px}.employee-day-legend i{width:18px;height:8px;border-radius:3px;display:inline-block}.legend-session{background:#3f78a2}.shift-scale{position:relative;height:18px;min-width:0}.shift-scale-mark{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;text-align:center!important}
 /* layoutTimelineScale() thưa nhãn bằng thuộc tính hidden. .shift-scale-mark
    không tự đặt display nên luật [hidden] của trình duyệt đủ sức ẩn, nhưng
    viết ra tường minh để lần sau ai thêm `display:` vào đây không vô tình bật
    lại toàn bộ nhãn đã bị thưa. */
-.shift-scale-mark[hidden],.shift-grid-line[hidden]{display:none}.shift-scale-mark.first{transform:none;text-align:left!important}.shift-scale-mark.last{transform:translateX(-100%);text-align:right!important}.shift-track{height:42px;background:#f7f9fa;border:1px solid #dfe6eb;overflow:hidden}.shift-off,.shift-lunch{position:absolute;top:0;bottom:0;z-index:1;font-style:normal;display:flex;align-items:flex-end;justify-content:center;color:var(--timeline-quiet-text);font-size:9px;padding-bottom:2px}.shift-lunch{border-left:1px solid var(--timeline-quiet-border);border-right:1px solid var(--timeline-quiet-border)}.employee-gap{position:absolute;top:4px;bottom:4px;z-index:2;border:1px solid var(--timeline-quiet-border);border-radius:4px}.employee-gap.long{border-color:var(--timeline-quiet-border-strong)}.shift-track .employee-session-segment{top:9px;height:24px;z-index:4}.shift-now{position:absolute;top:0;bottom:0;width:2px;background:#d13939;z-index:6}.employee-day-person mark{display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:#fde4e1;color:#a73d35;font-size:10px}.employee-day-row.stale-open{border-left-color:#d5534d}.employee-day-row.stale-open .employee-session-segment.open{background:#d5534d}@media(max-width:720px){.employee-day-legend{gap:8px}.shift-track{min-width:720px}.employee-day-row{overflow-x:auto}}
+.shift-scale-mark[hidden],.shift-grid-line[hidden]{display:none}.shift-scale-mark.first{transform:none;text-align:left!important}.shift-scale-mark.last{transform:translateX(-100%);text-align:right!important}.shift-track{height:42px;background:#f7f9fa;border:1px solid #dfe6eb;overflow:hidden}.shift-off,.shift-lunch{position:absolute;top:0;bottom:0;z-index:1;font-style:normal;display:flex;align-items:flex-end;justify-content:center;color:var(--timeline-quiet-text);font-size:9px;padding-bottom:2px}.shift-lunch{border-left:1px solid var(--timeline-quiet-border);border-right:1px solid var(--timeline-quiet-border)}.employee-gap{position:absolute;top:4px;bottom:4px;z-index:2;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden}.employee-gap>span{display:flex;align-items:center;gap:3px;padding:0 4px;color:var(--timeline-idle-text);font-size:9px;font-weight:700;font-style:normal;white-space:nowrap}.employee-gap.long{border-color:var(--timeline-idle-border-strong)}.shift-track .employee-session-segment{top:9px;height:24px;z-index:4}.shift-now{position:absolute;top:0;bottom:0;width:2px;background:#d13939;z-index:6}.employee-day-person mark{display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:#fde4e1;color:#a73d35;font-size:10px}.employee-day-row.stale-open{border-left-color:#d5534d}.employee-day-row.stale-open .employee-session-segment.open{box-shadow:0 0 0 2px #fff inset,0 0 0 2px #c0322c}@media(max-width:720px){.employee-day-legend{gap:8px}.shift-track{min-width:720px}.employee-day-row{overflow-x:auto}}
 
 /* v65.8.27 Session editor modal */
 .hidden{display:none!important}

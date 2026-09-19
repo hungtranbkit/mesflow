@@ -305,111 +305,169 @@ test('ngày không có giờ làm vẫn hiện session với 0 phút công', asy
 });
 
 // ---------------------------------------------------------------------------
-// HOTFIX -- timeline chỉ được nói một thứ bằng màu.
+// HOTFIX -- ba ý nghĩa trên timeline, ba diện mạo, đo trên trình duyệt thật.
 //
-// Hai câu hỏi chỉ trình duyệt thật trả lời được (computed style và thứ tự
-// dựng DOM), nên chúng ở đây chứ không ở bài test nguồn:
+//   (A) thanh việc thật      -- mảng đặc, màu theo danh tính công đoạn
+//   (B) nghỉ theo lịch       -- xám lạnh, yên, không nhắc ai
+//   (C) trống việc trong ca  -- vàng rất nhạt + viền đứt, có nhắc
 //
-//   1. Khoảng hở, giờ nghỉ giữa ca và ngoài ca phải ra ĐÚNG một nền. Trước
-//      hotfix chúng có bốn công thức, hai trong đó vàng cam rực hơn cả thanh
-//      việc thật nằm ngay cạnh.
-//   2. Tông thanh việc phải đi theo công đoạn, không theo vị trí trong vòng
-//      lặp. Fixture cố tình đảo thứ tự hai OP giữa hai người: với mã cũ
-//      (palette[i%6]) cùng một OP sẽ ra hai màu khác nhau.
+// Những điều chỉ trình duyệt trả lời được (computed style, thứ tự dựng DOM),
+// nên chúng ở đây chứ không ở bài test nguồn.
 // ---------------------------------------------------------------------------
 
-const TONE_A = 11, TONE_B = 22; // hai operation_id bất kỳ, miễn khác nhau
+// Bốn OP khác nhau, hai Part -- trong đó OP-10 lặp lại mã ở cả hai Part, đúng
+// cái bẫy khiến khoá "mã OP một mình" gán cùng màu cho hai công đoạn khác nhau.
+const OPS = [
+  { part: 'PART-A', code: 'OP-10' }, { part: 'PART-A', code: 'OP-20' },
+  { part: 'PART-B', code: 'OP-10' }, { part: 'PART-B', code: 'OP-30' }
+];
+const shiftIntervals = () => ([
+  { interval_type: 'BREAK', start_minute: 0, end_minute: 450, sort_order: 0 },
+  { interval_type: 'WORK', start_minute: 450, end_minute: 690, sort_order: 1 },
+  { interval_type: 'BREAK', start_minute: 690, end_minute: 780, sort_order: 2, label: 'Nghỉ trưa' },
+  { interval_type: 'WORK', start_minute: 780, end_minute: 1020, sort_order: 3 },
+  { interval_type: 'BREAK', start_minute: 1020, end_minute: 1440, sort_order: 4 }
+]);
 
-async function openToneFixture(page, date) {
-  // Lịch có đủ cả ba loại thời gian không-làm-việc: trước ca, nghỉ giữa ca,
-  // sau ca -- nên cả .shift-off lẫn .shift-lunch đều được dựng thật.
-  const intervals = [
-    { interval_type: 'BREAK', start_minute: 0, end_minute: 450, sort_order: 0 },
-    { interval_type: 'WORK', start_minute: 450, end_minute: 690, sort_order: 1 },
-    { interval_type: 'BREAK', start_minute: 690, end_minute: 780, sort_order: 2, label: 'Nghỉ trưa' },
-    { interval_type: 'WORK', start_minute: 780, end_minute: 1020, sort_order: 3 },
-    { interval_type: 'BREAK', start_minute: 1020, end_minute: 1440, sort_order: 4 }
-  ];
-  const session = (id, worker, operation, fromHour, toHour) => ({
-    session_id: id, session_status: 'CLOSED',
-    started_at: at(date, fromHour), ended_at: at(date, toHour),
+async function openToneFixture(page, date, { runningRow = false } = {}) {
+  const make = (id, worker, op, fromHour, toHour, status = 'CLOSED') => ({
+    session_id: id, session_status: status,
+    started_at: at(date, fromHour), ended_at: status === 'OPEN' ? null : at(date, toHour),
     employee_id: worker, employee_code: `EMP-${worker}`, employee_name: `Thợ ${worker}`,
-    operation_id: operation, operation_code: `OP-${operation}`,
-    operation_name: `Operation ${operation}`,
-    po_code: 'PO-TONE', part_code: 'PART-TONE', good_qty: 1, defect_qty: 0
+    operation_id: 100 + id, operation_code: op.code, operation_name: `Công đoạn ${op.code}`,
+    po_code: 'PO-TONE', part_code: op.part, good_qty: 1, defect_qty: 0
   });
-  // Cùng hai OP, thứ tự đảo ngược giữa hai người. 09:00-10:00 bỏ trống ở cả
-  // hai hàng và nằm gọn trong khung làm việc -> .employee-gap.long.
+  // Thợ 1 và Thợ 2 làm CÙNG hai OP nhưng ĐẢO thứ tự -- với màu theo vị trí,
+  // cùng một OP sẽ ra hai màu khác nhau. Khoảng 09:00-13:00 của Thợ 3 bỏ trống
+  // và nằm trong khung làm việc -> khối "trống việc" đủ rộng để hiện nhãn.
   const sessions = [
-    session(1, 1, TONE_A, 8, 9), session(2, 1, TONE_B, 10, 11),
-    session(3, 2, TONE_B, 8, 9), session(4, 2, TONE_A, 10, 11)
+    make(1, 1, OPS[0], 8, 9), make(2, 1, OPS[1], 10, 11),
+    make(3, 2, OPS[1], 8, 9), make(4, 2, OPS[0], 10, 11),
+    make(5, 3, OPS[2], 8, 9), make(6, 3, OPS[3], 14, 16)
   ];
+  if (runningRow) {
+    // Cùng OP-10/PART-A như phiên đã đóng của Thợ 1, nhưng đang chạy.
+    sessions.push(make(7, 4, OPS[0], 14, 0, 'OPEN'));
+  }
   await page.route('**/api/dashboard/day?**', route => route.fulfill({
-    json: { ok: true, context: { date, target_minutes: 480, intervals }, items: [], activity: [], sessions }
+    json: { ok: true, context: { date, target_minutes: 480, intervals: shiftIntervals() }, items: [], activity: [], sessions }
   }));
-  await page.clock.setFixedTime(new Date(`${date}T14:30:00+07:00`));
+  await page.clock.setFixedTime(new Date(`${date}T15:00:00+07:00`));
   await page.goto('/app?page=dashboard&tab=people');
-  await expect(page.locator('.employee-day-row')).toHaveCount(2);
+  await expect(page.locator('.employee-day-row')).toHaveCount(runningRow ? 4 : 3);
 }
 
-const toneOf = async (page, worker, index) => {
-  const className = await page.locator('.employee-day-row', { hasText: `Thợ ${worker}` })
-    .locator('.employee-session-segment').nth(index).getAttribute('class');
-  return className.split(/\s+/).find(name => name.startsWith('tone-'));
-};
+const segment = (page, worker, index) => page.locator('.employee-day-row', { hasText: `Thợ ${worker}` })
+  .locator('.employee-session-segment').nth(index);
+const toneClassOf = async (locator) =>
+  (await locator.getAttribute('class')).split(/\s+/).find(name => name.startsWith('tone-'));
+const bgOf = (locator) => locator.evaluate(el => {
+  const style = getComputedStyle(el);
+  return { image: style.backgroundImage, color: style.backgroundColor };
+});
 
-test('tông thanh việc đi theo công đoạn, không theo vị trí trong hàng', async ({ page }) => {
+test('cùng một công đoạn giữ nguyên màu ở mọi hàng và mọi vị trí', async ({ page }) => {
   const date = hcmDate();
   await page.setViewportSize({ width: 1920, height: 1080 });
   await login(page);
   await openToneFixture(page, date);
 
   const [firstA, firstB, secondB, secondA] = await Promise.all([
-    toneOf(page, 1, 0), toneOf(page, 1, 1), toneOf(page, 2, 0), toneOf(page, 2, 1)
+    toneClassOf(segment(page, 1, 0)), toneClassOf(segment(page, 1, 1)),
+    toneClassOf(segment(page, 2, 0)), toneClassOf(segment(page, 2, 1))
   ]);
-  for (const tone of [firstA, firstB, secondB, secondA]) {
-    expect(tone, 'thanh việc phải mang đúng một lớp tone-N').toBeTruthy();
-  }
-  // OP_A đứng đầu hàng của Thợ 1 và đứng cuối hàng của Thợ 2 -- vẫn cùng tông.
-  expect(firstA, `OP-${TONE_A} đổi tông theo vị trí`).toBe(secondA);
-  expect(firstB, `OP-${TONE_B} đổi tông theo vị trí`).toBe(secondB);
-  // ...và hai OP khác nhau thì không được trùng tông trong cùng một hàng.
-  expect(firstA).not.toBe(firstB);
+  for (const tone of [firstA, firstB, secondB, secondA]) expect(tone).toBeTruthy();
+  // PART-A/OP-10 đứng đầu hàng Thợ 1 và đứng cuối hàng Thợ 2 -- vẫn cùng tông.
+  expect(firstA, 'PART-A/OP-10 đổi màu theo vị trí').toBe(secondA);
+  expect(firstB, 'PART-A/OP-20 đổi màu theo vị trí').toBe(secondB);
+  // ...và màu thật (không chỉ tên lớp) cũng phải trùng.
+  expect((await bgOf(segment(page, 1, 0))).color).toBe((await bgOf(segment(page, 2, 1))).color);
 });
 
-test('khoảng hở, giờ nghỉ và ngoài ca dùng chung đúng một nền yên', async ({ page }) => {
+test('các công đoạn khác nhau đang hiện không dùng chung màu khi bảng còn chỗ', async ({ page }) => {
   const date = hcmDate();
   await page.setViewportSize({ width: 1920, height: 1080 });
   await login(page);
   await openToneFixture(page, date);
 
-  const quiet = ['.employee-gap', '.employee-gap.long', '.shift-off.before',
-    '.shift-off.after', '.shift-lunch', '.legend-gap', '.legend-lunch', '.legend-off'];
-  for (const selector of quiet) {
-    await expect(page.locator(selector).first(), `${selector} phải được dựng`).toHaveCount(1);
+  const classes = await page.locator('.employee-session-segment').evaluateAll(
+    nodes => nodes.map(node => node.className));
+  const tones = new Set(classes.map(name => name.split(/\s+/).find(x => x.startsWith('tone-'))));
+  // Bốn OP phân biệt đang hiện, bảng có 8 chỗ -> phải ra đúng bốn tông.
+  expect(tones.size, `bốn công đoạn chỉ nhận ${tones.size} màu: ${[...tones]}`).toBe(4);
+
+  // Đặc biệt: PART-A/OP-10 và PART-B/OP-10 trùng MÃ nhưng khác Part.
+  const sameCodeDifferentPart = [
+    (await bgOf(segment(page, 1, 0))).color, (await bgOf(segment(page, 3, 0))).color
+  ];
+  expect(sameCodeDifferentPart[0], 'hai Part khác nhau dùng chung màu vì chỉ khoá theo mã OP')
+    .not.toBe(sameCodeDifferentPart[1]);
+});
+
+test('trạng thái đang chạy không sơn đè màu công đoạn', async ({ page }) => {
+  const date = hcmDate();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await login(page);
+  await openToneFixture(page, date, { runningRow: true });
+
+  const running = segment(page, 4, 0);
+  await expect(running).toHaveClass(/\bopen\b/);
+  const closedSameOp = segment(page, 1, 0);
+  expect(await toneClassOf(running)).toBe(await toneClassOf(closedSameOp));
+  expect((await bgOf(running)).color,
+    'phiên đang chạy bị sơn đè màu trạng thái, mất danh tính công đoạn')
+    .toBe((await bgOf(closedSameOp)).color);
+  // Trạng thái vẫn nói được -- bằng viền/vòng sáng, không bằng nền.
+  const ring = await running.evaluate(el => getComputedStyle(el).boxShadow);
+  expect(ring).not.toBe('none');
+});
+
+test('ba loại thời gian có ba diện mạo khác nhau, chỉ thanh việc là mảng đặc', async ({ page }) => {
+  const date = hcmDate();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await login(page);
+  await openToneFixture(page, date);
+
+  // (C) trống việc trong ca -- và khối rộng phải tự xưng tên.
+  const idle = page.locator('.employee-gap').first();
+  await expect(idle).toBeVisible();
+  await expect(page.locator('.employee-gap span', { hasText: 'Trống việc' }).first()).toBeVisible();
+  for (const selector of ['.employee-gap', '.legend-gap']) {
+    await expect(page.locator(selector).first()).toHaveCount(1);
   }
-  const backgrounds = await Promise.all(quiet.map(selector => page.locator(selector).first()
-    .evaluate(element => getComputedStyle(element).backgroundImage)));
 
-  for (const [index, background] of backgrounds.entries()) {
-    expect(background, `${quiet[index]} phải có nền sọc yên`).toContain('repeating-linear-gradient');
-    expect(background, `${quiet[index]} lệch khỏi nền chung`).toBe(backgrounds[0]);
-    // Không màu nào trong nền được ngả ấm hay đậm -- đó là vàng/cam đã bỏ.
-    for (const [, r, g, b] of background.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g)) {
-      expect(Number(b), `${quiet[index]} còn màu ấm: ${background}`).toBeGreaterThanOrEqual(Number(r));
-      expect(Math.max(+r, +g, +b) - Math.min(+r, +g, +b), `${quiet[index]} còn màu đậm`).toBeLessThan(40);
-    }
+  const idleBg = await bgOf(idle);
+  const offBg = await bgOf(page.locator('.shift-off.after').first());
+  const lunchBg = await bgOf(page.locator('.shift-lunch').first());
+  const taskBg = await bgOf(page.locator('.employee-session-segment').first());
+
+  // (B) nghỉ theo lịch: ngoài ca và nghỉ giữa ca giống hệt nhau...
+  expect(lunchBg.image, 'nghỉ giữa ca lệch khỏi ngoài ca').toBe(offBg.image);
+  // ...nhưng KHÁC hẳn (C): gộp hai loại là xoá mất thông tin cần nhất.
+  expect(idleBg.image, 'trống việc trông y hệt nghỉ theo lịch').not.toBe(offBg.image);
+  // (A) thanh việc là mảng đặc, không sọc -- hai nền kia đều sọc.
+  expect(taskBg.image, 'thanh việc không được là nền sọc').toBe('none');
+  for (const [name, bg] of [['trống việc', idleBg], ['nghỉ theo lịch', offBg]]) {
+    expect(bg.image, `${name} phải là nền sọc`).toContain('repeating-linear-gradient');
   }
 
-  // Thanh việc thật thì ngược lại: nền đặc, không sọc.
-  const bar = await page.locator('.employee-session-segment').first()
-    .evaluate(element => getComputedStyle(element).backgroundImage);
-  expect(bar).toBe('none');
+  const channels = image => [...image.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g)]
+    .map(([, r, g, b]) => [Number(r), Number(g), Number(b)]);
+  // (B) lạnh: lam ≥ đỏ. (C) ấm nhưng rất nhạt -- nhắc được mà không thành mảng đặc.
+  for (const [r, , b] of channels(offBg.image)) expect(b).toBeGreaterThanOrEqual(r);
+  for (const [r, g, b] of channels(idleBg.image)) {
+    expect(r).toBeGreaterThanOrEqual(b);
+    expect(Math.min(r, g, b)).toBeGreaterThan(200); // rất nhạt
+    expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThan(45); // không rực
+  }
+  // Viền đứt là nửa còn lại của tín hiệu nhắc việc.
+  expect(await idle.evaluate(el => getComputedStyle(el).borderStyle)).toBe('dashed');
+  expect(await page.locator('.shift-off.after').first()
+    .evaluate(el => getComputedStyle(el).borderStyle)).not.toBe('dashed');
 
-  await page.screenshot({ path: 'test-results/timeline-quiet-gap-1920x1080.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/timeline-semantics-1920x1080.png', fullPage: true });
   await page.setViewportSize({ width: 1366, height: 768 });
   await expect(page.locator('.session-timeline-panel')).toBeVisible();
-  const overflow = await page.locator('body').evaluate(body => body.scrollWidth > body.clientWidth);
-  expect(overflow).toBe(false);
-  await page.screenshot({ path: 'test-results/timeline-quiet-gap-1366x768.png', fullPage: true });
+  expect(await page.locator('body').evaluate(b => b.scrollWidth > b.clientWidth)).toBe(false);
+  await page.screenshot({ path: 'test-results/timeline-semantics-1366x768.png', fullPage: true });
 });

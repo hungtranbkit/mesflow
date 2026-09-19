@@ -486,6 +486,7 @@ async function renderDashboard(){
       }
       return lanes;
     };
+    const toneMap=timelineToneMap(sessions);
     const gapBlocks=(ordered)=>{
       const blocks=[];
       for(let i=1;i<ordered.length;i++){
@@ -608,16 +609,20 @@ async function renderDashboard(){
         return `<div class="emp-op-item${gr.open?' running':''}${expanded?' open':''}"><div class="emp-op-head">${ident}<span class="emp-op-facts"><b>${when}</b><small>${qty}</small></span>${toggle}</div>${kids}</div>`;
       }).join('')}</div>`;
     };
-    return `<div class="employee-day-legend"><span><i class="legend-session"></i>Phiên làm việc</span><span><i class="legend-gap"></i>Khoảng hở ≥15 phút</span><span><i class="legend-lunch"></i>${breaks.map(x=>x[2]).join(' · ')||'Không có giờ nghỉ'}</span><span><i class="legend-off"></i>Ngoài ca</span></div><div class="employee-day-head"><span>Nhân viên / ngày công</span><div class="employee-day-scale shift-scale">${scaleHtml}</div><span>Phiên làm việc / sản lượng</span></div><div class="employee-day-list">${workers.map(g=>{
+    return `<div class="employee-day-legend"><span><i class="legend-session"></i>Phiên làm việc</span><span><i class="legend-gap"></i>Trống việc ≥15 phút</span><span><i class="legend-lunch"></i>${breaks.map(x=>x[2]).join(' · ')||'Không có giờ nghỉ'}</span><span><i class="legend-off"></i>Ngoài ca</span></div><div class="employee-day-head"><span>Nhân viên / ngày công</span><div class="employee-day-scale shift-scale">${scaleHtml}</div><span>Phiên làm việc / sản lượng</span></div><div class="employee-day-list">${workers.map(g=>{
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
       const percent=Math.min(100,Math.round(g.seconds/target*100)),remaining=Math.max(0,target-g.seconds),over=Math.max(0,g.seconds-target),ops=[...new Map(g.sessions.map(x=>[x.operation_id||x.operation_code,x])).values()];
       const staleOpen=g.sessions.some(x=>x.session_status==='OPEN'&&now>=shiftEnd);
-      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} phiên làm việc${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Phiên làm việc mở quá cuối ca</mark>':''}</div><div class="employee-day-track-scroll" tabindex="0" role="region" aria-label="Timeline phiên làm việc trong ngày"><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows.length?workWindows[0][0]:viewStart)-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>`<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${Math.max(.5,pct(b)-pct(a))}%" title="Khoảng hở ${duration((b-a)/1000)}"></i>`).join('')}${(()=>{const lanes=assignLanes(ordered),laneCount=Math.max(1,...lanes.map(n=>n+1));
+      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} phiên làm việc${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Phiên làm việc mở quá cuối ca</mark>':''}</div><div class="employee-day-track-scroll" tabindex="0" role="region" aria-label="Timeline phiên làm việc trong ngày"><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows.length?workWindows[0][0]:viewStart)-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>{const gapWidth=Math.max(.5,pct(b)-pct(a));
+      // Hẹp quá thì thôi chữ, giữ nguyên kiểu nhắc -- nhồi chữ vào 20px chỉ
+      // tạo ra một vệt nhoè, còn title= vẫn nói đủ khi rê chuột.
+      const label=gapWidth>=6?`<span><i aria-hidden="true">◷</i>Trống việc</span>`:'';
+      return `<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${gapWidth}%" title="Trống việc ${duration((b-a)/1000)}">${label}</i>`}).join('')}${(()=>{const lanes=assignLanes(ordered),laneCount=Math.max(1,...lanes.map(n=>n+1));
       // Một tầng: giữ nguyên top/height của CSS (không đặt inline) để hàng
       // không chồng trông y hệt bản trước. Nhiều tầng thì chia đều chiều cao
       // sẵn có, chừa 2px giữa các tầng.
       const H=24,G=2,h=laneCount>1?Math.max(6,Math.floor((H-(laneCount-1)*G)/laneCount)):0;
-      return ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · phiên làm việc chưa đóng':''}`,pos=laneCount>1?`;top:${9+lanes[i]*(h+G)}px;height:${h}px`:'';return `<i class="employee-session-segment ${timelineToneClass(x)} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%${pos}" title="${esc(tip)}"><span>${width>6&&(h===0||h>=12)?esc(shortLabel(x.operation_name||x.operation_code)):''}</span></i>`}).join('')).join('')})()}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div></div><div class="employee-day-summary">${opGroupList(ordered,g)}</div></article>`;
+      return ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · phiên làm việc chưa đóng':''}`,pos=laneCount>1?`;top:${9+lanes[i]*(h+G)}px;height:${h}px`:'';return `<i class="employee-session-segment ${timelineToneClass(x,toneMap)} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%${pos}" title="${esc(tip)}"><span>${width>6&&(h===0||h>=12)?esc(shortLabel(x.operation_name||x.operation_code)):''}</span></i>`}).join('')).join('')})()}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div></div><div class="employee-day-summary">${opGroupList(ordered,g)}</div></article>`;
     }).join('')}</div>`;
   };
   // Nhịp tự làm mới 10s ở cuối hàm này từng là nguồn "Failed to fetch" thấy
@@ -942,18 +947,57 @@ function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hou
 // đoạn -- cùng operation_id (hoặc mã, nếu dữ liệu cũ chưa có id) thì luôn cùng
 // tông, ở mọi hàng, mọi lần tải lại. Đây chỉ là phép băm trưng bày: không
 // quyết định nghiệp vụ gì, và không đụng vào thời gian.
-const TIMELINE_TONES=['tone-1','tone-2','tone-3','tone-4','tone-5','tone-6'];
+// Màu thanh việc trên timeline -- MỘT nơi quyết định, cho mọi timeline.
+//
+// Trước đây thanh thứ i lấy palette[i%6]: màu của VỊ TRÍ, không phải của công
+// đoạn. Cùng một OP đổi màu khi người khác làm nó ở thứ tự khác, và hai OP
+// khác nhau trùng màu ngay trong một hàng, trong khi người đọc timeline dùng
+// màu đúng như một mã công đoạn.
+//
+// Khoá là PART + mã OP, không phải mã OP một mình: mã OP lặp lại được giữa các
+// Part, nên lấy mã không thôi là gán cùng màu cho hai công đoạn khác hẳn nhau.
+//
+// Băm chỉ chọn chỗ ƯA THÍCH. Việc gán thật đi qua timelineToneMap(), nơi hai
+// OP cùng hiện trên một timeline chỉ phải dùng chung tông khi bảng màu đã hết
+// chỗ -- chứ không phải vì băm rơi trùng trong khi vẫn còn tông trống.
+const TIMELINE_TONES=['tone-1','tone-2','tone-3','tone-4','tone-5','tone-6','tone-7','tone-8'];
 function timelineToneKey(op){
   if(op===null||op===undefined)return '';
-  const raw=(typeof op==='object')?(op.operation_id??op.operation_code??op.operation_name):op;
-  return raw===null||raw===undefined?'':String(raw);
+  if(typeof op!=='object')return String(op);
+  const code=op.operation_code===null||op.operation_code===undefined?'':String(op.operation_code).trim();
+  const part=op.part_code===null||op.part_code===undefined?'':String(op.part_code).trim();
+  if(code)return part?`${part}|${code}`:`|${code}`;
+  for(const value of [op.operation_id,op.operation_name]){
+    if(value!==null&&value!==undefined&&String(value).trim())return String(value).trim();
+  }
+  return '';
 }
-function timelineToneClass(op){
-  const key=timelineToneKey(op);
-  if(!key)return TIMELINE_TONES[0];
+function timelineToneHash(key){
   let hash=0;
   for(let i=0;i<key.length;i++)hash=(Math.imul(hash,31)+key.charCodeAt(i))>>>0;
-  return TIMELINE_TONES[hash%TIMELINE_TONES.length];
+  return hash;
+}
+// Tập OP đang hiện -> tông. Duyệt khoá đã sắp xếp nên kết quả không phụ thuộc
+// thứ tự session trả về; dò tiếp từ chỗ ưa thích nên trùng chỉ xảy ra khi hết chỗ.
+function timelineToneMap(sessions){
+  const keys=[...new Set((sessions||[]).map(timelineToneKey).filter(Boolean))].sort();
+  const assigned=new Map(),used=new Set();
+  for(const key of keys){
+    const start=timelineToneHash(key)%TIMELINE_TONES.length;
+    let tone=TIMELINE_TONES[start];
+    for(let step=0;step<TIMELINE_TONES.length;step++){
+      const candidate=TIMELINE_TONES[(start+step)%TIMELINE_TONES.length];
+      if(!used.has(candidate)){tone=candidate;break;}
+    }
+    used.add(tone);assigned.set(key,tone);
+  }
+  return assigned;
+}
+function timelineToneClass(op,toneMap){
+  const key=timelineToneKey(op);
+  if(!key)return TIMELINE_TONES[0];
+  const assigned=toneMap&&toneMap.get(key);
+  return assigned||TIMELINE_TONES[timelineToneHash(key)%TIMELINE_TONES.length];
 }
 // "Người làm" cho Operation: chỉ người có session đang chạy (active_workers,
 // nguồn xác thực là work_sessions.status='OPEN'), KHÔNG suy ra từ việc từng
