@@ -936,19 +936,6 @@ function expectedTimingHtml(t,{showTotal=true,showPerUnit=true}={}){
 function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hours=Math.floor(seconds/3600),minutes=Math.floor((seconds%3600)/60),secs=Math.floor(seconds%60);if(hours)return `${hours}g ${String(minutes).padStart(2,'0')}p`;if(minutes)return `${minutes} phút`;return `${secs} giây`}
 // Màu thanh việc trên timeline -- MỘT nơi quyết định, cho mọi timeline.
 //
-// Trước đây thanh thứ i lấy palette[i%6]. Màu vì thế là màu của VỊ TRÍ, không
-// phải của công đoạn: cùng một OP đổi màu khi người khác làm nó ở thứ tự khác,
-// và hai OP khác nhau trùng màu ngay trong cùng một hàng. Người đọc timeline
-// lại dùng màu đúng như một mã công đoạn ("mảng xanh kia là công đoạn nào?"),
-// nên màu theo vị trí là câu trả lời sai cho câu hỏi người ta thực sự hỏi.
-//
-// Chỉ số i của vòng lặp vẫn còn, nhưng chỉ cho việc nó thật sự nói được: xếp
-// tầng khi các phiên chồng giờ (lanes[i]). Màu thì khoá theo danh tính công
-// đoạn -- cùng operation_id (hoặc mã, nếu dữ liệu cũ chưa có id) thì luôn cùng
-// tông, ở mọi hàng, mọi lần tải lại. Đây chỉ là phép băm trưng bày: không
-// quyết định nghiệp vụ gì, và không đụng vào thời gian.
-// Màu thanh việc trên timeline -- MỘT nơi quyết định, cho mọi timeline.
-//
 // Trước đây thanh thứ i lấy palette[i%6]: màu của VỊ TRÍ, không phải của công
 // đoạn. Cùng một OP đổi màu khi người khác làm nó ở thứ tự khác, và hai OP
 // khác nhau trùng màu ngay trong một hàng, trong khi người đọc timeline dùng
@@ -960,6 +947,10 @@ function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hou
 // Băm chỉ chọn chỗ ƯA THÍCH. Việc gán thật đi qua timelineToneMap(), nơi hai
 // OP cùng hiện trên một timeline chỉ phải dùng chung tông khi bảng màu đã hết
 // chỗ -- chứ không phải vì băm rơi trùng trong khi vẫn còn tông trống.
+//
+// Chỉ số i của vòng lặp vẫn còn, nhưng chỉ cho việc nó thật sự nói được: xếp
+// tầng khi các phiên chồng giờ (lanes[i]). Đây chỉ là phép băm trưng bày --
+// không quyết định nghiệp vụ gì, và không đụng vào thời gian.
 const TIMELINE_TONES=['tone-1','tone-2','tone-3','tone-4','tone-5','tone-6','tone-7','tone-8'];
 function timelineToneKey(op){
   if(op===null||op===undefined)return '';
