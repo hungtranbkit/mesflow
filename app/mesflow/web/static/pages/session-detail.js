@@ -81,7 +81,7 @@ function sessionCoreFieldRows(x){
     {label:'Trạng thái',value:(x.status==='OPEN'?'<span class="badge warning">Đang chạy</span>':'<span class="badge success">Đã kết thúc</span>')+(x.closed_by_system?' <span class="badge">Tự động kết thúc</span>':'')+' '+unconfirmedQtyBadgeHtml(x)+' '+excludedBadgeHtml(x)},
     {label:'Bắt đầu',value:esc(fmt(x.started_at))},
     {label:'Kết thúc',value:x.ended_at?esc(fmt(x.ended_at)):'Đang chạy'},
-    {label:'Thời lượng',value:esc(mfDisplayDuration(x.duration_seconds))},
+    {label:'Thời lượng',value:esc(mfDisplayDuration(x.work_duration_seconds??x.duration_seconds))},
     {label:'Sản lượng',value:MFUI.qtyLine({good:x.good_qty,defect:x.defect_qty,rework:x.rework_qty,recorded})}
   ];
 }

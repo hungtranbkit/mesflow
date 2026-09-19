@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./helpers/day-calendar-fixture');
 // Dashboard theo ngày: TÊN Operation là chữ chính, MÃ là chữ phụ.
 //
 // Cùng quy ước đã chốt ở row-text-hierarchy.spec.js (Tổng quan, Hàng chờ
@@ -73,7 +74,7 @@ function payload(date) {
     subject: OP_NAME, operation_name: OP_NAME, operation_code: OP_CODE, status: 'STARTED',
     po_code: 'PO-111', good_qty: 0, defect_qty: 0,
   }];
-  return { ok: true, items, sessions, activity };
+  return { ok: true, context: fullDayContext, items, sessions, activity };
 }
 
 async function openDashboard(page, tab, width = 1366) {

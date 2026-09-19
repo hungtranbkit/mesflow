@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./day-calendar-fixture');
 // Shared API mocks for the hp3 UI-consistency lane. Deterministic, no DB
 // seeding: these screens are being measured for SURFACE SHAPE, so the data
 // only has to be shaped correctly and be non-empty.
@@ -46,7 +47,7 @@ function dayPayload(date) {
     { kind:'QTY_REPORT', at:at(date,11), employee_name:'Trần Thị B', operation_name:'Sơn tĩnh điện',
       operation_code:'OP-SON-02', po_code:'PO-HP3-1', good_qty:40 }
   ];
-  return { ok:true, context:{ date, timezone:'Asia/Ho_Chi_Minh', day_start:at(date,0), day_end:at(date,23,59) },
+  return { ok:true, context:{ ...fullDayContext, date, timezone:'Asia/Ho_Chi_Minh', day_start:at(date,0), day_end:at(date,23,59) },
     items, sessions, activity };
 }
 
@@ -239,7 +240,7 @@ async function mockScale(page, opts) {
       operation_name: r.operation_name, control_state: 'CRITICAL', control_label: 'LÀM NGAY',
       recommended_action: 'Ưu tiên cấp người/máy' })) }));
   await page.route('**/api/dashboard/day**', json({ ok: true,
-    context: { date, timezone: 'Asia/Ho_Chi_Minh', day_start: at(date, 0), day_end: at(date, 23, 59) },
+    context: { ...fullDayContext, date, timezone: 'Asia/Ho_Chi_Minh', day_start: at(date, 0), day_end: at(date, 23, 59) },
     items: rows, sessions: [], activity: [] }));
   await page.route('**/api/rework/queue**', json(REWORK(date)));
   await page.route('**/api/employees**', json({ ok: true, items: [] }));

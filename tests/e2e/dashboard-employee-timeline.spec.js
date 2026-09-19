@@ -73,7 +73,7 @@ async function mockDashboard(page, date) {
   await page.route('**/api/dashboard/day?**', route => {
     const sessions = sessionsFor(date);
     sessions.push({ ...sessions[1], session_id: 101, employee_id: 21, employee_code: 'EMP-021', employee_name: 'Nhân viên ca tối', started_at: at(date, 19), operation_id: 201, operation_code: 'OP-NIGHT' });
-    route.fulfill({ json: { ok: true, items: operationsFor(), activity: [], sessions } });
+    route.fulfill({ json: { ok: true, context: {target_minutes:480,intervals:shifts[0].intervals}, items: operationsFor(), activity: [], sessions } });
   });
 }
 
@@ -100,9 +100,9 @@ test('timeline là nguồn session duy nhất, OPEN có duration và refresh kh�
   await expect(page.locator('.employee-day-row')).toHaveCount(21);
   await expect(page.locator('.emp-op-item.running')).toHaveCount(21);
   await expect(page.locator('#dailySessionStatus')).toContainText('21 phiên làm việc đang chạy');
-  // The date dashboard uses one full-day timeline, so sessions are not
-  // split by a selected shift's break window.
-  await expect(page.locator('.employee-day-row').first().locator('.employee-session-segment')).toHaveCount(2);
+  // Full-day visibility preserves the configured lunch gap: one closed
+  // segment, plus the open session before and after lunch.
+  await expect(page.locator('.employee-day-row').first().locator('.employee-session-segment')).toHaveCount(3);
   await expect(page.locator('.emp-op-toggle').first()).toHaveAttribute('aria-expanded', 'false');
   await page.locator('.emp-op-toggle').first().click();
   await expect(page.locator('.emp-op-toggle').first()).toHaveAttribute('aria-expanded', 'true');
@@ -259,3 +259,32 @@ for (const viewport of dashboardViewports) {
     expect(operationLayout.cardRight).toBeLessThanOrEqual(operationLayout.viewport + 0.5);
   });
 }
+
+test('session OPEN xuyên trưa dừng cộng công trong 11:30–13:00 rồi tiếp tục', async ({page}) => {
+  const date=hcmDate();
+  await login(page);
+  const intervals=[
+    {interval_type:'BREAK',start_minute:0,end_minute:450,sort_order:0},
+    {interval_type:'WORK',start_minute:450,end_minute:690,sort_order:1},
+    {interval_type:'BREAK',start_minute:690,end_minute:780,sort_order:2,label:'Nghỉ trưa'},
+    {interval_type:'WORK',start_minute:780,end_minute:1020,sort_order:3},
+    {interval_type:'BREAK',start_minute:1020,end_minute:1440,sort_order:4},
+  ];
+  await page.route('**/api/dashboard/day?**', route=>route.fulfill({json:{
+    ok:true,context:{date,target_minutes:480,intervals},items:[],activity:[],
+    sessions:[{...sessionsFor(date)[0],started_at:at(date,11),employee_name:'Thợ kiểm tra nghỉ trưa'}],
+  }}));
+  await page.clock.setFixedTime(new Date(`${date}T11:30:00+07:00`));
+  await page.goto('/app?page=dashboard&tab=people');
+  const work=page.locator('.emp-op-facts b').first();
+  await expect(work).toHaveText('30p');
+  for(const clock of ['12:15','13:00']){
+    await page.clock.setFixedTime(new Date(`${date}T${clock}:00+07:00`));
+    await page.locator('#dailyRefresh').click();
+    await expect(work).toHaveText('30p');
+  }
+  await page.clock.setFixedTime(new Date(`${date}T13:15:00+07:00`));
+  await page.locator('#dailyRefresh').click();
+  await expect(work).toHaveText('45p');
+  await expect(page.locator('.employee-session-segment')).toHaveCount(2);
+});

@@ -1,3 +1,4 @@
+const { fullDayContext } = require('./helpers/day-calendar-fixture');
 const { test, expect } = require('@playwright/test');
 
 // Bộ lọc PO của "Dashboard theo ngày" -- REQ-DASH-006, và cầu nối sang Kiosk
@@ -53,7 +54,7 @@ async function mockDashboard(page) {
     route.fulfill({
       json: {
         ok: true,
-        context: { date: hcmDate(), timezone: 'Asia/Ho_Chi_Minh', po_id: po ? Number(po) : null,
+        context: { ...fullDayContext, date: hcmDate(), timezone: 'Asia/Ho_Chi_Minh', po_id: po ? Number(po) : null,
           day_start: new Date().toISOString(), day_end: new Date().toISOString() },
         items: scoped.flatMap(x => [itemFor(x, 1), itemFor(x, 2)]),
         sessions: scoped.flatMap(x => [sessionFor(x, 1)]),
