@@ -365,7 +365,6 @@ async function renderDashboard(){
     const workers=[...groups.values()].sort((a,b)=>sortMode==='name'
       ? String(a.employee_name||'').localeCompare(String(b.employee_name||''),'vi',{sensitivity:'base'})||firstStart(a)-firstStart(b)
       : firstStart(a)-firstStart(b)||String(a.employee_name||'').localeCompare(String(b.employee_name||''),'vi',{sensitivity:'base'}));
-    const palette=['p1','p2','p3','p4','p5','p6'];
     const gapBlocks=(ordered)=>{
       const blocks=[];
       for(let i=1;i<ordered.length;i++){
@@ -417,7 +416,7 @@ async function renderDashboard(){
       const ordered=g.sessions.slice().sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
       const percent=Math.min(100,Math.round(g.seconds/target*100)),remaining=Math.max(0,target-g.seconds),over=Math.max(0,g.seconds-target),ops=[...new Map(g.sessions.map(x=>[x.operation_id||x.operation_code,x])).values()];
       const staleOpen=g.sessions.some(x=>x.session_status==='OPEN'&&now>=shiftEnd);
-      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} session${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Session mở quá cuối ca</mark>':''}</div><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows[0][0])-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>`<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${Math.max(.5,pct(b)-pct(a))}%" title="Khoảng hở ${duration((b-a)/1000)}"></i>`).join('')}${ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${x.operation_code||''} ${x.operation_name||''} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · session chưa đóng':''}`;return `<i class="employee-session-segment ${palette[i%palette.length]} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%" title="${esc(tip)}"><span>${width>6?esc(x.operation_code||''):''}</span></i>`}).join('')).join('')}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div><div class="employee-day-summary"><b title="${esc(ops.map(x=>`${x.operation_code||''} · ${x.operation_name||''}`).join(' | '))}">${ops.slice(0,3).map(x=>esc(x.operation_code||'')).join(' · ')||'—'}${ops.length>3?` +${ops.length-3} OP`:''}</b><small>Đạt ${g.good.toLocaleString('vi-VN')} · NG ${g.bad.toLocaleString('vi-VN')}</small><div class="employee-session-chips">${ordered.slice(0,10).map(sessionChip).join('')}${g.sessions.length>10?`<span>+${g.sessions.length-10} session</span>`:''}</div></div></article>`;
+      return `<article class="employee-day-row ${g.open?'open':''} ${g.seconds>=target?'complete':''} ${staleOpen?'stale-open':''}"><div class="employee-day-person"><b>${esc(g.employee_name||'—')}</b><small>${esc(g.employee_code||'')} · ${g.sessions.length} session${g.open?` · ${g.open} chưa đóng`:''}</small><div class="employee-day-progress"><i style="width:${percent}%"></i></div><strong>${duration(g.seconds)} / ${duration(target)}</strong><em>${over?`Vượt ${duration(over)}`:`Còn ${duration(remaining)}`}</em>${staleOpen?'<mark>Session mở quá cuối ca</mark>':''}</div><div class="employee-day-track shift-track"><div class="session-grid-lines">${gridHtml}</div><i class="shift-off before" style="left:${pct(viewStart)}%;width:${pct(workWindows[0][0])-pct(viewStart)}%"></i>${breaks.map(([a,b,label])=>`<i class="shift-lunch" style="left:${pct(a)}%;width:${pct(b)-pct(a)}%"><span>${esc(label)}</span></i>`).join('')}<i class="shift-off after" style="left:${pct(shiftEnd)}%;width:${pct(viewEnd)-pct(shiftEnd)}%"><span>Hết ca</span></i>${gapBlocks(ordered).map(([a,b,long])=>`<i class="employee-gap ${long?'long':''}" style="left:${pct(a)}%;width:${Math.max(.5,pct(b)-pct(a))}%" title="Khoảng hở ${duration((b-a)/1000)}"></i>`).join('')}${ordered.map(x=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${x.operation_code||''} ${x.operation_name||''} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · session chưa đóng':''}`;return `<i class="employee-session-segment ${timelineToneClass(x)} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%" title="${esc(tip)}"><span>${width>6?esc(x.operation_code||''):''}</span></i>`}).join('')).join('')}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div><div class="employee-day-summary"><b title="${esc(ops.map(x=>`${x.operation_code||''} · ${x.operation_name||''}`).join(' | '))}">${ops.slice(0,3).map(x=>esc(x.operation_code||'')).join(' · ')||'—'}${ops.length>3?` +${ops.length-3} OP`:''}</b><small>Đạt ${g.good.toLocaleString('vi-VN')} · NG ${g.bad.toLocaleString('vi-VN')}</small><div class="employee-session-chips">${ordered.slice(0,10).map(sessionChip).join('')}${g.sessions.length>10?`<span>+${g.sessions.length-10} session</span>`:''}</div></div></article>`;
     }).join('')}</div>`;
   };
   const load=async()=>{try{const date=document.getElementById('dailyDate').value,shiftId=dayView;const data=await api(`/api/dashboard/day?date=${encodeURIComponent(date)}&limit=1000`);
@@ -574,6 +573,30 @@ const MESFLOW_TIMEZONE='Asia/Ho_Chi_Minh';
 const HCM_DATE_TIME=new Intl.DateTimeFormat('vi-VN',{timeZone:MESFLOW_TIMEZONE,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
 function fmt(d){if(!d)return '—';const value=new Date(d);return Number.isNaN(value.getTime())?'—':HCM_DATE_TIME.format(value)}
 function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hours=Math.floor(seconds/3600),minutes=Math.floor((seconds%3600)/60),secs=Math.floor(seconds%60);if(hours)return `${hours}g ${String(minutes).padStart(2,'0')}p`;if(minutes)return `${minutes} phút`;return `${secs} giây`}
+// Màu thanh việc trên timeline -- MỘT nơi quyết định, cho mọi timeline.
+//
+// Trước đây thanh thứ i lấy palette[i%6]. Màu vì thế là màu của VỊ TRÍ, không
+// phải của công đoạn: cùng một OP đổi màu khi người khác làm nó ở thứ tự khác,
+// và hai OP khác nhau trùng màu ngay trong cùng một hàng. Người đọc timeline
+// lại dùng màu đúng như một mã công đoạn ("mảng xanh kia là công đoạn nào?"),
+// nên màu theo vị trí là câu trả lời sai cho câu hỏi người ta thực sự hỏi.
+//
+// Khoá theo danh tính công đoạn: cùng operation_id (hoặc mã, nếu dữ liệu cũ
+// chưa có id) thì luôn cùng tông, ở mọi hàng, mọi lần tải lại. Đây chỉ là phép
+// băm trưng bày -- không quyết định nghiệp vụ gì, và không đụng vào thời gian.
+const TIMELINE_TONES=['tone-1','tone-2','tone-3','tone-4','tone-5','tone-6'];
+function timelineToneKey(op){
+  if(op===null||op===undefined)return '';
+  const raw=(typeof op==='object')?(op.operation_id??op.operation_code??op.operation_name):op;
+  return raw===null||raw===undefined?'':String(raw);
+}
+function timelineToneClass(op){
+  const key=timelineToneKey(op);
+  if(!key)return TIMELINE_TONES[0];
+  let hash=0;
+  for(let i=0;i<key.length;i++)hash=(Math.imul(hash,31)+key.charCodeAt(i))>>>0;
+  return TIMELINE_TONES[hash%TIMELINE_TONES.length];
+}
 // "Người làm" cho Operation: chỉ người có session đang chạy (active_workers,
 // nguồn xác thực là work_sessions.status='OPEN'), KHÔNG suy ra từ việc từng
 // xuất hiện trong Operation. running_sessions=0 -> không hiện tên lịch sử.
