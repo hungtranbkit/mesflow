@@ -14,6 +14,7 @@
 - HP offsite pull + restore verification: PASS
 - pg_rewind prerequisite: PASS; TEST wal_log_hints=on, pg_rewind 17.10
 - Gate 1 lab: PASS with Patroni 4.1.5; same lab system ID before/after adoption; no initdb; REST/patronictl/lifecycle/HBA/single-manager checks PASS
+- Migration safety: existing `mesflow_hp_slot` pinned as permanent physical slot in Patroni bootstrap DCS config and restaged on TEST.
 - Automatic failover: OFF
 - Live TEST Patroni config/compose validated and image staged; exact rollback checkpoint written.
 - Next: final preflight then controlled Gate 2 TEST takeover

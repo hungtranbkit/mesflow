@@ -41,6 +41,7 @@
 - Patroni REST binds host Tailscale only: `100.127.10.29:8008`.
 - Container joins `mesflow_network` with alias `postgres` so application DB hostname does not change.
 - Initial replication mode asynchronous; watchdog off pending fencing audit; automatic failover not enabled.
+- Existing physical slot `mesflow_hp_slot` is declared as a permanent Patroni DCS slot (`type: physical`) during migration, so the working HP standby slot is preserved while HP is not yet a Patroni member.
 - TEST initial takeover uses existing local trust HBA and existing roles; no credential values are added to git/logs.
 
 ## Exact takeover sequence

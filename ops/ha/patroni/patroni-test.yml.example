@@ -1,17 +1,14 @@
 scope: mesflow-pg
 namespace: /mesflow-ha/
 name: mesflow-test
-
 restapi:
   listen: 0.0.0.0:8008
   connect_address: 100.127.10.29:8008
-
 etcd3:
   hosts:
-    - 100.127.10.29:2379
-    - 100.67.53.117:2379
-    - 100.117.214.87:2379
-
+  - 100.127.10.29:2379
+  - 100.67.53.117:2379
+  - 100.117.214.87:2379
 bootstrap:
   dcs:
     ttl: 30
@@ -38,7 +35,9 @@ bootstrap:
         max_slot_wal_keep_size: 4096MB
         wal_log_hints: 'on'
         archive_mode: 'off'
-
+    slots:
+      mesflow_hp_slot:
+        type: physical
 postgresql:
   listen: 0.0.0.0:5432
   connect_address: 100.127.10.29:5432
@@ -50,10 +49,8 @@ postgresql:
       username: mesflow_replica
   remove_data_directory_on_rewind_failure: false
   remove_data_directory_on_diverged_timelines: false
-
 watchdog:
   mode: 'off'
-
 tags:
   nofailover: false
   noloadbalance: false
