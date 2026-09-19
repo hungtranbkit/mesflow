@@ -303,3 +303,113 @@ test('ngày không có giờ làm vẫn hiện session với 0 phút công', asy
   await expect(page.locator('.emp-op-facts b').first()).toHaveText('0p · đang chạy');
   await expect(page.locator('.employee-session-segment')).toHaveCount(0);
 });
+
+// ---------------------------------------------------------------------------
+// HOTFIX -- timeline chỉ được nói một thứ bằng màu.
+//
+// Hai câu hỏi chỉ trình duyệt thật trả lời được (computed style và thứ tự
+// dựng DOM), nên chúng ở đây chứ không ở bài test nguồn:
+//
+//   1. Khoảng hở, giờ nghỉ giữa ca và ngoài ca phải ra ĐÚNG một nền. Trước
+//      hotfix chúng có bốn công thức, hai trong đó vàng cam rực hơn cả thanh
+//      việc thật nằm ngay cạnh.
+//   2. Tông thanh việc phải đi theo công đoạn, không theo vị trí trong vòng
+//      lặp. Fixture cố tình đảo thứ tự hai OP giữa hai người: với mã cũ
+//      (palette[i%6]) cùng một OP sẽ ra hai màu khác nhau.
+// ---------------------------------------------------------------------------
+
+const TONE_A = 11, TONE_B = 22; // hai operation_id bất kỳ, miễn khác nhau
+
+async function openToneFixture(page, date) {
+  // Lịch có đủ cả ba loại thời gian không-làm-việc: trước ca, nghỉ giữa ca,
+  // sau ca -- nên cả .shift-off lẫn .shift-lunch đều được dựng thật.
+  const intervals = [
+    { interval_type: 'BREAK', start_minute: 0, end_minute: 450, sort_order: 0 },
+    { interval_type: 'WORK', start_minute: 450, end_minute: 690, sort_order: 1 },
+    { interval_type: 'BREAK', start_minute: 690, end_minute: 780, sort_order: 2, label: 'Nghỉ trưa' },
+    { interval_type: 'WORK', start_minute: 780, end_minute: 1020, sort_order: 3 },
+    { interval_type: 'BREAK', start_minute: 1020, end_minute: 1440, sort_order: 4 }
+  ];
+  const session = (id, worker, operation, fromHour, toHour) => ({
+    session_id: id, session_status: 'CLOSED',
+    started_at: at(date, fromHour), ended_at: at(date, toHour),
+    employee_id: worker, employee_code: `EMP-${worker}`, employee_name: `Thợ ${worker}`,
+    operation_id: operation, operation_code: `OP-${operation}`,
+    operation_name: `Operation ${operation}`,
+    po_code: 'PO-TONE', part_code: 'PART-TONE', good_qty: 1, defect_qty: 0
+  });
+  // Cùng hai OP, thứ tự đảo ngược giữa hai người. 09:00-10:00 bỏ trống ở cả
+  // hai hàng và nằm gọn trong khung làm việc -> .employee-gap.long.
+  const sessions = [
+    session(1, 1, TONE_A, 8, 9), session(2, 1, TONE_B, 10, 11),
+    session(3, 2, TONE_B, 8, 9), session(4, 2, TONE_A, 10, 11)
+  ];
+  await page.route('**/api/dashboard/day?**', route => route.fulfill({
+    json: { ok: true, context: { date, target_minutes: 480, intervals }, items: [], activity: [], sessions }
+  }));
+  await page.clock.setFixedTime(new Date(`${date}T14:30:00+07:00`));
+  await page.goto('/app?page=dashboard&tab=people');
+  await expect(page.locator('.employee-day-row')).toHaveCount(2);
+}
+
+const toneOf = async (page, worker, index) => {
+  const className = await page.locator('.employee-day-row', { hasText: `Thợ ${worker}` })
+    .locator('.employee-session-segment').nth(index).getAttribute('class');
+  return className.split(/\s+/).find(name => name.startsWith('tone-'));
+};
+
+test('tông thanh việc đi theo công đoạn, không theo vị trí trong hàng', async ({ page }) => {
+  const date = hcmDate();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await login(page);
+  await openToneFixture(page, date);
+
+  const [firstA, firstB, secondB, secondA] = await Promise.all([
+    toneOf(page, 1, 0), toneOf(page, 1, 1), toneOf(page, 2, 0), toneOf(page, 2, 1)
+  ]);
+  for (const tone of [firstA, firstB, secondB, secondA]) {
+    expect(tone, 'thanh việc phải mang đúng một lớp tone-N').toBeTruthy();
+  }
+  // OP_A đứng đầu hàng của Thợ 1 và đứng cuối hàng của Thợ 2 -- vẫn cùng tông.
+  expect(firstA, `OP-${TONE_A} đổi tông theo vị trí`).toBe(secondA);
+  expect(firstB, `OP-${TONE_B} đổi tông theo vị trí`).toBe(secondB);
+  // ...và hai OP khác nhau thì không được trùng tông trong cùng một hàng.
+  expect(firstA).not.toBe(firstB);
+});
+
+test('khoảng hở, giờ nghỉ và ngoài ca dùng chung đúng một nền yên', async ({ page }) => {
+  const date = hcmDate();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await login(page);
+  await openToneFixture(page, date);
+
+  const quiet = ['.employee-gap', '.employee-gap.long', '.shift-off.before',
+    '.shift-off.after', '.shift-lunch', '.legend-gap', '.legend-lunch', '.legend-off'];
+  for (const selector of quiet) {
+    await expect(page.locator(selector).first(), `${selector} phải được dựng`).toHaveCount(1);
+  }
+  const backgrounds = await Promise.all(quiet.map(selector => page.locator(selector).first()
+    .evaluate(element => getComputedStyle(element).backgroundImage)));
+
+  for (const [index, background] of backgrounds.entries()) {
+    expect(background, `${quiet[index]} phải có nền sọc yên`).toContain('repeating-linear-gradient');
+    expect(background, `${quiet[index]} lệch khỏi nền chung`).toBe(backgrounds[0]);
+    // Không màu nào trong nền được ngả ấm hay đậm -- đó là vàng/cam đã bỏ.
+    for (const [, r, g, b] of background.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g)) {
+      expect(Number(b), `${quiet[index]} còn màu ấm: ${background}`).toBeGreaterThanOrEqual(Number(r));
+      expect(Math.max(+r, +g, +b) - Math.min(+r, +g, +b), `${quiet[index]} còn màu đậm`).toBeLessThan(40);
+    }
+  }
+
+  // Thanh việc thật thì ngược lại: nền đặc, không sọc.
+  const bar = await page.locator('.employee-session-segment').first()
+    .evaluate(element => getComputedStyle(element).backgroundImage);
+  expect(bar).toBe('none');
+
+  await page.screenshot({ path: 'test-results/timeline-quiet-gap-1920x1080.png', fullPage: true });
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await expect(page.locator('.session-timeline-panel')).toBeVisible();
+  const overflow = await page.locator('body').evaluate(body => body.scrollWidth > body.clientWidth);
+  expect(overflow).toBe(false);
+  await page.screenshot({ path: 'test-results/timeline-quiet-gap-1366x768.png', fullPage: true });
+});

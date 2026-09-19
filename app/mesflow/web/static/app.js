@@ -463,7 +463,6 @@ async function renderDashboard(){
     const workers=[...groups.values()].sort((a,b)=>sortMode==='name'
       ? String(a.employee_name||'').localeCompare(String(b.employee_name||''),'vi',{sensitivity:'base'})||firstStart(a)-firstStart(b)
       : firstStart(a)-firstStart(b)||String(a.employee_name||'').localeCompare(String(b.employee_name||''),'vi',{sensitivity:'base'}));
-    const palette=['p1','p2','p3','p4','p5','p6'];
     // PHÂN TẦNG khi hai việc chạy chồng giờ.
     //
     // Từ migration 0054 một người giữ được nhiều session OPEN trên các Operation
@@ -618,7 +617,7 @@ async function renderDashboard(){
       // không chồng trông y hệt bản trước. Nhiều tầng thì chia đều chiều cao
       // sẵn có, chừa 2px giữa các tầng.
       const H=24,G=2,h=laneCount>1?Math.max(6,Math.floor((H-(laneCount-1)*G)/laneCount)):0;
-      return ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · phiên làm việc chưa đóng':''}`,pos=laneCount>1?`;top:${9+lanes[i]*(h+G)}px;height:${h}px`:'';return `<i class="employee-session-segment ${palette[i%palette.length]} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%${pos}" title="${esc(tip)}"><span>${width>6&&(h===0||h>=12)?esc(shortLabel(x.operation_name||x.operation_code)):''}</span></i>`}).join('')).join('')})()}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div></div><div class="employee-day-summary">${opGroupList(ordered,g)}</div></article>`;
+      return ordered.map((x,i)=>splitWork(x).map(([a,b],j)=>{const left=pct(a),width=Math.max(.35,pct(b)-pct(a)),tip=`${MFUI.opIdentityText({name:x.operation_name,code:x.operation_code})} · ${hm(new Date(a).toISOString())} – ${hm(new Date(b).toISOString())} · ${duration((b-a)/1000)}${x.session_status==='OPEN'?' · phiên làm việc chưa đóng':''}`,pos=laneCount>1?`;top:${9+lanes[i]*(h+G)}px;height:${h}px`:'';return `<i class="employee-session-segment ${timelineToneClass(x)} ${x.session_status==='OPEN'?'open':''}" style="left:${left}%;width:${width}%${pos}" title="${esc(tip)}"><span>${width>6&&(h===0||h>=12)?esc(shortLabel(x.operation_name||x.operation_code)):''}</span></i>`}).join('')).join('')})()}${isLiveShift&&now>=viewStart&&now<=viewEnd?`<i class="shift-now" style="left:${pct(now)}%"></i>`:''}</div></div><div class="employee-day-summary">${opGroupList(ordered,g)}</div></article>`;
     }).join('')}</div>`;
   };
   // Nhịp tự làm mới 10s ở cuối hàm này từng là nguồn "Failed to fetch" thấy
@@ -930,6 +929,32 @@ function expectedTimingHtml(t,{showTotal=true,showPerUnit=true}={}){
   return `<span class="time-metrics">${parts.join('')}</span>`;
 }
 function fmtDuration(value){const seconds=Math.max(0,Number(value||0));const hours=Math.floor(seconds/3600),minutes=Math.floor((seconds%3600)/60),secs=Math.floor(seconds%60);if(hours)return `${hours}g ${String(minutes).padStart(2,'0')}p`;if(minutes)return `${minutes} phút`;return `${secs} giây`}
+// Màu thanh việc trên timeline -- MỘT nơi quyết định, cho mọi timeline.
+//
+// Trước đây thanh thứ i lấy palette[i%6]. Màu vì thế là màu của VỊ TRÍ, không
+// phải của công đoạn: cùng một OP đổi màu khi người khác làm nó ở thứ tự khác,
+// và hai OP khác nhau trùng màu ngay trong cùng một hàng. Người đọc timeline
+// lại dùng màu đúng như một mã công đoạn ("mảng xanh kia là công đoạn nào?"),
+// nên màu theo vị trí là câu trả lời sai cho câu hỏi người ta thực sự hỏi.
+//
+// Chỉ số i của vòng lặp vẫn còn, nhưng chỉ cho việc nó thật sự nói được: xếp
+// tầng khi các phiên chồng giờ (lanes[i]). Màu thì khoá theo danh tính công
+// đoạn -- cùng operation_id (hoặc mã, nếu dữ liệu cũ chưa có id) thì luôn cùng
+// tông, ở mọi hàng, mọi lần tải lại. Đây chỉ là phép băm trưng bày: không
+// quyết định nghiệp vụ gì, và không đụng vào thời gian.
+const TIMELINE_TONES=['tone-1','tone-2','tone-3','tone-4','tone-5','tone-6'];
+function timelineToneKey(op){
+  if(op===null||op===undefined)return '';
+  const raw=(typeof op==='object')?(op.operation_id??op.operation_code??op.operation_name):op;
+  return raw===null||raw===undefined?'':String(raw);
+}
+function timelineToneClass(op){
+  const key=timelineToneKey(op);
+  if(!key)return TIMELINE_TONES[0];
+  let hash=0;
+  for(let i=0;i<key.length;i++)hash=(Math.imul(hash,31)+key.charCodeAt(i))>>>0;
+  return TIMELINE_TONES[hash%TIMELINE_TONES.length];
+}
 // "Người làm" cho Operation: chỉ người có session đang chạy (active_workers,
 // nguồn xác thực là work_sessions.status='OPEN'), KHÔNG suy ra từ việc từng
 // xuất hiện trong Operation. running_sessions=0 -> không hiện tên lịch sử.
