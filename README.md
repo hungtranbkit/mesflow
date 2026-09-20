@@ -3,7 +3,8 @@
 > **Read `docs/CURRENT_STATE.md` first** for the actual current version,
 > environments, and priorities — this file below is an old changelog-style
 > README (references v64/v65, port 18080, `/opt/mesflow-v65`) kept as
-> historical record, not current operational truth.
+> historical record, not current operational truth. The full 65.x release
+> history lives in `CHANGELOG.md`.
 
 PostgreSQL-native production package. Không có SQLite, adapter hay mirror.
 
