@@ -44,3 +44,10 @@ def test_daily_dashboard_tab_and_date_reflect_in_url():
     assert "dashQuery.get('tab')" in app
     assert "dashQuery.get('date')" in app
     assert "AppNav.setQuery({tab:" in app
+
+
+def test_overview_auto_refresh_pauses_while_user_is_viewing():
+    page=(ROOT/"app/mesflow/web/static/pages/overview.js").read_text()
+    assert "document.visibilityState==='visible'&&document.hasFocus()" in page
+    assert "userViewing===false)load()" in page
+    assert "setInterval(()=>document.getElementById('ovPos')&&load(),15000)" not in page

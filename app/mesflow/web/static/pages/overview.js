@@ -70,5 +70,5 @@ async function renderOverview(){
   const ovSetAll=open=>document.querySelectorAll('#ovPos details.overview-po').forEach(d=>{d.open=open});
   document.getElementById('ovExpandAll').onclick=()=>ovSetAll(true);
   document.getElementById('ovCollapseAll').onclick=()=>ovSetAll(false);
-  ['ovSearch','ovRepair','ovPriority','ovSort'].forEach(id=>document.getElementById(id).addEventListener(id==='ovSearch'?'input':'change',draw));document.getElementById('ovPoFilter').addEventListener('change',e=>{selectedPo=e.target.value?Number(e.target.value):null;draw()});document.getElementById('ovReload').onclick=load;await load();dashboardTimer=setInterval(()=>document.getElementById('ovPos')&&load(),15000);
+  ['ovSearch','ovRepair','ovPriority','ovSort'].forEach(id=>document.getElementById(id).addEventListener(id==='ovSearch'?'input':'change',draw));document.getElementById('ovPoFilter').addEventListener('change',e=>{selectedPo=e.target.value?Number(e.target.value):null;draw()});document.getElementById('ovReload').onclick=load;await load();dashboardTimer=setInterval(()=>{const userViewing=document.visibilityState==='visible'&&document.hasFocus();if(document.getElementById('ovPos')&&userViewing===false)load()},15000);
 }
