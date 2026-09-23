@@ -3917,3 +3917,14 @@ body[data-page="dashboard"] .op-card-fact>b{
 @media(max-width:900px){
   .overview-po-actions{grid-column:2;grid-row:1}
 }
+
+/* PO detail: nest SETUP directly under its parent Operation. */
+.po-op-row.is-setup.is-linked-setup{background:#f7fafc;border-left:0;box-shadow:inset 4px 0 #9fb2c2}
+.po-op-row.is-setup.is-linked-setup>span:first-child{color:transparent;font-size:0;text-align:right;padding-right:2px}
+.po-op-row.is-setup.is-linked-setup>span:first-child::before{content:"└─";color:#718392;font-size:14px;font-weight:800}
+.po-op-row.is-setup.is-linked-setup .po-op-identity{padding-left:8px}
+.op-setup-parent{display:block;margin-top:2px;color:#607483;font-size:10px;font-weight:650}
+.po-op-row.is-orphan-setup{background:#fff9f0;border-left:4px solid var(--status-warning,#b66a00)}
+.op-setup-orphan-note{display:block;margin-top:2px;color:var(--status-warning,#b66a00);font-size:10px;font-weight:750}
+.po-setup-orphan-divider{min-width:1120px;display:flex;align-items:baseline;gap:10px;padding:8px 14px;border-top:1px solid #e6c999;border-bottom:1px solid #f0dec0;background:#fff7e8;color:#8b5400}
+.po-setup-orphan-divider span{font-size:11px;font-weight:800}.po-setup-orphan-divider small{font-size:10px;color:#8f6b35}
