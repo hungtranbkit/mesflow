@@ -15,3 +15,7 @@ def test_desktop_cells_are_pinned_to_columns():
     for cls,col in [('employee',1),('period',2),('quantity',3),('duration',4),('benchmark',5)]:
         assert f'.op-detail-session-row .op-session-cell.{cls}{{grid-column:{col}}}' in CSS
     assert '.op-detail-session-row .op-session-actions{grid-column:6}' in CSS
+
+def test_session_header_closes_before_session_rows():
+    assert '</span></div>${sessionRows' in JS
+    assert '</span></div${sessionRows' not in JS
