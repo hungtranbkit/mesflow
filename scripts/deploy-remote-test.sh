@@ -88,6 +88,12 @@ SSH_BASE_OPTS=( -o BatchMode=yes -o ConnectTimeout=10 )
 if [[ -n "${REMOTE_TEST_SSH_CONFIG:-}" ]]; then
   [[ -r "$REMOTE_TEST_SSH_CONFIG" ]] || { echo "REMOTE_TEST_SSH_CONFIG=$REMOTE_TEST_SSH_CONFIG is not readable" >&2; exit 1; }
   SSH_BASE_OPTS+=( -F "$REMOTE_TEST_SSH_CONFIG" )
+elif ! ssh -G localhost >/dev/null 2>&1; then
+  if [[ -r "$HOME/.ssh/config" ]]; then
+    SSH_BASE_OPTS+=( -F "$HOME/.ssh/config" )
+  else
+    SSH_BASE_OPTS+=( -F /dev/null )
+  fi
 fi
 rssh() { ssh "${SSH_BASE_OPTS[@]}" "${REMOTE_TEST_SSH_USER}@${REMOTE_TEST_SSH_HOST}" "$@"; }
 

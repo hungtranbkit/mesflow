@@ -8,6 +8,21 @@ IMAGE_NAME="mesflow-app"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_DIR="$REPO_ROOT/release"
 
+# OpenSSH refuses system config files whose root ownership is hidden by a user
+# namespace. Prefer normal config when it parses; otherwise use a user-owned
+# config, or /dev/null as the final safe fallback.
+SSH_BASE_OPTS=( -o BatchMode=yes -o ConnectTimeout=5 )
+if [[ -n "${MESFLOW_SSH_CONFIG:-}" ]]; then
+  [[ -r "$MESFLOW_SSH_CONFIG" ]] || { echo "MESFLOW_SSH_CONFIG=$MESFLOW_SSH_CONFIG is not readable" >&2; return 1 2>/dev/null || exit 1; }
+  SSH_BASE_OPTS+=( -F "$MESFLOW_SSH_CONFIG" )
+elif ! ssh -G localhost >/dev/null 2>&1; then
+  if [[ -r "$HOME/.ssh/config" ]]; then
+    SSH_BASE_OPTS+=( -F "$HOME/.ssh/config" )
+  else
+    SSH_BASE_OPTS+=( -F /dev/null )
+  fi
+fi
+
 # target_config <target>: sets SSH_HOST SSH_USER REMOTE_DIR COMPOSE_PROJECT
 # APP_SERVICE APP_CONTAINER DB_CONTAINER SERVER_ROLE APP_PORT NETWORK
 target_config() {
@@ -92,7 +107,7 @@ target_config() {
 ssh_target() {
   # ssh_target <ignored -- kept for call-site readability> <command...>
   shift
-  ssh -o BatchMode=yes -o ConnectTimeout=5 "${SSH_USER}@${SSH_HOST}" "$@"
+  ssh "${SSH_BASE_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" "$@"
 }
 
 # Resolve a version string or an explicit digest ref to a full
