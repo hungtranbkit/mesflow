@@ -32,7 +32,10 @@ def test_existing_adjust_flow_confirms_quantity_and_writes_audit():
     assert "INSERT INTO operation_adjustments" in EX
     assert "Điều chỉnh sản lượng phiên làm việc" in EX
 
-def test_edit_requires_reason_and_preserves_rework_constraint():
-    assert "if(!reason)return alert('Phải nhập lý do chỉnh sửa để lưu audit.')" in JS
+def test_edit_reason_is_optional_but_audit_gets_default_reason():
+    assert "typedReason=String(form.reason.value||'').trim()" in JS
+    assert "'Điều chỉnh sản lượng từ OP Detail'" in JS
+    assert "reason=typedReason||defaultReason" in JS
+    assert 'Phải nhập lý do chỉnh sửa để lưu audit.' not in JS
     assert "if(rework>defect)" in JS
     assert "rework>defect" in EX
