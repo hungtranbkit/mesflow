@@ -28,3 +28,14 @@ def test_overview_operation_focus_and_modal_styles_exist():
 def test_existing_refresh_hotfix_is_preserved():
     assert "userViewing===false" in JS
     assert "},60000);" in JS
+
+
+def test_po_and_op_actions_match_their_scope():
+    # PO action belongs to the PO header/card; OP row action opens OP detail.
+    assert 'class="btn mini overview-po-open" data-open-po="${x.po_id}"' in JS
+    assert 'data-open-op="${x.operation_id}"' in JS
+    assert '>Mở OP</button>' in JS
+    assert "showOperationDetail(Number(b.dataset.openOp))" in JS
+    # There must no longer be a PO action inside each OP row.
+    assert '<span><button class="btn mini" data-open-po="${x.po_id}">Mở PO</button></span>' not in JS
+    assert ".overview-po-actions" in CSS

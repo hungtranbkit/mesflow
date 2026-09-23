@@ -3908,3 +3908,12 @@ body[data-page="dashboard"] .op-card-fact>b{
 .op-speed{font-weight:700}.op-speed.fast{color:var(--status-success,#16845b)}.op-speed.slow{color:var(--status-warning,#b66a00)}.op-speed.target{color:var(--action-primary,#23658b)}.op-speed.na{color:var(--text-secondary)}
 .op-excluded{color:var(--status-danger,#b42318)!important}
 @media(max-width:800px){.op-detail-kpis{grid-template-columns:1fr 1fr}.op-detail-user-head,.op-detail-session-head{display:none}.op-detail-user-row,.op-detail-session-row{grid-template-columns:1fr 1fr}.op-detail-user-row>span:first-child,.op-detail-session-row>span:first-child{grid-column:1/-1}}
+
+
+/* Overview PO/OP action placement hotfix. */
+.overview-po-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:max-content}
+.overview-po-actions .overview-po-open{white-space:nowrap}
+.overview-op-row [data-open-op]{white-space:nowrap}
+@media(max-width:900px){
+  .overview-po-actions{grid-column:2;grid-row:1}
+}
