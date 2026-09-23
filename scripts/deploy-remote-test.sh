@@ -102,13 +102,14 @@ if [[ "$IMAGE_TAG" == *"@sha256:"* ]]; then
   echo "This script deploys by version tag (needs a local image to 'docker save'), not a bare digest -- pass the version, e.g. 71.0.0.226." >&2
   exit 1
 fi
-LOCAL_IMAGE_REF="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-REMOTE_IMAGE_REF="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"  # same tag string; loaded locally on the remote docker daemon, never pulled from a registry there.
+LOCAL_IMAGE_REF="${MESFLOW_IMAGE_REPOSITORY:-$IMAGE_NAME}:${IMAGE_TAG}"
+REMOTE_IMAGE_REF="$LOCAL_IMAGE_REF"  # exact tag created by build-release.sh and transferred with docker save/load.
 
 echo "== Deploying ${LOCAL_IMAGE_REF} to remote-test (${REMOTE_TEST_SSH_USER}@${REMOTE_TEST_SSH_HOST}:${REMOTE_DIR}) via bundle transfer =="
 
 echo "-- preflight --"
 docker image inspect "$LOCAL_IMAGE_REF" >/dev/null 2>&1 || { echo "Local image $LOCAL_IMAGE_REF not found -- run release-build.sh first." >&2; exit 1; }
+LOCAL_IMAGE_ID="$(docker image inspect --format="{{.Id}}" "$LOCAL_IMAGE_REF")"
 REMOTE_PROJECT_NAME="$(rssh "cd ${REMOTE_DIR} && sudo MESFLOW_IMAGE=name-check-placeholder docker compose --env-file .env config --format json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"name\"])'" || true)"
 if [[ "$REMOTE_PROJECT_NAME" != "mesflow" ]]; then
   echo "ABORT: remote compose project name '$REMOTE_PROJECT_NAME' != expected 'mesflow'" >&2
@@ -143,6 +144,12 @@ if [[ "$LOCAL_SHA" != "$REMOTE_SHA" ]]; then
 fi
 echo "checksum verified: $LOCAL_SHA"
 rssh "sudo docker load -i ${REMOTE_BUNDLE_PATH} && rm -f ${REMOTE_BUNDLE_PATH}"
+REMOTE_LOADED_IMAGE_ID="$(rssh "sudo docker image inspect --format={{.Id}} ${REMOTE_IMAGE_REF}")"
+if [[ "$REMOTE_LOADED_IMAGE_ID" != "$LOCAL_IMAGE_ID" ]]; then
+  echo "ABORT: remote loaded image id $REMOTE_LOADED_IMAGE_ID != local release image id $LOCAL_IMAGE_ID" >&2
+  exit 1
+fi
+echo "image id verified after load: $REMOTE_LOADED_IMAGE_ID"
 
 echo "-- migrate (same image, target DB) --"
 DB_URL_LINE="$(rssh "sudo grep '^DATABASE_URL=' ${REMOTE_DIR}/.env")"
@@ -169,6 +176,7 @@ NEW_ROLE="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('serv
 NEW_MIGHEAD="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('migration_head'))" "$READY" 2>/dev/null || echo None)"
 NEW_IMAGE_ID="$(rssh "sudo docker inspect --format='{{.Image}}' ${APP_CONTAINER}" 2>/dev/null || true)"
 NEW_DIGEST="$(rssh "sudo docker image inspect --format='{{index .RepoDigests 0}}' ${NEW_IMAGE_ID}" 2>/dev/null || true)"
+[[ -n "$NEW_DIGEST" ]] || NEW_DIGEST="$NEW_IMAGE_ID"
 DB_OK="$(python3 -c "import json,sys; print(bool(json.loads(sys.argv[1]).get('ok')))" "$READY" 2>/dev/null || echo False)"
 
 echo "container healthy: ${HEALTHY:-NO}"
@@ -179,6 +187,8 @@ echo "digest running: ${NEW_DIGEST:-<none -- inspect failed, treated as FAIL>}"
 PASS=1
 [[ -n "$HEALTHY" ]] || PASS=0
 [[ "$NEW_ROLE" == "$SERVER_ROLE" ]] || PASS=0
+[[ "$NEW_VERSION" == "$IMAGE_TAG" ]] || PASS=0
+[[ "$NEW_IMAGE_ID" == "$LOCAL_IMAGE_ID" ]] || PASS=0
 [[ "$DB_OK" == "True" ]] || PASS=0
 [[ -n "$NEW_DIGEST" ]] || PASS=0
 
