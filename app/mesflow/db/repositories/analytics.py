@@ -1242,6 +1242,9 @@ class ReportRepository:
           COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,COALESCE(ws.scrap_qty,0) scrap_qty,
           ws.device_uuid,ws.station_id,s.code station_code,s.name station_name,
           ws.excluded_from_reports,ws.exclusion_reason,ws.closed_by_system,ws.quantity_confirmed,
+          COALESCE((SELECT COUNT(*) FROM operation_adjustments oa WHERE oa.session_id=ws.id),0) adjustment_count,
+          (SELECT MAX(oa.created_at) FROM operation_adjustments oa WHERE oa.session_id=ws.id) last_adjusted_at,
+          (SELECT oa.reason FROM operation_adjustments oa WHERE oa.session_id=ws.id ORDER BY oa.created_at DESC,oa.id DESC LIMIT 1) last_adjustment_reason,
           e.id employee_id,e.employee_no employee_code,e.name employee_name,e.department,e.team,e.position,
           o.id operation_id,o.code operation_code,o.name operation_name,o.status operation_status,
           po.id po_id,po.code po_code,po.product,p.id part_id,p.code part_code,p.name part_name
