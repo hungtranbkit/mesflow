@@ -102,13 +102,22 @@ async function renderOverview(){
         return `<div class="op-detail-session-item${needsQty?' needs-quantity':''}${adjusted?' was-adjusted':''}" data-session-item="${s.session_id}"><div class="op-detail-session-row"><span><b>${E(s.employee_name||'Không rõ')}</b><small>${E(s.employee_code||'')}</small>${flags}</span><span><b>${when(s.started_at)}</b><small>${String(s.status||'').toUpperCase()==='OPEN'?'Đang làm':when(s.ended_at)}</small></span><span><b>${N(Number(s.good_qty||0)+Number(s.defect_qty||0))} SP</b><small>${N(s.good_qty)} đạt · ${N(s.defect_qty)} lỗi${Number(s.rework_qty||0)>0?` · ${N(s.rework_qty)} sửa`:''}</small></span><span><b>${work(s.duration_seconds)}</b><small>${sc==null?'—':`${sc.toFixed(1)}%`}</small></span><span><small class="op-speed ${st.cls}">${st.text}</small>${s.excluded_from_reports?'<small class="op-excluded">Loại khỏi báo cáo</small>':''}</span><span class="op-session-actions">${action}</span></div>${editor}</div>`}).join('');
       modal.innerHTML=`<div class="op-detail-head"><div><small>Operation Detail · Nhấp đúp từ Tổng quan</small><h2 id="opDetailTitle">${E(op.code||source.operation_code||'')} · ${E(op.name||source.operation_name||'')}</h2><p>${E(op.po_code||source.po_code||'')} · ${E(op.part_code||source.part_code||'')} ${E(op.part_name||source.part_name||'')}</p></div><button class="btn" type="button" data-op-detail-close>Đóng</button></div><div class="op-detail-kpis"><div><small>Nhân viên đã làm</small><b>${N(employees.length)}</b></div><div><small>Phiên làm việc</small><b>${N(sessions.length)}</b></div><div><small>Đạt / Lỗi</small><b>${N(totalGood)} / ${N(totalDefect)}</b></div><div><small>Định mức</small><b>${standard>0?`${N(standard)} giây/SP`:'Chưa cấu hình'}</b></div></div><div class="op-detail-note">Năng suất dùng cùng công thức báo cáo hiện tại: <b>định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%</b>. Trên 100% = nhanh hơn định mức; dưới 100% = chậm hơn định mức.</div><section class="op-detail-section"><div class="op-detail-section-head"><h3>Ai đã làm Operation này</h3><span>Sắp theo năng suất từ cao xuống thấp</span></div><div class="op-detail-user-head"><span>Nhân viên</span><span>Phiên</span><span>Sản lượng</span><span>Thời gian</span><span>Năng suất</span></div>${employeeRows}</section><section class="op-detail-section"><div class="op-detail-section-head"><h3>Phiên gần nhất</h3><span class="${needsQtyCount?'op-detail-attention':''}">${needsQtyCount?`⚠ ${needsQtyCount} phiên 0/0 cần bổ sung sản lượng`:'Tối đa 30 phiên'}</span></div><div class="op-detail-session-head"><span>Nhân viên</span><span>Bắt đầu / kết thúc</span><span>Sản lượng</span><span>Thời gian</span><span>So định mức</span><span>Thao tác</span></div${sessionRows||'<div class="op-detail-empty">Chưa có phiên làm việc.</div>'}</section>`;
       modal.querySelector('[data-op-detail-close]').onclick=close;
-      modal.querySelectorAll('[data-edit-session-qty]').forEach(btn=>btn.onclick=()=>{
-        const item=btn.closest('[data-session-item]'),form=item?.querySelector('[data-session-qty-form]');if(!form)return;
-        modal.querySelectorAll('[data-session-qty-form]').forEach(other=>{if(other!==form)other.hidden=true});
-        form.hidden=!form.hidden;
-        if(!form.hidden)form.querySelector('input[name="good_qty"]')?.focus();
+      modal.addEventListener('click',e=>{
+        const editBtn=e.target.closest('[data-edit-session-qty]');
+        if(editBtn&&modal.contains(editBtn)){
+          e.preventDefault();e.stopPropagation();
+          const item=editBtn.closest('[data-session-item]'),form=item?.querySelector('[data-session-qty-form]');if(!form)return;
+          modal.querySelectorAll('[data-session-qty-form]').forEach(other=>{if(other!==form)other.hidden=true});
+          form.hidden=!form.hidden;
+          if(!form.hidden)form.querySelector('input[name="good_qty"]')?.focus();
+          return;
+        }
+        const cancelBtn=e.target.closest('[data-session-edit-cancel]');
+        if(cancelBtn&&modal.contains(cancelBtn)){
+          e.preventDefault();e.stopPropagation();
+          const form=cancelBtn.closest('[data-session-qty-form]');if(form)form.hidden=true;
+        }
       });
-      modal.querySelectorAll('[data-session-edit-cancel]').forEach(btn=>btn.onclick=()=>{const form=btn.closest('[data-session-qty-form]');if(form)form.hidden=true});
       modal.querySelectorAll('[data-session-qty-form]').forEach(form=>form.onsubmit=async e=>{
         e.preventDefault();
         const sessionId=Number(form.dataset.sessionQtyForm),good=Number(form.good_qty.value),defect=Number(form.defect_qty.value),rework=Number(form.rework_qty.value),reason=String(form.reason.value||'').trim();

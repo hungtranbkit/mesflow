@@ -3958,3 +3958,15 @@ body[data-page="dashboard"] .op-card-fact>b{
  .op-session-edit-fields{grid-template-columns:1fr 1fr}
  .op-session-edit-fields .reason{grid-column:1/-1}
 }
+
+
+/* OP Detail session row layout/clickability hotfix. */
+.op-detail-session-item{display:block;width:100%;min-width:0;max-width:100%;position:relative;isolation:isolate;box-sizing:border-box;overflow:visible}
+.op-detail-session-item .op-detail-session-row{width:100%;min-width:0;max-width:100%;box-sizing:border-box;grid-template-columns:minmax(160px,1fr) minmax(190px,1.25fr) 120px 110px minmax(150px,.9fr) 92px!important}
+.op-session-actions{position:relative;z-index:10;pointer-events:auto!important;min-width:0}
+.op-session-actions .btn{position:relative;z-index:11;pointer-events:auto!important}
+.op-session-qty-editor{position:relative;z-index:1;width:100%;max-width:100%;box-sizing:border-box;clear:both}
+.op-session-qty-editor[hidden]{display:none!important}
+@media(max-width:800px){
+ .op-detail-session-item .op-detail-session-row{grid-template-columns:1fr 1fr!important}
+}
