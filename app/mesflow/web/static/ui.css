@@ -3970,3 +3970,17 @@ body[data-page="dashboard"] .op-card-fact>b{
 @media(max-width:800px){
  .op-detail-session-item .op-detail-session-row{grid-template-columns:1fr 1fr!important}
 }
+
+
+/* OP Detail: pin every session cell to the same six-column grid, including OPEN sessions. */
+.op-detail-session-head,.op-detail-session-item .op-detail-session-row{grid-template-columns:minmax(160px,1fr) minmax(190px,1.25fr) 120px 110px minmax(150px,.9fr) 92px!important}
+.op-detail-session-row .op-session-cell.employee{grid-column:1}
+.op-detail-session-row .op-session-cell.period{grid-column:2}
+.op-detail-session-row .op-session-cell.quantity{grid-column:3}
+.op-detail-session-row .op-session-cell.duration{grid-column:4}
+.op-detail-session-row .op-session-cell.benchmark{grid-column:5}
+.op-detail-session-row .op-session-actions{grid-column:6}
+.op-session-no-action{display:block;width:100%;text-align:center;color:var(--text-tertiary,#98a2b3);font-weight:600}
+@media(max-width:800px){
+ .op-detail-session-row .op-session-cell.employee,.op-detail-session-row .op-session-cell.period,.op-detail-session-row .op-session-cell.quantity,.op-detail-session-row .op-session-cell.duration,.op-detail-session-row .op-session-cell.benchmark,.op-detail-session-row .op-session-actions{grid-column:auto}
+}
