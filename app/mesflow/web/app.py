@@ -241,7 +241,12 @@ def create_app():
         camera = 'camera=(self)' if request.path.startswith('/kiosk') else 'camera=()'
         response.headers.setdefault(
             'Permissions-Policy', f'{camera}, microphone=(), geolocation=()')
-        response.headers.setdefault('Cache-Control','no-store' if request.path.startswith('/api/auth/') else 'no-cache')
+        if request.path.startswith('/static/'):
+            response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        else:
+            response.headers.setdefault('Cache-Control','no-store' if request.path.startswith('/api/auth/') else 'no-cache')
         return response
 
 
