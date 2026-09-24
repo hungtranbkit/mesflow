@@ -1,7 +1,7 @@
 (function(){
   const E=v=>window.esc?window.esc(v??''):String(v??'');
   const F=v=>window.format?window.format(Number(v||0)):Number(v||0).toLocaleString('vi-VN');
-  const DT=v=>v?new Date(v).toLocaleString('vi-VN'):'—';
+  const DT=v=>v?new Date(v).toLocaleString('vi-VN',{hour12:false}):'—';
   const kindLabel=k=>String(k||'GOOD').toUpperCase()==='REWORK'?'Lỗi sửa được (REWORK)':'Hàng đạt (GOOD)';
 
   function ensureModal(){
