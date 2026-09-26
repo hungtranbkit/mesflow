@@ -23,11 +23,13 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(page.locator('[data-today-metrics]')).toHaveCount(4);
  // Idle row: compact empty block, no worker line.
  await expect(row(1).locator('[data-today-metrics]')).toContainText('Chưa có phiên làm việc');
- await expect(row(1).locator('.overview-op-workers')).toHaveCount(0);
+ await expect(row(1).locator('[data-today-metrics] .overview-op-workers')).toHaveCount(0);
+ await expect(row(1).locator(':scope > .overview-op-workers')).toHaveCount(0);
  // OPEN wins: green line only, no neutral history line.
- await expect(row(2).locator('.overview-op-workers')).toHaveCount(1);
- await expect(row(2).locator('.overview-op-workers')).toContainText('Đang làm');
- await expect(row(2).locator('.overview-op-workers.is-stopped')).toHaveCount(0);
+ await expect(row(2).locator('[data-today-metrics] .overview-op-workers')).toHaveCount(1);
+ await expect(row(2).locator('[data-today-metrics] .overview-op-workers')).toContainText('Đang làm');
+ await expect(row(2).locator('[data-today-metrics] .overview-op-workers.is-stopped')).toHaveCount(0);
+ await expect(row(2).locator(':scope > .overview-op-workers')).toHaveCount(0);
  const t2=row(2).locator('[data-today-metrics]');
  await expect(t2.locator('[data-today="employees"] b')).toHaveText('2');
  await expect(t2.locator('[data-today="sessions"] b')).toHaveText('3');
@@ -39,7 +41,8 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(t2.locator('[data-today="productivity"]')).toHaveClass(/fast/);
  await expect(t2.locator('[data-today="productivity"]')).toHaveAttribute('title',/Nhanh hơn định mức[\s\S]*định mức × \(Đạt \+ Lỗi\) ÷ thời gian thực tế × 100%/);
  // Closed-today: neutral "Đã dừng HH:mm" (local time), max 3 chips + N.
- const stopped=row(3).locator('.overview-op-workers.is-stopped');
+ const stopped=row(3).locator('[data-today-metrics] .overview-op-workers.is-stopped');
+ await expect(row(3).locator(':scope > .overview-op-workers')).toHaveCount(0);
  await expect(stopped.locator('em')).toHaveText('Đã dừng 16:30');
  await expect(stopped.locator('.ov-worker')).toHaveCount(4);
  await expect(stopped.locator('.ov-worker.more')).toHaveText('+2');

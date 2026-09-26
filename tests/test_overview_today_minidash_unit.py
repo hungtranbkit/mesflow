@@ -125,8 +125,10 @@ def test_page_contract_operation_block():
     assert 't.weighted_productivity_percent' in block and 't.productivity_percent' not in block
     assert "'Chậm hơn dự kiến'" in PAGE and "'Nhanh hơn dự kiến'" in PAGE and "'Đúng dự kiến'" in PAGE
     assert 'định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%' in block
-    # Row structure: block + OPEN-wins worker line unchanged; Mở OP kept.
-    assert '${todayMetrics(x)}${activeWorkers(x)||todayWorkers(x)}</div>' in PAGE
+    # Worker status and names live inside the Hôm nay block, with no sibling row.
+    assert '${workers}</div><div class="ov-today-line">' in PAGE
+    assert 'const operationRows=' in PAGE and '${todayMetrics(x)}</div>' in PAGE
+    assert 'activeWorkers(x)||todayWorkers(x)}</div>' not in PAGE
     assert 'data-open-op="${x.operation_id}"' in PAGE and 'data-op-detail="${x.operation_id}"' in PAGE
 
 

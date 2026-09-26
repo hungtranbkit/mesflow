@@ -59,9 +59,10 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`tod
  await expect(m(4,'time').locator('b')).toHaveText('25p');
  await expect(row(5).locator('[data-today-metrics]')).toContainText('Chưa có phiên làm việc');
  // OPEN wins: green line on running rows, neutral history elsewhere.
- await expect(row(1).locator('.overview-op-workers:not(.is-stopped)')).toContainText('Đang làm');
- await expect(row(1).locator('.overview-op-workers.is-stopped')).toHaveCount(0);
- await expect(row(2).locator('.overview-op-workers.is-stopped')).toHaveCount(1);
+ await expect(row(1).locator('[data-today-metrics] .overview-op-workers:not(.is-stopped)')).toContainText('Đang làm');
+ await expect(row(1).locator(':scope > .overview-op-workers')).toHaveCount(0);
+ await expect(row(2).locator('[data-today-metrics] .overview-op-workers.is-stopped')).toHaveCount(1);
+ await expect(row(2).locator(':scope > .overview-op-workers')).toHaveCount(0);
  // ---- PO strip, derived from the same rows.
  const strip=page.locator('[data-po-section="1"] [data-po-today]').first(),s=k=>strip.locator(`[data-po-today="${k}"]`);
  await expect(strip).toBeVisible();

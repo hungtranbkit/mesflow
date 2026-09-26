@@ -130,6 +130,7 @@ def test_today_sql_and_page_contract():
     active = repo.split('def active_workers_by_operation', 1)[1].split('def today_activity_by_operation', 1)[0]
     assert "ws.status='OPEN'" in active
     # OPEN wins on the page: the neutral line only renders without an active one.
-    assert '${todayMetrics(x)}${activeWorkers(x)||todayWorkers(x)}</div>' in page
+    assert '${workers}</div><div class="ov-today-line">' in page
+    assert '${todayMetrics(x)}</div>' in page
     assert "Đã dừng ${at}" in page and "'Đã làm hôm nay'" in page
     assert 'định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%' in page
