@@ -45,6 +45,29 @@ def test_form_has_the_required_fields_and_live_previews():
     assert not re.search(r'20\d\d-\d\d-\d\d', form)
 
 
+def test_form_has_rework_as_a_subset_of_defect():
+    # Lỗi sửa được: its own field, sent to the server, checked against Lỗi.
+    assert '<span>Lỗi sửa được</span><input name="rework_qty" type="number" min="0" step="1" inputmode="numeric" value="0" required' in JS
+    assert 'rework_qty:rework,' in JS
+    assert 'if(rework>defect)return showError(reworkError);' in JS
+    assert "reworkError='Lỗi sửa được không được lớn hơn số Lỗi.'" in JS
+    # The server's shared guard message is presented in the form's language.
+    assert '/rework_qty cannot exceed defect_qty/.test(msg)?reworkError:msg' in JS
+    # So định mức counts Đạt + Lỗi only: rework is inside Lỗi, never added again.
+    live = JS[JS.index('const preview=()=>{'):JS.index('// Lỗi sửa được is a subset of Lỗi')]
+    assert 'rework' not in live
+    score_fn = JS[JS.index('const score=(standard,s)=>{'):JS.index('const speed=')]
+    assert "qty=Number(s.good_qty||0)+Number(s.defect_qty||0)" in score_fn and 'rework' not in score_fn
+    # Aggregate + recent-session rows keep showing rework.
+    assert "${p.rework>0?` · sửa được ${N(p.rework)}`:''}" in JS
+    assert "${Number(s.rework_qty||0)>0?` · ${N(s.rework_qty)} sửa`:''}" in JS
+    # Backend: parsed, shape-guarded by the shared helper, written everywhere.
+    block = _manual_block()
+    assert "rework=as_int('rework_qty','Lỗi sửa được',False)" in block
+    assert '_guard_quantity_shape(good=good,defect=defect,rework=rework,repaired=0,scrap=0)' in block
+    assert "'rework_qty':rework" in block
+
+
 def test_submit_is_idempotent_and_refreshes_in_place():
     assert "if(form.dataset.saving==='1')return;" in JS
     assert 'form.dataset.requestId=`op-detail-manual-${operationId}-' in JS

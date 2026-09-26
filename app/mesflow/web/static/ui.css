@@ -4006,6 +4006,7 @@ body[data-page="dashboard"] .op-card-fact>b{
 .op-manual-fields label b{color:var(--status-danger,#b42318)}
 .op-manual-fields label>span{display:block}.op-manual-fields label small{font-weight:600}
 .op-manual-fields .wide{grid-column:span 2}
+.op-manual-fields .full{grid-column:1/-1}
 .op-manual-fields input,.op-manual-fields select{width:100%;min-width:0;min-height:36px;box-sizing:border-box}
 .op-manual-preview output{display:flex;align-items:center;min-height:36px;padding:0 10px;border:1px dashed var(--border-default);border-radius:var(--radius-control);background:var(--surface,#fff);font-size:12px;font-weight:700}
 .op-manual-preview small{font-size:11px}

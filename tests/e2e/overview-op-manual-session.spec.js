@@ -27,7 +27,7 @@ async function mock(page){
   await new Promise(res=>setTimeout(res,400));
   const emp=EMPLOYEES.find(x=>x.id===body.employee_id);
   // Older than the existing row on purpose: it must still be shown.
-  state.sessions=[...state.sessions,SESSION(777,emp,{started_at:iso(body.started_at),ended_at:iso(body.ended_at),duration_seconds:(new Date(body.ended_at)-new Date(body.started_at))/1000,good_qty:body.good_qty,defect_qty:body.defect_qty,close_reason:'MANUAL_SUPPLEMENT',adjustment_count:1})];
+  state.sessions=[...state.sessions,SESSION(777,emp,{started_at:iso(body.started_at),ended_at:iso(body.ended_at),duration_seconds:(new Date(body.ended_at)-new Date(body.started_at))/1000,good_qty:body.good_qty,defect_qty:body.defect_qty,rework_qty:body.rework_qty,close_reason:'MANUAL_SUPPLEMENT',adjustment_count:1})];
   await r.fulfill({status:201,json:{ok:true,session:{id:777,status:'CLOSED'},idempotent_replay:false}})});
  return state}
 async function openDetail(page){await page.evaluate(()=>openPage('overview'));
@@ -49,9 +49,17 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`man
  await form.locator('input[name="started_at"]').fill(local(8));
  await form.locator('input[name="ended_at"]').fill(local(10));
  await form.locator('input[name="good_qty"]').fill('30');
+ await expect(form.locator('input[name="rework_qty"]')).toHaveValue('0');
+ await expect(form.locator('label',{hasText:'Lỗi sửa được'}).locator('input[name="rework_qty"]')).toHaveAttribute('min','0');
  await form.locator('input[name="defect_qty"]').fill('2');
+ // Lỗi sửa được > Lỗi: friendly message while typing, and no request on submit.
+ await form.locator('input[name="rework_qty"]').fill('3');
+ await expect(form.locator('[data-manual-error]')).toHaveText('Lỗi sửa được không được lớn hơn số Lỗi.');
+ await form.locator('input[name="rework_qty"]').fill('1');
+ await expect(form.locator('[data-manual-error]')).toBeHidden();
  await expect(form.locator('[data-manual-duration]')).toHaveText(`2 giờ 00 phút · ${local(8).slice(8,10)}/${local(8).slice(5,7)} 08:00 → 10:00`);
- // 120 s/SP x 32 SP / 7200 s x 100 = 53.3% -- same formula/copy as the list.
+ // 120 s/SP x 32 SP / 7200 s x 100 = 53.3% -- same formula/copy as the list;
+ // Lỗi sửa được is inside Lỗi, so it does not change the score.
  await expect(form.locator('[data-manual-score]')).toHaveText('53.3% · Chậm hơn định mức');
  await noOverflow(page);
  await page.screenshot({path:`test-results/op-manual-session-form-${viewport.width}x${viewport.height}.png`,fullPage:true});
@@ -64,14 +72,19 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`man
  await form.locator('[data-manual-session-submit]').click();
  await expect(form.locator('[data-manual-error]')).toHaveText('Giờ kết thúc phải sau giờ bắt đầu.');
  await form.locator('input[name="ended_at"]').fill(local(10));
+ await form.locator('input[name="rework_qty"]').fill('3');
+ await form.locator('[data-manual-session-submit]').click();
+ await expect(form.locator('[data-manual-error]')).toHaveText('Lỗi sửa được không được lớn hơn số Lỗi.');
+ await form.locator('input[name="rework_qty"]').fill('1');
+ await expect(form.locator('[data-manual-score]')).toHaveText('53.3% · Chậm hơn định mức');
  expect(state.posts).toHaveLength(0);
  // Double submit -> exactly one POST.
  const submit=form.locator('[data-manual-session-submit]');
  await submit.click();await form.evaluate(f=>f.requestSubmit());
- await expect(page.locator('#toast')).toContainText('Đã bổ sung phiên #777');
+ await expect(page.locator('#toast')).toContainText('Đã bổ sung phiên #777 · 30 đạt · 2 lỗi (sửa được 1)');
  expect(state.posts).toHaveLength(1);
  const sent=state.posts[0];
- expect(sent).toMatchObject({operation_id:7,employee_id:11,started_at:local(8),ended_at:local(10),good_qty:30,defect_qty:2,reason:'Quên quét QR kết thúc'});
+ expect(sent).toMatchObject({operation_id:7,employee_id:11,started_at:local(8),ended_at:local(10),good_qty:30,defect_qty:2,rework_qty:1,reason:'Quên quét QR kết thúc'});
  expect(sent.request_id).toMatch(/^op-detail-manual-7-/);
  // Refreshed in place: form closed, new row in Phiên gần nhất, aggregate updated.
  await expect(modal.locator('[data-manual-session-form]')).toBeHidden();
@@ -80,6 +93,8 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`man
  await expect(row).toContainText('Bổ sung tay');
  await expect(row).not.toContainText('Đã điều chỉnh');
  await expect(row).toContainText('32 SP');
+ await expect(row).toContainText('30 đạt · 2 lỗi · 1 sửa');
+ await expect(modal.locator('.op-detail-user-row').first()).toContainText('sửa được 1');
  await expect(modal.locator('.op-detail-user-row').first()).toContainText('2');
  await expect(modal.locator('.op-detail-kpis')).toContainText('50 / 2');
  // Existing Sửa SL stays on closed rows.

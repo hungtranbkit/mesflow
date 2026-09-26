@@ -157,6 +157,9 @@ def test_manual_session_never_counts_as_currently_active(api, db, graph):
     ({'defect_qty': -3}, 400),
     ({'good_qty': 1.5}, 400),
     ({'good_qty': 'abc'}, 400),
+    ({'rework_qty': -1}, 400),
+    ({'rework_qty': 1.5}, 400),
+    ({'defect_qty': 2, 'rework_qty': 3}, 400),
     ({'employee_id': 999999999}, 404),
     ({'employee_id': None}, 400),
     ({'operation_id': 999999999}, 404),
@@ -171,6 +174,65 @@ def test_manual_session_validation(api, db, graph, override, status):
     assert response.status_code == status, response.text
     assert response.json()['ok'] is False
     assert _count_sessions(db, g) == before
+
+
+def test_manual_session_records_rework_as_a_subset_of_defect(api, db, graph):
+    """Lỗi sửa được (rework_qty) is part of Lỗi, never extra output: it lands
+    on the session, the 0 -> entered adjustment, a REPAIRABLE movement and
+    the audit row, while Đạt/Lỗi totals (and so So định mức) are unchanged
+    by it. The session is CLOSED, so it is never "đang làm"."""
+    g = graph
+    body = _body(g, good_qty=30, defect_qty=5, rework_qty=3)
+    response = api.post(URL, json=body, timeout=15)
+    assert response.status_code == 201, response.text
+    sid = response.json()['session']['id']
+    assert response.json()['session']['rework_qty'] == 3
+
+    with db.cursor() as cur:
+        cur.execute('SELECT status,good_qty,defect_qty,rework_qty FROM work_sessions WHERE id=%s', (sid,))
+        row = cur.fetchone()
+        cur.execute('SELECT * FROM operation_adjustments WHERE session_id=%s', (sid,))
+        adjustments = cur.fetchall()
+        cur.execute('SELECT movement_type,delta,previous_value,new_value,source FROM quantity_movements WHERE session_id=%s ORDER BY movement_type', (sid,))
+        movements = cur.fetchall()
+        cur.execute("SELECT details_json FROM audit_logs WHERE action='SESSION_MANUAL_CREATE' AND entity_id=%s", (str(sid),))
+        (audit,) = cur.fetchall()
+        cur.execute('SELECT done_qty,defect_qty FROM operations WHERE id=%s', (g['operation_id'],))
+        op = cur.fetchone()
+    assert (row['status'], row['good_qty'], row['defect_qty'], row['rework_qty']) == ('CLOSED', 30, 5, 3)
+    (adj,) = adjustments
+    assert (adj['old_good_qty'], adj['new_good_qty'], adj['old_defect_qty'], adj['new_defect_qty'],
+            adj['old_rework_qty'], adj['new_rework_qty']) == (0, 30, 0, 5, 0, 3)
+    assert [(m['movement_type'], m['delta'], m['previous_value'], m['new_value'], m['source']) for m in movements] == [
+        ('DEFECT', 5, 0, 5, 'MANUAL_SUPPLEMENT'), ('GOOD', 30, 0, 30, 'MANUAL_SUPPLEMENT'),
+        ('REPAIRABLE', 3, 0, 3, 'MANUAL_SUPPLEMENT')]
+    details = audit['details_json'] if isinstance(audit['details_json'], dict) else json.loads(audit['details_json'])
+    assert (details['good_qty'], details['defect_qty'], details['rework_qty']) == (30, 5, 3)
+    # Rework is inside Lỗi: Operation totals are Đạt 30 / Lỗi 5, not 5 + 3.
+    assert (op['done_qty'], op['defect_qty']) == (30, 5)
+
+    report = api.get(f'{BASE_URL}/api/reports/operation-sessions?operation_id={g["operation_id"]}&limit=3000', timeout=15).json()['report']
+    (listed,) = [s for s in report['sessions'] if s['session_id'] == sid]
+    assert (listed['good_qty'], listed['defect_qty'], listed['rework_qty']) == (30, 5, 3)
+    (user,) = [u for u in report['users'] if u['employee_id'] == g['employee_id']]
+    assert (user['good_qty'], user['defect_qty'], user['rework_qty'], user['open_session_count']) == (30, 5, 3, 0)
+
+    overview = api.get(f'{BASE_URL}/api/dashboard/overview?limit=5000', timeout=30).json()
+    (ov,) = [x for x in overview['operations'] if x['operation_id'] == g['operation_id']]
+    assert ov['active_worker_list'] == [] and ov['active_worker_count'] == 0
+    assert (ov['done_qty'], ov['defect_qty']) == (30, 5)
+
+
+def test_rework_above_defect_is_refused_without_side_effects(api, db, graph):
+    g = graph
+    response = api.post(URL, json=_body(g, good_qty=10, defect_qty=2, rework_qty=3), timeout=15)
+    assert response.status_code == 400, response.text
+    # The shared _guard_quantity_shape message; the form translates it.
+    assert 'rework_qty cannot exceed defect_qty' in response.text
+    assert _count_sessions(db, g) == 0
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) n FROM audit_logs WHERE action='SESSION_MANUAL_CREATE' AND employee_id=%s", (g['employee_id'],))
+        assert cur.fetchone()['n'] == 0
 
 
 def test_overlap_is_only_blocked_on_the_same_operation(api, db, graph):
