@@ -167,6 +167,31 @@ def _group_active_workers(sessions):
     return {op:sorted(ws.values(),key=lambda w:(coerce_utc(w['started_at']) if w['started_at'] else far,str(w['name'])))
             for op,ws in grouped.items()}
 
+def _json_list(value):
+    """jsonb_agg column -> list (psycopg may hand back decoded JSON, a raw
+    string, or NULL when the aggregate matched nothing)."""
+    if isinstance(value,str):
+        try: value=json.loads(value)
+        except (TypeError,ValueError): return []
+    return value if isinstance(value,list) else []
+
+def _attach_today(row,today):
+    """Overview row fields for the "Hôm nay" block and today-history line.
+
+    today_worker_list = closed-today workers only; anyone already in
+    active_worker_list (OPEN, incl. a SETUP session folded onto this row) is
+    dropped from it -- OPEN wins. today_state: RUNNING when someone is on it
+    now, STOPPED when it was worked earlier today, IDLE otherwise."""
+    t=dict(today.get(int(row['operation_id'])) or {})
+    active_ids={w.get('employee_id') for w in row.get('active_worker_list') or [] if w.get('employee_id') is not None}
+    history=[w for w in t.pop('worker_list',None) or [] if w.get('employee_id') not in active_ids]
+    row['today']=t or None
+    row['today_worker_list']=history
+    row['today_worker_count']=len(history)
+    row['today_last_ended_at']=t.get('last_ended_at')
+    row['today_state']=('RUNNING' if row.get('active_worker_list') else
+                        'STOPPED' if int(t.get('session_count') or 0)>0 else 'IDLE')
+
 class DashboardRepository:
     @staticmethod
     def _calendar_day_context(shift_date):
@@ -395,10 +420,12 @@ class DashboardRepository:
           WHEN o.status='IN_PROGRESS' THEN 1 WHEN o.status='PAUSED' THEN 2 WHEN o.status='COMPLETED' THEN 4 ELSE 3 END,
           po.updated_at DESC,p.sort_order,o.sort_order,o.id LIMIT %s""",(min(max(limit,1),5000),))
         active=self.active_workers_by_operation()
+        today=self.today_activity_by_operation()
         for row in rows:
             workers=active.get(int(row['operation_id']),[])
             row['active_worker_list']=workers
             row['active_worker_count']=len(workers)
+            _attach_today(row,today)
             plan=max(int(row.get('planned_quantity') or 0),0); done=max(int(row.get('done_qty') or 0),0)
             row['progress_percent']=round(min(done/plan*100,100),1) if plan else 0.0
             if int(row.get('open_session_count') or 0)>0: row['health']='RUNNING'
@@ -422,6 +449,88 @@ class DashboardRepository:
         WHERE ws.status='OPEN' AND {reportable_session_sql('ws')}
         ORDER BY ws.started_at,ws.id""")
         return _group_active_workers(rows)
+
+    def today_activity_by_operation(self,now:datetime|None=None):
+        """"Hôm nay" block of every Overview row -- ONE grouped query for the
+        whole board, never per row.
+
+        Window = the factory's local CALENDAR day (settings.timezone_name,
+        Asia/Ho_Chi_Minh), 00:00 -> 24:00 -- not the shift window -- through
+        the same _calendar_day_context() Dashboard theo ngày uses, so a
+        session closed (by hand or by the shift auto-close job) at 16:30 is
+        still counted until 23:59:59 and drops out by itself at midnight.
+        Membership, quantities and worked time mirror daily_progress(
+        calendar_day=True) exactly: a session belongs to the day when it
+        overlaps it, quantities count when report_at falls inside it, and
+        work_seconds counts only configured WORK windows. productivity_percent
+        is the report/Operation Detail "So định mức" score -- AVG over CLOSED
+        sessions of định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100
+        (_SESSION_COMPLETION_PERCENT_SQL).
+
+        worker_list is the separate closed-today history (not OPEN): one entry
+        per employee with no OPEN session on this Operation, most recent
+        first. OPEN stays authoritative in active_worker_list; _attach_today
+        removes anyone present there. Nothing here touches auto-close."""
+        now=coerce_utc(now) if now is not None else utc_now()
+        ctx=self._calendar_day_context(business_date(now))
+        day_start,day_end=ctx['day_start'],ctx['day_end']
+        parts=[];work_params=[]
+        for iv in ctx['intervals']:
+            if iv.get('interval_type')!='WORK':continue
+            parts.append("GREATEST(EXTRACT(EPOCH FROM (LEAST(COALESCE(ws.ended_at,%s),%s)-GREATEST(ws.started_at,%s))),0)")
+            work_params.extend([now,iv['end_at'],iv['start_at']])
+        work_sql=' + '.join(parts) if parts else '0'
+        rows=fetch_all(f"""WITH day_sessions AS (
+          SELECT ws.id,ws.operation_id,ws.employee_id,ws.status,ws.started_at,ws.ended_at,
+            ws.closed_by_system,ws.quantity_confirmed,
+            COALESCE(ws.ended_at,ws.updated_at) report_at,
+            COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
+            ({work_sql}) work_seconds,
+            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,%s)-ws.started_at)),0) actual_seconds,
+            COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
+            COALESCE(o.standard_seconds_per_unit,0) standard_seconds_per_unit
+          FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id
+          WHERE ws.started_at < %s AND COALESCE(ws.ended_at,%s) >= %s AND {reportable_session_sql('ws')}
+        ), scored AS (
+          SELECT *,{ReportRepository._SESSION_COMPLETION_PERCENT_SQL} completion_percent,
+            (report_at >= %s AND report_at < %s) reported_today FROM day_sessions
+        ), closed_workers AS (
+          SELECT pe.operation_id,
+            jsonb_agg(jsonb_build_object('employee_id',pe.employee_id,'employee_no',COALESCE(e.employee_no,''),
+              'name',COALESCE(e.name,''),'session_count',pe.session_count,'last_ended_at',pe.last_ended_at,
+              'auto_closed',pe.auto_closed) ORDER BY pe.last_ended_at DESC NULLS LAST,e.name) worker_list
+          FROM (SELECT operation_id,employee_id,COUNT(*) session_count,MAX(ended_at) last_ended_at,
+                  BOOL_OR(closed_by_system) FILTER (WHERE ended_at IS NOT NULL) auto_closed
+                FROM day_sessions WHERE employee_id IS NOT NULL GROUP BY operation_id,employee_id
+                HAVING COUNT(*) FILTER (WHERE status='OPEN')=0) pe
+          LEFT JOIN employees e ON e.id=pe.employee_id
+          GROUP BY pe.operation_id
+        )
+        SELECT s.operation_id,
+          COUNT(DISTINCT s.employee_id) employee_count,COUNT(*) session_count,
+          COUNT(*) FILTER (WHERE s.status='OPEN') open_session_count,
+          COALESCE(SUM(s.good_qty) FILTER (WHERE s.reported_today),0)::bigint good_qty,
+          COALESCE(SUM(s.defect_qty) FILTER (WHERE s.reported_today),0)::bigint defect_qty,
+          COALESCE(SUM(s.rework_qty) FILTER (WHERE s.reported_today),0)::bigint rework_qty,
+          COUNT(*) FILTER (WHERE s.status='CLOSED' AND s.quantity_confirmed AND s.reported_today) recorded_session_count,
+          COALESCE(SUM(s.work_seconds),0)::bigint work_seconds,
+          ROUND(AVG(s.completion_percent)::numeric,1) productivity_percent,
+          COUNT(s.completion_percent) scored_session_count,
+          MAX(s.standard_seconds_per_unit) standard_seconds_per_unit,
+          MAX(s.ended_at) last_ended_at,
+          cw.worker_list
+        FROM scored s LEFT JOIN closed_workers cw ON cw.operation_id=s.operation_id
+        GROUP BY s.operation_id,cw.worker_list""",
+          [*work_params,now,day_end,now,day_start,day_start,day_end])
+        out={}
+        for row in rows:
+            item=dict(row)
+            item['date']=ctx['shift_date'].isoformat()
+            pct=item.get('productivity_percent')
+            item['productivity_percent']=float(pct) if pct is not None else None
+            item['worker_list']=_json_list(item.get('worker_list'))
+            out[int(item.pop('operation_id'))]=item
+        return out
 
     def overview(self,limit:int=1000):
         return {'summary':self.summary(),'production_orders':self.po_progress(min(limit,500)),

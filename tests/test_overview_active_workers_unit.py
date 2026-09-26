@@ -84,12 +84,15 @@ def test_operation_overview_attaches_list_with_one_extra_query(monkeypatch):
         calls.append(sql)
         if 'ws.id session_id' in sql:
             return [_s(1, 10, 7, 'An'), _s(2, 10, 8, 'Bình', minutes=1)]
+        if 'day_sessions' in sql:
+            return []
         return [dict(operation_id=10, planned_quantity=100, done_qty=5, open_session_count=2, operation_status='IN_PROGRESS'),
                 dict(operation_id=11, planned_quantity=100, done_qty=0, open_session_count=0, operation_status='NOT_STARTED')]
 
     monkeypatch.setattr(analytics, 'fetch_all', fake_fetch_all)
+    monkeypatch.setattr(analytics.DashboardRepository, 'today_activity_by_operation', lambda self: {})
     rows = analytics.DashboardRepository().operation_overview(100)
-    assert len(calls) == 2  # operations + open sessions, never per row
+    assert len(calls) == 2  # operations + open sessions, never per row (today rollup stubbed)
     assert [w['name'] for w in rows[0]['active_worker_list']] == ['An', 'Bình']
     assert rows[0]['active_worker_count'] == 2
     assert rows[1]['active_worker_list'] == [] and rows[1]['active_worker_count'] == 0
@@ -102,5 +105,5 @@ def test_active_worker_source_is_open_sessions_and_page_renders_it():
     assert "ws.status='OPEN'" in body and "reportable_session_sql('ws')" in body
     assert 'parent_operation_id' in body
     assert 'x.active_worker_list' in page
-    assert '${activeWorkers(x)}</div>' in page
+    assert '${activeWorkers(x)||todayWorkers(x)}</div>' in page  # OPEN line wins over today history
     assert 'list.slice(0,3)' in page and '+${rest.length}' in page
