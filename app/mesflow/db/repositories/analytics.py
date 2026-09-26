@@ -5,8 +5,8 @@
 # PO vừa phát hành đơn giản là không xuất hiện trên dashboard mà không báo gì.
 # test_po_status_policy_is_single_sourced.py khoá hai bên lại với nhau.
 from __future__ import annotations
-from mesflow.domain.policy import (production_only_sql, support_only_sql, type_in_sql,
-                                   type_value_sql)
+from mesflow.domain.policy import (SETUP_TYPE, production_only_sql, support_only_sql,
+                                   type_in_sql, type_is_sql, type_value_sql)
 import json
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
@@ -132,6 +132,40 @@ def _worker_list(value):
     if not isinstance(value,list): return []
     items=[x for x in value if isinstance(x,dict) and x.get('employee_id') is not None]
     return sorted(items,key=lambda x:str(x.get('name') or ''))
+
+def _group_active_workers(sessions):
+    """Group OPEN work_sessions rows into {operation_id: [worker,...]}.
+
+    Production Overview hotfix (2026-09-26): each Operation row must name who
+    is running it RIGHT NOW, so the source is OPEN sessions only -- never the
+    day rollup. One entry per (operation, employee): several people on one
+    Operation each get their own entry, and one person holding more than one
+    OPEN session on the same Operation is folded into a single entry with
+    session_count>1 instead of being listed twice. (uq_open_session_per_employee
+    makes that last case impossible today; the grouping does not rely on it.)
+    A SETUP session is reported on its parent production Operation with
+    setup=True, since that is the row management is watching."""
+    grouped:dict[int,dict[Any,dict[str,Any]]]={}
+    for s in sessions or []:
+        op_id=s.get('operation_id')
+        if op_id is None: continue
+        key=s.get('employee_id') if s.get('employee_id') is not None else f"session-{s.get('session_id')}"
+        workers=grouped.setdefault(int(op_id),{})
+        w=workers.get(key)
+        started=s.get('started_at')
+        if w is None:
+            w=workers[key]={'employee_id':s.get('employee_id'),'employee_no':s.get('employee_no') or '',
+              'name':s.get('employee_name') or '','started_at':started,'session_count':0,
+              'session_ids':[],'station_codes':[],'setup':True}
+        w['session_count']+=1
+        if s.get('session_id') is not None: w['session_ids'].append(s.get('session_id'))
+        code=s.get('station_code')
+        if code and code not in w['station_codes']: w['station_codes'].append(code)
+        w['setup']=w['setup'] and bool(s.get('is_setup'))
+        if started is not None and (w['started_at'] is None or started<w['started_at']): w['started_at']=started
+    far=datetime.max.replace(tzinfo=timezone.utc)
+    return {op:sorted(ws.values(),key=lambda w:(coerce_utc(w['started_at']) if w['started_at'] else far,str(w['name'])))
+            for op,ws in grouped.items()}
 
 class DashboardRepository:
     @staticmethod
@@ -360,7 +394,11 @@ class DashboardRepository:
         ORDER BY CASE WHEN COUNT(ws.id) FILTER (WHERE ws.status='OPEN')>0 THEN 0
           WHEN o.status='IN_PROGRESS' THEN 1 WHEN o.status='PAUSED' THEN 2 WHEN o.status='COMPLETED' THEN 4 ELSE 3 END,
           po.updated_at DESC,p.sort_order,o.sort_order,o.id LIMIT %s""",(min(max(limit,1),5000),))
+        active=self.active_workers_by_operation()
         for row in rows:
+            workers=active.get(int(row['operation_id']),[])
+            row['active_worker_list']=workers
+            row['active_worker_count']=len(workers)
             plan=max(int(row.get('planned_quantity') or 0),0); done=max(int(row.get('done_qty') or 0),0)
             row['progress_percent']=round(min(done/plan*100,100),1) if plan else 0.0
             if int(row.get('open_session_count') or 0)>0: row['health']='RUNNING'
@@ -369,6 +407,21 @@ class DashboardRepository:
             elif done>0: row['health']='IN_PROGRESS'
             else: row['health']='NOT_STARTED'
         return rows
+
+    def active_workers_by_operation(self):
+        """Who is on each Operation right now, from OPEN sessions -- one query
+        for the whole board (no per-row lookup). Same reportable filter as the
+        active_sessions board below. See _group_active_workers."""
+        rows=fetch_all(f"""SELECT ws.id session_id,ws.operation_id session_operation_id,
+          CASE WHEN {type_is_sql(SETUP_TYPE,'so')} AND so.parent_operation_id IS NOT NULL
+               THEN so.parent_operation_id ELSE ws.operation_id END operation_id,
+          {type_is_sql(SETUP_TYPE,'so')} is_setup,
+          ws.employee_id,e.employee_no,e.name employee_name,ws.started_at,st.code station_code
+        FROM work_sessions ws JOIN operations so ON so.id=ws.operation_id
+        LEFT JOIN employees e ON e.id=ws.employee_id LEFT JOIN stations st ON st.id=ws.station_id
+        WHERE ws.status='OPEN' AND {reportable_session_sql('ws')}
+        ORDER BY ws.started_at,ws.id""")
+        return _group_active_workers(rows)
 
     def overview(self,limit:int=1000):
         return {'summary':self.summary(),'production_orders':self.po_progress(min(limit,500)),
