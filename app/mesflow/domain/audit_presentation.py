@@ -40,6 +40,10 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
     'SESSION_AUTO_CLOSED': {'label': 'Tự động đóng ca (quá giờ)', 'category': 'session'},
     'SESSION_EDIT': {'label': 'Chỉnh sửa phiên làm việc', 'category': 'session'},
     'SESSION_ADJUST': {'label': 'Điều chỉnh sản lượng phiên làm việc', 'category': 'quantity'},
+    # Bổ sung phiên from Operation Detail: a historical CLOSED session a
+    # manager recorded after the fact (worker forgot to scan). Its own action
+    # so it never reads as a kiosk SESSION_STARTED/FINISHED.
+    'SESSION_MANUAL_CREATE': {'label': 'Bổ sung phiên làm việc (nhập tay)', 'category': 'session'},
     # Session Management upgrade (spec section 6/7): dedicated actions,
     # separate from SESSION_EDIT, so a Business Audit Trail reader can tell
     # "Operation was reassigned" / "this session's data was excluded from
@@ -341,6 +345,20 @@ def _present_session_adjust(row: dict, details: dict, *, employees: dict, operat
     }
 
 
+def _present_session_manual_create(row: dict, details: dict, after: dict, *,
+                                    employees: dict, operations: dict, stations: dict) -> dict:
+    session_id = row.get('entity_id') or ''
+    summary = f"{row.get('actor_username') or 'Hệ thống'} đã bổ sung phiên làm việc #{session_id}"
+    fields = ['started_at', 'ended_at', 'good_qty', 'defect_qty', 'rework_qty', 'note']
+    extra = [{'field': f, 'label': field_label(f), 'value': details.get(f)} for f in fields if details.get(f) not in (None, '')]
+    return {
+        'title': f'Bổ sung phiên làm việc #{session_id}', 'summary': summary,
+        'context': _session_context(after or details, employees, operations, stations),
+        'reason': details.get('reason') or '', 'changes': [], 'extra': extra,
+        'session_id': _to_int(session_id),
+    }
+
+
 def _present_session_started_finished(row: dict, action: str, before: dict, after: dict, *,
                                        employees: dict, operations: dict, stations: dict) -> dict:
     session_id = row.get('entity_id') or ''
@@ -536,6 +554,8 @@ def present(row: dict[str, Any], *, employees: dict[int, dict] | None = None,
         result = _present_session_edit(row, details, employees=employees, operations=operations, stations=stations)
     elif action == 'SESSION_ADJUST':
         result = _present_session_adjust(row, details, employees=employees, operations=operations, stations=stations)
+    elif action == 'SESSION_MANUAL_CREATE':
+        result = _present_session_manual_create(row, details, after, employees=employees, operations=operations, stations=stations)
     elif action in ('SESSION_STARTED', 'SESSION_FINISHED', 'SESSION_AUTO_CLOSED'):
         # SESSION_AUTO_CLOSED reuses the same presenter as SESSION_FINISHED
         # (same before/after diff shape, same "kết thúc" verb reads

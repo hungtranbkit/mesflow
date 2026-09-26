@@ -62,7 +62,7 @@ async function renderOverview(){
   const workerTip=w=>[w.name,w.employee_no,w.setup?'Chuẩn bị máy':'',w.started_at?`từ ${T(w.started_at)}`:'',(w.station_codes||[]).join(', '),Number(w.session_count)>1?`${w.session_count} phiên đang mở`:''].filter(Boolean).join(' · ');
   const activeWorkers=x=>{const list=Array.isArray(x.active_worker_list)?x.active_worker_list:[];if(!list.length)return '';const shown=list.slice(0,3),rest=list.slice(3);return `<div class="overview-op-workers" aria-label="${list.length} người đang làm"><em>Đang làm</em>${shown.map(w=>`<span class="ov-worker${w.setup?' setup':''}" title="${E(workerTip(w))}"><i></i><b>${E(w.name||w.employee_no||'—')}</b>${w.employee_no?`<small>${E(w.employee_no)}</small>`:''}${w.setup?'<small class="ov-worker-tag">Chuẩn bị</small>':''}${Number(w.session_count)>1?`<small class="ov-worker-tag">×${Number(w.session_count)}</small>`:''}</span>`).join('')}${rest.length?`<span class="ov-worker more" title="${E(rest.map(workerTip).join('\n'))}"><b>+${rest.length}</b></span>`:''}</div>`};
   const operationRows=poId=>mergedOps().filter(x=>Number(x.po_id)===Number(poId)).sort((a,b)=>Number(a.part_id)-Number(b.part_id)||Number(a.operation_sort)-Number(b.operation_sort)).map(x=>`<div class="overview-op-row ${Number(x.repair_pending_quantity)>0?'has-repair':''}" data-repair-op="${x.operation_id}" data-op-detail="${x.operation_id}" tabindex="0" role="button" aria-label="Mở chi tiết Operation ${E(x.operation_code)}" title="Nhấp đúp để xem người đã làm và năng suất"><span><b class="row-title">${E(x.operation_name)}</b><small class="row-code">${E(x.operation_code)}</small><small>${E(x.part_code)} ${E(x.part_name||'')}</small></span><span><b>${Number(x.progress_percent||0).toFixed(1)}%</b>${progress(x.progress_percent,x.control_state)}</span><span><small>Đạt</small><b>${N(x.done_qty)}</b></span><span><small>Lỗi</small><b>${N(x.defect_qty)}</b></span><span><small>Chờ sửa</small><b>${N(x.repair_pending_quantity)}</b><small>${Number(x.repair_pending_quantity)>0?work(x.estimated_repair_work_seconds):'—'}</small></span><span><button class="btn mini" data-open-op="${x.operation_id}" type="button">Mở OP</button></span>${activeWorkers(x)}</div>`).join('');
-  const showOperationDetail=async operationId=>{
+  const showOperationDetail=async(operationId,opts={})=>{
     const source=mergedOps().find(x=>Number(x.operation_id)===Number(operationId))||{};
     const old=document.querySelector('.op-detail-backdrop');if(old)old.remove();
     const backdrop=document.createElement('div');backdrop.className='modal-backdrop op-detail-backdrop';
@@ -85,6 +85,69 @@ async function renderOverview(){
     const role=String(window.MESFLOW_USER?.role||'').toLowerCase(),canAdjustSessionQty=role==='admin'||role==='super_admin';
     const quantityConfirmed=v=>v===true||v===1||String(v||'').toLowerCase()==='true';
     const needsQuantityReview=s=>String(s.status||'').toUpperCase()==='CLOSED'&&Number(s.good_qty||0)===0&&Number(s.defect_qty||0)===0&&!quantityConfirmed(s.quantity_confirmed);
+    // Bổ sung phiên (manual supplement): same session.edit boundary as the
+    // /api/supervisor/sessions/* endpoints -- admin/manager/supervisor, never
+    // operator/kiosk. The server enforces it again; this only hides the UI.
+    const canManualSession=typeof hasPermission==='function'?hasPermission('session.edit'):['admin','super_admin','manager','supervisor'].includes(role);
+    const isManual=s=>String(s.close_reason||'').toUpperCase()==='MANUAL_SUPPLEMENT';
+    const hm=sec=>{sec=Math.max(0,Math.round(Number(sec)||0));const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return h?`${h} giờ ${String(m).padStart(2,'0')} phút`:`${m} phút`};
+    const localNow=()=>{const d=new Date();d.setSeconds(0,0);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)};
+    let manualEmployees=null;
+    const loadManualEmployees=async()=>{if(manualEmployees)return manualEmployees;const d=await api('/api/employees?limit=1000');manualEmployees=(d.items||[]).filter(x=>x.active!==false).sort((a,b)=>String(a.employee_no||'').localeCompare(String(b.employee_no||'')));return manualEmployees};
+    const bindManualForm=()=>{
+      const form=modal.querySelector('[data-manual-session-form]');if(!form)return;
+      const errorBox=form.querySelector('[data-manual-error]'),submit=form.querySelector('[data-manual-session-submit]');
+      const showError=msg=>{errorBox.textContent=msg||'';errorBox.hidden=!msg};
+      // Live preview: same score()/speed() and copy as the session list.
+      const preview=()=>{
+        const st=form.started_at.value,en=form.ended_at.value,sec=st&&en?(new Date(en)-new Date(st))/1000:NaN;
+        const clock=v=>v.slice(11,16),day=v=>`${v.slice(8,10)}/${v.slice(5,7)}`,range=Number.isFinite(sec)?` · ${day(st)} ${clock(st)} → ${day(en)===day(st)?'':`${day(en)} `}${clock(en)}`:'';
+        form.querySelector('[data-manual-duration]').textContent=Number.isFinite(sec)?(sec>0?`${hm(sec)}${range}`:'Kết thúc phải sau bắt đầu'):'—';
+        const standard=Number(modal.dataset.standard||0),pct=Number.isFinite(sec)&&sec>0?score(standard,{status:'CLOSED',duration_seconds:sec,good_qty:form.good_qty.value,defect_qty:form.defect_qty.value}):null,sp=speed(pct),out=form.querySelector('[data-manual-score]');
+        out.textContent=pct==null?(standard>0?'—':'Chưa cấu hình định mức'):`${pct.toFixed(1)}% · ${sp.text}`;out.className=`op-speed ${pct==null?'na':sp.cls}`;
+      };
+      form.oninput=()=>{preview();if(!errorBox.hidden)showError('')};
+      const open=async employeeId=>{
+        form.hidden=false;showError('');
+        // One idempotency key per opened form: a double click or a retry after
+        // a lost response replays the first create instead of making two rows.
+        form.dataset.requestId=`op-detail-manual-${operationId}-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+        const max=localNow();form.started_at.max=max;form.ended_at.max=max;
+        form.scrollIntoView({block:'nearest'});
+        const select=form.employee_id;
+        try{
+          const list=await loadManualEmployees();
+          select.innerHTML='<option value="">Chọn nhân viên</option>'+list.map(x=>`<option value="${Number(x.id)}">${E(x.employee_no||'')} · ${E(x.name||'')}</option>`).join('');
+        }catch(err){select.innerHTML='<option value="">Không tải được danh sách nhân viên</option>';showError(err.message||String(err))}
+        if(employeeId)select.value=String(employeeId);
+        (employeeId?form.started_at:select).focus();
+        preview();
+      };
+      modal.querySelector('[data-manual-session-open]')?.addEventListener('click',()=>open(null));
+      modal.querySelectorAll('[data-manual-session-employee]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();open(Number(b.dataset.manualSessionEmployee))}));
+      form.querySelector('[data-manual-session-cancel]').onclick=()=>{form.hidden=true;form.reset();showError('')};
+      form.onsubmit=async e=>{
+        e.preventDefault();
+        if(form.dataset.saving==='1')return;
+        const employeeId=Number(form.employee_id.value),st=form.started_at.value,en=form.ended_at.value,good=Number(form.good_qty.value),defect=Number(form.defect_qty.value),reason=String(form.reason.value||'').trim(),note=String(form.note.value||'').trim();
+        if(!employeeId)return showError('Hãy chọn nhân viên.');
+        if(!st||!en)return showError('Hãy nhập giờ bắt đầu và giờ kết thúc.');
+        if(new Date(en)<=new Date(st))return showError('Giờ kết thúc phải sau giờ bắt đầu.');
+        if(new Date(en)>new Date())return showError('Giờ kết thúc không được ở tương lai.');
+        if(form.good_qty.value===''||form.defect_qty.value===''||!Number.isInteger(good)||!Number.isInteger(defect)||good<0||defect<0)return showError('Sản lượng phải là số nguyên không âm.');
+        if(!reason)return showError('Hãy nhập lý do bổ sung.');
+        form.dataset.saving='1';submit.disabled=true;submit.textContent='Đang lưu…';
+        try{
+          // datetime-local is sent as-is: the server reads it in the factory timezone.
+          const res=await api('/api/supervisor/sessions/manual',{method:'POST',body:JSON.stringify({operation_id:Number(operationId),employee_id:employeeId,started_at:st,ended_at:en,good_qty:good,defect_qty:defect,reason,note,request_id:form.dataset.requestId})});
+          const created=res.session||{};
+          toast(`Đã bổ sung phiên #${created.id||''} · ${N(good)} đạt · ${N(defect)} lỗi`);
+          await reloadDetail(created.id);
+          if(typeof load==='function')load();
+        }catch(err){showError(err.message||String(err));form.dataset.saving='';submit.disabled=false;submit.textContent='Lưu phiên bổ sung'}
+      };
+    };
+    const reloadDetail=async(highlightId)=>{
     try{
       const [detailRes,sessionsRes]=await Promise.all([
         api(`/api/reports/operations/${operationId}`),
@@ -92,6 +155,7 @@ async function renderOverview(){
       ]);
       const op=detailRes.report?.operation||source,report=sessionsRes.report||{},sessions=Array.isArray(report.sessions)?report.sessions:[];
       const standard=Number(op.standard_seconds_per_unit||source.standard_seconds_per_unit||0);
+      modal.dataset.standard=String(standard);
       const people=new Map();
       sessions.forEach(s=>{
         const key=String(s.employee_id||s.employee_code||s.employee_name||'unknown');
@@ -101,16 +165,23 @@ async function renderOverview(){
       });
       const employees=[...people.values()].map(p=>({...p,productivity:p.scores.length?p.scores.reduce((a,b)=>a+b,0)/p.scores.length:null})).sort((a,b)=>(a.productivity==null)-(b.productivity==null)||(b.productivity||0)-(a.productivity||0)||String(a.code).localeCompare(String(b.code)));
       const totalGood=sessions.reduce((a,x)=>a+Number(x.good_qty||0),0),totalDefect=sessions.reduce((a,x)=>a+Number(x.defect_qty||0),0);
-      const employeeRows=employees.length?employees.map(p=>{const st=speed(p.productivity);return `<div class="op-detail-user-row"><span><b>${E(p.name)}</b><small>${E(p.code)}${p.open?` · ${p.open} đang làm`:''}</small></span><span><b>${N(p.sessions)}</b><small>phiên làm việc</small></span><span><b>${N(p.good)}</b><small>Đạt · ${N(p.defect)} lỗi</small></span><span><b>${work(p.worked)}</b><small>thời gian thực tế</small></span><span><b>${p.productivity==null?'—':`${p.productivity.toFixed(1)}%`}</b><small class="op-speed ${st.cls}">${st.text}</small></span></div>`}).join(''):'<div class="op-detail-empty">Chưa có nhân viên nào làm Operation này.</div>';
-      const visibleSessions=sessions.slice(0,30),needsQtyCount=visibleSessions.filter(needsQuantityReview).length;
+      const employeeRows=employees.length?employees.map(p=>{const st=speed(p.productivity);return `<div class="op-detail-user-row"><span><b>${E(p.name)}</b><small>${E(p.code)}${p.open?` · ${p.open} đang làm`:''}</small></span><span><b>${N(p.sessions)}</b><small>phiên làm việc</small></span><span><b>${N(p.good)}</b><small>Đạt · ${N(p.defect)} lỗi</small></span><span><b>${work(p.worked)}</b><small>thời gian thực tế</small></span><span><b>${p.productivity==null?'—':`${p.productivity.toFixed(1)}%`}</b><small class="op-speed ${st.cls}">${st.text}</small></span>${canManualSession?`<span class="op-manual-cell">${p.employee_id?`<button class="btn mini op-manual-add" type="button" data-manual-session-employee="${Number(p.employee_id)}" title="Bổ sung phiên cho ${E(p.name)}" aria-label="Bổ sung phiên cho ${E(p.name)}">+ Phiên</button>`:''}</span>`:''}</div>`}).join(''):'<div class="op-detail-empty">Chưa có nhân viên nào làm Operation này.</div>';
+      const visibleSessions=sessions.slice(0,30);
+      if(highlightId&&!visibleSessions.some(s=>Number(s.session_id)===Number(highlightId))){const created=sessions.find(s=>Number(s.session_id)===Number(highlightId));if(created)visibleSessions.push(created)}
+      const needsQtyCount=visibleSessions.filter(needsQuantityReview).length;
       const sessionRows=visibleSessions.map(s=>{
-        const sc=score(standard,s),st=speed(sc),needsQty=needsQuantityReview(s),adjusted=Number(s.adjustment_count||0)>0,closed=String(s.status||'').toUpperCase()==='CLOSED';
-        const flags=`${needsQty?'<small class="op-session-flag needs-qty">0/0 · Chưa xác nhận sản lượng</small>':''}${adjusted?`<small class="op-session-flag adjusted">Đã điều chỉnh${s.last_adjusted_at?` · ${when(s.last_adjusted_at)}`:''}</small>`:''}`;
+        const sc=score(standard,s),st=speed(sc),needsQty=needsQuantityReview(s),manual=isManual(s),adjusted=Number(s.adjustment_count||0)>(manual?1:0),closed=String(s.status||'').toUpperCase()==='CLOSED';
+        const flags=`${manual?'<small class="op-session-flag manual">Bổ sung tay</small>':''}${needsQty?'<small class="op-session-flag needs-qty">0/0 · Chưa xác nhận sản lượng</small>':''}${adjusted?`<small class="op-session-flag adjusted">Đã điều chỉnh${s.last_adjusted_at?` · ${when(s.last_adjusted_at)}`:''}</small>`:''}`;
         const action=canAdjustSessionQty&&closed?`<button class="btn mini ${needsQty?'primary':''}" type="button" data-edit-session-qty="${s.session_id}">${needsQty?'Bổ sung SL':'Sửa SL'}</button>`:'<span class="op-session-no-action" aria-hidden="true">—</span>';
         const editor=canAdjustSessionQty&&closed?`<form class="op-session-qty-editor" data-session-qty-form="${s.session_id}" hidden><div class="op-session-edit-title"><b>Chỉnh sản lượng phiên #${s.session_id}</b><span>Lưu qua cơ chế SESSION_ADJUST · có audit</span></div><div class="op-session-edit-fields"><label>Đạt<input name="good_qty" type="number" min="0" step="1" value="${Number(s.good_qty||0)}" required></label><label>Lỗi<input name="defect_qty" type="number" min="0" step="1" value="${Number(s.defect_qty||0)}" required></label><label>Trong đó sửa lại<input name="rework_qty" type="number" min="0" step="1" value="${Number(s.rework_qty||0)}" required></label><label class="reason">Ghi chú / lý do <small>(không bắt buộc)</small><input name="reason" type="text" maxlength="500" placeholder="Để trống để hệ thống tự ghi lý do"></label></div><div class="op-session-edit-actions"><button class="btn" type="button" data-session-edit-cancel>Hủy</button><button class="btn primary" type="submit">Lưu sản lượng</button></div></form>`:'';
-        return `<div class="op-detail-session-item${needsQty?' needs-quantity':''}${adjusted?' was-adjusted':''}" data-session-item="${s.session_id}"><div class="op-detail-session-row"><span class="op-session-cell employee"><b>${E(s.employee_name||'Không rõ')}</b><small>${E(s.employee_code||'')}</small>${flags}</span><span class="op-session-cell period"><b>${when(s.started_at)}</b><small>${String(s.status||'').toUpperCase()==='OPEN'?'Đang làm':when(s.ended_at)}</small></span><span class="op-session-cell quantity"><b>${N(Number(s.good_qty||0)+Number(s.defect_qty||0))} SP</b><small>${N(s.good_qty)} đạt · ${N(s.defect_qty)} lỗi${Number(s.rework_qty||0)>0?` · ${N(s.rework_qty)} sửa`:''}</small></span><span class="op-session-cell duration"><b>${work(s.duration_seconds)}</b><small>${sc==null?'—':`${sc.toFixed(1)}%`}</small></span><span class="op-session-cell benchmark"><small class="op-speed ${st.cls}">${st.text}</small>${s.excluded_from_reports?'<small class="op-excluded">Loại khỏi báo cáo</small>':''}</span><span class="op-session-actions">${action}</span></div>${editor}</div>`}).join('');
-      modal.innerHTML=`<div class="op-detail-head"><div><small>Operation Detail · Nhấp đúp từ Tổng quan</small><h2 id="opDetailTitle">${E(op.code||source.operation_code||'')} · ${E(op.name||source.operation_name||'')}</h2><p>${E(op.po_code||source.po_code||'')} · ${E(op.part_code||source.part_code||'')} ${E(op.part_name||source.part_name||'')}</p></div><button class="btn" type="button" data-op-detail-close>Đóng</button></div><div class="op-detail-kpis"><div><small>Nhân viên đã làm</small><b>${N(employees.length)}</b></div><div><small>Phiên làm việc</small><b>${N(sessions.length)}</b></div><div><small>Đạt / Lỗi</small><b>${N(totalGood)} / ${N(totalDefect)}</b></div><div><small>Định mức</small><b>${standard>0?`${N(standard)} giây/SP`:'Chưa cấu hình'}</b></div></div><div class="op-detail-note">Năng suất dùng cùng công thức báo cáo hiện tại: <b>định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%</b>. Trên 100% = nhanh hơn định mức; dưới 100% = chậm hơn định mức.</div><section class="op-detail-section"><div class="op-detail-section-head"><h3>Ai đã làm Operation này</h3><span>Sắp theo năng suất từ cao xuống thấp</span></div><div class="op-detail-user-head"><span>Nhân viên</span><span>Phiên</span><span>Sản lượng</span><span>Thời gian</span><span>Năng suất</span></div>${employeeRows}</section><section class="op-detail-section"><div class="op-detail-section-head"><h3>Phiên gần nhất</h3><span class="${needsQtyCount?'op-detail-attention':''}">${needsQtyCount?`⚠ ${needsQtyCount} phiên 0/0 cần bổ sung sản lượng`:'Tối đa 30 phiên'}</span></div><div class="op-detail-session-head"><span>Nhân viên</span><span>Bắt đầu / kết thúc</span><span>Sản lượng</span><span>Thời gian</span><span>So định mức</span><span>Thao tác</span></div>${sessionRows||'<div class="op-detail-empty">Chưa có phiên làm việc.</div>'}</section>`;
+        return `<div class="op-detail-session-item${needsQty?' needs-quantity':''}${adjusted?' was-adjusted':''}${Number(highlightId)===Number(s.session_id)?' is-new':''}" data-session-item="${s.session_id}"><div class="op-detail-session-row"><span class="op-session-cell employee"><b>${E(s.employee_name||'Không rõ')}</b><small>${E(s.employee_code||'')}</small>${flags}</span><span class="op-session-cell period"><b>${when(s.started_at)}</b><small>${String(s.status||'').toUpperCase()==='OPEN'?'Đang làm':when(s.ended_at)}</small></span><span class="op-session-cell quantity"><b>${N(Number(s.good_qty||0)+Number(s.defect_qty||0))} SP</b><small>${N(s.good_qty)} đạt · ${N(s.defect_qty)} lỗi${Number(s.rework_qty||0)>0?` · ${N(s.rework_qty)} sửa`:''}</small></span><span class="op-session-cell duration"><b>${work(s.duration_seconds)}</b><small>${sc==null?'—':`${sc.toFixed(1)}%`}</small></span><span class="op-session-cell benchmark"><small class="op-speed ${st.cls}">${st.text}</small>${s.excluded_from_reports?'<small class="op-excluded">Loại khỏi báo cáo</small>':''}</span><span class="op-session-actions">${action}</span></div>${editor}</div>`}).join('');
+      const manualForm=`<form class="op-manual-form" data-manual-session-form hidden novalidate><div class="op-manual-title"><b>Bổ sung phiên làm việc</b><span>Cho trường hợp quên quét QR bắt đầu/kết thúc · tạo phiên CLOSED thật · có audit</span></div><div class="op-manual-fields"><label class="wide"><span>Nhân viên <b>*</b></span><select name="employee_id" required><option value="">Đang tải danh sách…</option></select></label><label><span>Bắt đầu <b>*</b></span><input name="started_at" type="datetime-local" step="60" required></label><label><span>Kết thúc <b>*</b></span><input name="ended_at" type="datetime-local" step="60" required></label><label><span>Sản lượng Đạt</span><input name="good_qty" type="number" min="0" step="1" inputmode="numeric" value="0" required></label><label><span>Lỗi</span><input name="defect_qty" type="number" min="0" step="1" inputmode="numeric" value="0" required></label><div class="op-manual-preview"><small>Thời gian</small><output name="duration_preview" data-manual-duration>—</output></div><div class="op-manual-preview"><small>So định mức</small><output name="score_preview" data-manual-score>—</output></div><label class="wide"><span>Lý do bổ sung <b>*</b></span><input name="reason" type="text" maxlength="500" required placeholder="Ví dụ: công nhân quên quét QR kết thúc"></label><label class="wide"><span>Ghi chú <small>(không bắt buộc)</small></span><input name="note" type="text" maxlength="500"></label></div><div class="op-manual-error" data-manual-error role="alert" hidden></div><div class="op-manual-actions"><button class="btn" type="button" data-manual-session-cancel>Hủy</button><button class="btn primary" type="submit" data-manual-session-submit>Lưu phiên bổ sung</button></div></form>`;
+      modal.innerHTML=`<div class="op-detail-head"><div><small>Operation Detail · Nhấp đúp từ Tổng quan</small><h2 id="opDetailTitle">${E(op.code||source.operation_code||'')} · ${E(op.name||source.operation_name||'')}</h2><p>${E(op.po_code||source.po_code||'')} · ${E(op.part_code||source.part_code||'')} ${E(op.part_name||source.part_name||'')}</p></div><button class="btn" type="button" data-op-detail-close>Đóng</button></div><div class="op-detail-kpis"><div><small>Nhân viên đã làm</small><b>${N(employees.length)}</b></div><div><small>Phiên làm việc</small><b>${N(sessions.length)}</b></div><div><small>Đạt / Lỗi</small><b>${N(totalGood)} / ${N(totalDefect)}</b></div><div><small>Định mức</small><b>${standard>0?`${N(standard)} giây/SP`:'Chưa cấu hình'}</b></div></div><div class="op-detail-note">Năng suất dùng cùng công thức báo cáo hiện tại: <b>định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%</b>. Trên 100% = nhanh hơn định mức; dưới 100% = chậm hơn định mức.</div><section class="op-detail-section${canManualSession?' has-manual':''}"><div class="op-detail-section-head"><div><h3>Ai đã làm Operation này</h3><span>Sắp theo năng suất từ cao xuống thấp</span></div>${canManualSession?'<button class="btn mini" type="button" data-manual-session-open>+ Bổ sung phiên</button>':''}</div>${canManualSession?manualForm:''}<div class="op-detail-user-head"><span>Nhân viên</span><span>Phiên</span><span>Sản lượng</span><span>Thời gian</span><span>Năng suất</span>${canManualSession?'<span>Bổ sung</span>':''}</div>${employeeRows}</section><section class="op-detail-section"><div class="op-detail-section-head"><h3>Phiên gần nhất</h3><span class="${needsQtyCount?'op-detail-attention':''}">${needsQtyCount?`⚠ ${needsQtyCount} phiên 0/0 cần bổ sung sản lượng`:'Tối đa 30 phiên'}</span></div><div class="op-detail-session-head"><span>Nhân viên</span><span>Bắt đầu / kết thúc</span><span>Sản lượng</span><span>Thời gian</span><span>So định mức</span><span>Thao tác</span></div>${sessionRows||'<div class="op-detail-empty">Chưa có phiên làm việc.</div>'}</section>`;
       modal.querySelector('[data-op-detail-close]').onclick=close;
+      if(canManualSession)bindManualForm();
+      if(highlightId){const row=modal.querySelector(`[data-session-item="${Number(highlightId)}"]`);if(row)row.scrollIntoView({block:'nearest'})}
+      // Delegated once per modal: reloadDetail() re-renders innerHTML in place.
+      if(!modal.dataset.delegated){modal.dataset.delegated='1';
       modal.addEventListener('click',e=>{
         const editBtn=e.target.closest('[data-edit-session-qty]');
         if(editBtn&&modal.contains(editBtn)){
@@ -126,7 +197,7 @@ async function renderOverview(){
           e.preventDefault();e.stopPropagation();
           const form=cancelBtn.closest('[data-session-qty-form]');if(form)form.hidden=true;
         }
-      });
+      });}
       modal.querySelectorAll('[data-session-qty-form]').forEach(form=>form.onsubmit=async e=>{
         e.preventDefault();
         const sessionId=Number(form.dataset.sessionQtyForm),good=Number(form.good_qty.value),defect=Number(form.defect_qty.value),rework=Number(form.rework_qty.value),typedReason=String(form.reason.value||'').trim(),defaultReason=form.closest('[data-session-item]')?.classList.contains('needs-quantity')?'Bổ sung sản lượng phiên 0/0 từ OP Detail':'Điều chỉnh sản lượng từ OP Detail',reason=typedReason||defaultReason;
@@ -145,6 +216,8 @@ async function renderOverview(){
       modal.innerHTML=`<div class="op-detail-head"><div><small>Operation Detail</small><h2 id="opDetailTitle">${E(source.operation_code||'Operation')}</h2></div><button class="btn" type="button" data-op-detail-close>Đóng</button></div><div class="op-detail-error">Không tải được chi tiết Operation: ${E(err.message||err)}</div>`;
       modal.querySelector('[data-op-detail-close]').onclick=close;
     }
+    };
+    await reloadDetail(opts.highlightSessionId);
   };
   const drawSummary=()=>{const rows=visiblePos();const poRows=rows.map(x=>{const missing=Number(x.progress_missing_operation_count||0),defect=Number(x.defect_quantity||0),scrap=Number(x.scrap_quantity||0),repair=Number(x.repair_pending_quantity||0);return `<article class="overview-compact-po" data-compact-po="${x.po_id}"><div class="compact-po-code"><b>${E(x.po_code)}</b><small>${E(x.product||'')}</small></div><span class="compact-plan">${N(x.planned_quantity)} SP</span><strong class="compact-progress">${poProgressText(x)}</strong><span class="compact-warning">${missing?`Có ${missing} công đoạn chưa có định mức`:''}</span><span class="compact-repair">${N(repair)} SP</span><small class="compact-due">${D(x.due_date)}</small></article>`}).join('');document.getElementById('ovKpis').innerHTML=rows.length?`<div class="overview-compact-head"><span>PO</span><span>Kế hoạch</span><span>Tiến độ theo công đoạn</span><span>Cảnh báo</span><span>Chờ sửa</span><span>Hạn</span></div>${poRows}`:'<div class="overview-empty compact">Không có PO phù hợp</div>';};
   const drawPlan=()=>{const rows=mergedOps().filter(x=>Number(x.repair_pending_quantity)>0).sort((a,b)=>Number(b.estimated_repair_work_seconds)-Number(a.estimated_repair_work_seconds)||Number(b.repair_pending_quantity)-Number(a.repair_pending_quantity));document.getElementById('ovRepairPlan').innerHTML=`<div class="panel-head"><div><h2>Kế hoạch sửa</h2><p>Nguồn phát sinh được giữ theo PO, Part và Operation. Chưa theo dõi bắt đầu/hoàn tất sửa trong Phase 1.</p></div><b>${N(rows.reduce((n,x)=>n+Number(x.repair_pending_quantity),0))} SP chờ sửa</b></div>${rows.length?`<div class="repair-plan-table"><div class="head"><span>PO / Part</span><span>Operation</span><span>Chờ sửa</span><span>Giờ công</span><span>Deadline</span></div>${rows.slice(0,20).map(x=>`<button data-plan-po="${x.po_id}" data-plan-op="${x.operation_id}"><span><b>${E(x.po_code)}</b><small>${E(x.part_code)} · ${E(x.part_name||'')}</small></span><span><b>${E(x.operation_code)}</b><small>${E(x.operation_name)}</small></span><strong>${N(x.repair_pending_quantity)} SP</strong><span>${work(x.estimated_repair_work_seconds)}</span><span>${D(x.due_date)}</span></button>`).join('')}</div>`:'<div class="overview-empty compact"><strong>Không có hàng chờ sửa</strong></div>'}`};

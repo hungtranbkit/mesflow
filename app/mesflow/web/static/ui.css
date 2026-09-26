@@ -3991,3 +3991,39 @@ body[data-page="dashboard"] .op-card-fact>b{
 /* Working calendar: explicit 24-hour clock inputs, independent of OS AM/PM locale. */
 .time-24h-input{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.03em}
 .time-24h-input:invalid{border-color:var(--status-warning,#b66a00)}
+
+/* OP Detail: Bổ sung phiên (manual supplement for a forgotten QR scan). */
+.op-detail-section.has-manual .op-detail-user-head,.op-detail-section.has-manual .op-detail-user-row{grid-template-columns:minmax(190px,1.3fr) 90px 130px 130px minmax(160px,1fr) 84px}
+.op-manual-cell{display:flex!important;justify-content:flex-end;align-items:center}
+.op-manual-add{white-space:nowrap}
+.op-detail-section-head>div{display:grid;gap:2px;min-width:0}
+.op-manual-form{margin:12px 14px;padding:12px 14px;border:1px solid var(--border-default);border-radius:var(--radius-surface-row);background:var(--surface-subtle)}
+.op-manual-form[hidden]{display:none!important}
+.op-manual-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.op-manual-title span{font-size:11px;color:var(--text-secondary)}
+.op-manual-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}
+.op-manual-fields label,.op-manual-preview{display:grid;gap:5px;min-width:0;font-size:11px;font-weight:700;color:var(--text-secondary)}
+.op-manual-fields label b{color:var(--status-danger,#b42318)}
+.op-manual-fields label>span{display:block}.op-manual-fields label small{font-weight:600}
+.op-manual-fields .wide{grid-column:span 2}
+.op-manual-fields input,.op-manual-fields select{width:100%;min-width:0;min-height:36px;box-sizing:border-box}
+.op-manual-preview output{display:flex;align-items:center;min-height:36px;padding:0 10px;border:1px dashed var(--border-default);border-radius:var(--radius-control);background:var(--surface,#fff);font-size:12px;font-weight:700}
+.op-manual-preview small{font-size:11px}
+.op-manual-error{margin-top:10px;color:var(--status-danger,#b42318);font-size:12px;font-weight:700}
+.op-manual-error[hidden]{display:none}
+.op-manual-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.op-session-flag.manual{background:#e0f2fe;color:#075985!important}
+.op-detail-session-item.is-new{background:#f0f9ff;box-shadow:inset 4px 0 var(--action-primary,#23658b)}
+@media(max-width:800px){
+ .op-detail-section.has-manual .op-detail-user-row{grid-template-columns:1fr 1fr}
+ .op-manual-cell{justify-content:flex-start}
+ .op-manual-title{display:grid}
+ .op-manual-fields{grid-template-columns:1fr 1fr}
+}
+@media(max-width:480px){
+ .op-detail-section-head{flex-wrap:wrap;align-items:center}
+ .op-manual-form{margin:10px}
+ .op-manual-fields{grid-template-columns:1fr}
+ .op-manual-fields .wide{grid-column:auto}
+ .op-manual-actions .btn{flex:1}
+}

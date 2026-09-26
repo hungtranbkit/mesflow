@@ -1199,6 +1199,115 @@ class SupervisorRepository:
                     actor_name=actor_username,metadata={'reason':reason,'previous_exclusion_reason':old.get('exclusion_reason')})
                 return result
 
+    def create_manual_session(self,data,user_id,actor_username=''):
+        """Bổ sung phiên (Operation Detail): a worker forgot to scan
+        start/finish on a past day, so a manager records the work after the
+        fact as a REAL historical CLOSED work_sessions row -- never a patch
+        on the aggregate totals. Overview, Operation Detail, reports and PO
+        progress all read work_sessions, so they pick it up through the same
+        reconcile_operation_and_po() every other write path uses.
+
+        Always CLOSED: it can never show up in active_worker_list (OPEN
+        only). Same integrity rules as edit_session(): active employee,
+        support-OP quantity guard, input-flow ledger, and overlap blocked
+        only on the SAME Operation (0054 multi-session stays allowed).
+        Audit is written on this transaction's own cursor so the session
+        and its SESSION_MANUAL_CREATE row commit or roll back together;
+        operation_adjustments gets the 0 -> entered row so the quantity
+        history of the session starts from an explicit, attributed entry.
+        """
+        from zoneinfo import ZoneInfo
+        from mesflow.core.config import settings
+        def as_int(key,label,required=True):
+            raw=data.get(key)
+            if raw is None or str(raw).strip()=='':
+                if required: raise ValueError(f'Thiếu {label}')
+                return 0
+            if isinstance(raw,bool): raise ValueError(f'{label} không hợp lệ')
+            try:
+                value=int(str(raw).strip())
+            except (TypeError,ValueError):
+                raise ValueError(f'{label} phải là số nguyên') from None
+            if isinstance(raw,float) and raw!=value: raise ValueError(f'{label} phải là số nguyên')
+            return value
+        def as_time(key,label):
+            raw=str(data.get(key) or '').strip()
+            if not raw: raise ValueError(f'Phải nhập {label}')
+            try: value=datetime.fromisoformat(raw.replace('Z','+00:00'))
+            except ValueError: raise ValueError(f'{label} không hợp lệ') from None
+            # datetime-local from the browser carries no offset: read it in the
+            # factory's own timezone, never the browser's or the DB session's.
+            return value if value.tzinfo else value.replace(tzinfo=ZoneInfo(settings.timezone_name))
+        employee_id=as_int('employee_id','nhân viên'); operation_id=as_int('operation_id','Operation')
+        started_at=as_time('started_at','giờ bắt đầu'); ended_at=as_time('ended_at','giờ kết thúc')
+        if ended_at<=started_at: raise ValueError('Giờ kết thúc phải sau giờ bắt đầu')
+        good=as_int('good_qty','Số đạt',False); defect=as_int('defect_qty','Số lỗi',False); rework=as_int('rework_qty','Lỗi sửa được',False)
+        _guard_quantity_shape(good=good,defect=defect,rework=rework,repaired=0,scrap=0)
+        reason=str(data.get('reason') or '').strip()
+        if not reason: raise ValueError('Phải nhập lý do bổ sung phiên làm việc')
+        if len(reason)>500: raise ValueError('Lý do tối đa 500 ký tự')
+        note=str(data.get('note') or '').strip()[:500]
+        request_id=str(data.get('request_id') or '').strip() or f'MANUAL-{secrets.token_hex(12)}'
+        with transaction() as conn:
+            with conn.cursor() as cur: lock_idempotency_key(cur,request_id)
+            replay=WorkSessionRepository()._replay(conn,request_id,'SESSION_MANUAL_CREATE')
+            if replay is not None: return {**replay,'idempotent_replay':True}
+            with conn.cursor() as cur:
+                # PO first, like every other session-mutating transaction.
+                lock_production_order_for_operation_first(cur,operation_id)
+                cur.execute(f'SELECT o.id,o.code,o.name,{TYPE_VALUE_O} operation_type FROM operations o WHERE o.id=%s FOR UPDATE',(operation_id,))
+                operation=cur.fetchone()
+                if not operation: raise NotFoundError('Operation không tồn tại')
+                if str(operation.get('operation_type') or '').upper()==SETUP_TYPE:
+                    # Closing a SETUP session is what unlocks its parent
+                    # Operation; that live gate cannot be back-filled.
+                    raise ConflictError('Không bổ sung phiên cho OP setup. Hãy bổ sung trên Operation sản xuất.')
+                cur.execute('SELECT id,employee_no,name FROM employees WHERE id=%s AND active=TRUE FOR SHARE',(employee_id,))
+                employee=cur.fetchone()
+                if not employee: raise NotFoundError('Nhân viên không tồn tại hoặc đã khóa')
+                _guard_support_operation_quantity(cur,operation_id,operation_type=operation.get('operation_type'),
+                    operation_code=operation.get('code'),good=good,defect=defect,rework=rework)
+                cur.execute('SELECT CURRENT_TIMESTAMP now_at'); now_at=cur.fetchone()['now_at']
+                if ended_at>now_at: raise ValueError('Giờ kết thúc không được ở tương lai')
+                _raise_overlap(_find_employee_session_overlap(cur,employee_id,started_at,ended_at,None,operation_id=operation_id))
+                cur.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,status,started_at,ended_at,
+                    good_qty,defect_qty,rework_qty,note,start_request_id,finish_request_id,close_reason,closed_by_system,quantity_confirmed)
+                    VALUES(%s,%s,NULL,'','CLOSED',%s,%s,0,0,0,%s,%s,%s,'MANUAL_SUPPLEMENT',FALSE,TRUE) RETURNING *""",
+                    (employee_id,operation_id,started_at,ended_at,note,request_id,request_id))
+                blank=cur.fetchone(); session_id=blank['id']
+                _validate_and_upsert_input_consumption(cur,session_id=session_id,target_operation_id=operation_id,good_qty=good,defect_qty=defect,origin='ADMIN_EDIT')
+                actor_name=actor_username
+                if not actor_name and user_id is not None:
+                    cur.execute('SELECT username FROM users WHERE id=%s',(user_id,)); actor_name=(cur.fetchone() or {}).get('username','')
+                movements=record_quantities(cur,session=blank,good=good,defect=defect,rework=rework,actor_id=user_id,actor_name=actor_name,
+                    source='MANUAL_SUPPLEMENT',reason=reason,correlation_id=request_id)
+                cur.execute('UPDATE work_sessions SET good_qty=%s,defect_qty=%s,rework_qty=%s WHERE id=%s RETURNING *',(good,defect,rework,session_id))
+                row=cur.fetchone()
+                cur.execute("""INSERT INTO operation_adjustments(session_id,operation_id,old_good_qty,new_good_qty,old_defect_qty,new_defect_qty,old_rework_qty,new_rework_qty,reason,adjusted_by)
+                    VALUES(%s,%s,0,%s,0,%s,0,%s,%s,%s) RETURNING id""",(session_id,operation_id,good,defect,rework,reason,user_id))
+                adjustment_id=cur.fetchone()['id']
+                reconcile_operation_and_po(cur,operation_id)
+                session_json=_json_safe(dict(row))
+                details={'actor':actor_name,'actor_user_id':user_id,'reason':reason,'session_id':session_id,'operation_id':operation_id,
+                    'operation_code':operation.get('code'),'employee_id':employee_id,'employee_no':employee.get('employee_no'),
+                    'started_at':session_json['started_at'],'ended_at':session_json['ended_at'],
+                    'good_qty':good,'defect_qty':defect,'rework_qty':rework,'note':note,'adjustment_id':adjustment_id,'request_id':request_id}
+                record_audit(cur,action='SESSION_MANUAL_CREATE',entity_type='work_session',entity_id=str(session_id),
+                    actor_username=actor_name,actor_user_id=user_id,employee_id=employee_id,correlation_id=request_id,
+                    after=session_json,metadata=details,source='mesflow.web')
+                for movement in movements:
+                    record_event(cur,event_type={'GOOD':'GOOD_QUANTITY_RECORDED','DEFECT':'DEFECT_QUANTITY_RECORDED','REPAIRABLE':'REPAIRABLE_DEFECT_RECORDED'}[movement['movement_type']],
+                        category={'GOOD':'QUANTITY','DEFECT':'DEFECT','REPAIRABLE':'REWORK'}[movement['movement_type']],
+                        title={'GOOD':'Ghi nhận sản lượng đạt','DEFECT':'Ghi nhận sản lượng lỗi','REPAIRABLE':'Ghi nhận lỗi sửa được'}[movement['movement_type']],
+                        operation_id=operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,quantity_delta=movement['delta'],
+                        correlation_id=request_id,occurred_at=ended_at,metadata={'movement_id':movement['id'],'manual_supplement':True})
+                record_event(cur,event_type='SESSION_MANUAL_CREATED',category='SESSION',title='Bổ sung phiên làm việc',description=reason,
+                    operation_id=operation_id,session_id=session_id,actor_id=user_id,actor_name=actor_name,correlation_id=request_id,
+                    occurred_at=ended_at,metadata=details)
+                response={'ok':True,'session':session_json,'adjustment_id':adjustment_id,'idempotent_replay':False}
+                cur.execute('INSERT INTO kiosk_idempotency(request_id,action,response_json) VALUES(%s,%s,%s)',(request_id,'SESSION_MANUAL_CREATE',Jsonb(response)))
+                return response
+
     def penalty(self,data,user_id):
         with transaction() as conn:
             with conn.cursor() as cur:

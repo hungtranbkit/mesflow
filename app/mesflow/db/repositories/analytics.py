@@ -1294,7 +1294,7 @@ class ReportRepository:
           GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0)::bigint duration_seconds,
           COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,COALESCE(ws.scrap_qty,0) scrap_qty,
           ws.device_uuid,ws.station_id,s.code station_code,s.name station_name,
-          ws.excluded_from_reports,ws.exclusion_reason,ws.closed_by_system,ws.quantity_confirmed,
+          ws.excluded_from_reports,ws.exclusion_reason,ws.closed_by_system,ws.quantity_confirmed,ws.close_reason,
           COALESCE((SELECT COUNT(*) FROM operation_adjustments oa WHERE oa.session_id=ws.id),0) adjustment_count,
           (SELECT MAX(oa.created_at) FROM operation_adjustments oa WHERE oa.session_id=ws.id) last_adjusted_at,
           (SELECT oa.reason FROM operation_adjustments oa WHERE oa.session_id=ws.id ORDER BY oa.created_at DESC,oa.id DESC LIMIT 1) last_adjustment_reason,

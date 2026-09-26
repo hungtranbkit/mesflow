@@ -201,6 +201,19 @@ def adjust(session_id):
         return jsonify(ok=True,item=item)
     except Exception as exc: return err(exc)
 
+@bp.post('/supervisor/sessions/manual')
+@roles_required('admin','manager','supervisor')
+def create_manual_session():
+    # Bổ sung phiên from Operation Detail. Under /api/supervisor/sessions so
+    # it takes the same session.edit permission as adjust/edit; the
+    # SESSION_MANUAL_CREATE audit row is written inside the repository's own
+    # transaction, so no second AuditRepository().log() here.
+    try:
+        result=SupervisorRepository().create_manual_session(request.get_json(silent=True) or {},session.get('user_id'),
+            actor_username=str(session.get('username') or ''))
+        return jsonify(result),(200 if result.get('idempotent_replay') else 201)
+    except Exception as exc: return err(exc)
+
 @bp.patch('/supervisor/sessions/<int:session_id>')
 @roles_required('admin','manager','supervisor')
 def edit_session_full(session_id):
