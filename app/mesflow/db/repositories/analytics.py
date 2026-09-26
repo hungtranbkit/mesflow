@@ -192,6 +192,38 @@ def _attach_today(row,today):
     row['today_state']=('RUNNING' if row.get('active_worker_list') else
                         'STOPPED' if int(t.get('session_count') or 0)>0 else 'IDLE')
 
+#: |thực tế - dự kiến| under this many seconds reads "Đúng dự kiến" -- the
+#: page prints durations to the minute, so a 20 s gap is not "chậm".
+TODAY_PACE_TOLERANCE_SECONDS=60
+
+def _attach_today_pace(item):
+    """Normalise one today_activity_by_operation() row in place.
+
+    standard_configured=False (no định mức) leaves the comparison fields
+    None so the page says "Chưa có định mức" instead of a fake 0 %/100 %.
+    delta_seconds = thực tế - dự kiến over the weighted (CLOSED, scored)
+    basis; weighted_productivity_percent = dự kiến ÷ thực tế × 100 on that
+    same basis; pace SLOW/FAST/ON_TARGET reads the delta with
+    TODAY_PACE_TOLERANCE_SECONDS. None while no CLOSED session has output."""
+    std=float(item.get('standard_seconds_per_unit') or 0)
+    item['standard_configured']=std>0
+    item['actual_work_seconds']=int(item.get('work_seconds') or 0)
+    item['expected_seconds']=int(round(float(item.get('expected_seconds') or 0)))
+    work=int(round(float(item.get('scored_work_seconds') or 0)))
+    expected=int(round(float(item.get('scored_expected_seconds') or 0)))
+    item['scored_work_seconds'],item['scored_expected_seconds']=work,expected
+    item['weighted_session_count']=int(item.get('weighted_session_count') or 0)
+    item['employee_ids']=sorted({int(x) for x in item.get('employee_ids') or [] if x is not None})
+    if not item['standard_configured'] or work<=0 or expected<=0:
+        item['weighted_productivity_percent']=item['delta_seconds']=item['pace']=None
+        return item
+    delta=work-expected
+    item['weighted_productivity_percent']=round(expected/work*100,1)
+    item['delta_seconds']=delta
+    item['pace']=('SLOW' if delta>=TODAY_PACE_TOLERANCE_SECONDS else
+                  'FAST' if delta<=-TODAY_PACE_TOLERANCE_SECONDS else 'ON_TARGET')
+    return item
+
 class DashboardRepository:
     @staticmethod
     def _calendar_day_context(shift_date):
@@ -467,6 +499,17 @@ class DashboardRepository:
         sessions of định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100
         (_SESSION_COMPLETION_PERCENT_SQL).
 
+        Mini-dashboard fields (2026-09-26, part 3) -- see _attach_today_pace:
+        first_started_at (clamped to 00:00 local) / last_ended_at,
+        employee_ids (exact distinct set, so the PO strip can union them
+        client-side), actual_work_seconds (= work_seconds, break-aware),
+        expected_seconds = định mức × (Đạt + Lỗi) reported today -- Sửa được
+        is a subset of Lỗi and never added again -- and the weighted
+        comparison basis scored_work_seconds / scored_expected_seconds over
+        the same CLOSED sessions _SESSION_COMPLETION_PERCENT_SQL scores (plus
+        work_seconds > 0), i.e. SUM(dự kiến) ÷ SUM(thực tế) like
+        employee_performance()'s efficiency_percent, not an AVG of sessions.
+
         worker_list is the separate closed-today history (not OPEN): one entry
         per employee with no OPEN session on this Operation, most recent
         first. OPEN stays authoritative in active_worker_list; _attach_today
@@ -486,6 +529,7 @@ class DashboardRepository:
             COALESCE(ws.ended_at,ws.updated_at) report_at,
             COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,COALESCE(ws.rework_qty,0) rework_qty,
             ({work_sql}) work_seconds,
+            GREATEST(ws.started_at,%s) day_started_at,
             GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,%s)-ws.started_at)),0) actual_seconds,
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(o.standard_seconds_per_unit,0) standard_seconds_per_unit
@@ -494,6 +538,8 @@ class DashboardRepository:
         ), scored AS (
           SELECT *,{ReportRepository._SESSION_COMPLETION_PERCENT_SQL} completion_percent,
             (report_at >= %s AND report_at < %s) reported_today FROM day_sessions
+        ), weighted AS (
+          SELECT *,(completion_percent IS NOT NULL AND reported_today AND work_seconds>0) in_weighted FROM scored
         ), closed_workers AS (
           SELECT pe.operation_id,
             jsonb_agg(jsonb_build_object('employee_id',pe.employee_id,'employee_no',COALESCE(e.employee_no,''),
@@ -518,10 +564,16 @@ class DashboardRepository:
           COUNT(s.completion_percent) scored_session_count,
           MAX(s.standard_seconds_per_unit) standard_seconds_per_unit,
           MAX(s.ended_at) last_ended_at,
+          MIN(s.day_started_at) first_started_at,
+          COALESCE(SUM(s.expected_seconds) FILTER (WHERE s.reported_today),0) expected_seconds,
+          COALESCE(SUM(s.work_seconds) FILTER (WHERE s.in_weighted),0) scored_work_seconds,
+          COALESCE(SUM(s.expected_seconds) FILTER (WHERE s.in_weighted),0) scored_expected_seconds,
+          COUNT(*) FILTER (WHERE s.in_weighted) weighted_session_count,
+          array_agg(DISTINCT s.employee_id) FILTER (WHERE s.employee_id IS NOT NULL) employee_ids,
           cw.worker_list
-        FROM scored s LEFT JOIN closed_workers cw ON cw.operation_id=s.operation_id
+        FROM weighted s LEFT JOIN closed_workers cw ON cw.operation_id=s.operation_id
         GROUP BY s.operation_id,cw.worker_list""",
-          [*work_params,now,day_end,now,day_start,day_start,day_end])
+          [*work_params,day_start,now,day_end,now,day_start,day_start,day_end])
         out={}
         for row in rows:
             item=dict(row)
@@ -529,6 +581,7 @@ class DashboardRepository:
             pct=item.get('productivity_percent')
             item['productivity_percent']=float(pct) if pct is not None else None
             item['worker_list']=_json_list(item.get('worker_list'))
+            _attach_today_pace(item)
             out[int(item.pop('operation_id'))]=item
         return out
 

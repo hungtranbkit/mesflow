@@ -6,14 +6,14 @@ async function login(page){await page.goto('/login');await page.request.post('/a
  await page.waitForURL(/\/app/,{timeout:20000}).catch(()=>{});
  await page.goto('/app');await expect(page.locator('#appLayout')).toBeVisible()}
 const W=(id,name,extra={})=>({employee_id:id,employee_no:`NV${String(id).padStart(3,'0')}`,name,session_count:1,...extra});
-const TODAY=(extra={})=>({date:'2026-09-26',employee_count:2,session_count:3,open_session_count:0,good_qty:120,defect_qty:4,rework_qty:2,recorded_session_count:3,work_seconds:9000,productivity_percent:104.3,scored_session_count:3,standard_seconds_per_unit:60,last_ended_at:'2026-09-26T09:30:00Z',...extra});
+const TODAY=(extra={})=>({date:'2026-09-26',employee_count:2,session_count:3,open_session_count:0,good_qty:120,defect_qty:4,rework_qty:2,recorded_session_count:3,work_seconds:9000,productivity_percent:104.3,scored_session_count:3,standard_seconds_per_unit:60,last_ended_at:'2026-09-26T09:30:00Z',first_started_at:'2026-09-26T00:42:00Z',employee_ids:[1,2],actual_work_seconds:9000,expected_seconds:7440,standard_configured:true,scored_work_seconds:9000,scored_expected_seconds:9387,weighted_session_count:3,weighted_productivity_percent:104.3,delta_seconds:-387,pace:'FAST',...extra});
 const OP=(id,name,{active=[],today=null,history=[],state='IDLE'}={})=>({po_id:1,po_code:'PO-TD',part_id:1,part_code:'P1',part_name:'Thân',operation_id:id,operation_sort:id,operation_code:`OP${id}`,operation_name:name,done_qty:40,defect_qty:1,rework_qty:0,repair_pending_quantity:id===2?3:0,estimated_repair_work_seconds:0,progress_percent:40,control_state:'ON_TRACK',open_session_count:active.length,active_worker_list:active,active_worker_count:active.length,today,today_worker_list:history,today_worker_count:history.length,today_last_ended_at:today?today.last_ended_at:null,today_state:state});
 async function mock(page){
  const production_orders=[{id:1,po_id:1,code:'PO-TD',po_code:'PO-TD',product:'SẢN PHẨM',status:'IN_PROGRESS',planned_quantity:100,good_quantity:40,defect_quantity:1,repair_pending_quantity:3,estimated_repair_work_seconds:0,repair_unconfigured_operation_count:0,scrap_quantity:0,remaining_quantity:60,progress_percent:40,due_date:'2026-10-01'}];
  const operations=[OP(1,'Chưa làm hôm nay'),
   OP(2,'Đang làm và đã làm',{active:[W(1,'Nguyễn Văn An',{started_at:'2026-09-26T08:00:00Z'})],today:TODAY({open_session_count:1}),history:[W(2,'Trần Thị Bình',{last_ended_at:'2026-09-26T07:00:00Z'})],state:'RUNNING'}),
-  OP(3,'Đã dừng nhiều người',{today:TODAY({employee_count:5,session_count:6,productivity_percent:87.5}),history:[W(3,'Lê Chi',{last_ended_at:'2026-09-26T09:30:00Z',auto_closed:true}),W(4,'Phạm Dũng'),W(5,'Hoàng Em',{session_count:2}),W(6,'Võ Phương'),W(7,'Đỗ Giang')],state:'STOPPED'}),
-  OP(4,'Chưa có định mức',{today:TODAY({employee_count:1,session_count:1,productivity_percent:null,standard_seconds_per_unit:0,work_seconds:1500}),history:[W(8,'Bùi Hà')],state:'STOPPED'})];
+  OP(3,'Đã dừng nhiều người',{today:TODAY({employee_count:5,session_count:6,productivity_percent:87.5,weighted_productivity_percent:87.5,delta_seconds:1286,pace:'SLOW'}),history:[W(3,'Lê Chi',{last_ended_at:'2026-09-26T09:30:00Z',auto_closed:true}),W(4,'Phạm Dũng'),W(5,'Hoàng Em',{session_count:2}),W(6,'Võ Phương'),W(7,'Đỗ Giang')],state:'STOPPED'}),
+  OP(4,'Chưa có định mức',{today:TODAY({employee_count:1,session_count:1,productivity_percent:null,standard_seconds_per_unit:0,work_seconds:1500,actual_work_seconds:1500,expected_seconds:0,standard_configured:false,weighted_productivity_percent:null,delta_seconds:null,pace:null}),history:[W(8,'Bùi Hà')],state:'STOPPED'})];
  await page.route('**/api/dashboard/overview*',r=>r.fulfill({json:{ok:true,production_orders,operations,summary:{}}}));
  await page.route('**/api/production-control*',r=>r.fulfill({json:{ok:true,production_orders:[{po_id:1,control_state:'ON_TRACK'}],operations:[],summary:{}}}))}
 for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:390,height:844}])test(`today activity ${viewport.width}x${viewport.height}`,async({page})=>{
@@ -34,7 +34,7 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(t2.locator('[data-today="good"] b')).toHaveText('120');
  await expect(t2.locator('[data-today="defect"] b')).toHaveText('4');
  await expect(t2.locator('[data-today="rework"] b')).toHaveText('2');
- await expect(t2.locator('[data-today="time"] b')).toHaveText('2 giờ 30 phút');
+ await expect(t2.locator('[data-today="time"] b')).toHaveText('2g 30p');
  await expect(t2.locator('[data-today="productivity"] b')).toHaveText('104,3%');
  await expect(t2.locator('[data-today="productivity"]')).toHaveClass(/fast/);
  await expect(t2.locator('[data-today="productivity"]')).toHaveAttribute('title',/Nhanh hơn định mức[\s\S]*định mức × \(Đạt \+ Lỗi\) ÷ thời gian thực tế × 100%/);
@@ -47,7 +47,7 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(stopped.locator('.ov-worker').first()).toHaveAttribute('title',/Lê Chi[\s\S]*dừng 16:30[\s\S]*tự đóng khi hết ca/);
  await expect(row(3).locator('[data-today="productivity"]')).toHaveClass(/slow/);
  await expect(row(4).locator('[data-today="productivity"] b')).toHaveText('Chưa có định mức');
- await expect(row(4).locator('[data-today="time"] b')).toHaveText('25 phút');
+ await expect(row(4).locator('[data-today="time"] b')).toHaveText('25p');
  // Existing columns untouched.
  await expect(row(2)).toContainText('40.0%');
  if(viewport.width>900){
