@@ -40,14 +40,13 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(t2.locator('[data-today="productivity"] b')).toHaveText('104,3%');
  await expect(t2.locator('[data-today="productivity"]')).toHaveClass(/fast/);
  await expect(t2.locator('[data-today="productivity"]')).toHaveAttribute('title',/Nhanh hơn định mức[\s\S]*định mức × \(Đạt \+ Lỗi\) ÷ thời gian thực tế × 100%/);
- // Closed-today: neutral "Đã dừng HH:mm" (local time), max 2 chips + N.
- const stopped=row(3).locator('[data-today-metrics] .overview-op-workers.is-stopped');
+ // Closed-today: each finished worker is a neutral gray row inside Hôm nay.
+ const stopped=row(3).locator('[data-today-metrics] .overview-op-worker-list .ov-worker.is-finished');
  await expect(row(3).locator(':scope > .overview-op-workers')).toHaveCount(0);
- await expect(stopped.locator('em')).toHaveText('Đã dừng 16:30');
- await expect(stopped.locator('.ov-worker')).toHaveCount(3);
- await expect(stopped.locator('.ov-worker.more')).toHaveText('+3');
- await expect(stopped.locator('.ov-worker.more')).toHaveAttribute('title',/Hoàng Em[\s\S]*2 phiên/);
- await expect(stopped.locator('.ov-worker').first()).toHaveAttribute('title',/Lê Chi[\s\S]*dừng 16:30[\s\S]*tự đóng khi hết ca/);
+ await expect(stopped).toHaveCount(5);
+ await expect(stopped.nth(0)).toContainText('Lê Chi');
+ await expect(stopped.nth(0)).toContainText('Đã kết thúc 16:30');
+ await expect(stopped.nth(2)).toContainText('Hoàng Em');
  await expect(row(3).locator('[data-today="productivity"]')).toHaveClass(/slow/);
  await expect(row(4).locator('[data-today="productivity"] b')).toHaveText('Chưa có định mức');
  await expect(row(4).locator('[data-today="time"] b')).toHaveText('25p');
