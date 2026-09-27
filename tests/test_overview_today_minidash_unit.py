@@ -7,6 +7,7 @@ in expected, weighted basis = scored CLOSED sessions), and the page contract
 for the per-Operation block and the PO "Hôm nay" strip (derived client-side
 from the same rows, exact distinct employees, no per-row fetch). Real
 database: tests/integration/test_overview_today_minidash.py."""
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,9 @@ def test_attach_today_keeps_minidash_fields_and_open_wins():
 
 def test_today_query_is_still_one_grouped_query_with_new_fields(monkeypatch):
     calls = []
+    monkeypatch.setattr(analytics.DashboardRepository, '_calendar_day_context', lambda self, day: {
+        'shift_date': day, 'day_start': datetime(2026, 9, 26, tzinfo=timezone.utc),
+        'day_end': datetime(2026, 9, 27, tzinfo=timezone.utc), 'intervals': []})
 
     def fake_fetch_all(sql, params=()):
         calls.append((sql, list(params)))
@@ -126,7 +130,13 @@ def test_page_contract_operation_block():
     assert "'Chậm hơn dự kiến'" in PAGE and "'Nhanh hơn dự kiến'" in PAGE and "'Đúng dự kiến'" in PAGE
     assert 'định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%' in block
     # Worker status and names live inside the Hôm nay block, with no sibling row.
-    assert '${workers}</div><div class="ov-today-line">' in PAGE
+    assert '</div>${workers}<div class="ov-today-line">' in PAGE
+    assert 'const workerRows=x=>' in PAGE
+    assert 'x.active_worker_list' in PAGE and 'x.today_worker_list' in PAGE
+    assert 'last_ended_at?` ${T(w.last_ended_at)}`' in PAGE
+    assert 'activeWorkers(x)||todayWorkers(x)' not in PAGE
+    assert 'overview-op-worker-list' in PAGE
+    assert 'data-today-metrics' in PAGE
     assert 'const operationRows=' in PAGE and '${todayMetrics(x)}</div>' in PAGE
     assert 'activeWorkers(x)||todayWorkers(x)}</div>' not in PAGE
     assert 'data-open-op="${x.operation_id}"' in PAGE and 'data-op-detail="${x.operation_id}"' in PAGE

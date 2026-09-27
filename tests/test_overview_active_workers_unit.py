@@ -105,5 +105,7 @@ def test_active_worker_source_is_open_sessions_and_page_renders_it():
     assert "ws.status='OPEN'" in body and "reportable_session_sql('ws')" in body
     assert 'parent_operation_id' in body
     assert 'x.active_worker_list' in page
-    assert '${activeWorkers(x)||todayWorkers(x)}</div>' in page  # OPEN line wins over today history
-    assert 'list.slice(0,3)' in page and '+${rest.length}' in page
+    assert 'x.active_worker_list' in page and 'x.today_worker_list' in page
+    assert 'const workerRows=x=>' in page  # OPEN and closed-today workers render together
+    assert 'activeWorkers(x)||todayWorkers(x)' not in page
+    assert 'overview-op-worker-list' in page

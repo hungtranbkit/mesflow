@@ -14,7 +14,7 @@ const OP=(id,name,{po=1,active=[],today=null,history=[],state='IDLE'}={})=>({po_
 async function mock(page){
  const PO=(id,code)=>({id,po_id:id,code,po_code:code,product:'SẢN PHẨM',status:'IN_PROGRESS',planned_quantity:100,good_quantity:40,defect_quantity:1,repair_pending_quantity:0,estimated_repair_work_seconds:0,repair_unconfigured_operation_count:0,scrap_quantity:0,remaining_quantity:60,progress_percent:40,due_date:'2026-10-01'});
  const operations=[
-  OP(1,'May thân',{active:[W(1,'Nguyễn Văn An',{started_at:'2026-09-26T01:00:00Z'})],state:'RUNNING',history:[W(2,'Trần Thị Bình')],
+  OP(1,'May thân',{active:[W(1,'Nguyễn Văn An',{started_at:'2026-09-26T01:00:00Z'}),W(4,'Phạm Dũng',{started_at:'2026-09-26T02:00:00Z'})],state:'RUNNING',history:[W(2,'Trần Thị Bình',{last_ended_at:'2026-09-26T08:30:00Z'}),W(3,'Lê Chi',{last_ended_at:'2026-09-26T09:15:00Z'})],
    today:TODAY({employee_count:2,employee_ids:[1,2],session_count:3,open_session_count:1,good_qty:120,defect_qty:4,rework_qty:2,work_seconds:9000,actual_work_seconds:9000,expected_seconds:7440,scored_work_seconds:9000,scored_expected_seconds:9387,weighted_session_count:2,weighted_productivity_percent:104.3,delta_seconds:-387,pace:'FAST'})}),
   OP(2,'Ráp cổ',{state:'STOPPED',history:[W(2,'Trần Thị Bình'),W(3,'Lê Chi')],
    today:TODAY({employee_count:2,employee_ids:[2,3],session_count:2,good_qty:200,defect_qty:10,rework_qty:3,work_seconds:10800,actual_work_seconds:10800,expected_seconds:12600,scored_work_seconds:14000,scored_expected_seconds:12600,weighted_session_count:2,weighted_productivity_percent:90,delta_seconds:1400,pace:'SLOW'})}),
@@ -59,9 +59,28 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`tod
  await expect(m(4,'time').locator('b')).toHaveText('25p');
  await expect(row(5).locator('[data-today-metrics]')).toContainText('Chưa có phiên làm việc');
  // OPEN wins: green line on running rows, neutral history elsewhere.
- await expect(row(1).locator('[data-today-metrics] .overview-op-workers:not(.is-stopped)')).toContainText('Đang làm');
+ const workers=row(1).locator('[data-today-metrics] .overview-op-worker-list .ov-worker');
+ await expect(row(1).locator('[data-today-metrics] .overview-op-workers > small')).toHaveText('Nhân viên');
+ await expect(workers).toHaveCount(4);
+ await expect(workers.nth(0)).toContainText('Nguyễn Văn An');
+ await expect(workers.nth(0)).toContainText('Đang làm 08:00');
+ await expect(workers.nth(1)).toContainText('Phạm Dũng');
+ await expect(workers.nth(1)).toContainText('Đang làm 09:00');
+ await expect(workers.nth(2)).toContainText('Trần Thị Bình');
+ await expect(workers.nth(2)).toContainText('Đã kết thúc 15:30');
+ await expect(workers.nth(3)).toContainText('Lê Chi');
+ await expect(workers.nth(3)).toContainText('Đã kết thúc 16:15');
+ await expect(workers.nth(0)).toHaveClass(/is-active/);
+ await expect(workers.nth(1)).toHaveClass(/is-active/);
+ await expect(workers.nth(2)).toHaveClass(/is-finished/);
+ await expect(workers.nth(3)).toHaveClass(/is-finished/);
+ const dotColors=await workers.evaluateAll(es=>es.map(e=>getComputedStyle(e.querySelector('i')).backgroundColor));
+ expect(dotColors[0]).toBe('rgb(23, 116, 81)');expect(dotColors[1]).toBe(dotColors[0]);
+ expect(dotColors[2]).toBe('rgb(85, 97, 112)');expect(dotColors[3]).toBe(dotColors[2]);
+ await expect(row(1).locator('[data-today-metrics] .overview-op-workers')).toHaveCount(1);
  await expect(row(1).locator(':scope > .overview-op-workers')).toHaveCount(0);
- await expect(row(2).locator('[data-today-metrics] .overview-op-workers.is-stopped')).toHaveCount(1);
+ expect(await row(1).locator('[data-today-metrics] .overview-op-workers').evaluate(e=>e.parentElement.matches('[data-today-metrics]'))).toBe(true);
+ await expect(row(2).locator('[data-today-metrics] .overview-op-worker-list .ov-worker')).toHaveCount(2);
  await expect(row(2).locator(':scope > .overview-op-workers')).toHaveCount(0);
  // ---- PO strip, derived from the same rows.
  const strip=page.locator('[data-po-section="1"] [data-po-today]').first(),s=k=>strip.locator(`[data-po-today="${k}"]`);
@@ -94,10 +113,7 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`tod
   const box=await row(1).evaluate(r=>{const b=s=>r.querySelector(s).getBoundingClientRect();const kids=[...r.children];return {today:b('[data-today-metrics]'),repair:kids[4].getBoundingClientRect(),open:kids[5].getBoundingClientRect(),row:r.getBoundingClientRect()}});
   expect(box.today.left).toBeGreaterThanOrEqual(box.repair.right-1);
   expect(box.today.right).toBeLessThanOrEqual(box.open.left+1);
-  expect(box.today.height).toBeLessThan(70);  // three short lines, never a fourth
-  const heights=await page.locator('[data-po-section="1"] [data-today-metrics]').evaluateAll(els=>els.map(e=>e.getBoundingClientRect().height));
-  expect(Math.max(...heights)).toBeLessThan(70);
-  expect(box.row.height).toBeLessThan(130);  // dense row incl. the worker line, not a card
+  expect(box.today.height).toBeGreaterThan(70);  // workers each retain their own readable line
   await expect(row(1).locator('[data-open-op]')).toBeVisible();
   const sb=await strip.boundingBox();expect(sb.height).toBeLessThanOrEqual(40);  // one line at 1366
   // Double-click still opens Operation Detail.
