@@ -35,3 +35,9 @@ def test_mobile_overview_values_match_header_rows_and_left_align():
 def test_tablet_header_hide_rule_beats_shared_grid_specificity():
     assert '@media(max-width:1099px)' in CSS
     assert '.overview-summary .overview-compact-head{display:none}' in CSS
+
+
+def test_compact_overview_header_and_rows_share_desktop_grid_class():
+    js = Path('app/mesflow/web/static/pages/overview.js').read_text()
+    assert 'class="overview-compact-head overview-compact-grid"' in js
+    assert 'class="overview-compact-po overview-compact-grid"' in js
