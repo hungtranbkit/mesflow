@@ -428,7 +428,10 @@
     return min < 60 ? `${min} phút` : `${Math.floor(min / 60)} giờ ${min % 60} phút`;
   }
 
-  async function scan(qr) {
+  // `source`: 'scanner' cho mọi nguồn quét thật (súng quét, camera, và
+  // MESFlowKioskDemo.scan dùng để giả lập súng quét); 'demo' chỉ cho hai nút
+  // "Quét" của bảng Mô phỏng (và hook scanEmployee/scanOperation tương ứng).
+  async function scan(qr, {source = 'scanner'} = {}) {
     // CHUỖI THÔ, đúng như nguồn quét đưa vào -- không trim, không chuẩn hoá.
     // Bản gửi đi (`qr`) vẫn được trim như cũ; bản thô này tồn tại vì nó là thứ
     // duy nhất trả lời được câu "tem in ra có đúng không, hay máy đọc sai".
@@ -438,7 +441,27 @@
     document.body.classList.add('kiosk-busy');
     try {
       const result = await api(`${API_BASE}/scan`, {method:'POST', body:JSON.stringify({qr})});
-      if (state === 'ready') {
+      // BẢNG MÔ PHỎNG GHIM MÀN KẾT QUẢ. Lúc bảng mở, scheduleReset() không cắm
+      // lần trả-về cho 'started', và 'error' vốn không tự trả về -- nên người
+      // bấm "Quét OP" ngay sau một lần bị từ chối (vd. SES-409 ngoài ca) rơi
+      // vào nhánh reset()+quét-lại ở cuối: reset() xoá NGƯỜI vừa nhận diện,
+      // lần quét lại chạy ở 'ready' và báo SCN-003 "Hãy quét thẻ nhân viên
+      // trước" dù thẻ vừa quét xong. Lần quét lại đó còn gửi /scan thêm một
+      // vòng và để trống một khe ở 'ready' mà cú bấm kế tiếp rơi vào.
+      //
+      // Với nguồn 'demo': dùng luôn kết quả vừa có, không quét lại. Thẻ -> xoá
+      // sạch rồi xử lý như ở 'ready'. Tem Operation + đã có người -> đi tiếp
+      // đúng nhánh công đoạn với chính người/danh sách việc đó. Tem mà chưa có
+      // người -> 'ready' -> SCN-003 như cũ, vì lúc đó đúng là chưa ai quét thẻ.
+      //
+      // Súng quét/camera THẬT không đi vào đây: ở trạm đứng một mình, tem quét
+      // sau màn kết quả có thể là của người kế tiếp, nên họ vẫn phải quét thẻ.
+      let flow = state;
+      if (source === 'demo' && (flow === 'started' || flow === 'finished' || flow === 'error')) {
+        if (result.type === 'operation' && employee) flow = 'operation';
+        else { reset(); flow = 'ready'; }
+      }
+      if (flow === 'ready') {
         if (result.type !== 'employee') { const e=new Error('Hãy quét thẻ nhân viên trước'); e.code='SCN-003'; e.action='Quét thẻ nhân viên trước, sau đó mới quét Operation.'; throw e; }
         employee = result.employee;
         // `open_sessions` là trường mới; `open_session` là trường cũ. Đọc cả
@@ -470,7 +493,7 @@
             raw:rawQr, next:'Tiếp theo: quét QR CÔNG ĐOẠN'});
           show('operation');
         }
-      } else if (state === 'operation' || state === 'sessions' || quantityStates.includes(state)) {
+      } else if (flow === 'operation' || flow === 'sessions' || quantityStates.includes(flow)) {
         if (result.type !== 'operation') { const e=new Error('Hãy quét QR Operation'); e.code='SCN-004'; e.action='Sau khi nhận diện nhân viên, quét QR Operation.'; throw e; }
         const op = result.operation;
         const opText = `${op.display_key || op.code} · ${op.name}`;
@@ -524,7 +547,7 @@
           ? `Đang chạy ${openSessions.length} việc · quét lại thẻ khi hoàn thành`
           : 'Quét lại thẻ khi hoàn thành';
         show('started'); scheduleReset(3500);
-      } else if (state === 'started' || state === 'finished' || state === 'error') {
+      } else if (flow === 'started' || flow === 'finished' || flow === 'error') {
         reset(); setTimeout(() => scan(qr), 50);
       }
     } catch (error) {
@@ -1059,8 +1082,8 @@
     open: openDemo,
     close: closeDemo,
     reload: () => loadDemoData(true),
-    scanEmployee: () => scan(employeeQr()),
-    scanOperation: () => scan(operationQr()),
+    scanEmployee: () => scan(employeeQr(), {source:'demo'}),
+    scanOperation: () => scan(operationQr(), {source:'demo'}),
     // Feed an arbitrary payload through the same path a scanner gun uses --
     // the demo selects can only offer QRs that exist in the demo dataset.
     scan: qr => scan(String(qr || '')),
@@ -1078,8 +1101,8 @@
   document.getElementById('demo-refresh').addEventListener('click', () => loadDemoData(true));
   demoEmployee.addEventListener('change', updateDemoQr); demoOperation.addEventListener('change', updateDemoQr);
   setInterval(() => { if (demoIsOpen()) loadDemoData(true, {silent:true}); }, 10000);
-  document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr()));
-  document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr()));
+  document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr(), {source:'demo'}));
+  document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr(), {source:'demo'}));
   document.getElementById('demo-copy-employee').addEventListener('click', () => copyText(employeeQr()));
   document.getElementById('demo-copy-operation').addEventListener('click', () => copyText(operationQr()));
 
