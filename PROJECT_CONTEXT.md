@@ -60,3 +60,19 @@ Production-test mesflow.net must not be deployed from this refactor line without
 
 ### Next phases after P0/P1
 P2 System console consolidation, then P3 Productivity, P0 Master Data, P5 Quality, P6 Kiosk Admin, P7 Trace/Logs, P10 Planning, P11 Admin, P8 Sessions, P9 Overview, P12 cleanup.
+
+## P2 System Console consolidation — 2026-09-28
+- Child branch: ui-refactor/p2-system-console-20260928 from refactor/ui-consolidation-20260928@9f1c4fc.
+- Canonical System screen is explicitly marked `kind:'console'` and `lazy:true` in canonical-nav.js.
+- The System canonical screen has exactly six tabs: overview, errors, logs, services, diagnostics, audit.
+- Legacy routes remain the renderer/API source of truth; inactive tabs do not trigger their renderer/API until opened.
+- Six legacy URLs still deep-link to the correct canonical System tab in refactor mode.
+- Super Admin visibility remains gated through existing PAGE_PERMISSION / SUPER_ADMIN_PAGES / isSuperAdmin checks; backend system-health authorization is unchanged.
+- Existing System renderers remain intact in pages/system-console.js: renderSystemOverview, renderSystemErrors, renderSystemLogsIT, renderSystemServices, renderSystemDiagnostics, renderSystemAudit.
+- Restart and diagnostics POST actions are preserved unchanged.
+- Canonical nav now exposes System console state via body/tab-strip data attributes and `canonical-console-tabs` class for shared console UI handling.
+- New regression file: tests/test_ui_system_console_consolidation.py.
+- Focused P2 tests: 12 passed.
+- Combined P2/System/P0-P1 regression suite: 77 passed.
+- node --check passes for canonical-nav.js and app.js; git diff --check passes.
+- P2 must merge only into refactor/ui-consolidation-20260928, never main, and deploy only to dev.mesflow.net.
