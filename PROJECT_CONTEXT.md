@@ -2,10 +2,13 @@
 
 ## MESFlow UI consolidation - current handoff
 
-Date: 2026-09-28
-Long-lived integration branch: refactor/ui-consolidation-20260928
-Current child task branch: ui-refactor/p0-p1-nav-shell-20260928
+Last updated: 2026-09-29 (P3 Productivity)
+Long-lived integration branch: refactor/ui-consolidation-20260928 (NOT merged to main; main = 8aa78a6)
+Latest child task branch: ui-refactor/p3-productivity-20260929 (merged by fast-forward into integration @ c78f040 + handoff commit)
+Workflow (P0-P3): child branch + own worktree -> fast-forward integration -> push both over HTTPS -> build DEV image from the integration worktree -> deploy dev.mesflow.net only. Never main, never TEST/production.
 Production-test mesflow.net must not be deployed from this refactor line without explicit approval.
+
+**GOLDEN REFERENCE:** the canonical Năng suất screen (`productivity`, P3) is the golden visual reference for every P4+ migration. Compose its primitives (DESIGN.md §5.11, screenshots in docs/ui-golden/productivity/) instead of building per-page UI.
 
 ### P0/P1 scope implemented
 - Added machine-readable UI inventory at docs/ui-inventory.json.
@@ -59,7 +62,7 @@ Production-test mesflow.net must not be deployed from this refactor line without
 - mesflow.net / production-test was not deployed or modified by this P0/P1 task.
 
 ### Next phases after P0/P1
-P2 System console consolidation, then P3 Productivity, P0 Master Data, P5 Quality, P6 Kiosk Admin, P7 Trace/Logs, P10 Planning, P11 Admin, P8 Sessions, P9 Overview, P12 cleanup.
+P2 System console consolidation (done), P3 Productivity (done), then P4 Master Data, P5 Quality, P6 Kiosk Admin, P7 Trace/Logs, P10 Planning, P11 Admin, P8 Sessions, P9 Overview, P12 cleanup.
 
 ## P2 System Console consolidation — 2026-09-28
 - Implementation commit: 4187267. Integration pre-deploy handoff commit: 374b236.
@@ -92,3 +95,18 @@ P2 System console consolidation, then P3 Productivity, P0 Master Data, P5 Qualit
 - Live system-console.js still contains restart and diagnostics action endpoints.
 - Browser screenshot verification remains unavailable because Terminal MCP browser gateway is disabled; source/live-asset contracts and test suites are green.
 - Browser screenshot verification is unavailable because Terminal MCP browser gateway is disabled (BROWSER_GATEWAY_DISABLED); source/live asset contracts were verified instead.
+
+## P3 Productivity consolidation + golden visual reference — 2026-09-29
+- Implementation commit: c78f040 on ui-refactor/p3-productivity-20260929 (branched from origin/main 8aa78a6, fast-forwarded onto integration 3eb6a00 first, since integration sat directly on main's tip). Integration fast-forwarded to it and both refs pushed (verified via GitHub API).
+- Scope: employee-productivity + kpi-employees + kpi-operations -> one canonical screen `productivity`, tabs "Nhân viên" (page employee-productivity) and "Operation" (page kpi-operations). kpi-employees remains an alias (renders itself only for a role lacking session.view, as before).
+- Routes/deep links: `?page=employee-productivity|kpi-operations|kpi-employees` and, in refactor mode, `?page=productivity[&tab=operations]` / `?screen=productivity&tab=operations` resolve to the right tab; unrelated query params are preserved.
+- canonical-nav.js: productivity is `kind:'report', inlineTabs:true`; the shell's external tab strip hides for it and the page renders its own tab bar from the same SCREENS definition, so tabs exist with the refactor flag OFF too (legacy sidebar unchanged).
+- kpi-operations: real renderer in app/mesflow/web/static/pages/productivity-operations.js (registerPage) replacing renderSimple; search/PO/status filters; KPIs recalculated from filtered rows (quantity-weighted: Σđạt/Σkế hoạch, Σđạt/Σ(đạt+lỗi)); status shown in Vietnamese. /api/kpi/operations has no date param, so no date filter (intentional). The dead renderSimple branch for kpi-operations was removed from app.js; inventory updated.
+- Nhân viên tab (pages/employee-productivity.js): same filters, same summaryForVisibleRows KPI recalculation, same Excel export params (from/to/search/department/sort/dir) and NV xác nhận column; filters + sort now persist across tab switches within a page load (in-memory, reload = defaults). "Xóa bộ lọc" added. Wallboard panel unchanged, moved below the table. All element ids used by tutorial e2e are unchanged.
+- Golden-reference primitives (core/ui.js, exported on MFUI): reportBar, screenTabs, bindScreenTabs, kpiCards, tableHead (aria-sort + real sort buttons), meter. CSS layer at the end of ui.css ("GOLDEN VISUAL REFERENCE", all `.mf-*`, scoped): .mf-report, .mf-report-bar, .mf-screen-tabs, .mf-kpis/.mf-kpi (tone = top indicator), .mf-table-panel, .mf-table (sticky header inside --table-sticky-max on desktop, right-aligned tabular numerics, hover, sticky identity column <=700px), .mf-badge, .mf-meter, .mf-count. New tokens in the single :root: --table-head-h, --table-row-hover, --table-sticky-max, --meter-track, --meter-fill, --radius-pill. Documented in DESIGN.md §5.11.
+- No backend, API, permission, schema, migration or dependency change.
+- Tests: new tests/test_ui_productivity_consolidation.py (19 passed, node on host). Focused host runs green: test_ui_canonical_nav (20), test_ui_inventory_contract (12), test_ui_system_console_consolidation (12), test_v71_ui_foundation (7), design-token/radius contracts. Broad static suite in the `mesflow-aw0926-tests` image (`-m "not postgres and not integration and not slow"`, e2e/integration dirs ignored, dummy DATABASE_URL + MESFLOW_ENV=test + MESFLOW_SECRET_KEY): 1204 passed, 3 failed, 51 skipped; the same 3 fail on the untouched baseline (test_autologin_guard_unit x2, test_kiosk_errors_are_logged_and_classified) -> no new failures. Local host python lacks flask/openpyxl; run such tests in that image.
+- DEV deploy: image mesflow-app:ui-p3-c78f040 built from the integration worktree; mesflow-dev Compose project updated; /home/dell/workspace/mesflow-dev/.env MESFLOW_IMAGE changed from the stale mesflow-app:71.0.0.370 to mesflow-app:ui-p3-c78f040 (P2 had deployed via a command-line override, so a plain `up -d` would have regressed DEV). https://dev.mesflow.net/api/system/ready -> commit c78f040, 71.0.0.376, DEV, ready, migration 0054. mesflow.net (PRODUCTION_TEST) untouched: still 71.0.0.376 / commit unknown.
+- Browser verification on public https://dev.mesflow.net (Playwright in the mesflow-aw0926-playwright image, --network host) at 1920x1080, 1366x768, 390x844, refactor mode plus legacy mode at 1366: title "Năng suất", 2 inline tabs with correct active tab, shell strip hidden, 4 KPIs, sticky header, numeric cells right-aligned, 0px body horizontal overflow, no console/page errors. Filters kept across Nhân viên -> Operation -> Nhân viên; the Excel request carried from/to/search/sort/dir. Filtered export downloaded from DEV: 200 xlsx, header ends in "NV xác nhận", search=Mơ -> 1 row. Screenshots: docs/ui-golden/productivity/*.png.
+- Known risks / notes: static assets use `?v=<version>` and the version was not bumped (same as P2), so browsers with a cached 71.0.0.376 ui.css/app.js may show stale UI for up to max-age=14400s (hard-reload fixes it). A dirty sibling worktree /home/dell/workspace/.worktrees/mesflow-ui-dev-default-20260929 (branch ui-refactor/dev-default-canonical-20260929, uncommitted app.py server_role change) belongs to another task and was not touched. No Operation-tab Excel export exists (none existed before); candidate for a later phase.
+- Next: P4 Master Data (Employees + QR Print + Equipment) using the P3 primitives; then P5 Quality, P6 Kiosk, P7 Trace/Logs, P10 Planning, P11 Admin, P8 Sessions, P9 Overview, P12 cleanup.
