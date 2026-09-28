@@ -19,6 +19,12 @@
 //       KHÔNG gọi /start.
 //   D5. Súng quét thật (MESFlowKioskDemo.scan) KHÔNG đổi: tem sau màn lỗi vẫn
 //       đòi quét thẻ trước.
+//   D6. Lần hai (2026-09-29): trên DEV, /start bị từ chối vì NGOÀI CA, và
+//       màn hình chỉ nói "Công đoạn này hiện không thể bắt đầu" + "quét lại
+//       thẻ" -- trông y hệt lỗi cũ. Nay hiện đúng lý do + mã SHF-409 của máy
+//       chủ, rồi khi vào ca thì cả chuỗi NV -> OP bắt đầu được.
+//   D7. NV ngừng hoạt động ở /start: EMP-001 + câu của máy chủ.
+//   D8. 409 KHÔNG có `reason` (máy chủ cũ): vẫn câu chung như trước.
 const { test, expect } = require('@playwright/test');
 
 const EMPS = [
@@ -58,6 +64,11 @@ async function mockKiosk(page, state) {
   await page.route(/\/api\/kiosk-web\/start/, route => {
     const body = route.request().postDataJSON() || {};
     state.starts.push({ employee_id: body.employee_id, operation_id: body.operation_id });
+    // Một lần từ chối có hình dạng tuỳ ý (status + body), đúng như máy chủ trả.
+    if (state.refusals && state.refusals.length) {
+      const r = state.refusals.shift();
+      return route.fulfill({ status: r.status, json: r.json });
+    }
     if (state.rejectStarts > 0) {
       state.rejectStarts -= 1;
       return route.fulfill({ status: 409, json: { ok: false, error: 'CONFLICT', error_code: 'SES-409',
@@ -195,4 +206,68 @@ test('D5: súng quét thật không đổi -- tem sau màn lỗi vẫn đòi qu�
   await page.evaluate(() => window.MESFlowKioskDemo.scan('WF|OP|OP01'));
   await expect(page.locator('#error-code')).toHaveText('SCN-003');
   expect(state.starts).toHaveLength(1);
+});
+
+const OUTSIDE_SHIFT = { status: 409, json: { ok: false, error: 'CONFLICT', error_code: 'SHF-409',
+  reason: 'OUTSIDE_SHIFT',
+  message: 'Ngoài ca làm việc. Không thể bắt đầu phiên mới (giờ ca: Ca ngày 08:00–17:00 · Ca tối 18:00–00:00).',
+  action: 'Chỉ bắt đầu được trong giờ ca. Chờ tới giờ ca, hoặc nhờ quản đốc kiểm tra Lịch làm việc.' } };
+
+test('D6: ngoài ca -> hiện đúng lý do máy chủ; vào ca -> NV -> OP bắt đầu được', async ({ page }) => {
+  const state = freshState();
+  state.refusals = [OUTSIDE_SHIFT];
+  await openDemoKiosk(page, state);
+  // Đăng ký SAU mockKiosk: route đăng ký sau thắng.
+  const beats = [];
+  await page.route(/\/api\/kiosk-web\/heartbeat/, route => {
+    beats.push(route.request().postDataJSON() || {});
+    return route.fulfill({ json: { ok: true } });
+  });
+
+  await demoScanEmployee(page, 9);
+  await expect(page.locator('#screen-operation')).toHaveClass(/active/);
+  await demoScanOperation(page, 4301);
+  await expect(page.locator('#screen-error')).toHaveClass(/active/);
+  await expect(page.locator('#error-code')).toHaveText('SHF-409');
+  await expect(page.locator('#error-message')).toContainText('Ngoài ca làm việc');
+  await expect(page.locator('#error-message')).toContainText('08:00–17:00');
+  await expect(page.locator('#error-message')).not.toContainText('Công đoạn này hiện không thể bắt đầu');
+  await expect(page.locator('#error-action')).toContainText('giờ ca');
+  await expect(page.locator('#error-action')).not.toContainText('thẻ nhân viên');
+  // Chẩn đoán từ xa mang đủ mã + lý do.
+  await expect.poll(() => beats.some(b => String(b.last_error || '').startsWith('SHF-409 OUTSIDE_SHIFT: Ngoài ca'))).toBe(true);
+
+  // Vào ca: đúng chuỗi người dùng làm -- quét NV rồi quét OP -- phải thành công.
+  await demoScanEmployee(page, 9);
+  await expect(page.locator('#screen-operation')).toHaveClass(/active/);
+  await demoScanOperation(page, 4301);
+  await expect(page.locator('#screen-started')).toHaveClass(/active/);
+  await expect(page.locator('#started-operation')).toContainText('PA-OP01');
+  expect(state.starts).toEqual([
+    { employee_id: 9, operation_id: 4301 },
+    { employee_id: 9, operation_id: 4301 },
+  ]);
+});
+
+test('D7: NV ngừng hoạt động ở /start -> EMP-001 + câu của máy chủ', async ({ page }) => {
+  const state = freshState();
+  state.refusals = [{ status: 400, json: { ok: false, error: 'INVALID_REQUEST', error_code: 'EMP-001',
+    reason: 'EMPLOYEE_INACTIVE', message: 'Nhân viên đã ngừng hoạt động hoặc không còn trong danh mục.',
+    action: 'Kiểm tra trạng thái nhân viên trong Danh mục, hoặc quét thẻ của người khác.' } }];
+  await openDemoKiosk(page, state);
+  await demoScanEmployee(page, 9);
+  await demoScanOperation(page, 4301);
+  await expect(page.locator('#error-code')).toHaveText('EMP-001');
+  await expect(page.locator('#error-message')).toHaveText('Nhân viên đã ngừng hoạt động hoặc không còn trong danh mục.');
+});
+
+test('D8: 409 không có reason (máy chủ cũ) -> vẫn câu chung như trước', async ({ page }) => {
+  const state = freshState();
+  state.refusals = [{ status: 409, json: { ok: false, error: 'CONFLICT', error_code: 'SES-409',
+    message: 'something internal', action: 'x' } }];
+  await openDemoKiosk(page, state);
+  await demoScanEmployee(page, 9);
+  await demoScanOperation(page, 4301);
+  await expect(page.locator('#error-code')).toHaveText('SES-409');
+  await expect(page.locator('#error-message')).toHaveText('Công đoạn này hiện không thể bắt đầu.');
 });

@@ -78,6 +78,12 @@ def test_a_programming_bug_becomes_500_and_is_logged(client, monkeypatch, caplog
     def boom(*args, **kwargs):
         raise TypeError("unsupported operand type(s) for +: 'int' and 'str'")
     monkeypatch.setattr(kiosk_module, 'WorkSessionRepository', boom)
+    # Cổng ca (thêm sau bài này) chạy TRƯỚC repository: không ghim giờ + lịch
+    # ca thì bài này đo cổng ca -- 409 lúc CI chạy ngoài giờ, ShiftConfigDegraded
+    # khi không có DB -- chứ không bao giờ tới được TypeError nó muốn đo.
+    tuesday_morning = datetime(2026, 9, 29, 9, 0, tzinfo=ZoneInfo('Asia/Ho_Chi_Minh'))
+    monkeypatch.setattr(kiosk_module, 'utc_now', lambda: tuesday_morning, raising=False)
+    monkeypatch.setattr(kiosk_module, 'get_work_shifts', lambda: DEFAULT_SHIFTS, raising=False)
 
     with caplog.at_level(logging.ERROR, logger='mesflow.web.kiosk'):
         response = client.post('/api/kiosk-web/start',
@@ -145,5 +151,11 @@ def test_start_outside_every_configured_shift_is_rejected_before_insert(client, 
     })
 
     assert response.status_code == 409
-    assert response.get_json()['error_code'] == 'SES-409'
-    assert 'ngoài ca làm việc' in response.get_json()['message'].lower()
+    # Mã RIÊNG + `reason` (2026-09-29): trước đây là SES-409 kèm "Quét lại thẻ
+    # nhân viên", không phân biệt được với xung đột phiên. Xem
+    # tests/test_kiosk_refusal_reasons.py.
+    body = response.get_json()
+    assert body['error_code'] == 'SHF-409'
+    assert body['reason'] == 'OUTSIDE_SHIFT'
+    assert 'ngoài ca làm việc' in body['message'].lower()
+    assert 'Quét lại thẻ' not in body['action']

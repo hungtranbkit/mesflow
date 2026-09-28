@@ -226,6 +226,8 @@
     'OP-002':'Tem này trùng mã với một Operation khác. In lại tem QR cho Operation này rồi quét lại.',
     'PO-001':'Nhờ quản đốc Start/Tiếp tục PO.',
     'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra phiên làm việc đang mở.',
+    'SHF-409':'Chỉ bắt đầu được trong giờ ca. Chờ tới giờ ca, hoặc nhờ quản đốc kiểm tra Lịch làm việc.',
+    'OP-409':'Chọn công đoạn khác, hoặc báo quản đốc nếu cần làm lại.',
     'QTY-409':'Giảm số lượng hoặc kiểm tra sản lượng OP nguồn.',
     'NET-001':'Kiểm tra Wi-Fi/LAN và địa chỉ máy chủ.',
     'AUTH_REQUIRED':'Màn hình này không cần đăng nhập. Nếu vẫn báo lỗi, chụp màn hình và báo quản trị viên.',
@@ -252,13 +254,15 @@
     if(status>=500)return {message:'Mất kết nối máy chủ.',action:'Chờ một lát rồi thử lại.'};
     return {message:'Chưa thực hiện được.',action:'Thử lại hoặc báo quản đốc nếu lỗi lặp lại.'};
   }
-  function setError(message, code='SCN-000', action='') {
+  function setError(message, code='SCN-000', action='', reason='') {
     const safeCode = String(code || 'SCN-000').toUpperCase();
     document.getElementById('error-code').textContent = safeCode;
     document.getElementById('error-message').textContent = message || 'Không thể xử lý yêu cầu';
     document.getElementById('error-action').textContent = action || ERROR_HELP[safeCode] || 'Quét lại. Nếu lỗi lặp lại, báo quản đốc kèm mã lỗi.';
     document.getElementById('scan-status').textContent = 'Cần thử lại';
-    lastHeartbeatError = `${safeCode}: ${message || ''}`.slice(0, 240);
+    // Chẩn đoán từ xa (kiosk_status.last_error) mang cả `reason` để phân biệt
+    // "ngoài ca" với "NV ngừng hoạt động" với xung đột phiên mà không cần tới máy.
+    lastHeartbeatError = `${safeCode}${reason ? ` ${reason}` : ''}: ${message || ''}`.slice(0, 240);
     show('error');
   }
   function reset() {
@@ -357,9 +361,23 @@
       }
       const data = (err && err.body) || {};
       const status = (err && err.status) || 0;
-      const friendly = workerError(data, status), error = new Error(friendly.message);
+      // LÝ DO CỦA MÁY CHỦ THẮNG CÂU CHUNG. Khi máy chủ gửi kèm `reason` (xem
+      // web/kiosk.py::_conflict_reason), message/action của nó đã là tiếng
+      // Việt viết cho người đứng máy và nói ĐÚNG chuyện gì xảy ra: "Ngoài ca
+      // làm việc (giờ ca: …)", "PO … chưa Start", "Nhân viên đã ngừng hoạt
+      // động". Trước đây workerError() gộp mọi 409 thành "Công đoạn này hiện
+      // không thể bắt đầu" -- ngoài giờ, người thử kiosk chỉ còn thấy lời
+      // khuyên "quét lại thẻ" và tưởng lỗi SCN-003 cũ vẫn còn. Không có
+      // `reason` (máy chủ cũ, 401/403/5xx) thì vẫn là câu chung như trước.
+      const serverReason = data.reason && data.message && status >= 400 && status < 500
+        && status !== 401 && status !== 403;
+      const friendly = serverReason
+        ? {message:data.message, action:data.action || workerError(data, status).action}
+        : workerError(data, status);
+      const error = new Error(friendly.message);
       error.code = data.error_code || data.error || (status >= 500 ? 'SYS-500' : `HTTP-${status}`);
       error.action = friendly.action;
+      if (data.reason) error.reason = String(data.reason);
       // Máy chủ có thể ĐÃ nhận ra tem này là ai/việc gì rồi mới từ chối vì
       // luật nghiệp vụ (rõ nhất: PO-001 "PO chưa Start"). Phần đã nhận ra đó
       // phải sống sót qua lớp lỗi này, nếu không màn hình chỉ còn mỗi câu từ
@@ -551,7 +569,7 @@
         reset(); setTimeout(() => scan(qr), 50);
       }
     } catch (error) {
-      setError(error.message, error.code, error.action);
+      setError(error.message, error.code, error.action, error.reason);
       // GỐC CỦA LỖI P0: cả thân hàm nằm trong một `try`, nên BẤT KỲ lời từ
       // chối nghiệp vụ nào cũng nhảy thẳng xuống đây và lần quét bị công bố
       // như "không nhận được mã" -- kể cả khi máy chủ đã đọc ra chính xác đó
