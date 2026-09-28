@@ -62,6 +62,7 @@ Production-test mesflow.net must not be deployed from this refactor line without
 P2 System console consolidation, then P3 Productivity, P0 Master Data, P5 Quality, P6 Kiosk Admin, P7 Trace/Logs, P10 Planning, P11 Admin, P8 Sessions, P9 Overview, P12 cleanup.
 
 ## P2 System Console consolidation — 2026-09-28
+- Implementation commit: 4187267. Integration pre-deploy handoff commit: 374b236.
 - Child branch: ui-refactor/p2-system-console-20260928 from refactor/ui-consolidation-20260928@9f1c4fc.
 - Canonical System screen is explicitly marked `kind:'console'` and `lazy:true` in canonical-nav.js.
 - The System canonical screen has exactly six tabs: overview, errors, logs, services, diagnostics, audit.
@@ -72,7 +73,22 @@ P2 System console consolidation, then P3 Productivity, P0 Master Data, P5 Qualit
 - Restart and diagnostics POST actions are preserved unchanged.
 - Canonical nav now exposes System console state via body/tab-strip data attributes and `canonical-console-tabs` class for shared console UI handling.
 - New regression file: tests/test_ui_system_console_consolidation.py.
-- Focused P2 tests: 12 passed.
-- Combined P2/System/P0-P1 regression suite: 77 passed.
+- Focused P2/canonical contract suite: 44 passed.
+- Broader P2/navigation/Overview/session regression suite: 92 passed, 1 skipped because local playwright.sync_api is unavailable.
+- System Console / Super Admin / system-health unit suite: 31 passed.
+- Final integration verification suite after fast-forward: 75 passed.
 - node --check passes for canonical-nav.js and app.js; git diff --check passes.
 - P2 must merge only into refactor/ui-consolidation-20260928, never main, and deploy only to dev.mesflow.net.
+
+### P2 DEV deployment verification
+- Integration branch was fast-forwarded to child HEAD 374b236 before deploy.
+- DEV image built from integration worktree: mesflow-app:ui-p2-374b236.
+- Existing mesflow-dev Compose project was updated in place; app container is now canonical name mesflow-dev-app, image mesflow-app:ui-p2-374b236, health healthy, service label app.
+- https://dev.mesflow.net/api/system/ready reports 71.0.0.376 / DEV / ready / migration 0054_multi_open_session_per_employee.
+- https://mesflow.net/api/system/ready remains 71.0.0.376 / PRODUCTION_TEST / ready / migration 0054_multi_open_session_per_employee; production-test was not deployed.
+- Live canonical-nav.js reports System kind=console, lazy=true and exactly six tabs: overview, errors, logs, services, diagnostics, audit.
+- All six legacy System page IDs resolve live to screen=system and their matching canonical tab.
+- Live canonical nav contains canonicalConsole state hook.
+- Live system-console.js still contains restart and diagnostics action endpoints.
+- Browser screenshot verification remains unavailable because Terminal MCP browser gateway is disabled; source/live-asset contracts and test suites are green.
+- Browser screenshot verification is unavailable because Terminal MCP browser gateway is disabled (BROWSER_GATEWAY_DISABLED); source/live asset contracts were verified instead.
