@@ -3,7 +3,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def test_overview_page_and_api_are_wired():
     app=(ROOT/'app/mesflow/web/static/app.js').read_text()
-    page=(ROOT/'app/mesflow/web/static/pages/overview-v2.js').read_text()
+    page=(ROOT/'app/mesflow/web/static/pages/overview.js').read_text()
     routes=(ROOT/'app/mesflow/web/analytics.py').read_text()
     repo=(ROOT/'app/mesflow/db/repositories/analytics.py').read_text()
     html=(ROOT/'app/mesflow/web/templates/app.html').read_text()
@@ -12,7 +12,7 @@ def test_overview_page_and_api_are_wired():
     assert "/api/dashboard/overview" in page
     assert "@bp.get('/dashboard/overview')" in routes
     assert "def operation_overview" in repo
-    assert "/static/pages/overview-v2.js" in html
+    assert "/static/pages/overview.js" in html
 
 def test_daily_dashboard_uses_one_date_filter_and_full_day_endpoint():
     app=(ROOT/'app/mesflow/web/static/app.js').read_text()
@@ -47,7 +47,7 @@ def test_daily_dashboard_tab_and_date_reflect_in_url():
 
 
 def test_overview_auto_refresh_pauses_while_user_is_viewing():
-    page=(ROOT/"app/mesflow/web/static/pages/overview-v2.js").read_text()
+    page=(ROOT/"app/mesflow/web/static/pages/overview.js").read_text()
     assert "document.visibilityState==='visible'&&document.hasFocus()" in page
     assert "userViewing===false)load()" in page
     assert "setInterval(()=>document.getElementById('ovPos')&&load(),15000)" not in page
