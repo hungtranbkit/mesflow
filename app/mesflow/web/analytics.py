@@ -311,6 +311,39 @@ def employee_productivity_report():
         return jsonify(ok=True,**report)
     except Exception as exc: return error(exc)
 
+@bp.get('/reports/employee-productivity/export.xlsx')
+@login_required
+def employee_productivity_export_xlsx():
+    try:
+        from flask import send_file
+        from mesflow.web.productivity_excel import build_employee_productivity_xlsx
+
+        employee=request.args.get('employee_id','').strip()
+        department=request.args.get('department') or None
+        report=ReportRepository().employee_productivity(
+            request.args.get('from'),request.args.get('to'),
+            int(employee) if employe else None,
+            department,request.args.get('team') or None,5000)
+        output=build_employee_productivity_xlsx(
+            report,
+            search=request.args.get('search',''),
+            department=department or '',
+            sort_key=request.args.get('sort') or 'productivity_percent',
+            sort_dir=request.args.get('dir') or 'desc',
+        )
+        summary=report.get('summary') or {}
+        date_from=summary.get('from') or request.args.get('from') or 'from'
+        date_to=summary.get('to') or request.args.get('to') or 'to'
+        filename=f"nang-suat-nhan-vien_{date_from}_{date_to}.xlsx"
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            max_age=0,
+        )
+    except Exception as exc: return error(exc)
+
 @bp.get('/reports/employee-productivity/<int:employee_id>')
 @login_required
 def employee_productivity_detail_report(employee_id):
