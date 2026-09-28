@@ -30,7 +30,7 @@ def test_daily_dashboard_uses_one_date_filter_and_full_day_endpoint():
     assert "@bp.get('/dashboard/day')" in routes
     assert "calendar_day:bool=False" in repo
     assert "self._calendar_day_context(shift_date) if calendar_day" in repo
-    assert "ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s" in repo
+    assert "COALESCE(ws.ended_at,ws.updated_at) >= %s AND COALESCE(ws.ended_at,ws.updated_at) < %s" in repo
 
 def test_daily_dashboard_tab_and_date_reflect_in_url():
     app=(ROOT/'app/mesflow/web/static/app.js').read_text()
