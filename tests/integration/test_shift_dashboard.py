@@ -55,6 +55,26 @@ def test_day_shift_session_list_still_includes_same_calendar_date_night_session(
     assert row['id'] in {item['session_id'] for item in response.json()['sessions']}
 
 
+def test_session_ending_exactly_at_midnight_is_not_counted_on_the_next_day(db, api, seeded_factory):
+    """Session intervals are half-open: an end at 00:00 has no overlap with the new day."""
+    g = seeded_factory
+    start = datetime(2026, 9, 27, 6, 42, tzinfo=HCM)
+    midnight = datetime(2026, 9, 28, 0, 0, tzinfo=HCM)
+    row = db.execute("""INSERT INTO work_sessions(employee_id,operation_id,station_id,device_uuid,status,
+                      started_at,ended_at,good_qty,defect_qty,close_reason,closed_by_system,
+                      start_request_id,finish_request_id)
+                      VALUES(%s,%s,%s,'docker-e2e','CLOSED',%s,%s,0,0,'AUTO_CALENDAR_DAY_END',TRUE,%s,%s)
+                      RETURNING id""",
+                     (g['employee_id'], g['operation_id'], g['station_id'], start, midnight,
+                      f"start-midnight-{g['suffix']}", f"finish-midnight-{g['suffix']}" )).fetchone()
+
+    response = api.get('http://mesflow-test-api:8080/api/dashboard/day?date=2026-09-28&limit=1000', timeout=10)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert row['id'] not in {item['session_id'] for item in body['sessions']}
+    assert g['operation_id'] not in {item['operation_id'] for item in body['items']}
+
+
 def test_early_morning_session_before_shift_anchor_is_listed_for_its_calendar_date(db, api, seeded_factory):
     # Regression for the "Session theo ngày" bug: a session that starts
     # before the DAY shift's anchor_start (08:00 in this seed) must still
