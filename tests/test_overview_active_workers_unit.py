@@ -109,3 +109,7 @@ def test_active_worker_source_is_open_sessions_and_page_renders_it():
     assert 'const workerRows=x=>' in page  # OPEN and closed-today workers render together
     assert 'activeWorkers(x)||todayWorkers(x)' not in page
     assert 'overview-op-worker-list' in page
+    assert 'role="list"' in page and 'role="listitem"' in page
+    assert 'ov-worker-name' in page and 'ov-worker-status' in page
+    worker_renderer = page.split('const workerRows=x=>', 1)[1].split('const dur=', 1)[0]
+    assert '.slice(' not in worker_renderer and 'more' not in worker_renderer

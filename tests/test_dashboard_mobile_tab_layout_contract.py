@@ -44,4 +44,4 @@ def test_dashboard_tabs_share_typography_tokens_and_disable_only_autosizing():
     assert 'font-size:var(--dashboard-meta)' in hotfix
     assert 'body[data-page="dashboard"] .op-card-head{margin-bottom:0}' in hotfix
     for forbidden in ('transform:scale', 'zoom:', 'overflow:hidden'):
-        assert forbidden not in mobile, f'hotfix must not mask the defect with {forbidden}'
+        assert forbidden not in mobile_pane, f'tab pane must not mask the defect with {forbidden}'

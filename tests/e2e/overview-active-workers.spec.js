@@ -1,7 +1,6 @@
 const {test,expect}=require('@playwright/test');
-// Production Overview hotfix (2026-09-26): each Operation row names who is on
-// it right now (active_worker_list = OPEN sessions). Mocked data covers zero /
-// one / many (+N) / SETUP / one person with two open sessions.
+// Production Overview hotfix (2026-09-28): each Operation's "Hôm nay" box
+// names every active worker on a dedicated row. There is no compact +N path.
 async function login(page){await page.goto('/login');await page.request.post('/api/auth/test-auto-login');
  await page.waitForURL(/\/app/,{timeout:20000}).catch(()=>{});
  await page.goto('/app');await expect(page.locator('#appLayout')).toBeVisible()}
@@ -20,15 +19,28 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  const row=id=>page.locator(`[data-repair-op="${id}"]`);
  await expect(page.locator('.overview-op-workers')).toHaveCount(3);
  await expect(row(1).locator('.overview-op-workers')).toHaveCount(0);
- await expect(row(2).locator('.overview-op-workers')).toContainText('Nguyễn Văn An');
- await expect(row(2).locator('.overview-op-workers')).toContainText('NV001');
- const many=row(3).locator('.overview-op-workers');
- await expect(many.locator('.ov-worker')).toHaveCount(4);
- await expect(many).toContainText('Phạm Dũng');await expect(many).not.toContainText('Hoàng Em');
- await expect(many.locator('.ov-worker.more')).toHaveText('+2');
- await expect(many.locator('.ov-worker.more')).toHaveAttribute('title',/Hoàng Em[\s\S]*Võ Phương/);
- await expect(row(4).locator('.ov-worker.setup')).toContainText('Chuẩn bị');
- await expect(row(4).locator('.overview-op-workers')).toContainText('×2');
+ const single=row(2).locator('[data-today-metrics] .overview-op-workers');
+ await expect(single).toContainText('Nguyễn Văn An');
+ await expect(single).toContainText('NV001');
+ await expect(single.locator('.overview-op-worker-list')).toHaveAttribute('role','list');
+ const many=row(3).locator('[data-today-metrics] .overview-op-workers');
+ const workers=many.locator('.ov-worker');
+ await expect(workers).toHaveCount(5);
+ expect(await workers.evaluateAll(es=>es.every(e=>e.getAttribute('role')==='listitem'))).toBe(true);
+ await expect(many).toContainText('Phạm Dũng');
+ await expect(many).toContainText('Hoàng Em');
+ await expect(many).toContainText('Võ Phương');
+ await expect(many.locator('.ov-worker.more')).toHaveCount(0);
+ await expect(row(4).locator('.overview-op-workers .ov-worker')).toHaveCount(2);
+ // Every real employee occupies a separate visual row, with the green
+ // status dot structurally before the name. This is checked at all three
+ // required viewport sizes by the loop around this test.
+ const workerLayout=await workers.evaluateAll(es=>es.map(e=>{const dot=e.querySelector('i'),name=e.querySelector('.ov-worker-name'),status=e.querySelector('.ov-worker-status');return {top:e.getBoundingClientRect().top,dotBeforeName:dot?.nextElementSibling?.contains(name),statusBelowName:status?.getBoundingClientRect().top>name?.getBoundingClientRect().top,dot:getComputedStyle(dot).backgroundColor}}));
+ expect(new Set(workerLayout.map(x=>Math.round(x.top))).size).toBe(5);
+ expect(workerLayout.every(x=>x.dotBeforeName)).toBe(true);
+ expect(workerLayout.every(x=>x.statusBelowName)).toBe(true);
+ expect(workerLayout.every(x=>x.dot==='rgb(23, 116, 81)')).toBe(true);
+ expect(await workers.locator('.ov-worker-name').evaluateAll(es=>es.every(e=>e.scrollWidth<=e.clientWidth+1))).toBe(true);
  // Existing columns untouched: progress/qty still render on a staffed row.
  await expect(row(3)).toContainText('40.0%');
  const spill=await page.locator('.overview-op-workers').evaluateAll(els=>els.filter(el=>el.scrollWidth>el.clientWidth+1||el.getBoundingClientRect().right>el.parentElement.getBoundingClientRect().right+1).length);

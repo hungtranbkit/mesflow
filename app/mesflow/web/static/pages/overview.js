@@ -56,16 +56,14 @@ async function renderOverview(){
   // RIGHT NOW, from the backend's active_worker_list (OPEN sessions only --
   // never the day rollup), so management no longer has to switch to
   // Dashboard theo ngày. Nothing is rendered when nobody is on it, so idle
-  // rows keep their exact previous shape. At most 3 chips, the rest fold
-  // into a +N chip whose tooltip names them.
+  // rows keep their exact previous shape.
   const T=v=>v?new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(v)):'';
   // Production Overview hotfix (2026-09-26, part 2): today's history and a
   // compact "Hôm nay" block per Operation, from the backend's `today` /
   // today_worker_list (factory calendar day 00:00-24:00, one grouped query).
-  // OPEN wins: the green "Đang làm" line above is shown whenever anyone is on
   // Keep the backend lists distinct: today_worker_list contains closed-today
   // workers only, while active_worker_list contains OPEN sessions only.
-  const workerRows=x=>{const active=Array.isArray(x.active_worker_list)?x.active_worker_list:[],closed=Array.isArray(x.today_worker_list)?x.today_worker_list:[],rows=[...active.map(w=>({w,active:true})),...closed.map(w=>({w,active:false}))];if(!rows.length)return '';return `<section class="overview-op-workers" aria-label="Nhân viên"><small>Nhân viên</small><div class="overview-op-worker-list">${rows.map(({w,active})=>`<div class="ov-worker${active?' is-active':' is-finished'}" title="${E([w.name,w.employee_no].filter(Boolean).join(' · '))}"><i aria-hidden="true"></i><b>${E(w.name||w.employee_no||'—')}</b>${w.employee_no?`<small>${E(w.employee_no)}</small>`:''}<span>${active?`Đang làm${w.started_at?` ${T(w.started_at)}`:''}`:`Đã kết thúc${w.last_ended_at?` ${T(w.last_ended_at)}`:''}`}</span></div>`).join('')}</div></section>`};
+  const workerRows=x=>{const active=Array.isArray(x.active_worker_list)?x.active_worker_list:[],closed=Array.isArray(x.today_worker_list)?x.today_worker_list:[],rows=[...active.map(w=>({w,active:true})),...closed.map(w=>({w,active:false}))];if(!rows.length)return '';return `<section class="overview-op-workers" aria-label="Nhân viên"><small>Nhân viên</small><div class="overview-op-worker-list" role="list">${rows.map(({w,active})=>`<div class="ov-worker${active?' is-active':' is-finished'}" role="listitem" title="${E([w.name,w.employee_no].filter(Boolean).join(' · '))}"><i aria-hidden="true"></i><span class="ov-worker-identity"><b class="ov-worker-name">${E(w.name||w.employee_no||'—')}</b>${w.employee_no?`<small>${E(w.employee_no)}</small>`:''}</span><span class="ov-worker-status">${active?`Đang làm${w.started_at?` ${T(w.started_at)}`:''}`:`Đã kết thúc${w.last_ended_at?` ${T(w.last_ended_at)}`:''}`}</span></div>`).join('')}</div></section>`};
   // Dashboard's hour wording (app.js fmtDuration "2g 05p"), minutes kept
   // equally short ("25p") so a line never wraps on the pace text.
   const dur=sec=>{sec=Math.max(0,Math.round(Number(sec)||0));const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return h?`${h}g ${String(m).padStart(2,'0')}p`:m?`${m}p`:`${sec} giây`};

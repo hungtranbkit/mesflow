@@ -1450,6 +1450,27 @@ file — never external.
 - **Priority**: P1.
 - **Dimensions**: positive, boundary, concurrency (race).
 
+### REQ-DASH-003 — Per-Operation "Hôm nay" worker status lines
+
+- **Module**: Dashboard / Overview.
+- **Purpose**: Let a supervisor see who is working now and who completed work today without confusing employee identity with Operation production metrics.
+- **Actors**: any authenticated role with Overview access.
+- **Preconditions**: an Operation has at least one `OPEN` session or at least one session that finished in the current factory-calendar day.
+- **Input**: the real `active_worker_list` (`OPEN` sessions) and `today_worker_list` (workers with sessions closed today) returned by the Overview API; the client must not synthesize placeholder employees.
+- **Trigger**: render the per-Operation `Hôm nay` mini-dashboard.
+- **Main flow**: 1) render the Operation metrics in their existing metric lines. 2) render a separate employee-status area inside the same `Hôm nay` box. 3) render exactly one employee per visual row, with every active employee first and every finished-today employee retained below them. 4) place a green status dot before an active employee's name and a neutral gray dot before a finished-today employee's name.
+- **Expected output**: all employees in both lists remain individually named; no `+N` compaction, hidden overflow employee, or fabricated demo row is allowed. Finished-today employees remain visible even while another employee is active on the same Operation.
+- **State transition**: N/A (read-only).
+- **Validation**: absent/non-array worker lists are treated as empty; employee text is HTML-escaped.
+- **Errors**: failure to load Overview data follows REQ-DASH-001's independent-panel behavior; the UI must not substitute fake worker data.
+- **Boundary**: zero, one, and five-or-more workers; active and finished-today workers together; repeated sessions already grouped by the API; long employee names.
+- **Permission**: inherits Overview access.
+- **Concurrency**: the next Overview refresh replaces the rows with the newest API lists; stale-response protection follows REQ-DASH-002.
+- **Audit**: N/A (read-only).
+- **Related**: REQ-DASH-001/002, REQ-SESS-001/002.
+- **Priority**: P0.
+- **Dimensions**: positive, empty-state, responsive layout at 1920×1080, 1366×768, and mobile, real-data contract.
+
 ## 15.3 Production Order (`REQ-PO-*`)
 
 ### REQ-PO-001 — PO creation is template-instantiation only
@@ -3098,7 +3119,7 @@ this writing, **P** = partial, **—** = no automated coverage found.
 | REQ-AUTH-001..003 (real login/session) | `tests/e2e/tutorial-video.spec.js` (real password), `test_local_8080_login_contract.py`, `test_internal_qa_login_contract.py` | A |
 | REQ-AUTH-004/005 (autologin) | `tests/test_autologin_guard_unit.py`, `tests/integration/test_autologin_persona.py`, `tests/test_v6584431_production_hardening.py` | A |
 | §3 RBAC matrix | `tests/integration/test_permission_matrix.py`, `test_super_admin_system_console.py`/`_unit.py`, `test_rbac_self_heal.py` | A (matrix-level); this document's full per-route table is broader than any single existing test file |
-| REQ-DASH-* | `tests/e2e/overview-and-calendar.spec.js`, `overview-production-summary.spec.js`, `dashboard-employee-timeline.spec.js` | A |
+| REQ-DASH-* | `tests/e2e/overview-and-calendar.spec.js`, `overview-production-summary.spec.js`, `dashboard-employee-timeline.spec.js`, `overview-active-workers.spec.js`, `overview-today-activity.spec.js`, `overview-today-minidash.spec.js`; `tests/test_overview_active_workers_unit.py`, `test_overview_today_activity_unit.py`, `tests/integration/test_overview_today_minidash.py` | A |
 | REQ-PO-*, REQ-PART-*, REQ-TPL-* | `tests/e2e/catalog-crud.spec.js`, `catalog-visual.spec.js`, `template-ui.spec.js`; `test_p1_audit_2026_08_28.py`, `test_production_state_integrity.py`, `test_production_consistency_p1.py` | A (P for PO-transition rules beyond the enum, §5.3 gap) |
 | REQ-EMP-* | `tests/e2e/catalog-crud.spec.js` | P — no dedicated employee-lifecycle test file |
 | REQ-SESS-* | `test_session_lifecycle_state_machine_property.py`, `test_session_lifecycle_observability_phase13.py`, `test_session_overlap_and_exceptions.py`, `test_shift_session_lifecycle.py`, `test_write_path_po_lock_contention.py`, `tests/e2e/session-management-*.spec.js` (3 files) | A |
@@ -3270,4 +3291,3 @@ uncertainty is the deliberate, correct output — an agent encountering
 a `SPEC-GAP` should generate a test case that *checks and records*
 actual behavior rather than assert a guessed expectation, exactly as
 §20.4 instructs.
-

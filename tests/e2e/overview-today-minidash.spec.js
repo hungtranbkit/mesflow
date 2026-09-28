@@ -30,7 +30,7 @@ async function mock(page){
  await page.route('**/api/reports/operation-sessions*',r=>r.fulfill({json:{ok:true,report:{sessions:[],users:[],operations:[]}}}));
  await page.route('**/api/employees*',r=>r.fulfill({json:{ok:true,items:[]}}))}
 const txt=loc=>loc.evaluate(el=>el.textContent.replace(/\s+/g,' ').trim());
-for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`today mini-dashboard ${viewport.width}x${viewport.height}`,async({page})=>{
+for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:390,height:844}])test(`today mini-dashboard ${viewport.width}x${viewport.height}`,async({page})=>{
  await page.setViewportSize(viewport);await mock(page);await login(page);
  await page.evaluate(()=>openPage('overview'));await expect(page.locator('.overview-po')).toHaveCount(2);
  const row=id=>page.locator(`[data-repair-op="${id}"]`),m=(id,k)=>row(id).locator(`[data-today="${k}"]`);
@@ -58,7 +58,7 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`tod
  await expect(m(4,'delta')).toHaveCount(0);
  await expect(m(4,'time').locator('b')).toHaveText('25p');
  await expect(row(5).locator('[data-today-metrics]')).toContainText('Chưa có phiên làm việc');
- // OPEN wins: green line on running rows, neutral history elsewhere.
+ // Active and finished-today employees stay visible together, one per row.
  const workers=row(1).locator('[data-today-metrics] .overview-op-worker-list .ov-worker');
  await expect(row(1).locator('[data-today-metrics] .overview-op-workers > small')).toHaveText('Nhân viên');
  await expect(workers).toHaveCount(4);
@@ -77,6 +77,10 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`tod
  const dotColors=await workers.evaluateAll(es=>es.map(e=>getComputedStyle(e.querySelector('i')).backgroundColor));
  expect(dotColors[0]).toBe('rgb(23, 116, 81)');expect(dotColors[1]).toBe(dotColors[0]);
  expect(dotColors[2]).toBe('rgb(85, 97, 112)');expect(dotColors[3]).toBe(dotColors[2]);
+ const workerLayout=await workers.evaluateAll(es=>es.map(e=>{const dot=e.querySelector('i'),name=e.querySelector('.ov-worker-name'),status=e.querySelector('.ov-worker-status');return {top:e.getBoundingClientRect().top,dotBeforeName:dot?.nextElementSibling?.contains(name),statusBelowName:status?.getBoundingClientRect().top>name?.getBoundingClientRect().top}}));
+ expect(new Set(workerLayout.map(x=>Math.round(x.top))).size).toBe(4);
+ expect(workerLayout.every(x=>x.dotBeforeName)).toBe(true);
+ expect(workerLayout.every(x=>x.statusBelowName)).toBe(true);
  await expect(row(1).locator('[data-today-metrics] .overview-op-workers')).toHaveCount(1);
  await expect(row(1).locator(':scope > .overview-op-workers')).toHaveCount(0);
  expect(await row(1).locator('[data-today-metrics] .overview-op-workers').evaluate(e=>e.parentElement.matches('[data-today-metrics]'))).toBe(true);
@@ -119,6 +123,7 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844}])test(`tod
   // Double-click still opens Operation Detail.
   await row(1).dblclick({position:{x:20,y:12}});
   await expect(page.locator('.op-detail-modal')).toBeVisible();
+  await page.locator('[data-op-detail-close]').click();
  }else{
   // Mobile: strip groups stack; the block spans the row under the identity.
   const g=await strip.locator('.ov-po-today-g').evaluateAll(els=>els.map(e=>e.getBoundingClientRect().top));

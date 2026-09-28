@@ -135,4 +135,6 @@ def test_today_sql_and_page_contract():
     assert '</div>${workers}<div class="ov-today-line">' in page
     assert '${todayMetrics(x)}</div>' in page
     assert 'Đã kết thúc' in page and 'w.last_ended_at' in page
+    assert 'role="list"' in page and 'role="listitem"' in page
+    assert 'ov-worker-name' in page and 'ov-worker-status' in page
     assert 'định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%' in page
