@@ -112,6 +112,27 @@ def test_multi_day_stale_session_closes_at_first_valid_boundary_after_start(db, 
     assert row['ended_at'].astimezone(HCM).time().isoformat(timespec='minutes') == '17:00'
 
 
+def test_no_active_shift_session_closes_at_end_of_its_calendar_day(db, seeded_factory):
+    """A session started on Sunday must not remain OPEN forever just because no shift owns it."""
+    g = seeded_factory
+    started_at = datetime(2026, 9, 27, 6, 42, tzinfo=HCM)  # Sunday, outside configured Mon-Sat shifts
+    sid = _open_session(db, g, started_at, f'NO-SHIFT-{g["suffix"]}')
+    simulated_now = datetime(2026, 9, 28, 14, 0, tzinfo=HCM)
+
+    results = ShiftSessionReconciliationService().reconcile(
+        now=simulated_now, dry_run=False, correlation_id='test-no-active-shift')
+
+    matching = [result for result in results if result['session_id'] == sid]
+    assert len(matching) == 1
+    assert matching[0]['action'] == 'CLOSED'
+    assert matching[0]['shift_code'] == 'CALENDAR_DAY'
+    row = _row(db, sid)
+    assert row['status'] == 'CLOSED'
+    assert row['ended_at'] == datetime(2026, 9, 28, 0, 0, tzinfo=HCM)
+    assert row['close_reason'] == 'AUTO_CALENDAR_DAY_END'
+    assert row['closed_by_system'] is True
+
+
 def test_employee_can_start_new_session_next_day_after_reconciliation(db, api, seeded_factory):
     """A stale session must not permanently block the SAME employee from
     starting a new one on the SAME Operation, once reconciliation has run --

@@ -16,6 +16,8 @@ from mesflow.db.connection import fetch_one, fetch_all
 from mesflow.db.repositories.execution import KioskRepository, WorkSessionRepository
 from mesflow.db.repositories.base import NotFoundError, ConflictError, RepositoryError
 from mesflow.domain.errors import PermissionDeniedError
+from mesflow.core.time_policy import utc_now
+from mesflow.core.working_calendar import get_work_shifts, resolve_session_shift_window
 
 bp = Blueprint('web_kiosk', __name__)
 logger = logging.getLogger(__name__)
@@ -484,6 +486,8 @@ def _start_response():
             'station_id': int(body['station_id']) if body.get('station_id') else None,
             'device_uuid': str(body.get('device_uuid') or 'WEB-KIOSK'),
         }
+        if resolve_session_shift_window(utc_now(), get_work_shifts()) is None:
+            raise ConflictError('Ngoài ca làm việc. Không thể bắt đầu phiên mới; báo quản đốc kiểm tra lịch làm việc.')
         return jsonify(WorkSessionRepository().start(payload)), 201
     except Exception as exc:
         return _error(exc)

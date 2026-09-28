@@ -27,11 +27,14 @@ vẫn là 400 với câu tiếng Việt đọc được, còn lỗi lập trình
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from mesflow.web import app as app_module
 from mesflow.web import kiosk as kiosk_module
+from mesflow.core.working_calendar import DEFAULT_SHIFTS
 
 
 @pytest.fixture
@@ -122,3 +125,25 @@ def test_business_errors_keep_their_codes(client, monkeypatch):
             response, got = kiosk_module._error(exc)
             assert got == status, (exc, got)
             assert response.get_json()['error_code'] == code
+
+
+def test_start_outside_every_configured_shift_is_rejected_before_insert(client, monkeypatch):
+    """A Sunday 06:42 scan must not create an OPEN session with no close boundary."""
+    sunday = datetime(2026, 9, 27, 6, 42, tzinfo=ZoneInfo('Asia/Ho_Chi_Minh'))
+    monkeypatch.setattr(kiosk_module, 'utc_now', lambda: sunday, raising=False)
+    monkeypatch.setattr(kiosk_module, 'get_work_shifts', lambda: DEFAULT_SHIFTS, raising=False)
+
+    class MustNotInsert:
+        def start(self, *_args, **_kwargs):
+            raise AssertionError('repository must not run outside a configured shift')
+
+    monkeypatch.setattr(kiosk_module, 'WorkSessionRepository', MustNotInsert)
+    response = client.post('/api/kiosk-web/start', json={
+        'employee_id': 28,
+        'operation_id': 4,
+        'request_id': 'SUNDAY-OUTSIDE-SHIFT',
+    })
+
+    assert response.status_code == 409
+    assert response.get_json()['error_code'] == 'SES-409'
+    assert 'ngoài ca làm việc' in response.get_json()['message'].lower()
