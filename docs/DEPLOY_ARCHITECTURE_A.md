@@ -8,7 +8,7 @@ Supersedes ad-hoc `docker compose up --build` on target servers.
 | Environment | Domain | Status |
 |---|---|---|
 | DEV | `dev.mesflow.net` | live, stable |
-| PROD-TEST | `prod.mesflow.net` | live, stable -- full deploy/rollback/FAST-test workflow proven (see below) |
+| PROD-TEST | `mesflow.net` | live, stable -- full deploy/rollback/FAST-test workflow proven (see below) |
 | PRODUCTION | `mesflow.net` | **RESOLVED 2026-09-07**: `mesflow.net` is a TEST alias (self-reports `server_role: PRODUCTION_TEST`), not real production -- there is no confirmed real production host yet (explicit user confirmation). Deployed to directly and verified via a live causal test; see "Production origin — RESOLVED, 2026-09-07" at the end of this doc. Deploys go through the new `scripts/deploy-remote-test.sh`, never `scripts/deploy.sh production` -- that target stays frozen/unconfigured exactly as before, on purpose. |
 
 **Update, 2026-09-02**: the 2026-08-25 conclusion below ("`mesflow.net`
@@ -259,13 +259,13 @@ target and creates `scripts/production-target.env`.
 
 ## PROD-TEST stabilization (2026-08-25)
 
-Full workflow re-proven end-to-end against `prod.mesflow.net` specifically
+Full workflow re-proven end-to-end against `mesflow.net` specifically
 (not just localhost), after the production freeze was added:
 
 - **Kiosk v2 FAST test, 2/2 PASS**: no real ESP32 hardware in this
   session, so a script drove the exact `/api/kiosk/v2/events` envelope the
   firmware sends (protocol_version/device/event/context/payload, per
-  `kiosk_v2.py`'s own `_apply_event()`) against `http://prod.mesflow.net`
+  `kiosk_v2.py`'s own `_apply_event()`) against `http://mesflow.net`
   for real. Cycle 1 (GOOD=25/DEFECT=0/REWORK=0) and Cycle 2
   (GOOD=20/DEFECT=4/REWORK=3) both PASS -- verified independently via
   direct DB query, not just trusting the API response: both

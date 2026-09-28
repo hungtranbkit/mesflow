@@ -35,7 +35,7 @@ for that).
 | | Domain | Server role | Notes |
 |---|---|---|---|
 | DEV | `dev.mesflow.net` | `DEV` | disposable data, no nginx, no deploy-agent |
-| PROD-TEST | `prod.mesflow.net` | `PRODUCTION_TEST` | staging-grade, same digest as DEV, full deploy/rollback proven |
+| PROD-TEST | `mesflow.net` | `PRODUCTION_TEST` | staging-grade, same digest as DEV, full deploy/rollback proven |
 | Production | `mesflow.net` | `PRODUCTION` | **FROZEN** — real target host unconfirmed, `scripts/deploy.sh production` refuses (`PRODUCTION_TARGET_NOT_CONFIGURED`) until `scripts/production-target.env` is created with a verified non-local host |
 
 Deploy model: **Architecture A** — build once on DEV

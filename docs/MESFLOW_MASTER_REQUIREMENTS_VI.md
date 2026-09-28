@@ -1188,7 +1188,7 @@ thay thế, hoặc tạo PO mới.
 | Autologin bật được chỉ với `MESFLOW_TEST_AUTO_LOGIN=1`? | **Có** | Không — cần override bên dưới | Không — cần override bên dưới | Không bao giờ được bật |
 | Flag bổ sung cần thiết | không | `MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1` | tương tự | — |
 | Cơ chế seed dữ liệu | `python -m mesflow.tutorial_data seed` | như trên (namespace theo tiền tố, idempotent) | như trên | — |
-| URL điển hình | `http://127.0.0.1:18280` (sandbox QA cách ly) | `http://127.0.0.1:8081` | `https://prod.mesflow.net` / `127.0.0.1:8299` | chưa xác nhận tại thời điểm viết |
+| URL điển hình | `http://127.0.0.1:18280` (sandbox QA cách ly) | `http://127.0.0.1:8081` | `https://mesflow.net` / `127.0.0.1:8299` | chưa xác nhận tại thời điểm viết |
 | Video hướng dẫn có mount volume bền vững? | có | không (nằm trên layer ephemeral của container — mất khi container bị recreate trừ khi đã sao lưu trước) | có (đã sửa 2026-09-04 — trước đó thiếu mount hoàn toàn) | chưa xác nhận |
 
 **Sự thật quan trọng, không hiển nhiên**: `MESFLOW_ENV=production`

@@ -1152,7 +1152,7 @@ input-consumption Ledger — must use Merge instead, or create a new PO.
 | Autologin allowed with just `MESFLOW_TEST_AUTO_LOGIN=1`? | **Yes** | No — needs override below | No — needs override below | Must never be enabled |
 | Extra flag needed | none | `MESFLOW_TEST_AUTO_LOGIN_ALLOW_PRODUCTION=1` | same | — |
 | Seed mechanism | `python -m mesflow.tutorial_data seed` | same (prefix-namespaced, idempotent) | same | — |
-| Typical URL | `http://127.0.0.1:18280` (isolated QA sandbox) | `http://127.0.0.1:8081` | `https://prod.mesflow.net` / `127.0.0.1:8299` | unconfirmed as of this writing |
+| Typical URL | `http://127.0.0.1:18280` (isolated QA sandbox) | `http://127.0.0.1:8081` | `https://mesflow.net` / `127.0.0.1:8299` | unconfirmed as of this writing |
 | Volume-mounted tutorial videos | yes | no (ephemeral container layer — lost on recreate unless backed up first) | yes (fixed 2026-09-04 — was missing entirely before) | unconfirmed |
 
 **Important, non-obvious fact**: `MESFLOW_ENV=production` does **not**

@@ -9,7 +9,7 @@
 #     && docker exec -u root mesflow-deploy-agent chmod +x /tmp/safe-recreate.sh"
 #   ssh <remote-host> "docker exec -u root mesflow-deploy-agent \
 #     /tmp/safe-recreate.sh /opt/mesflow mesflow-app mesflow <expected-image>"
-# (For prod.mesflow.net:8299 / other directly-reachable hosts, use
+# (For mesflow.net:8299 / other directly-reachable hosts, use
 # mesflow/scripts/deploy.sh instead -- it already does the equivalent
 # --no-deps recreate plus migration-aware rollback; this script exists
 # specifically for the docker-outside-of-docker target that tool doesn't
@@ -95,7 +95,7 @@ fi
 
 echo "== docker compose up -d --no-deps $NAME (no --force-recreate) =="
 # --no-deps: root-caused live (2026-09-02) that omitting this is exactly
-# what caused mesflow-prodtest-db to recreate unexpectedly on prod.mesflow.net
+# what caused mesflow-prodtest-db to recreate unexpectedly on mesflow.net
 # during an unrelated app-only .env change -- scripts/deploy.sh (this
 # project's own more mature Architecture-A tool, prodtest/production
 # targets) already uses this exact `--no-deps` + no --force-recreate

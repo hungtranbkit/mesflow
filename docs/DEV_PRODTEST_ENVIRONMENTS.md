@@ -21,7 +21,7 @@ DEV:
     -> mesflow-local-test-db
 
 PRODUCTION-TEST:
-  https://prod.mesflow.net
+  https://mesflow.net
     -> Cloudflare Tunnel "mesflow-prodtest" (36306af3-...)
     -> http://localhost:8299
     -> mesflow-prodtest-app  (SERVER_ROLE=PRODUCTION_TEST, MESFLOW_ENV=production)
@@ -36,7 +36,7 @@ Real production still runs behind `mesflow-nginx` (TLS termination,
 `/opt/mesflow/certs`) and was intentionally left untouched — this task's
 scope was DEV + PRODUCTION-TEST only.
 
-**`prod.mesflow.net` note**: this hostname previously had an orphaned
+**`mesflow.net` note**: this hostname previously had an orphaned
 Cloudflare Tunnel route (tunnel `mesflow-production`, created 2026-08-21,
 never connected) that would have resolved to real production's origin if
 ever brought online. Confirmed abandoned and repointed to the new
@@ -105,7 +105,7 @@ ambiguous which stack you're hitting):
 
 ```bash
 curl -s https://dev.mesflow.net/api/system/ready   # server_role: "DEV"
-curl -s https://prod.mesflow.net/api/system/ready  # server_role: "PRODUCTION_TEST"
+curl -s https://mesflow.net/api/system/ready  # server_role: "PRODUCTION_TEST"
 ```
 
 `server_role` is a human/operator-facing label only (env var `SERVER_ROLE`)
@@ -133,12 +133,12 @@ the tunnel's UUID (from `cloudflared tunnel list`), not its name, to
 
 ```bash
 curl -v http://dev.mesflow.net/api/kiosk/v2/health    # 200, no redirect
-curl -v http://prod.mesflow.net/api/kiosk/v2/health   # 200, no redirect
+curl -v http://mesflow.net/api/kiosk/v2/health   # 200, no redirect
 ```
 
 Confirmed 2026-08-25: neither domain forces an HTTP->HTTPS redirect on the
 kiosk v2 API path. Point ESP32 firmware at `http://dev.mesflow.net` (DEV)
-or `http://prod.mesflow.net` (PRODUCTION-TEST) directly.
+or `http://mesflow.net` (PRODUCTION-TEST) directly.
 
 ## What did NOT get built in this pass
 
