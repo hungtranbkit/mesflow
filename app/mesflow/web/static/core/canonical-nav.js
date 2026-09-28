@@ -70,7 +70,7 @@
     {id:'admin',label:'Quản trị',icon:'users',tabs:[
       {id:'users',label:'Người dùng',page:'users'},
       {id:'calendar',label:'Lịch làm việc',page:'working-calendar'}]},
-    {id:'system',label:'Hệ thống',icon:'system-overview',tabs:[
+    {id:'system',label:'Hệ thống',icon:'system-overview',kind:'console',lazy:true,tabs:[
       {id:'overview',label:'Tổng quan',page:'system-overview'},
       {id:'errors',label:'Lỗi hệ thống',page:'system-errors'},
       {id:'logs',label:'Nhật ký',page:'system-logs-it'},
@@ -256,9 +256,11 @@
   const renderTabs=id=>{
     if(!tabStrip)return;
     const mapped=LEGACY_TO_CANONICAL[id];
+    const screen=mapped?SCREEN_BY_ID[mapped.screen]:null;
     const tabs=mapped?visibleTabs(mapped.screen,deps.canOpenPage):[];
-    if(tabs.length<2){tabStrip.hidden=true;tabStrip.innerHTML='';delete tabStrip.dataset.screen;return}
+    if(tabs.length<2){tabStrip.hidden=true;tabStrip.innerHTML='';delete tabStrip.dataset.screen;delete tabStrip.dataset.console;tabStrip.classList.remove('canonical-console-tabs');return}
     tabStrip.dataset.screen=mapped.screen;
+    if(screen?.kind==='console'){tabStrip.dataset.console=mapped.screen;tabStrip.classList.add('canonical-console-tabs')}else{delete tabStrip.dataset.console;tabStrip.classList.remove('canonical-console-tabs')}
     tabStrip.hidden=false;
     tabStrip.innerHTML=tabs.map(t=>{
       const on=t.id===mapped.tab;
@@ -276,6 +278,10 @@
   // Called from openPage() right after setActive().
   const afterActive=id=>{
     if(!doc.body.dataset.page)doc.body.dataset.page=id;
+    const mapped=LEGACY_TO_CANONICAL[id];
+    const screen=mapped?SCREEN_BY_ID[mapped.screen]:null;
+    if(mapped){doc.body.dataset.canonicalScreen=mapped.screen;doc.body.dataset.canonicalTab=mapped.tab}else{delete doc.body.dataset.canonicalScreen;delete doc.body.dataset.canonicalTab}
+    if(screen?.kind==='console')doc.body.dataset.canonicalConsole=mapped.screen;else delete doc.body.dataset.canonicalConsole;
     renderTabs(id);
   };
 
