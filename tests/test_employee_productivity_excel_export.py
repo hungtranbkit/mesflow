@@ -43,6 +43,7 @@ def test_workbook_is_print_ready_and_has_signature_column():
     assert [ws.cell(4, col).value for col in range(1, len(EXPORT_HEADERS) + 1)] == EXPORT_HEADERS
     assert "Bộ phận: May" in ws["A2"].value
     assert "Tìm nhân viên: an" in ws["A2"].value
+    assert "Năng suất TB theo bộ lọc: 75.0%" in ws["A2"].value
     assert ws["B5"].value == "NV01"
     assert ws["H5"].value == 0.75
     assert ws["H5"].number_format == "0.0%"
@@ -67,4 +68,6 @@ def test_export_route_contract():
     source = Path("app/mesflow/web/analytics.py").read_text()
     assert "@bp.get('/reports/employee-productivity/export.xlsx')" in source
     assert "build_employee_productivity_xlsx" in source
+    assert "int(employee) if employee else None" in source
+    assert "if employe else None" not in source
     assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in source

@@ -322,7 +322,7 @@ def employee_productivity_export_xlsx():
         department=request.args.get('department') or None
         report=ReportRepository().employee_productivity(
             request.args.get('from'),request.args.get('to'),
-            int(employee) if employe else None,
+            int(employee) if employee else None,
             department,request.args.get('team') or None,5000)
         output=build_employee_productivity_xlsx(
             report,

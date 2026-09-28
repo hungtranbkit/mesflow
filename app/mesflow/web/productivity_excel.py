@@ -94,6 +94,8 @@ def build_employee_productivity_xlsx(
         sort_key=sort_key,
         sort_dir=sort_dir,
     )
+    scores = [float(row["productivity_percent"]) for row in rows if row.get("productivity_percent") is not None]
+    filtered_avg = (sum(scores) / len(scores)) if scores else None
     summary = report.get("summary") or {}
     wb = Workbook()
     ws = wb.active
@@ -113,6 +115,7 @@ def build_employee_productivity_xlsx(
         f"Đến ngày: {summary.get('to') or '—'}",
         f"Bộ phận: {department or 'Tất cả'}",
         f"Tìm nhân viên: {search.strip() or 'Tất cả'}",
+        f"Năng suất TB theo bộ lọc: {filtered_avg:.1f}%" if filtered_avg is not None else "Năng suất TB theo bộ lọc: —",
     ]
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
     ws["A2"] = " | ".join(filters)

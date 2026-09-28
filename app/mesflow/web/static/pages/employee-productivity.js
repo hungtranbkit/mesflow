@@ -182,11 +182,26 @@ async function renderEmployeeProductivity() {
   };
 
   let lastEmployees = [];
+  let lastSummary = {};
+  const summaryForVisibleRows = visible => {
+    const scored = visible.filter(x => x.productivity_percent !== null && x.productivity_percent !== undefined).map(x => Number(x.productivity_percent)).filter(Number.isFinite);
+    return {
+      ...lastSummary,
+      employee_count: visible.length,
+      completed_sessions: visible.reduce((n, x) => n + Number(x.completed_sessions || 0), 0),
+      completed_invalid_sessions: visible.reduce((n, x) => n + Number(x.completed_invalid_sessions || 0), 0),
+      repair_sessions: visible.reduce((n, x) => n + Number(x.repair_sessions || 0), 0),
+      avg_employee_productivity_percent: scored.length ? scored.reduce((n, x) => n + x, 0) / scored.length : null,
+      total_good_qty: visible.reduce((n, x) => n + Number(x.good_qty || 0), 0),
+      total_defect_qty: visible.reduce((n, x) => n + Number(x.defect_qty || 0), 0),
+    };
+  };
   const applyFilters = raw => {
     if (raw) lastEmployees = raw;
     const q = (document.getElementById('epSearch').value || '').trim().toLowerCase();
     const dept = document.getElementById('epDept').value;
     rows = lastEmployees.filter(x => (!dept || x.department === dept) && (!q || `${x.employee_name} ${x.employee_code}`.toLowerCase().includes(q)));
+    drawKpis(summaryForVisibleRows(rows));
     sortRows(); drawTable();
   };
 
@@ -197,7 +212,7 @@ async function renderEmployeeProductivity() {
       const from = document.getElementById('epFrom').value, to = document.getElementById('epTo').value;
       const d = await api(`/api/reports/employee-productivity?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
       document.getElementById('epRangeLabel').textContent = `${epDateShort(from)} → ${epDateShort(to)} · sắp xếp theo năng suất giảm dần, có thể đổi cột`;
-      drawKpis(d.summary || {});
+      lastSummary = d.summary || {};
       const deptSel = document.getElementById('epDept'), currentDept = deptSel.value;
       const depts = [...new Set((d.employees || []).map(x => x.department).filter(Boolean))].sort();
       deptSel.innerHTML = '<option value="">Tất cả bộ phận</option>' + depts.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
