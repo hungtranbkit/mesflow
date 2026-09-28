@@ -53,7 +53,11 @@
     {id:'quality',label:'Chất lượng',icon:'rework-queue',tabs:[
       {id:'rework',label:'Hàng chờ sửa',page:'rework-queue'},
       {id:'qc',label:'QC',page:'qc',hiddenLegacy:true}]},
-    {id:'productivity',label:'Năng suất',icon:'employee-productivity',tabs:[
+    // P3 golden reference: kind:'report' + inlineTabs -- the screen renders
+    // its own tab bar (MFUI.screenTabs, in the page action row) from THIS
+    // definition, so the shell's external strip stays hidden for it and the
+    // tabs also exist with the refactor flag off.
+    {id:'productivity',label:'Năng suất',icon:'employee-productivity',kind:'report',inlineTabs:true,tabs:[
       {id:'employees',label:'Nhân viên',page:'employee-productivity'},
       {id:'operations',label:'Operation',page:'kpi-operations',hiddenLegacy:true}]},
     {id:'kiosk-admin',label:'Trạm kiosk',icon:'kiosk-management',tabs:[
@@ -258,7 +262,7 @@
     const mapped=LEGACY_TO_CANONICAL[id];
     const screen=mapped?SCREEN_BY_ID[mapped.screen]:null;
     const tabs=mapped?visibleTabs(mapped.screen,deps.canOpenPage):[];
-    if(tabs.length<2){tabStrip.hidden=true;tabStrip.innerHTML='';delete tabStrip.dataset.screen;delete tabStrip.dataset.console;tabStrip.classList.remove('canonical-console-tabs');return}
+    if(tabs.length<2||screen?.inlineTabs){tabStrip.hidden=true;tabStrip.innerHTML='';delete tabStrip.dataset.screen;delete tabStrip.dataset.console;tabStrip.classList.remove('canonical-console-tabs');return}
     tabStrip.dataset.screen=mapped.screen;
     if(screen?.kind==='console'){tabStrip.dataset.console=mapped.screen;tabStrip.classList.add('canonical-console-tabs')}else{delete tabStrip.dataset.console;tabStrip.classList.remove('canonical-console-tabs')}
     tabStrip.hidden=false;

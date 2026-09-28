@@ -72,6 +72,8 @@
   --radius-card:7px;
   --radius-panel:8px;
   --radius-overlay:16px;
+  /* Pill: status/filter chips and count badges only (DESIGN.md 3.3). */
+  --radius-pill:999px;
   /* Đổ bóng */
   --shadow-row:0 1px 2px rgba(16,43,63,.055);
   --shadow-card:0 2px 5px rgba(16,43,63,.085),0 1px 1px rgba(16,43,63,.04);
@@ -101,6 +103,13 @@
   --ui-radius-md:8px;
   --ui-control-h:38px;
   --ui-row-h:44px;
+  /* P3 golden-reference report components (.mf-report/.mf-kpi/.mf-table).
+     Reuse these on P4+ screens instead of new per-page values. */
+  --table-head-h:40px;
+  --table-row-hover:#eef4f8;
+  --table-sticky-max:calc(100dvh - 280px);
+  --meter-track:#e3e8ee;
+  --meter-fill:var(--action-primary);
   --control-height:36px;
   --control-height-compact:32px;
   --ui-drawer-sm:420px;
@@ -4076,3 +4085,99 @@ body[data-page="dashboard"] .op-card-fact>b{
 .canonical-tabs{margin:0 0 14px}
 .canonical-tabs[hidden]{display:none}
 .canonical-help-action{margin-left:auto;flex:0 0 auto}
+
+/* ==========================================================================
+   UI consolidation P3 -- GOLDEN VISUAL REFERENCE (first screen: Năng suất).
+   Reusable report layer for P4+ migrations. Markup comes from core/ui.js:
+   MFUI.reportBar / screenTabs / filterBar / kpiCards / tableHead / meter /
+   loadingState / emptyState / errorState. Everything is scoped under
+   .mf-report (or an .mf-* class) so legacy screens are untouched.
+     .mf-report          page shell: one column, --page-gap rhythm
+     .mf-report-bar      tabs left, page actions right (max ONE .primary)
+     .mf-screen-tabs     canonical tabs, shared .mf-tabs underline primitive
+     .mf-kpis/.mf-kpi    label -> value -> context, tone = top indicator only
+     .mf-table-panel     content-panel whose body is a flush table
+     .mf-table           sticky header, row hover, right-aligned numerics
+     .mf-badge/.mf-meter status chips and a neutral progress meter
+   ========================================================================== */
+.mf-report{display:grid;gap:var(--page-gap);min-width:0}
+.mf-report>*{min-width:0;margin:0}
+.mf-report-bar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border-default)}
+.mf-report-bar>.mf-screen-tabs{border-bottom:0;margin-bottom:-1px;min-width:0}
+.mf-report-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding-bottom:8px}
+.mf-screen-tabs .mf-tab{min-height:44px;padding:10px 18px;font-size:14px;line-height:20px}
+.mf-screen-tabs .mf-tab:focus-visible{outline:2px solid var(--action-primary);outline-offset:-2px}
+
+.mf-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.mf-kpi{position:relative;display:grid;align-content:start;gap:4px;min-height:92px;padding:14px 16px;border:1px solid var(--border-default);border-radius:var(--radius-surface);background:var(--surface-default);box-shadow:var(--shadow-card);overflow:hidden}
+.mf-kpi:before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--border-subtle)}
+.mf-kpi.is-info:before{background:var(--status-info)}
+.mf-kpi.is-success:before{background:var(--status-success)}
+.mf-kpi.is-warning:before{background:var(--status-warning)}
+.mf-kpi.is-danger:before{background:var(--status-danger)}
+.mf-kpi small{font-size:var(--ui-fs-meta);line-height:16px;font-weight:600;color:var(--text-secondary)}
+.mf-kpi strong{font-size:var(--ui-fs-kpi);line-height:32px;font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.mf-kpi span{font-size:var(--ui-fs-meta);line-height:16px;color:var(--text-secondary)}
+
+.mf-report .ui-filter-bar{margin:0}
+.mf-table-panel{overflow:hidden}
+.mf-table-panel .content-panel-head{min-height:56px}
+.mf-count{flex:0 0 auto;padding:3px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-pill);background:var(--surface-subtle);font-size:var(--ui-fs-meta);font-weight:600;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.mf-count:empty{display:none}
+.mf-table-panel .content-panel-body{padding:0}
+.mf-table-panel .ui-state{margin:16px;min-height:140px}
+.mf-table-wrap{max-height:var(--table-sticky-max);overflow:auto;border:0!important;box-shadow:none!important}
+.mf-table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;line-height:18px}
+.mf-table th{position:sticky;top:0;z-index:var(--ui-z-sticky);height:var(--table-head-h);padding:8px 12px;background:var(--surface-accent)!important;border-bottom:1px solid var(--border-strong)!important;color:var(--text-secondary);font-size:12px;font-weight:650;letter-spacing:0!important;text-transform:none!important;text-align:left;white-space:nowrap;vertical-align:middle}
+.mf-table th.num,.mf-table td.num{text-align:right}
+.mf-table th .mf-sort{display:inline-flex;align-items:center;gap:6px;min-height:0;padding:0;border:0;background:none;box-shadow:none;color:inherit;font:inherit;cursor:pointer}
+.mf-table th.num .mf-sort{flex-direction:row}
+.mf-table th .mf-sort:hover,.mf-table th.is-sorted{color:var(--text-primary)}
+.mf-table th .mf-sort:focus-visible{outline:2px solid var(--action-primary);outline-offset:2px;border-radius:var(--radius-row)}
+.mf-sort-ind{font-size:10px;color:var(--border-emphasis)}
+.mf-table th.is-sorted .mf-sort-ind{color:var(--action-primary)}
+.mf-table td{height:52px;padding:8px 12px;border-bottom:1px solid var(--border-subtle);background:var(--surface-default)!important;vertical-align:middle;font-variant-numeric:tabular-nums}
+.mf-table tbody tr:last-child td{border-bottom:0}
+.mf-table tbody tr:hover td{background:var(--table-row-hover)!important}
+.mf-table tbody tr[role="button"]{cursor:pointer}
+.mf-table tbody tr[role="button"]:focus-visible{outline:2px solid var(--action-primary);outline-offset:-2px}
+.mf-table td b{display:block;font-weight:650;color:var(--text-primary)}
+.mf-table td small{display:block;margin-top:2px;font-size:var(--ui-fs-meta);line-height:16px;color:var(--text-secondary)}
+.mf-table td.is-danger{color:var(--status-danger);font-weight:650}
+.mf-table .mf-cell-id{min-width:180px}
+.mf-table .mf-mono{font-variant-numeric:tabular-nums;white-space:nowrap}
+.mf-table td.num .mf-meter{margin-left:auto}
+.mf-table th:first-child,.mf-table td:first-child{padding-left:16px}
+.mf-table th:last-child,.mf-table td:last-child{padding-right:16px}
+
+.mf-badges{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-top:4px}
+.mf-badge{display:inline-flex;align-items:center;min-height:20px;padding:1px 8px;border:1px solid var(--border-subtle);border-radius:var(--radius-pill);background:var(--surface-subtle);font-size:11px;line-height:16px;font-weight:600;color:var(--text-secondary);white-space:nowrap}
+.mf-badge.is-warning{border-color:#efd3a8;background:#fdf4e6;color:var(--status-warning)}
+.mf-badge.is-danger{border-color:#f0c4c4;background:#fdeeee;color:var(--status-danger)}
+.mf-meter{display:block;width:96px;max-width:100%;height:4px;margin-top:5px;border-radius:var(--radius-pill);background:var(--meter-track);overflow:hidden}
+.mf-meter i{display:block;height:100%;border-radius:var(--radius-pill);background:var(--meter-fill)}
+
+/* 1366x768: 4 KPIs still fit; tighten table density before wrapping. */
+@media(max-width:1400px){.mf-kpi{min-height:86px;padding:12px 14px}.mf-table th,.mf-table td{padding-left:10px;padding-right:10px}}
+@media(max-width:1100px){.mf-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Phone: tabs get their own row, actions wrap under them; the table scrolls
+   with the page (no nested scroll box) and keeps the identity column pinned. */
+@media(max-width:700px){
+  .mf-report{gap:12px}
+  .mf-report-bar{flex-direction:column;align-items:stretch;gap:8px}
+  .mf-report-bar>.mf-screen-tabs{margin-bottom:0;border-bottom:1px solid var(--border-default)}
+  .mf-screen-tabs .mf-tab{flex:1 1 0;justify-content:center}
+  .mf-report-actions{padding-bottom:0;flex-wrap:wrap}
+  .mf-report-actions>.btn{flex:1 1 0;min-height:44px}
+  .mf-kpis{gap:8px}
+  .mf-kpi{min-height:80px;padding:10px 12px}
+  .mf-kpi strong{font-size:22px;line-height:28px}
+  .mf-table-wrap{max-height:none}
+  .mf-table th{position:static}
+  .mf-table th:first-child,.mf-table td:first-child{position:sticky;left:0;z-index:2;box-shadow:1px 0 0 var(--border-subtle)}
+  .mf-table th:first-child{background:var(--surface-accent)!important}
+  .mf-table .mf-cell-id{min-width:140px;max-width:180px}
+  /* Table cells ignore max-width, so the identity text itself is capped and wraps. */
+  .mf-table .mf-cell-id b,.mf-table .mf-cell-id small{max-width:164px;white-space:normal;overflow-wrap:anywhere}
+}
+@media(prefers-reduced-motion:no-preference){.mf-table td,.mf-screen-tabs .mf-tab{transition:background-color .14s ease,color .14s ease,border-color .14s ease}}

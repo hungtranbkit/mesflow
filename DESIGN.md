@@ -372,6 +372,38 @@ Font chuẩn là `Inter, Arial, Helvetica, sans-serif`. Inter được phép sel
 - Empty state nói điều gì đang trống và bước tiếp theo, không dùng minh họa lớn trang trí.
 - Error state nêu nguyên nhân nếu biết và cung cấp retry/recovery. Không để chart/table trống như thể không có dữ liệu.
 
+### 5.11 Màn báo cáo chuẩn — golden reference (UI consolidation P3)
+Màn **Năng suất** (`employee-productivity` + `kpi-operations`, canonical screen
+`productivity`) là mẫu tham chiếu cho mọi màn P4+ khi chuyển sang shell mới.
+Màn mới **ghép lại** các primitive dưới đây, không dựng bản riêng:
+- Khung: `<div class="page-shell mf-report">` — một cột, nhịp `--page-gap`.
+- Hàng thao tác: `MFUI.reportBar({tabs, actions})` — tab màn bên trái, action
+  bên phải, tối đa MỘT `.btn.primary` (Năng suất: "Xuất Excel").
+- Tab màn: `MFUI.screenTabs({screen, active, canOpen: canOpenPage})` +
+  `MFUI.bindScreenTabs(content, openPage)`; định nghĩa tab lấy từ
+  `core/canonical-nav.js` SCREENS (một nguồn). Screen đặt `inlineTabs:true` để
+  dải tab ngoài của shell ẩn đi. Mỗi tab vẫn là một page ID cũ mở qua
+  `openPage()` → quyền, `?page=` và renderer không đổi.
+- Bộ lọc: `MFUI.filterBar({content, clearId})`; bộ lọc của mỗi tab được nhớ
+  trong lần tải trang khi chuyển tab qua lại.
+- KPI: `MFUI.kpiCards([{label,value,context,tone}])` → `.mf-kpis/.mf-kpi`;
+  tone (`info|success|warning|danger`) chỉ là dải chỉ báo trên cùng; KPI luôn
+  tính lại từ các dòng đang hiển thị sau lọc.
+- Bảng: `.content-panel.mf-table-panel` > `.table-wrap.mf-table-wrap` >
+  `table.mf-table` với `MFUI.tableHead(cols,{sortKey,sortDir})` (có
+  `aria-sort` + nút sort thật). Header sticky trong vùng cuộn
+  `--table-sticky-max` ở desktop; cột số `.num` căn phải, tabular-nums;
+  `.mf-cell-id` cho cột định danh (tên + mã phụ), sticky trái ở ≤700px.
+- Trạng thái/nhãn: `MFUI.statusBadge`, `.mf-badge(.is-warning|.is-danger)`,
+  `MFUI.meter(pct)` (thanh trung tính, chỉ cắt thanh chứ không cắt số in ra).
+- Loading/empty/error trong vùng bảng: `MFUI.loadingState/emptyState/errorState`.
+- Token dùng chung: `--table-head-h`, `--table-row-hover`, `--table-sticky-max`,
+  `--meter-track`, `--meter-fill`, `--radius-pill` (chip/badge/đếm) — khai báo
+  trong khối `:root` duy nhất.
+- Nghiệm thu ở 1920×1080, 1366×768 (4 KPI một hàng) và 390×844 (tab một hàng,
+  KPI 2 cột, bảng cuộn ngang, không cuộn ngang ở `body`).
+- Hợp đồng nguồn: `tests/test_ui_productivity_consolidation.py`.
+
 ## 6. Data visualization
 
 - Chart chỉ dùng khi giúp thấy xu hướng, so sánh hoặc bottleneck nhanh hơn table.

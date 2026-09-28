@@ -523,8 +523,8 @@
     },
     {
       "id": "kpi-operations",
-      "renderer": "renderSimple",
-      "source": "app.js",
+      "renderer": "registerPage",
+      "source": "pages/productivity-operations.js",
       "api": "/api/kpi/operations",
       "permission": {
         "kind": "authenticated"

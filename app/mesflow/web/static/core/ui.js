@@ -48,6 +48,47 @@ const MFUI=(()=>{
   // PanelBody's content differs by archetype (DataTable for List pages,
   // workflow cards for Session Exceptions); the panel itself is identical
   // markup/CSS for every page that adopts it.
+  // Canonical screen tabs rendered INSIDE the page (P3 golden reference, first
+  // used by Năng suất). Tab definitions come from core/canonical-nav.js SCREENS
+  // -- one source of truth in both nav modes -- and each tab still opens its
+  // own legacy page ID through openPage(), so permissions, ?page= history and
+  // renderers are unchanged. `canOpen` is the app's canOpenPage().
+  const screenTabs=({screen='',active='',canOpen=null}={})=>{
+    const nav=window.MFCanonicalNav;
+    const tabs=nav?nav.visibleTabs(screen,canOpen||(()=>true)):[];
+    if(tabs.length<2)return '';
+    return `<nav class="mf-tabs mf-screen-tabs" role="tablist" aria-label="${escHtml(nav.getScreen(screen)?.label||'')}" data-screen-tabs="${escHtml(screen)}">${tabs.map(t=>{const on=t.page===active;return `<button type="button" class="mf-tab${on?' active':''}" role="tab" aria-selected="${on}" data-screen-tab="${escHtml(t.id)}" data-page="${escHtml(t.page)}">${escHtml(t.label)}</button>`}).join('')}</nav>`;
+  };
+  const bindScreenTabs=(host,openPage)=>{
+    (host||document).querySelectorAll('[data-screen-tabs] [data-screen-tab]').forEach(btn=>{
+      btn.onclick=()=>{
+        if(btn.classList.contains('active'))return;
+        window.AppNav?.reset();window.AppNav?.clearReturnContext();
+        openPage(btn.dataset.page);
+      };
+    });
+  };
+  // --- P3 golden-reference report primitives (first user: Năng suất) -------
+  // Page action row: screen tabs on the left, page actions on the right. At
+  // most ONE .primary action (DESIGN.md 5.2).
+  const reportBar=({tabs='',actions=''}={})=>`<div class="mf-report-bar">${tabs||'<span></span>'}${actions?`<div class="mf-report-actions">${actions}</div>`:''}</div>`;
+  // KPI row: label -> value -> context, optional semantic tone
+  // (success|warning|danger|info) drawn as a top indicator, never as a
+  // colored card background (DESIGN.md 5.4). `value` is pre-formatted text.
+  const kpiCards=items=>items.map(({label='',value='',context='',tone=''})=>`<article class="mf-kpi${tone?` is-${escHtml(tone)}`:''}"><small>${escHtml(label)}</small><strong>${escHtml(value)}</strong>${context?`<span>${escHtml(context)}</span>`:''}</article>`).join('');
+  // Sortable table header. cols: [{key,label,num,sortable}]; key must be the
+  // page's own sort key. Emits aria-sort and a real <button> per sortable
+  // header; the page binds clicks on th[data-sort].
+  const tableHead=(cols,{sortKey='',sortDir=1}={})=>`<thead><tr>${cols.map(c=>{
+    const on=c.sortable!==false&&c.key&&c.key===sortKey;
+    const aria=c.sortable===false||!c.key?'':` aria-sort="${on?(sortDir===1?'ascending':'descending'):'none'}"`;
+    const cls=[c.num?'num':'',c.sortable===false||!c.key?'':'sortable',on?'is-sorted':''].filter(Boolean).join(' ');
+    const inner=c.sortable===false||!c.key?escHtml(c.label):`<button type="button" class="mf-sort">${escHtml(c.label)}<span class="mf-sort-ind" aria-hidden="true">${on?(sortDir===1?'▲':'▼'):'↕'}</span></button>`;
+    return `<th${cls?` class="${cls}"`:''}${c.key?` data-sort="${escHtml(c.key)}"`:''}${aria}>${inner}</th>`;
+  }).join('')}</tr></thead>`;
+  // Neutral progress meter for a percentage cell. The bar is clamped to the
+  // track; the printed value (formatted by the caller) is not.
+  const meter=pct=>{const n=Number(pct);if(pct===null||pct===undefined||!Number.isFinite(n))return '';return `<span class="mf-meter" aria-hidden="true"><i style="width:${Math.max(0,Math.min(n,100)).toFixed(1)}%"></i></span>`};
   const contentPanel=({id='',title='',description='',actions='',body=''})=>`<section class="content-panel"${id?` id="${escHtml(id)}"`:''}>${(title||description||actions)?`<div class="content-panel-head"><div>${title?`<h3>${escHtml(title)}</h3>`:''}${description?`<p>${escHtml(description)}</p>`:''}</div>${actions?`<div class="content-panel-actions">${actions}</div>`:''}</div>`:''}<div class="content-panel-body">${body}</div></section>`;
   // StatsRow: the plain (unbordered-child) counts strip used directly under
   // a PageHeader -- e.g. Production Order's "3 lệnh đang hiển thị · 0 đang
@@ -440,6 +481,6 @@ const MFUI=(()=>{
     document.addEventListener("DOMContentLoaded", () => mountBackToTop(), { once: true });
   } else { mountBackToTop(); }
 
-  return {statusBadge,opIdentity,mountBackToTop,BACK_TO_TOP_VIEWPORTS,opIdentityText,qtyValue,qtyLine,QTY_UNKNOWN,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,refreshError,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration};
+  return {statusBadge,opIdentity,mountBackToTop,BACK_TO_TOP_VIEWPORTS,opIdentityText,qtyValue,qtyLine,QTY_UNKNOWN,pageHeader,pageShell,filterBar,syncFilterDisclosures,contentPanel,statsRow,loadingState,emptyState,errorState,refreshError,openDrawer,closeDrawer,openModal,confirmDialog,rowMenu,closeRowMenu,debounce,formatQuantity,formatDateTime,formatDuration,screenTabs,bindScreenTabs,reportBar,kpiCards,tableHead,meter};
 })();
 window.MFUI=MFUI;

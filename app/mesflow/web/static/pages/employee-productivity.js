@@ -11,14 +11,21 @@
 
 registerPage('employee-productivity', () => renderEmployeeProductivity());
 
+// UI consolidation P3: in refactor mode this page is the "Nhân viên" tab of
+// the canonical Năng suất screen, next to "Operation" (kpi-operations). A tab
+// switch re-renders the whole screen, so the active filters and sort are kept
+// here for the rest of the page load; KPI cards and the Excel export keep
+// reading them from the controls exactly as before. Reload = defaults.
+const epFilterMemory = { from: '', to: '', search: '', dept: '', sortKey: '', sortDir: 0 };
+
 function sessionBreakdown(row) {
   // Only the parts that actually apply -- an empty <small> would still take
   // up a line in the row.
   const parts = [
-    row.completed_invalid_sessions ? `${row.completed_invalid_sessions} thiếu định mức` : '',
-    row.repair_sessions ? `${row.repair_sessions} ca sửa hàng` : '',
+    row.completed_invalid_sessions ? `<span class="mf-badge is-warning">${row.completed_invalid_sessions} thiếu định mức</span>` : '',
+    row.repair_sessions ? `<span class="mf-badge">${row.repair_sessions} ca sửa hàng</span>` : '',
   ].filter(Boolean);
-  return parts.length ? `<small>${parts.join(' · ')}</small>` : '';
+  return parts.length ? `<span class="mf-badges">${parts.join('')}</span>` : '';
 }
 
 function productivityText(pct) {
@@ -49,11 +56,16 @@ function epTimeShort(iso) {
 }
 
 async function renderEmployeeProductivity() {
-  title.textContent = 'Báo cáo năng suất nhân viên';
-  subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các phiên làm việc đã kết thúc của từng nhân viên trong khoảng ngày.';
-  content.innerHTML = `<div class="page-shell">
-    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epExport">Xuất Excel</button><button class="btn" id="epReload">Làm mới</button>' })}
-    <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
+  title.textContent = 'Năng suất';
+  subtitle.textContent = 'Nhân viên · trung bình % hoàn thành phiên đã kết thúc';
+  // P3 golden reference layout (see PROJECT_CONTEXT.md): action row with the
+  // screen tabs + page actions, standard filter bar, KPI row, table panel;
+  // the kiosk wallboard panel is secondary and sits below the data.
+  content.innerHTML = `<div class="page-shell mf-report" data-report="productivity" data-report-tab="employees">
+    ${MFUI.reportBar({ tabs: MFUI.screenTabs({ screen: 'productivity', active: 'employee-productivity', canOpen: canOpenPage }), actions: '<button class="btn" id="epReload" type="button">Làm mới</button><button class="btn primary" id="epExport" type="button">Xuất Excel</button>' })}
+    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${esc(epFilterMemory.from || epMonthStartHcm())}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${esc(epFilterMemory.to || epTodayHcm())}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên" value="${esc(epFilterMemory.search)}"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, clearId: 'epClear' })}
+    <section class="mf-kpis" id="epKpis" aria-live="polite"></section>
+    <section class="content-panel mf-table-panel"><div class="content-panel-head"><div><h3>Năng suất theo nhân viên</h3><p id="epRangeLabel"></p></div><span class="mf-count" id="epCount" aria-live="polite"></span></div><div class="content-panel-body" id="epTableHost">${MFUI.loadingState('Đang tải năng suất…')}</div></section>
     <!-- Section 21: giữ tách biệt khỏi filter bar phía trên -- panel riêng,
     không dùng chung state với bộ lọc bảng (epFrom/epTo/epDept chỉ ảnh hưởng
     bảng bên dưới cho tới khi bấm "Trình chiếu trên Kiosk"). -->
@@ -112,12 +124,13 @@ async function renderEmployeeProductivity() {
         <div id="epWbBody"></div>
       </div>
     </section>
-    <section class="content-panel"><div class="content-panel-head"><div><h3>Năng suất theo nhân viên</h3><p id="epRangeLabel"></p></div></div><div class="content-panel-body" id="epTableHost">Đang tải...</div></section>
   </div>`;
+  MFUI.bindScreenTabs(content, openPage);
 
   let rows = [];
   let sortKey = 'productivity_percent';
   let sortDir = -1; // section 6: mặc định giảm dần theo năng suất
+  if (epFilterMemory.sortKey) { sortKey = epFilterMemory.sortKey; sortDir = epFilterMemory.sortDir || -1; }
 
   const SORTERS = {
     employee: x => String(x.employee_name || ''),
@@ -137,41 +150,52 @@ async function renderEmployeeProductivity() {
     // KPIs the task specifies, all derived from completed sessions --
     // no realtime "who's working right now" card of any kind, and the
     // backend summary for this endpoint no longer computes any such field.
-    document.getElementById('epKpis').innerHTML = [
-      ['Nhân viên có dữ liệu', summary.employee_count || 0, (summary.completed_sessions || 0) + ' phiên làm việc đã kết thúc'],
+    const n = v => Number(v || 0).toLocaleString('vi-VN');
+    document.getElementById('epKpis').innerHTML = MFUI.kpiCards([
+      { label: 'Nhân viên có dữ liệu', value: n(summary.employee_count), context: n(summary.completed_sessions) + ' phiên làm việc đã kết thúc' },
       // 'Thiếu định mức' is the actionable number (an Operation missing its
       // standard time). Repair sessions on the SỬA HÀNG bench have no
       // production standard by nature, so they are named, not lumped in.
-      ['Tổng phiên làm việc đã kết thúc', summary.completed_sessions || 0,
-        [(summary.completed_invalid_sessions || 0) + ' thiếu định mức',
-         summary.repair_sessions ? summary.repair_sessions + ' ca sửa hàng' : ''].filter(Boolean).join(' · ')],
-      ['Năng suất trung bình', productivityText(summary.avg_employee_productivity_percent), 'Trung bình của từng nhân viên, không phải trung bình mọi phiên làm việc'],
-      ['Tổng sản lượng đạt', summary.total_good_qty || 0, 'Lỗi ' + Number(summary.total_defect_qty || 0).toLocaleString('vi-VN')],
-    ].map((x, i) => `<article class="daily-kpi k${i}"><small>${x[0]}</small><strong>${typeof x[1] === 'number' ? Number(x[1]).toLocaleString('vi-VN') : x[1]}</strong><span>${x[2]}</span></article>`).join('');
+      { label: 'Tổng phiên làm việc đã kết thúc', value: n(summary.completed_sessions),
+        context: [n(summary.completed_invalid_sessions) + ' thiếu định mức',
+          summary.repair_sessions ? n(summary.repair_sessions) + ' ca sửa hàng' : ''].filter(Boolean).join(' · '),
+        tone: summary.completed_invalid_sessions ? 'warning' : '' },
+      { label: 'Năng suất trung bình', value: productivityText(summary.avg_employee_productivity_percent), context: 'Trung bình của từng nhân viên, không phải trung bình mọi phiên làm việc', tone: 'info' },
+      { label: 'Tổng sản lượng đạt', value: n(summary.total_good_qty), context: 'Lỗi ' + n(summary.total_defect_qty), tone: summary.total_defect_qty ? 'danger' : '' },
+    ]);
   };
 
   const drawTable = () => {
     const host = document.getElementById('epTableHost');
-    if (!rows.length) { host.innerHTML = '<div class="empty">Không có phiên làm việc hoàn thành trong khoảng ngày đã chọn.</div>'; return; }
-    const arrow = key => sortKey === key ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
-    host.innerHTML = `<div class="table-wrap"><table class="ep-table"><thead><tr>
-      <th data-sort="employee_name" class="sortable">Nhân viên${arrow('employee_name')}</th>
-      <th data-sort="session" class="sortable">Phiên làm việc đã kết thúc${arrow('session')}</th>
-      <th data-sort="productivity_percent" class="sortable">Năng suất trung bình${arrow('productivity_percent')}</th>
-      <th data-sort="good_qty" class="sortable">Sản lượng đạt / lỗi${arrow('good_qty')}</th>
-      <th data-sort="worked_seconds" class="sortable">Tổng thời gian làm việc${arrow('worked_seconds')}</th>
-    </tr></thead><tbody>${rows.map(x => {
-      return `<tr class="ep-row" data-employee="${x.employee_id}" tabindex="0" role="button">
-        <td><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
-        <td><b>${x.completed_sessions} phiên làm việc</b>${sessionBreakdown(x)}</td>
-        <td><b class="ep-pct">${productivityText(x.productivity_percent)}</b><small>${x.completed_valid_sessions} phiên làm việc hợp lệ</small></td>
-        <td><b>Đạt ${Number(x.good_qty).toLocaleString('vi-VN')}</b><small>Lỗi ${Number(x.defect_qty).toLocaleString('vi-VN')}</small></td>
-        <td>${epDur(x.worked_seconds)}</td>
+    document.getElementById('epCount').textContent = lastEmployees.length ? `${rows.length}/${lastEmployees.length} nhân viên` : '';
+    if (!rows.length) {
+      host.innerHTML = lastEmployees.length
+        ? MFUI.emptyState('Không có nhân viên khớp bộ lọc', 'Đổi từ khoá tìm kiếm hoặc bộ phận, hoặc bấm "Xóa bộ lọc".')
+        : MFUI.emptyState('Chưa có dữ liệu', 'Không có phiên làm việc hoàn thành trong khoảng ngày đã chọn.');
+      return;
+    }
+    const n = v => Number(v || 0).toLocaleString('vi-VN');
+    host.innerHTML = `<div class="table-wrap mf-table-wrap"><table class="ep-table mf-table">${MFUI.tableHead([
+      { key: 'employee_name', label: 'Nhân viên' },
+      { key: 'session', label: 'Phiên đã kết thúc', num: true },
+      { key: 'productivity_percent', label: 'Năng suất trung bình', num: true },
+      { key: 'good_qty', label: 'Sản lượng đạt', num: true },
+      { label: 'Lỗi', num: true, sortable: false },
+      { key: 'worked_seconds', label: 'Tổng thời gian làm việc', num: true },
+    ], { sortKey, sortDir })}<tbody>${rows.map(x => {
+      return `<tr class="ep-row" data-employee="${x.employee_id}" tabindex="0" role="button" aria-label="Xem chi tiết ${esc(x.employee_name)}">
+        <td class="mf-cell-id"><b>${esc(x.employee_name)}</b><small>${esc(x.employee_code)}${x.department ? ' · ' + esc(x.department) : ''}</small></td>
+        <td class="num"><b>${n(x.completed_sessions)}</b>${sessionBreakdown(x)}</td>
+        <td class="num"><b class="ep-pct">${productivityText(x.productivity_percent)}</b>${MFUI.meter(x.productivity_percent)}<small>${x.completed_valid_sessions} phiên hợp lệ</small></td>
+        <td class="num"><b>${n(x.good_qty)}</b></td>
+        <td class="num${Number(x.defect_qty) ? ' is-danger' : ''}">${n(x.defect_qty)}</td>
+        <td class="num">${epDur(x.worked_seconds)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
-    host.querySelectorAll('.sortable').forEach(th => th.onclick = () => {
+    host.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
       const key = th.dataset.sort;
       if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = key === 'employee_name' ? 1 : -1; }
+      epFilterMemory.sortKey = sortKey; epFilterMemory.sortDir = sortDir;
       sortRows(); drawTable();
     });
     host.querySelectorAll('.ep-row').forEach(tr => {
@@ -200,6 +224,8 @@ async function renderEmployeeProductivity() {
     if (raw) lastEmployees = raw;
     const q = (document.getElementById('epSearch').value || '').trim().toLowerCase();
     const dept = document.getElementById('epDept').value;
+    epFilterMemory.search = document.getElementById('epSearch').value || '';
+    epFilterMemory.dept = dept;
     rows = lastEmployees.filter(x => (!dept || x.department === dept) && (!q || `${x.employee_name} ${x.employee_code}`.toLowerCase().includes(q)));
     drawKpis(summaryForVisibleRows(rows));
     sortRows(); drawTable();
@@ -207,19 +233,22 @@ async function renderEmployeeProductivity() {
 
   const load = async () => {
     const host = document.getElementById('epTableHost');
-    host.innerHTML = 'Đang tải...';
+    host.innerHTML = MFUI.loadingState('Đang tải năng suất…');
     try {
       const from = document.getElementById('epFrom').value, to = document.getElementById('epTo').value;
+      epFilterMemory.from = from; epFilterMemory.to = to;
       const d = await api(`/api/reports/employee-productivity?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-      document.getElementById('epRangeLabel').textContent = `${epDateShort(from)} → ${epDateShort(to)} · sắp xếp theo năng suất giảm dần, có thể đổi cột`;
+      document.getElementById('epRangeLabel').textContent = `${epDateShort(from)} → ${epDateShort(to)} · Năng suất = trung bình cộng % hoàn thành các phiên làm việc đã kết thúc của từng nhân viên · bấm một dòng để xem chi tiết`;
       lastSummary = d.summary || {};
-      const deptSel = document.getElementById('epDept'), currentDept = deptSel.value;
+      const deptSel = document.getElementById('epDept'), currentDept = deptSel.value || epFilterMemory.dept;
       const depts = [...new Set((d.employees || []).map(x => x.department).filter(Boolean))].sort();
       deptSel.innerHTML = '<option value="">Tất cả bộ phận</option>' + depts.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
       if (depts.includes(currentDept)) deptSel.value = currentDept;
       applyFilters(d.employees || []);
     } catch (e) {
-      host.innerHTML = `<div class="empty danger">${esc(e.message)}</div>`;
+      document.getElementById('epCount').textContent = '';
+      host.innerHTML = MFUI.errorState(e.message, 'epRetry');
+      document.getElementById('epRetry').onclick = load;
     }
   };
 
@@ -249,6 +278,13 @@ async function renderEmployeeProductivity() {
   // Search/department re-filter the already-fetched list -- no re-fetch.
   document.getElementById('epSearch').oninput = () => applyFilters();
   document.getElementById('epDept').onchange = () => applyFilters();
+  document.getElementById('epClear').onclick = () => {
+    document.getElementById('epSearch').value = '';
+    document.getElementById('epDept').value = '';
+    document.getElementById('epFrom').value = epMonthStartHcm();
+    document.getElementById('epTo').value = epTodayHcm();
+    load();
+  };
 
   // --- TRÌNH CHIẾU KIOSK -----------------------------------------------
   // Deliberately isolated from the table's own filter/sort/search state
