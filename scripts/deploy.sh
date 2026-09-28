@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 source scripts/deploy_lib.sh
 
 TARGET="${1:?usage: deploy.sh <prodtest|production> <version-or-digest>}"
+if [[ "$TARGET" == "prodtest" && "${MESFLOW_ALLOW_LOCAL_PRODTEST_DEPLOY:-0}" != "1" ]]; then echo "ABORT: canonical PRODUCTION_TEST is https://prod.mesflow.net; use ./scripts/deploy-remote-test.sh <version>." >&2; echo "Local port-8299 prodtest is diagnostics-only; set MESFLOW_ALLOW_LOCAL_PRODTEST_DEPLOY=1 only when deliberate." >&2; exit 1; fi
 VER_OR_DIGEST="${2:?usage: deploy.sh <prodtest|production> <version-or-digest>}"
 target_config "$TARGET"
 

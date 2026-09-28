@@ -54,7 +54,7 @@ if [[ ! -f "$TARGET_FILE" ]]; then
   echo "  REMOTE_TEST_APP_CONTAINER=mesflow-app" >&2
   echo "  REMOTE_TEST_NETWORK=mesflow_network" >&2
   echo "  REMOTE_TEST_APP_PORT=8080" >&2
-  echo "  REMOTE_TEST_PUBLIC_URL=https://mesflow.net   # optional, used only for the final public-facing check" >&2
+  echo "  REMOTE_TEST_PUBLIC_URL=https://prod.mesflow.net   # canonical PRODUCTION_TEST public URL" >&2
   exit 1
 fi
 # shellcheck disable=SC1090
