@@ -76,7 +76,11 @@ sidebarOverlay.onclick=closeMobileSidebar;
 // aria-expanded nào, người đọc màn hình chỉ nghe thấy một cái nút không trạng thái.
 function setGroupOpen(group,open){group.classList.toggle('open',open);group.querySelector('.sidebar-group-trigger')?.setAttribute('aria-expanded',String(open))}
 function closeNavMenus(except=null){document.querySelectorAll('.sidebar-group.open').forEach(x=>{if(x!==except)setGroupOpen(x,false)})}
-for(const group of menu){
+// UI consolidation P1: opt-in canonical 11-screen sidebar (?ui_refactor=1, see
+// core/canonical-nav.js). Flag off = the legacy loop below, byte-for-byte.
+const canonicalNav=window.MFCanonicalNav?.enabled?window.MFCanonicalNav:null;
+if(canonicalNav)canonicalNav.mount({nav,canOpenPage,openPage,navIcon,closeMobileSidebar});
+else for(const group of menu){
   if(group.page){
     if(!canOpenPage(group.page))continue;
     const b=document.createElement('button');b.className='sidebar-item nav-item';b.dataset.page=group.page;b.type='button';b.innerHTML=`<span class="sidebar-item-icon">${navIcon(group.page)}</span><span class="sidebar-item-label">${group.label}</span>`;b.title=group.label;b.onclick=()=>{closeNavMenus();closeMobileSidebar();AppNav.reset();AppNav.clearReturnContext();openPage(group.page,b)};nav.appendChild(b);continue;
@@ -121,7 +125,7 @@ document.getElementById('logout').onclick=async()=>{await fetch('/api/auth/logou
 const PAGE_RENDERERS={};
 window.registerPage=(id,render)=>{PAGE_RENDERERS[id]=render};
 function setActive(btn){document.body.dataset.page=btn?.dataset?.page||'';document.querySelectorAll('.nav-item,.sidebar-sub-item,.sidebar-group-trigger').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.sidebar-group').forEach(x=>x.classList.remove('has-active'));if(btn){btn.classList.add('active');const group=btn.closest('.sidebar-group');if(group){group.classList.add('has-active');setGroupOpen(group,true);group.querySelector('.sidebar-group-trigger')?.classList.add('active')}}}
-async function openPage(id,btn,{historyMode='push'}={}){if(!canOpenPage(id)){content.innerHTML='<div class="empty danger"><b>Không có quyền truy cập</b><span>Liên hệ Admin để được cấp quyền cho màn hình này.</span></div>';return}if(document.body.dataset.page==='templates'&&id!=='templates'&&templateUi?.dirty&&!confirm('Template có thay đổi chưa lưu. Rời màn hình và bỏ thay đổi?'))return;
+async function openPage(id,btn,{historyMode='push'}={}){if(canonicalNav)id=canonicalNav.renderTarget(id,canOpenPage);if(!canOpenPage(id)){content.innerHTML='<div class="empty danger"><b>Không có quyền truy cập</b><span>Liên hệ Admin để được cấp quyền cho màn hình này.</span></div>';return}if(document.body.dataset.page==='templates'&&id!=='templates'&&templateUi?.dirty&&!confirm('Template có thay đổi chưa lưu. Rời màn hình và bỏ thay đổi?'))return;
   // Every top-level page gets a stable `?page=` URL from this single place
   // (was previously only set ad hoc by a few sidebar sub-items), so Back/
   // Forward and refresh/deep-link work the same for every screen. `historyMode`
@@ -145,7 +149,7 @@ async function openPage(id,btn,{historyMode='push'}={}){if(!canOpenPage(id)){con
   // openPage. Chỉ `date` bị xoá -- `tab` và `po_id` không phụ thuộc ngày nên
   // giữ nguyên hành vi cũ.
   if(historyMode==='push'&&id==='dashboard')AppNav.setQuery({date:null});
-  if(historyMode!=='none'){const samePage=new URLSearchParams(location.search).get('page')===id;AppNav.setPageUrl(id,{replace:historyMode==='replace'||samePage})}
+  if(historyMode!=='none'){const samePage=new URLSearchParams(location.search).get('page')===id;AppNav.setPageUrl(id,{replace:historyMode==='replace'||samePage});if(canonicalNav)canonicalNav.syncUrl(id)}
   // Rời màn = mọi request ĐỌC của màn cũ trở nên vô nghĩa. Bỏ chúng NGAY,
   // trước khi màn mới bắt đầu vẽ: một phản hồi về muộn chỉ còn hai khả năng,
   // vẽ đè lên màn mới hoặc dựng khối lỗi cho màn người dùng đã rời khỏi --
@@ -156,7 +160,8 @@ async function openPage(id,btn,{historyMode='push'}={}){if(!canOpenPage(id)){con
   if(leavingPage&&leavingPage!==id)MFNet.abortGroup(leavingPage);
   // Các callback "online trở lại thì tự nạp lại" thuộc về màn cũ.
   MFNet.clearReconnect();
-  setActive(btn||document.querySelector(`[data-page="${id}"]`));
+  if(canonicalNav){setActive(canonicalNav.activeButton(id));canonicalNav.afterActive(id)}
+  else setActive(btn||document.querySelector(`[data-page="${id}"]`));
   // Pages that live in their own pages/*.js file register here instead of
   // monkey-patching openPage. Two of them used to do exactly that
   // (`const prev=openPage; openPage=(id,btn)=>...`), which silently dropped
@@ -189,7 +194,7 @@ async function openPage(id,btn,{historyMode='push'}={}){if(!canOpenPage(id)){con
 // whatever's on screen for no reason.
 window.addEventListener('popstate',()=>{
   const params=new URLSearchParams(location.search);
-  const id=params.get('page')||'overview';
+  const id=canonicalNav?canonicalNav.resolveLocation(params,canOpenPage).page:(params.get('page')||'overview');
   if(id===document.body.dataset.page){
     // Cùng trang, nhưng một màn con có thể vừa mở ra hoặc vừa đóng lại. Không
     // xử lý ở đây thì Back từ chi tiết PO chẳng làm gì cả (URL đổi, màn hình

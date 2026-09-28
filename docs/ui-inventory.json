@@ -1,0 +1,633 @@
+{
+  "$comment": "MESFlow UI inventory frozen for UI consolidation P0 (docs/UI_CONSOLIDATION_REFACTOR_PLAN.md). tests/test_ui_inventory_contract.py fails when a page ID is added/removed in app.js/pages/*.js without updating this file. Runtime canonical metadata lives in app/mesflow/web/static/core/canonical-nav.js; tests keep both in sync.",
+  "baseline": "main@8aa78a6",
+  "sidebarDestinations": [
+    {
+      "id": "overview",
+      "group": null,
+      "renderer": "renderOverview",
+      "source": "pages/overview.js",
+      "permission": {
+        "kind": "permission",
+        "code": "overview.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "session"
+      ],
+      "canonical": {
+        "screen": "overview",
+        "tab": "realtime",
+        "alias": false
+      }
+    },
+    {
+      "id": "dashboard",
+      "group": null,
+      "renderer": "renderDashboard",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "dashboard.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "date",
+        "tab",
+        "po_id"
+      ],
+      "canonical": {
+        "screen": "overview",
+        "tab": "daily",
+        "alias": false
+      }
+    },
+    {
+      "id": "production-orders",
+      "group": "Kế hoạch",
+      "renderer": "renderProductionOrders",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "po.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "po_id"
+      ],
+      "canonical": {
+        "screen": "planning",
+        "tab": "orders",
+        "alias": false
+      }
+    },
+    {
+      "id": "templates",
+      "group": "Kế hoạch",
+      "renderer": "renderTemplates",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "template.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "templates",
+        "tab": "templates",
+        "alias": false
+      }
+    },
+    {
+      "id": "session-management",
+      "group": "Điều hành",
+      "renderer": "renderSessionManagement",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "session.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "session"
+      ],
+      "canonical": {
+        "screen": "operations-sessions",
+        "tab": "all",
+        "alias": false
+      }
+    },
+    {
+      "id": "session-exceptions",
+      "group": "Điều hành",
+      "renderer": "renderSessionExceptions",
+      "source": "pages/exception-center.js",
+      "permission": {
+        "kind": "permission",
+        "code": "exceptions.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "session"
+      ],
+      "canonical": {
+        "screen": "operations-sessions",
+        "tab": "exceptions",
+        "alias": false
+      }
+    },
+    {
+      "id": "rework-queue",
+      "group": "Điều hành",
+      "renderer": "registerPage",
+      "source": "pages/rework-queue.js",
+      "permission": {
+        "kind": "permission",
+        "code": "rework.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "po"
+      ],
+      "canonical": {
+        "screen": "quality",
+        "tab": "rework",
+        "alias": false
+      }
+    },
+    {
+      "id": "production-schedule",
+      "group": "Điều hành",
+      "renderer": "renderProductionSchedule",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "material_flow.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "planning",
+        "tab": "schedule",
+        "alias": false
+      }
+    },
+    {
+      "id": "kiosk-management",
+      "group": "Điều hành",
+      "renderer": "renderKioskManagement",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "kiosk.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "kiosk"
+      ],
+      "canonical": {
+        "screen": "kiosk-admin",
+        "tab": "stations",
+        "alias": false
+      }
+    },
+    {
+      "id": "employee-productivity",
+      "group": "Điều hành",
+      "renderer": "registerPage",
+      "source": "pages/employee-productivity.js",
+      "permission": {
+        "kind": "permission",
+        "code": "session.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "productivity",
+        "tab": "employees",
+        "alias": false
+      }
+    },
+    {
+      "id": "employees",
+      "group": "Danh mục",
+      "renderer": "renderEmployees",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "employees.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "master-data",
+        "tab": "employees",
+        "alias": false
+      }
+    },
+    {
+      "id": "qr-print",
+      "group": "Danh mục",
+      "renderer": "renderQrPrintCenter",
+      "source": "pages/qr-print.js",
+      "permission": {
+        "kind": "permission",
+        "code": "qr.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "master-data",
+        "tab": "qr",
+        "alias": false
+      }
+    },
+    {
+      "id": "equipment",
+      "group": "Danh mục",
+      "renderer": "renderEquipment",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "equipment.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "master-data",
+        "tab": "equipment",
+        "alias": false
+      }
+    },
+    {
+      "id": "users",
+      "group": "Quản trị",
+      "renderer": "renderUsers",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "users.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "roles"
+      ],
+      "canonical": {
+        "screen": "admin",
+        "tab": "users",
+        "alias": false
+      }
+    },
+    {
+      "id": "working-calendar",
+      "group": "Quản trị",
+      "renderer": "renderWorkingCalendar",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "calendar.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "admin",
+        "tab": "calendar",
+        "alias": false
+      }
+    },
+    {
+      "id": "production-trace",
+      "group": "Quản trị / Theo dõi & Nhật ký",
+      "renderer": "registerPage",
+      "source": "pages/production-trace.js",
+      "permission": {
+        "kind": "permission",
+        "code": "session.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "trace-logs",
+        "tab": "trace",
+        "alias": false
+      }
+    },
+    {
+      "id": "business-audit",
+      "group": "Quản trị / Theo dõi & Nhật ký",
+      "renderer": "renderBusinessAudit",
+      "source": "app.js",
+      "permission": {
+        "kind": "permission",
+        "code": "business_audit.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "trace-logs",
+        "tab": "business",
+        "alias": false
+      }
+    },
+    {
+      "id": "system-logs",
+      "group": "Quản trị / Theo dõi & Nhật ký",
+      "renderer": "renderSystemLogs",
+      "source": "pages/system-logs.js",
+      "permission": {
+        "kind": "permission",
+        "code": "logs.view"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "trace-logs",
+        "tab": "application",
+        "alias": false
+      }
+    },
+    {
+      "id": "system-overview",
+      "group": "Hệ thống",
+      "renderer": "renderSystemOverview",
+      "source": "pages/system-console.js",
+      "permission": {
+        "kind": "super_admin_role"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "system",
+        "tab": "overview",
+        "alias": false
+      }
+    },
+    {
+      "id": "system-errors",
+      "group": "Hệ thống",
+      "renderer": "renderSystemErrors",
+      "source": "pages/system-console.js",
+      "permission": {
+        "kind": "super_admin_role"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "system",
+        "tab": "errors",
+        "alias": false
+      }
+    },
+    {
+      "id": "system-logs-it",
+      "group": "Hệ thống",
+      "renderer": "renderSystemLogsIT",
+      "source": "pages/system-console.js",
+      "permission": {
+        "kind": "super_admin_role"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "system",
+        "tab": "logs",
+        "alias": false
+      }
+    },
+    {
+      "id": "system-services",
+      "group": "Hệ thống",
+      "renderer": "renderSystemServices",
+      "source": "pages/system-console.js",
+      "permission": {
+        "kind": "super_admin_role"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "system",
+        "tab": "services",
+        "alias": false
+      }
+    },
+    {
+      "id": "system-diagnostics",
+      "group": "Hệ thống",
+      "renderer": "renderSystemDiagnostics",
+      "source": "pages/system-console.js",
+      "permission": {
+        "kind": "super_admin_role"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "system",
+        "tab": "diagnostics",
+        "alias": false
+      }
+    },
+    {
+      "id": "system-audit",
+      "group": "Hệ thống",
+      "renderer": "renderSystemAudit",
+      "source": "pages/system-console.js",
+      "permission": {
+        "kind": "super_admin_role"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [],
+      "canonical": {
+        "screen": "system",
+        "tab": "audit",
+        "alias": false
+      }
+    },
+    {
+      "id": "tutorials",
+      "group": null,
+      "renderer": "renderTutorials",
+      "source": "app.js",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "sidebar",
+      "deepLinkParams": [
+        "tab",
+        "guide"
+      ],
+      "canonical": null
+    }
+  ],
+  "hiddenSpaPages": [
+    {
+      "id": "sessions",
+      "renderer": "renderSimple",
+      "source": "app.js",
+      "api": "/api/work-sessions",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": {
+        "screen": "operations-sessions",
+        "tab": "all",
+        "alias": true
+      }
+    },
+    {
+      "id": "qc",
+      "renderer": "renderSimple",
+      "source": "app.js",
+      "api": "/api/qc/inspections",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": {
+        "screen": "quality",
+        "tab": "qc",
+        "alias": false
+      }
+    },
+    {
+      "id": "kiosk-events",
+      "renderer": "renderSimple",
+      "source": "app.js",
+      "api": "/api/kiosk-events",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": {
+        "screen": "kiosk-admin",
+        "tab": "events",
+        "alias": false
+      }
+    },
+    {
+      "id": "notifications",
+      "renderer": "renderSimple",
+      "source": "app.js",
+      "api": "/api/notifications",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": null
+    },
+    {
+      "id": "audit",
+      "renderer": "renderSimple",
+      "source": "app.js",
+      "api": "/api/audit-logs",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": null
+    },
+    {
+      "id": "kpi-employees",
+      "renderer": "renderSimple",
+      "source": "app.js",
+      "api": "/api/kpi/employees",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": {
+        "screen": "productivity",
+        "tab": "employees",
+        "alias": true
+      }
+    },
+    {
+      "id": "kpi-operations",
+      "renderer": "renderSimple",
+      "source": "app.js",
+      "api": "/api/kpi/operations",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": {
+        "screen": "productivity",
+        "tab": "operations",
+        "alias": false
+      }
+    },
+    {
+      "id": "monitoring",
+      "renderer": "renderMonitoring",
+      "source": "app.js",
+      "api": "/api/system/monitoring",
+      "permission": {
+        "kind": "authenticated"
+      },
+      "visibility": "hidden",
+      "canonical": null
+    },
+    {
+      "id": "daily-dashboard-kiosk",
+      "renderer": "registerPage",
+      "source": "pages/daily-dashboard-kiosk.js",
+      "permission": {
+        "kind": "permission",
+        "code": "dashboard.view"
+      },
+      "visibility": "hidden",
+      "canonical": null
+    }
+  ],
+  "resourceFallbackPages": {
+    "$comment": "Reachable only through the generic renderResource(id) fallback in openPage() for resources{} keys that have no dedicated branch. Not counted as hidden SPA pages; listed so the inventory test covers every addressable ID.",
+    "ids": [
+      "stations",
+      "sales-orders",
+      "parts",
+      "operations"
+    ],
+    "renderer": "renderResource",
+    "source": "app.js",
+    "permission": {
+      "kind": "authenticated"
+    }
+  },
+  "standaloneSurfaces": [
+    {
+      "id": "worker-kiosk",
+      "route": "/kiosk",
+      "template": "kiosk.html",
+      "source": "app/mesflow/web/kiosk.py"
+    },
+    {
+      "id": "worker-kiosk-mobile",
+      "route": "/kiosk-mobile",
+      "template": "kiosk.html",
+      "source": "app/mesflow/web/kiosk.py"
+    },
+    {
+      "id": "employee-productivity-wallboard",
+      "route": "/kiosk/employee-productivity",
+      "template": "wallboard_employee_productivity.html",
+      "source": "app/mesflow/web/kiosk.py"
+    },
+    {
+      "id": "setup-print",
+      "route": "/print/setup/<operation_id>",
+      "template": "setup_print.html",
+      "source": "app/mesflow/web/app.py"
+    }
+  ],
+  "globalDeepLinkParams": {
+    "session": "Session Detail drawer on any page (boot + ui.js popstate)",
+    "po_id": "Production Order detail, only with page=production-orders",
+    "roles": "Role permission subview, only with page=users",
+    "guide": "guide=esp-kiosk opens the ESP kiosk tutorial",
+    "date": "Dashboard theo ngày date filter",
+    "tab": "Owned by Dashboard theo ngày (overview|people|output) and Hướng dẫn (video); canonical refactor mode also writes tab= but page= stays authoritative",
+    "ui_refactor": "1 enables / 0 disables the opt-in canonical navigation (persisted in localStorage mesflow.ui_refactor)"
+  },
+  "viewportBaselines": [
+    {
+      "name": "desktop-1366",
+      "width": 1366,
+      "height": 768
+    },
+    {
+      "name": "desktop-1920",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "mobile-390",
+      "width": 390,
+      "height": 844
+    },
+    {
+      "name": "mobile-430",
+      "width": 430,
+      "height": 932
+    }
+  ]
+}

@@ -41,6 +41,8 @@
   <script src="/static/core/api.js?v={{ version }}"></script>
   <script src="/static/core/nav.js?v={{ version }}"></script>
   <script src="/static/core/ui.js?v={{ version }}"></script>
+  <!-- Opt-in canonical navigation (?ui_refactor=1). Inert unless flagged; must load before app.js. -->
+  <script src="/static/core/canonical-nav.js?v={{ version }}"></script>
   <script src="/static/op-policy.js?v={{ version }}"></script>
   <script src="/static/pages/session-detail.js?v={{ version }}"></script>
   <script src="/static/app.js?v={{ version }}"></script>
@@ -77,7 +79,9 @@
       setActive(document.querySelector('[data-page="tutorials"]'));
       renderEspKioskTutorial();
     }else{
-      const initialPage=bootParams.get('page')||'overview';
+      // Refactor mode (?ui_refactor=1) also accepts ?screen=&tab= and legacy
+      // aliases; flag off keeps the plain ?page= lookup.
+      const initialPage=window.MFCanonicalNav?.enabled?MFCanonicalNav.resolveLocation(bootParams,canOpenPage).page:(bootParams.get('page')||'overview');
       // replace, not push: this is the page the browser already loaded, not a
       // new visit -- pushing here would leave a phantom entry a single Back
       // press could never get past.

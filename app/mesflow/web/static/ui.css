@@ -4069,3 +4069,10 @@ body[data-page="dashboard"] .op-card-fact>b{
 .overview-op-today .overview-op-workers .ov-worker .ov-worker-name{max-width:none;overflow:visible;text-overflow:clip;overflow-wrap:normal;word-break:normal;white-space:normal}
 .overview-op-row .overview-op-today .ov-worker small{display:inline;color:var(--text-secondary);font-size:9px;font-weight:400}
 .overview-op-today .ov-worker>.ov-worker-status{grid-column:2;grid-row:2;font-size:9px;font-weight:500;white-space:normal}
+
+/* UI consolidation P1 -- opt-in canonical navigation (?ui_refactor=1, core/canonical-nav.js).
+   Only elements created by that module carry these classes, so the default legacy shell is untouched.
+   The tab strip reuses the shared .mf-tabs/.mf-tab component; only its spacing is local. */
+.canonical-tabs{margin:0 0 14px}
+.canonical-tabs[hidden]{display:none}
+.canonical-help-action{margin-left:auto;flex:0 0 auto}
