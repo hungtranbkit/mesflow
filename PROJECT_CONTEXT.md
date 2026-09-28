@@ -43,10 +43,20 @@ Production-test mesflow.net must not be deployed from this refactor line without
 - git diff --check passes.
 
 ### Deployment state
-- dev.mesflow.net was still on version 71.0.0.370 before this P0/P1 deployment.
-- P0/P1 must deploy only to DEV using compose.local-test.yml and .env.local-test.
-- mesflow.net / production-test must remain untouched.
-- After DEV deploy, update this section with DEV health/version and live canonical asset verification.
+- P0/P1 child implementation commit: ee72d5e.
+- Long-lived integration branch refactor/ui-consolidation-20260928 is based on ee72d5e plus this handoff update.
+- Both child and integration branches were pushed before DEV deployment.
+- DEV stack is the existing Docker Compose project mesflow-dev under /home/dell/workspace/mesflow-dev using compose.dev.yml.
+- Built DEV-only image mesflow-app:ui-p0p1-ee72d5e from the integration worktree.
+- DEV app container is healthy on that image.
+- https://dev.mesflow.net/api/system/ready reports version 71.0.0.376, server_role DEV, status ready, migration 0054_multi_open_session_per_employee.
+- Live dev canonical-nav.js exposes exactly 11 canonical screens.
+- Live resolver check: page=session-exceptions + ui_refactor=1 resolves to operations-sessions / exceptions / session-exceptions.
+- Live overview mapping remains overview->realtime and dashboard->daily.
+- Live URL serialization preserves unrelated query parameters while adding page/screen/tab canonical state.
+- Live app.js contains MFCanonicalNav integration.
+- Browser gateway is disabled on Terminal MCP, and local playwright.sync_api is not installed, so screenshot/browser verification was unavailable. Source/browser contract tests are present; 80 passed and 1 browser test skipped for that dependency.
+- mesflow.net / production-test was not deployed or modified by this P0/P1 task.
 
 ### Next phases after P0/P1
 P2 System console consolidation, then P3 Productivity, P0 Master Data, P5 Quality, P6 Kiosk Admin, P7 Trace/Logs, P10 Planning, P11 Admin, P8 Sessions, P9 Overview, P12 cleanup.
