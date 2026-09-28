@@ -534,7 +534,7 @@ class DashboardRepository:
             COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
             COALESCE(o.standard_seconds_per_unit,0) standard_seconds_per_unit
           FROM work_sessions ws JOIN operations o ON o.id=ws.operation_id
-          WHERE ws.started_at < %s AND COALESCE(ws.ended_at,%s) >= %s AND {reportable_session_sql('ws')}
+          WHERE ws.started_at < %s AND COALESCE(ws.ended_at,%s) > %s AND {reportable_session_sql('ws')}
         ), scored AS (
           SELECT *,{ReportRepository._SESSION_COMPLETION_PERCENT_SQL} completion_percent,
             (report_at >= %s AND report_at < %s) reported_today FROM day_sessions
@@ -1124,7 +1124,7 @@ class DashboardRepository:
         rows=fetch_all(f"""WITH shift_sessions AS (
           SELECT ws.*,COALESCE(ws.ended_at,ws.updated_at) report_at
           FROM work_sessions ws
-          WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s AND {reportable_session_sql('ws')}
+          WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) > %s AND {reportable_session_sql('ws')}
         ), emp_rollup AS (
           -- Field report (2026-09-08): the "Trong ca" line only ever showed
           -- ONE combined Đạt/NG/Sửa total for the whole Operation, even when
@@ -1296,7 +1296,7 @@ class DashboardRepository:
         -- that change including these rows would have double-counted the
         -- repaired pieces. "Tiến độ theo Operation" still excludes the
         -- workbench: that panel is about routing steps with a target.
-        WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) >= %s
+        WHERE ws.started_at < %s AND COALESCE(ws.ended_at,CURRENT_TIMESTAMP) > %s
           AND {reportable_session_sql('ws')}{po_clause}
         ORDER BY ws.started_at,ws.id LIMIT %s""",(ctx['range_end'],ctx['range_start'],*work_params,ctx['day_end'],ctx['day_start'],*po_params,min(max(limit,1),3000)))
 
