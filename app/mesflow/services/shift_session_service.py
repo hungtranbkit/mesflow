@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from mesflow.core.config import settings
 from mesflow.core.time_policy import utc_now
@@ -32,6 +33,7 @@ class StaleSessionCandidate:
     shift_code: str
     shift_end_at: Any
     minutes_past_end: float
+    close_reason: str = 'AUTO_SHIFT_END'
 
 
 class ShiftSessionReconciliationService:
@@ -45,11 +47,11 @@ class ShiftSessionReconciliationService:
         `mesflow audit-sessions`/the reconcile dry-run path reuses so the
         same detection logic backs both "tell me" and "do it".
 
-        A session whose started_at falls in a NO_ACTIVE_SHIFT gap (Phase
-        2/8: resolve_session_shift_window returns None) is skipped
-        here -- there is no shift boundary to auto-close it against. It
-        remains visible via the existing LONG_OPEN_SESSION exception
-        (12h+) as a genuine anomaly instead.
+        A session whose started_at falls in a NO_ACTIVE_SHIFT gap uses the
+        end of its site-local calendar day as a deterministic recovery
+        boundary. New web-kiosk starts are rejected outside configured
+        shifts, but this fallback prevents legacy or offline data from
+        remaining OPEN forever.
         """
         now = now or utc_now()
         grace = timedelta(minutes=grace_minutes if grace_minutes is not None else settings.shift_auto_close_grace_minutes)
@@ -60,14 +62,21 @@ class ShiftSessionReconciliationService:
         for row in rows:
             window = resolve_session_shift_window(row['started_at'], shifts)
             if window is None:
-                continue
-            shift, _start, end = window
+                local_started = row['started_at'].astimezone(ZoneInfo(settings.timezone_name))
+                end = local_started.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                shift_code = 'CALENDAR_DAY'
+                close_reason = 'AUTO_CALENDAR_DAY_END'
+            else:
+                shift, _start, end = window
+                shift_code = shift['code']
+                close_reason = 'AUTO_SHIFT_END'
             if now < end + grace:
                 continue
             candidates.append(StaleSessionCandidate(
                 session_id=row['id'], employee_id=row['employee_id'], operation_id=row['operation_id'],
-                started_at=row['started_at'], shift_code=shift['code'], shift_end_at=end,
+                started_at=row['started_at'], shift_code=shift_code, shift_end_at=end,
                 minutes_past_end=(now - end).total_seconds() / 60,
+                close_reason=close_reason,
             ))
         return candidates
 
@@ -100,7 +109,8 @@ class ShiftSessionReconciliationService:
                 continue
             try:
                 outcome = self.repository.auto_close_for_shift_end(
-                    candidate.session_id, candidate.shift_end_at, correlation_id=correlation_id)
+                    candidate.session_id, candidate.shift_end_at, correlation_id=correlation_id,
+                    close_reason=candidate.close_reason)
                 results.append({**item, 'action': 'CLOSED' if outcome else 'SKIPPED_ALREADY_CLOSED'})
             except Exception as exc:  # noqa: BLE001 -- one bad row must not abort the batch, see docstring
                 results.append({**item, 'action': 'FAILED', 'error': f'{type(exc).__name__}: {exc}'})
