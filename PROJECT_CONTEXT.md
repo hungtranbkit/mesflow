@@ -116,7 +116,11 @@ the detail export honors exactly those four, plus sort.
   `nang-suat-nhan-vien-chi-tiet_…` with `…&mode=detail` and
   `nang-suat-nhan-vien_…` with the unchanged URL. Filters (search=NV001)
   are carried; no JS errors.
-- `tests/integration` (live-Postgres CI suite) not run locally.
+- `tests/integration` was not run locally. GitHub CI on main `94077f7` (run
+  36507461483): unit step 859 passed (+10 vs 849 on `4da0296`),
+  integration 616 passed / 1 failed. The failure is the pre-existing
+  `test_rework_overview_rollup::test_resolving_rework_keeps_po_progress_and_repair_buckets_honest`,
+  identical on the previous main run 36505219923. No new CI failures.
 
 **Release / deploy.**
 - Branch `hotfix/employee-productivity-detail-report-20260929` from main
