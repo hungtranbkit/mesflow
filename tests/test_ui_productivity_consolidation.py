@@ -148,9 +148,12 @@ def test_employee_tab_keeps_filters_kpis_export_and_nv_xac_nhan():
     for control in ("epFrom", "epTo", "epSearch", "epDept"):
         assert f'id="{control}"' in js
     assert "drawKpis(summaryForVisibleRows(rows));" in js
-    export = js.split("const exportExcel = () => {", 1)[1].split("};", 1)[0]
+    # Excel and print share ONE filter serializer (hotfix 380).
+    query = js.split("const reportQuery = () => {", 1)[1].split("};", 1)[0]
     for key in ("'from'", "'to'", "'search'", "'department'", "'sort'", "'dir'"):
-        assert f"q.set({key}" in export
+        assert f"q.set({key}" in query
+    export = js.split("const exportExcel = () => {", 1)[1].split("};", 1)[0]
+    assert "const q = reportQuery();" in export
     assert "/api/reports/employee-productivity/export.xlsx" in export
     assert '"NV xác nhận"' in EXCEL.read_text(encoding="utf-8")
 

@@ -37,6 +37,56 @@ logger = logging.getLogger(__name__)
 STARTABLE_ONLY_O = type_in_sql(STARTABLE_TYPES, 'o')
 
 
+class OutsideShiftError(ConflictError):
+    """Bắt đầu phiên ngoài mọi ca đã cấu hình. Lớp riêng, không dò chữ: đây
+    là lý do từ chối hay gặp nhất khi thử kiosk ngoài giờ, và nó phải phân
+    biệt được với mọi xung đột phiên khác ở cả mã lỗi lẫn `reason`."""
+
+
+def _shift_hours_label(shifts) -> str:
+    parts = []
+    for shift in shifts or []:
+        start, end = shift.get('anchor_start'), shift.get('anchor_end')
+        if start and end:
+            parts.append(f"{shift.get('name') or shift.get('code')} {str(start)[:5]}–{str(end)[:5]}")
+    return ' · '.join(parts)
+
+
+# LÝ DO TỪ CHỐI (409), đọc được bằng máy. Trước đây mọi 409 không phải
+# DEP/QTY đều là SES-409 kèm câu "Quét lại thẻ nhân viên" -- kể cả "ngoài ca",
+# "PO chưa Start", "Operation đã hoàn thành" -- và kiosk.js thì gộp tất cả vào
+# "Công đoạn này hiện không thể bắt đầu". Người thử kiosk ngoài giờ đọc thấy
+# đúng lời khuyên của lỗi SCN-003 cũ và tưởng lỗi chưa được sửa. `reason` là
+# trường MỚI (client cũ bỏ qua); `error_code` chỉ đổi ở những ca vốn đã sai.
+def _conflict_reason(exc, lowered):
+    if isinstance(exc, OutsideShiftError):
+        return ('SHF-409', 'OUTSIDE_SHIFT',
+                'Chỉ bắt đầu được trong giờ ca. Chờ tới giờ ca, hoặc nhờ quản đốc kiểm tra Lịch làm việc.')
+    if 'chưa bắt đầu session' in lowered or 'start session op nguồn' in lowered:
+        return ('DEP-409', 'DEPENDENCY',
+                'Bắt đầu phiên làm việc của OP nguồn trước, sau đó quét lại OP hiện tại.')
+    if 'chưa start hoặc đang tạm dừng' in lowered:
+        # Cùng mã với lần quét tem bị từ chối vì PO (xem _scan_response).
+        return ('PO-001', 'PO_NOT_STARTED', 'Nhờ quản đốc Start/Tiếp tục PO.')
+    if 'đang ở trạng thái' in lowered or 'đã cancelled' in lowered:
+        return ('OP-409', 'OPERATION_CLOSED',
+                'Chọn công đoạn khác, hoặc báo quản đốc nếu cần làm lại.')
+    if 'bàn sửa hàng' in lowered:
+        return ('OP-409', 'REWORK_BENCH', 'Ghi nhận hàng sửa tại màn Hàng chờ sửa.')
+    if 'chưa sẵn sàng để start' in lowered:
+        return ('OP-409', 'NOT_READY',
+                'Chờ WIP/công đoạn trước hoặc báo quản đốc.')
+    # Trước QTY: câu "đang mở Operation này rồi" có chữ "sản lượng".
+    if 'đang mở operation này' in lowered or 'trùng với phiên' in lowered:
+        return ('SES-409', 'SESSION_OPEN',
+                'Quét lại tem Operation để nhập sản lượng và kết thúc phiên đang mở.')
+    if 'input' in lowered or 'available' in lowered or 'sản lượng' in lowered or 'đầu vào' in lowered:
+        return ('QTY-409', 'INPUT_QTY',
+                'Kết thúc phiên làm việc của OP nguồn và nhập đủ sản lượng, hoặc giảm số lượng của OP hiện tại.')
+    return ('SES-409', 'SESSION_CONFLICT',
+            'Quét lại thẻ nhân viên. Nếu vẫn lỗi, báo quản đốc kiểm tra phiên đang mở.')
+
+
 def _error(exc):
     message = str(exc) or 'Không thể xử lý yêu cầu'
     lowered = message.lower()
@@ -44,13 +94,9 @@ def _error(exc):
         return jsonify(ok=False, error='NOT_FOUND', error_code='DAT-404', message=message,
                        action='Kiểm tra mã QR hoặc dữ liệu đã được khai báo trên KIMEX.'), 404
     if isinstance(exc, ConflictError):
-        code = 'SES-409'
-        action = 'Quét lại thẻ nhân viên. Nếu vẫn lỗi, báo quản đốc kiểm tra phiên đang mở.'
-        if 'chưa bắt đầu session' in lowered or 'start session op nguồn' in lowered:
-            code, action = 'DEP-409', 'Bắt đầu phiên làm việc của OP nguồn trước, sau đó quét lại OP hiện tại.'
-        elif 'input' in lowered or 'available' in lowered or 'sản lượng' in lowered or 'đầu vào' in lowered:
-            code, action = 'QTY-409', 'Kết thúc phiên làm việc của OP nguồn và nhập đủ sản lượng, hoặc giảm số lượng của OP hiện tại.'
-        return jsonify(ok=False, error='CONFLICT', error_code=code, message=message, action=action), 409
+        code, reason, action = _conflict_reason(exc, lowered)
+        return jsonify(ok=False, error='CONFLICT', error_code=code, reason=reason,
+                       message=message, action=action), 409
     if isinstance(exc, PermissionDeniedError):
         return jsonify(ok=False, error='FORBIDDEN', error_code='AUTH-403', message=message,
                        action='Liên hệ quản trị viên để kiểm tra trạng thái kiosk.'), 403
@@ -62,6 +108,14 @@ def _error(exc):
         return jsonify(ok=False, error='INVALID_REQUEST', error_code='REQ-400',
                        message='Dữ liệu nhập không đúng định dạng hoặc vượt giới hạn.',
                        action='Kiểm tra lại số lượng vừa nhập rồi thử lại.'), 400
+    if isinstance(exc, RepositoryError) and message == 'employee inactive or missing':
+        # WorkSessionRepository.start() nói câu này bằng tiếng Anh, và trước
+        # đây nó ra màn kiosk thành "Dữ liệu quét hoặc sản lượng chưa hợp lệ"
+        # -- không ai đoán được là do NHÂN VIÊN. Giữ 400 như cũ, chỉ nói rõ.
+        return jsonify(ok=False, error='INVALID_REQUEST', error_code='EMP-001',
+                       reason='EMPLOYEE_INACTIVE',
+                       message='Nhân viên đã ngừng hoạt động hoặc không còn trong danh mục.',
+                       action='Kiểm tra trạng thái nhân viên trong Danh mục, hoặc quét thẻ của người khác.'), 400
     if isinstance(exc, (ValueError, RepositoryError)):
         return jsonify(ok=False, error='INVALID_REQUEST', error_code='REQ-400', message=message,
                        action='Quét lại đúng thứ tự hoặc nhập lại dữ liệu.'), 400
@@ -486,8 +540,11 @@ def _start_response():
             'station_id': int(body['station_id']) if body.get('station_id') else None,
             'device_uuid': str(body.get('device_uuid') or 'WEB-KIOSK'),
         }
-        if resolve_session_shift_window(utc_now(), get_work_shifts()) is None:
-            raise ConflictError('Ngoài ca làm việc. Không thể bắt đầu phiên mới; báo quản đốc kiểm tra lịch làm việc.')
+        shifts = get_work_shifts()
+        if resolve_session_shift_window(utc_now(), shifts) is None:
+            hours = _shift_hours_label(shifts)
+            raise OutsideShiftError('Ngoài ca làm việc. Không thể bắt đầu phiên mới'
+                                    + (f' (giờ ca: {hours}).' if hours else '; báo quản đốc kiểm tra lịch làm việc.'))
         return jsonify(WorkSessionRepository().start(payload)), 201
     except Exception as exc:
         return _error(exc)

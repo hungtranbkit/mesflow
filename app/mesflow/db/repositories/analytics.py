@@ -1974,6 +1974,19 @@ class ReportRepository:
         to_utc=business_date_start_utc(end_date+timedelta(days=1))
         return from_utc,to_utc,start_date,end_date
 
+    def _productivity_scope(self,date_from,date_to,employee_id=None,department=None,team=None):
+        # ONE definition of "which sessions count" for the productivity
+        # report, shared by the per-employee aggregate below and the
+        # per-session detail export (employee_productivity_sessions), so the
+        # detail rows of an employee are exactly the sessions behind that
+        # employee's summary numbers.
+        from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
+        conditions=["ws.status='CLOSED'",'ws.ended_at>=%s','ws.ended_at<%s',reportable_session_sql('ws')]; params=[from_utc,to_utc]
+        if employee_id: conditions.append('e.id=%s'); params.append(employee_id)
+        if department: conditions.append('e.department=%s'); params.append(department)
+        if team: conditions.append('e.team=%s'); params.append(team)
+        return ' AND '.join(conditions),params,start_date,end_date
+
     def employee_productivity(self,date_from:str|None=None,date_to:str|None=None,
                                employee_id:int|None=None,department:str|None=None,
                                team:str|None=None,limit:int=1000):
@@ -1997,12 +2010,7 @@ class ReportRepository:
         # static/wallboard-employee-productivity.js) already read
         # `x.completed_sessions` directly -- every employee row rendered
         # the literal text "undefined session" in production before this fix.
-        from_utc,to_utc,start_date,end_date=self._productivity_date_bounds(date_from,date_to)
-        conditions=["ws.status='CLOSED'",'ws.ended_at>=%s','ws.ended_at<%s',reportable_session_sql('ws')]; params=[from_utc,to_utc]
-        if employee_id: conditions.append('e.id=%s'); params.append(employee_id)
-        if department: conditions.append('e.department=%s'); params.append(department)
-        if team: conditions.append('e.team=%s'); params.append(team)
-        where=' AND '.join(conditions)
+        where,params,start_date,end_date=self._productivity_scope(date_from,date_to,employee_id,department,team)
         rows=fetch_all(f"""WITH scored AS (
           SELECT ws.id session_id,e.id employee_id,e.employee_no employee_code,e.name employee_name,
             e.department,e.team,ws.status,
@@ -2073,6 +2081,52 @@ class ReportRepository:
                 'completed_valid_sessions':top['completed_valid_sessions']} if top else None,
         }
         return {'summary':summary,'employees':employees}
+
+    def employee_productivity_sessions(self,date_from:str|None=None,date_to:str|None=None,
+                                       employee_id:int|None=None,department:str|None=None,
+                                       team:str|None=None,limit:int=50000):
+        """Every session behind employee_productivity() for the same filters,
+        one row per session, in ONE query (Excel "Chi tiết từng nhân viên").
+
+        Same scope (_productivity_scope) and the same per-session score
+        (_SESSION_COMPLETION_PERCENT_SQL) as the aggregate: an employee's
+        productivity_percent there is AVG(completion_percent) over exactly
+        these rows. Returns {'sessions': [...], 'truncated': bool}."""
+        where,params,start_date,end_date=self._productivity_scope(date_from,date_to,employee_id,department,team)
+        cap=min(max(int(limit),1),50000)
+        rows=fetch_all(f"""WITH scored AS (
+          SELECT ws.id session_id,e.id employee_id,e.employee_no employee_code,e.name employee_name,
+            e.department,e.team,ws.status,ws.started_at,ws.ended_at,
+            (ws.ended_at AT TIME ZONE %s)::date work_date,
+            GREATEST(EXTRACT(EPOCH FROM (COALESCE(ws.ended_at,CURRENT_TIMESTAMP)-ws.started_at)),0) actual_seconds,
+            COALESCE(o.standard_seconds_per_unit,0) standard_seconds_per_unit,
+            COALESCE(o.standard_seconds_per_unit,0)*(COALESCE(ws.good_qty,0)+COALESCE(ws.defect_qty,0)) expected_seconds,
+            COALESCE(ws.good_qty,0) good_qty,COALESCE(ws.defect_qty,0) defect_qty,
+            po.code po_code,p.code part_code,p.name part_name,o.code operation_code,o.name operation_name,
+            s.code station_code,ws.closed_by_system,ws.quantity_confirmed,ws.close_reason,ws.note,
+            {SUPPORT_ONLY_O} is_repair,
+            {TYPE_VALUE_O} operation_type
+          FROM work_sessions ws
+          JOIN employees e ON e.id=ws.employee_id
+          JOIN operations o ON o.id=ws.operation_id
+          JOIN production_orders po ON po.id=o.production_order_id
+          JOIN parts p ON p.id=o.part_id
+          LEFT JOIN stations s ON s.id=ws.station_id
+          WHERE {where}
+        )
+        SELECT *,{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent FROM scored
+        ORDER BY employee_code,employee_id,started_at,session_id
+        LIMIT %s""",[settings.timezone_name,*params,cap+1])
+        sessions=[]
+        for row in rows[:cap]:
+            item=dict(row)
+            pct=item.get('completion_percent')
+            item['completion_percent']=round(float(pct),2) if pct is not None else None
+            item['actual_seconds']=float(item.get('actual_seconds') or 0)
+            item['expected_seconds']=float(item.get('expected_seconds') or 0)
+            item['standard_seconds_per_unit']=float(item.get('standard_seconds_per_unit') or 0)
+            sessions.append(item)
+        return {'from':str(start_date),'to':str(end_date),'sessions':sessions,'truncated':len(rows)>cap}
 
     def employee_productivity_detail(self,employee_id:int,date_from:str|None=None,date_to:str|None=None):
         employee=fetch_one("SELECT id employee_id,employee_no employee_code,name employee_name,department,team,position FROM employees WHERE id=%s",(employee_id,))

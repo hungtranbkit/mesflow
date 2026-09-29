@@ -13,7 +13,9 @@ def test_kiosk_assets_and_route_exist():
     assert '/api/kiosk-web/finish/' in kiosk
     assert 'QUÉT THẺ NHÂN VIÊN' in html
     assert "WF|EMP|" in kiosk and "WF|OP|" in kiosk
-    assert "state === 'operation'" in js
+    # scan() dispatches on `flow` (seeded from `state`, see
+    # test_kiosk_demo_scan_keeps_employee_context.py).
+    assert "flow === 'operation'" in js
 
 def test_kiosk_demo_initializes_without_secure_context_random_uuid():
     html=(ROOT/'app/mesflow/web/templates/kiosk.html').read_text()

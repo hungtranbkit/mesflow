@@ -226,6 +226,8 @@
     'OP-002':'Tem này trùng mã với một Operation khác. In lại tem QR cho Operation này rồi quét lại.',
     'PO-001':'Nhờ quản đốc Start/Tiếp tục PO.',
     'SES-409':'Quét lại thẻ; nếu còn lỗi, kiểm tra phiên làm việc đang mở.',
+    'SHF-409':'Chỉ bắt đầu được trong giờ ca. Chờ tới giờ ca, hoặc nhờ quản đốc kiểm tra Lịch làm việc.',
+    'OP-409':'Chọn công đoạn khác, hoặc báo quản đốc nếu cần làm lại.',
     'QTY-409':'Giảm số lượng hoặc kiểm tra sản lượng OP nguồn.',
     'NET-001':'Kiểm tra Wi-Fi/LAN và địa chỉ máy chủ.',
     'AUTH_REQUIRED':'Màn hình này không cần đăng nhập. Nếu vẫn báo lỗi, chụp màn hình và báo quản trị viên.',
@@ -252,13 +254,15 @@
     if(status>=500)return {message:'Mất kết nối máy chủ.',action:'Chờ một lát rồi thử lại.'};
     return {message:'Chưa thực hiện được.',action:'Thử lại hoặc báo quản đốc nếu lỗi lặp lại.'};
   }
-  function setError(message, code='SCN-000', action='') {
+  function setError(message, code='SCN-000', action='', reason='') {
     const safeCode = String(code || 'SCN-000').toUpperCase();
     document.getElementById('error-code').textContent = safeCode;
     document.getElementById('error-message').textContent = message || 'Không thể xử lý yêu cầu';
     document.getElementById('error-action').textContent = action || ERROR_HELP[safeCode] || 'Quét lại. Nếu lỗi lặp lại, báo quản đốc kèm mã lỗi.';
     document.getElementById('scan-status').textContent = 'Cần thử lại';
-    lastHeartbeatError = `${safeCode}: ${message || ''}`.slice(0, 240);
+    // Chẩn đoán từ xa (kiosk_status.last_error) mang cả `reason` để phân biệt
+    // "ngoài ca" với "NV ngừng hoạt động" với xung đột phiên mà không cần tới máy.
+    lastHeartbeatError = `${safeCode}${reason ? ` ${reason}` : ''}: ${message || ''}`.slice(0, 240);
     show('error');
   }
   function reset() {
@@ -357,9 +361,23 @@
       }
       const data = (err && err.body) || {};
       const status = (err && err.status) || 0;
-      const friendly = workerError(data, status), error = new Error(friendly.message);
+      // LÝ DO CỦA MÁY CHỦ THẮNG CÂU CHUNG. Khi máy chủ gửi kèm `reason` (xem
+      // web/kiosk.py::_conflict_reason), message/action của nó đã là tiếng
+      // Việt viết cho người đứng máy và nói ĐÚNG chuyện gì xảy ra: "Ngoài ca
+      // làm việc (giờ ca: …)", "PO … chưa Start", "Nhân viên đã ngừng hoạt
+      // động". Trước đây workerError() gộp mọi 409 thành "Công đoạn này hiện
+      // không thể bắt đầu" -- ngoài giờ, người thử kiosk chỉ còn thấy lời
+      // khuyên "quét lại thẻ" và tưởng lỗi SCN-003 cũ vẫn còn. Không có
+      // `reason` (máy chủ cũ, 401/403/5xx) thì vẫn là câu chung như trước.
+      const serverReason = data.reason && data.message && status >= 400 && status < 500
+        && status !== 401 && status !== 403;
+      const friendly = serverReason
+        ? {message:data.message, action:data.action || workerError(data, status).action}
+        : workerError(data, status);
+      const error = new Error(friendly.message);
       error.code = data.error_code || data.error || (status >= 500 ? 'SYS-500' : `HTTP-${status}`);
       error.action = friendly.action;
+      if (data.reason) error.reason = String(data.reason);
       // Máy chủ có thể ĐÃ nhận ra tem này là ai/việc gì rồi mới từ chối vì
       // luật nghiệp vụ (rõ nhất: PO-001 "PO chưa Start"). Phần đã nhận ra đó
       // phải sống sót qua lớp lỗi này, nếu không màn hình chỉ còn mỗi câu từ
@@ -428,7 +446,10 @@
     return min < 60 ? `${min} phút` : `${Math.floor(min / 60)} giờ ${min % 60} phút`;
   }
 
-  async function scan(qr) {
+  // `source`: 'scanner' cho mọi nguồn quét thật (súng quét, camera, và
+  // MESFlowKioskDemo.scan dùng để giả lập súng quét); 'demo' chỉ cho hai nút
+  // "Quét" của bảng Mô phỏng (và hook scanEmployee/scanOperation tương ứng).
+  async function scan(qr, {source = 'scanner'} = {}) {
     // CHUỖI THÔ, đúng như nguồn quét đưa vào -- không trim, không chuẩn hoá.
     // Bản gửi đi (`qr`) vẫn được trim như cũ; bản thô này tồn tại vì nó là thứ
     // duy nhất trả lời được câu "tem in ra có đúng không, hay máy đọc sai".
@@ -438,7 +459,27 @@
     document.body.classList.add('kiosk-busy');
     try {
       const result = await api(`${API_BASE}/scan`, {method:'POST', body:JSON.stringify({qr})});
-      if (state === 'ready') {
+      // BẢNG MÔ PHỎNG GHIM MÀN KẾT QUẢ. Lúc bảng mở, scheduleReset() không cắm
+      // lần trả-về cho 'started', và 'error' vốn không tự trả về -- nên người
+      // bấm "Quét OP" ngay sau một lần bị từ chối (vd. SES-409 ngoài ca) rơi
+      // vào nhánh reset()+quét-lại ở cuối: reset() xoá NGƯỜI vừa nhận diện,
+      // lần quét lại chạy ở 'ready' và báo SCN-003 "Hãy quét thẻ nhân viên
+      // trước" dù thẻ vừa quét xong. Lần quét lại đó còn gửi /scan thêm một
+      // vòng và để trống một khe ở 'ready' mà cú bấm kế tiếp rơi vào.
+      //
+      // Với nguồn 'demo': dùng luôn kết quả vừa có, không quét lại. Thẻ -> xoá
+      // sạch rồi xử lý như ở 'ready'. Tem Operation + đã có người -> đi tiếp
+      // đúng nhánh công đoạn với chính người/danh sách việc đó. Tem mà chưa có
+      // người -> 'ready' -> SCN-003 như cũ, vì lúc đó đúng là chưa ai quét thẻ.
+      //
+      // Súng quét/camera THẬT không đi vào đây: ở trạm đứng một mình, tem quét
+      // sau màn kết quả có thể là của người kế tiếp, nên họ vẫn phải quét thẻ.
+      let flow = state;
+      if (source === 'demo' && (flow === 'started' || flow === 'finished' || flow === 'error')) {
+        if (result.type === 'operation' && employee) flow = 'operation';
+        else { reset(); flow = 'ready'; }
+      }
+      if (flow === 'ready') {
         if (result.type !== 'employee') { const e=new Error('Hãy quét thẻ nhân viên trước'); e.code='SCN-003'; e.action='Quét thẻ nhân viên trước, sau đó mới quét Operation.'; throw e; }
         employee = result.employee;
         // `open_sessions` là trường mới; `open_session` là trường cũ. Đọc cả
@@ -470,7 +511,7 @@
             raw:rawQr, next:'Tiếp theo: quét QR CÔNG ĐOẠN'});
           show('operation');
         }
-      } else if (state === 'operation' || state === 'sessions' || quantityStates.includes(state)) {
+      } else if (flow === 'operation' || flow === 'sessions' || quantityStates.includes(flow)) {
         if (result.type !== 'operation') { const e=new Error('Hãy quét QR Operation'); e.code='SCN-004'; e.action='Sau khi nhận diện nhân viên, quét QR Operation.'; throw e; }
         const op = result.operation;
         const opText = `${op.display_key || op.code} · ${op.name}`;
@@ -524,11 +565,11 @@
           ? `Đang chạy ${openSessions.length} việc · quét lại thẻ khi hoàn thành`
           : 'Quét lại thẻ khi hoàn thành';
         show('started'); scheduleReset(3500);
-      } else if (state === 'started' || state === 'finished' || state === 'error') {
+      } else if (flow === 'started' || flow === 'finished' || flow === 'error') {
         reset(); setTimeout(() => scan(qr), 50);
       }
     } catch (error) {
-      setError(error.message, error.code, error.action);
+      setError(error.message, error.code, error.action, error.reason);
       // GỐC CỦA LỖI P0: cả thân hàm nằm trong một `try`, nên BẤT KỲ lời từ
       // chối nghiệp vụ nào cũng nhảy thẳng xuống đây và lần quét bị công bố
       // như "không nhận được mã" -- kể cả khi máy chủ đã đọc ra chính xác đó
@@ -1059,8 +1100,8 @@
     open: openDemo,
     close: closeDemo,
     reload: () => loadDemoData(true),
-    scanEmployee: () => scan(employeeQr()),
-    scanOperation: () => scan(operationQr()),
+    scanEmployee: () => scan(employeeQr(), {source:'demo'}),
+    scanOperation: () => scan(operationQr(), {source:'demo'}),
     // Feed an arbitrary payload through the same path a scanner gun uses --
     // the demo selects can only offer QRs that exist in the demo dataset.
     scan: qr => scan(String(qr || '')),
@@ -1078,8 +1119,8 @@
   document.getElementById('demo-refresh').addEventListener('click', () => loadDemoData(true));
   demoEmployee.addEventListener('change', updateDemoQr); demoOperation.addEventListener('change', updateDemoQr);
   setInterval(() => { if (demoIsOpen()) loadDemoData(true, {silent:true}); }, 10000);
-  document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr()));
-  document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr()));
+  document.getElementById('demo-scan-employee').addEventListener('click', () => scan(employeeQr(), {source:'demo'}));
+  document.getElementById('demo-scan-operation').addEventListener('click', () => scan(operationQr(), {source:'demo'}));
   document.getElementById('demo-copy-employee').addEventListener('click', () => copyText(employeeQr()));
   document.getElementById('demo-copy-operation').addEventListener('click', () => copyText(operationQr()));
 

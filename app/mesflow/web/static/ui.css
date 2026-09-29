@@ -1197,6 +1197,8 @@ tbody tr:hover{position:relative;z-index:1;box-shadow:0 3px 8px rgba(16,43,63,.1
 .badge.excluded{background:#f1eafc;color:#5b3aa8}
 .ep-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 .ep-table th.sortable:hover{color:var(--text-primary)}
+/* Báo cáo năng suất -> "In" dialog: two stacked choices, full-width controls. */
+.ep-print-options{display:grid;gap:10px}.ep-print-options .ui-field{margin-top:4px}.ep-print-options select,.ep-print-options .btn{width:100%;min-height:44px}.ep-print-hint{margin:0;color:var(--text-secondary);font-size:13px}
 .ep-row{cursor:pointer}
 .ep-row:hover td{background:#f8fafb}
 .ep-row:focus-visible{outline:2px solid var(--action-primary);outline-offset:-2px}
