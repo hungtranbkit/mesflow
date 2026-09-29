@@ -24,18 +24,118 @@ anything stale here; fix this file when they disagree.
   `scripts/check-version-sync.sh`. Main hotfixes land as a fix commit + a
   `chore(release): bump …` commit.
 
-## Current state (2026-09-29 07:45 ICT)
+## Current state (2026-09-29, after the productivity detail-export hotfix)
 
-- main = `5473c8a` (71.0.0.378) + this handoff commit. Kiosk hotfix pass 1
-  (`a290681`/`987d01b`, 377) and pass 2 (`7bcfa31`/`5473c8a`, 378) are both
-  on main.
-- DEV runs `mesflow-app:dev-kioskfix-37b1f79` (`.env` pinned). `37b1f79` is a
-  LOCAL, unpushed integration merge = refactor `57a71d8` (UI P3) + main
-  `5473c8a`; local tag `dev-image/kioskfix-37b1f79`. `/api/system/ready` →
-  71.0.0.378, commit 37b1f79, DEV, migration 0054.
-- The refactor line still lacks both kiosk fixes: merge main into
+- main = 71.0.0.379: kiosk hotfix pass 1 (377) and pass 2 (378), plus the
+  employee-productivity detail export (`80c6ca0` fix, `c0b988e` bump to 379)
+  and this handoff commit.
+- DEV still runs `mesflow-app:dev-kioskfix-37b1f79` (71.0.0.378) = refactor
+  `57a71d8` (UI P3) + main `5473c8a`. It does NOT have the 379 export
+  hotfix yet. Not deployed on purpose (see the hotfix's open items).
+- The refactor line lacks both kiosk fixes AND 379. Merge main into
   `refactor/ui-consolidation-20260928` before its next DEV deploy, or DEV
-  regresses (resolve PROJECT_CONTEXT.md add/add by concatenating).
+  regresses. Resolve PROJECT_CONTEXT.md add/add by concatenating.
+
+## Recent handoff — Excel năng suất: "Chi tiết từng nhân viên" (2026-09-29, 71.0.0.379)
+
+**Ask.** In Năng suất / Báo cáo năng suất nhân viên, the Excel export should
+also offer a per-employee detail report (one row per work session) that
+respects the active filters and uses the same % logic as the screen,
+without changing the existing summary export.
+
+**Audit of the existing flow (unchanged).** `pages/employee-productivity.js`
+`exportExcel()` → `GET /api/reports/employee-productivity/export.xlsx?from&to
+[&search][&department]&sort&dir` (`web/analytics.py`, `@login_required`) →
+`ReportRepository.employee_productivity()` (CLOSED sessions,
+`ended_at` in the business-day range, `reportable_session_sql`,
+department/team/employee) → `web/productivity_excel.py`
+`build_employee_productivity_xlsx()`, which applies search/department/sort
+in Python (`filter_and_sort_employee_rows`). Per-session score =
+`_SESSION_COMPLETION_PERCENT_SQL` (expected ÷ actual × 100, CLOSED only,
+NULL when standard or output is missing); an employee's % = AVG of the
+non-NULL scores. The screen's only filters are from/to, search and
+department. There are no PO/Part/Operation filters on this screen, so
+the detail export honors exactly those four, plus sort.
+
+**Change.**
+- UX: "Xuất Excel ▾" opens the shared `MFUI.rowMenu` with "Tổng hợp theo
+  nhân viên" (same URL as before, no `mode` param) and "Chi tiết từng nhân
+  viên (từng phiên làm việc)" (adds `mode=detail`).
+- API: the same route takes `mode=summary|detail` (default summary; anything
+  else → 400 `INVALID_REQUEST`). Access is unchanged: login required, 401
+  anonymous. The detail filename is `nang-suat-nhan-vien-chi-tiet_<from>_<to>.xlsx`.
+- Repository (`db/repositories/analytics.py`): `_productivity_scope()` is
+  now the ONE WHERE builder shared by `employee_productivity()` and the new
+  `employee_productivity_sessions()`. The latter is a single query (no N+1),
+  one row per session, same score SQL, capped at 50,000 rows with a
+  `truncated` flag that the sheet announces.
+- Workbook (`web/productivity_excel.py`):
+  - sheet `Chi tiet`: STT, Mã NV, Nhân viên, Bộ phận, Ngày (business
+    date of ended_at), PO, Part (code · name), Mã OP, Operation, Bắt đầu,
+    Kết thúc (local wall-clock), Thời gian thực tế, Sản lượng đạt, Lỗi,
+    Định mức (giây/SP), Thời gian định mức, % năng suất, Trạng thái / ghi
+    chú, NV xác nhận (blank signature column, same as the summary), Mã phiên.
+    Header row 4, freeze `D5`, auto-filter, `[h]:mm:ss` and `0.0%` formats.
+    Rows are grouped in the summary's employee order, then by start time.
+    Several sessions on the same OP stay separate rows.
+  - "Trạng thái / ghi chú" uses only existing data: Tính năng suất /
+    Thiếu định mức / Không có sản lượng / Ca sửa hàng, plus Hệ thống tự đóng
+    (`closed_by_system`), Chưa xác nhận sản lượng (`quantity_confirmed`
+    FALSE), `close_reason` and `note`.
+  - sheet `Tong hop NV`: written by `_write_summary_sheet()`, the function
+    the summary export now also uses, so it is the same sheet.
+- Summary export: refactored into `_write_summary_sheet()` with no content
+  change. Verified by building workbooks with main's pre-hotfix module and
+  the new one: values, formats, fonts, fills, alignment, borders, merges,
+  widths/heights, freeze, filter, print setup identical in 8 filter/sort
+  cases.
+
+**Tests / verification.**
+- New `tests/test_employee_productivity_detail_export.py` (11 tests):
+  - columns and order;
+  - one employee with 3 sessions (2 on the same OP) plus a second employee;
+  - department and search filters;
+  - detail↔summary reconciliation (count, valid count, AVG %, đạt);
+  - `Tong hop NV` == summary sheet;
+  - status notes and truncation note;
+  - route, repository-scope and frontend contracts.
+- Static suite in `mesflow-aw0926-tests` (`--ignore=tests/integration
+  --ignore=tests/e2e`, `-m "not postgres and not integration and not slow"`):
+  hotfix 1210 passed / 2 failed / 13 skipped; untouched main 1200 / 2 / 13.
+  Same 2 (`autologin_guard` ×2, container-env only), no new failures.
+- Live against real PostgreSQL (throwaway preview container
+  `mesflow-epdetail-preview` on the DEV DB, now removed):
+  - HTTP: summary 200 xlsx; detail 200 with the chi-tiet filename; bad mode
+    400; anonymous 401.
+  - Reconciliation for NV001 (3 sessions, 2 scored) and DEV-001 (7
+    sessions): counts, valid counts, % (267.79 = 267.79), đạt all match the
+    summary API.
+  - `Tong hop NV` == live summary workbook.
+- Browser (Playwright, mesflow-aw0926-playwright image, --network host) at
+  1366×768 and 390×844: menu shows both items. Downloads are
+  `nang-suat-nhan-vien-chi-tiet_…` with `…&mode=detail` and
+  `nang-suat-nhan-vien_…` with the unchanged URL. Filters (search=NV001)
+  are carried; no JS errors.
+- `tests/integration` (live-Postgres CI suite) not run locally.
+
+**Release / deploy.**
+- Branch `hotfix/employee-productivity-detail-report-20260929` from main
+  `4da0296`. Commits: `80c6ca0` fix, `c0b988e` bump 71.0.0.379, plus this
+  handoff. Fast-forwarded into main and pushed.
+- NOT deployed anywhere. mesflow.net / production untouched (71.0.0.376).
+
+**Open items / next actions.**
+- DEV: needs an integration image (refactor line + main 379), never a plain
+  main image. Expect a real conflict in
+  `app/mesflow/web/static/pages/employee-productivity.js`. The refactor line
+  (UI P3) moved "Xuất Excel" into `MFUI.reportBar` as the page's primary
+  action. Keep the P3 layout and wire the same `MFUI.rowMenu` (summary |
+  detail) onto its `#epExport`. Keep main's `exportExcel(mode)`.
+  `tests/test_ui_productivity_consolidation.py` asserts exactly one
+  `btn primary` + `id="epExport"` in the report bar.
+- Optional later: PO/Part/Operation filters do not exist on this screen. If
+  they are added, pass them through `_productivity_scope()` so both exports
+  pick them up at once.
 
 ## Recent handoff — kiosk pass 2: start refusals were masked (2026-09-29)
 
