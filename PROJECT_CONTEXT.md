@@ -16,14 +16,98 @@ anything stale here; fix this file when they disagree.
   `mesflow-dev`, `/home/dell/workspace/mesflow-dev/compose.dev.yml`, image
   pinned in `/home/dell/workspace/mesflow-dev/.env` `MESFLOW_IMAGE`).
   DEV currently runs the UI refactor line, so DEV images are built from an
-  integration of `refactor/ui-consolidation-20260928` + whatever hotfix.
+  integration of `refactor/ui-consolidation-20260928` + main (see Current
+  state). Never deploy a plain main image to DEV; it would wipe UI P0–P3.
 - "production test" = https://mesflow.net (VPS). Not deployed by the hotfix
   below; still 71.0.0.376.
 - Version bump on main: `scripts/bump-version.sh <X.Y.Z.W>` then
   `scripts/check-version-sync.sh`. Main hotfixes land as a fix commit + a
   `chore(release): bump …` commit.
 
-## Recent handoff — kiosk demo scan P0 hotfix (2026-09-29)
+## Current state (2026-09-29 07:45 ICT)
+
+- main = `5473c8a` (71.0.0.378) + this handoff commit. Kiosk hotfix pass 1
+  (`a290681`/`987d01b`, 377) and pass 2 (`7bcfa31`/`5473c8a`, 378) are both
+  on main.
+- DEV runs `mesflow-app:dev-kioskfix-37b1f79` (`.env` pinned). `37b1f79` is a
+  LOCAL, unpushed integration merge = refactor `57a71d8` (UI P3) + main
+  `5473c8a`; local tag `dev-image/kioskfix-37b1f79`. `/api/system/ready` →
+  71.0.0.378, commit 37b1f79, DEV, migration 0054.
+- The refactor line still lacks both kiosk fixes: merge main into
+  `refactor/ui-consolidation-20260928` before its next DEV deploy, or DEV
+  regresses (resolve PROJECT_CONTEXT.md add/add by concatenating).
+
+## Recent handoff — kiosk pass 2: start refusals were masked (2026-09-29)
+
+**Live DEV root cause (reproduced ~06:00 ICT on the pass-1 build d144edd).**
+Pass 1 was live and correct: demo employee scan 200 → OP scan 200 →
+`/start {"employee_id":28,"operation_id":4}`. DEV refused it:
+`409 {"error_code":"SES-409","message":"Ngoài ca làm việc. …","action":"Quét
+lại thẻ nhân viên…"}`. DEV shifts: DAY 08:00–17:00, NIGHT 18:00–00:00, Mon–Sat;
+starts allowed 30 min early (`MESFLOW_SHIFT_START_EARLY_TOLERANCE_MINUTES`).
+The refusal was correct, but the backend labelled it a session conflict with
+"re-scan the badge" advice, and `kiosk.js` `workerError()` turned every 409
+into "Công đoạn này hiện không thể bắt đầu". To the user it looked exactly
+like the old SCN-003 bug. The user's own tab (WEB-621f8a6f, already on 377)
+was sitting on that error.
+
+**Fix.**
+- `app/mesflow/web/kiosk.py`: `OutsideShiftError(ConflictError)` →
+  `SHF-409` / `reason=OUTSIDE_SHIFT`, message lists the configured shift
+  hours. `_conflict_reason()` gives every 409 a `reason` + specific code:
+  PO-001 PO_NOT_STARTED, OP-409 OPERATION_CLOSED/REWORK_BENCH/NOT_READY,
+  DEP-409 DEPENDENCY, QTY-409 INPUT_QTY, SES-409 SESSION_OPEN /
+  SESSION_CONFLICT (fallback). The "đang mở Operation này" check must stay
+  BEFORE the QTY substring test (its text contains "sản lượng"). `/start`
+  "employee inactive or missing" → 400 `EMP-001` / `EMPLOYEE_INACTIVE`
+  (Vietnamese). HTTP statuses unchanged; `reason` is a new field.
+- `app/mesflow/web/static/kiosk.js`: with `reason` on a 4xx (not 401/403),
+  the screen shows the server message/action; `kiosk_status.last_error`
+  becomes `<CODE> <REASON>: <message>`. No `reason` (old server) → old
+  generic text.
+- Contract change: the out-of-shift code went SES-409 → SHF-409, and a
+  PO-not-started START refusal went SES-409 → PO-001 (same code the scan
+  path already used). ESP / kiosk v2 endpoints are untouched.
+
+**Tests.**
+- New `tests/test_kiosk_refusal_reasons.py`; e2e D6–D8 in
+  `tests/e2e/kiosk-demo-employee-then-op.spec.js`. e2e 19/19 on the fix;
+  D6/D7 fail on pass-1 main, D8 (old-server compat) passes on both.
+- `test_a_programming_bug_becomes_500_and_is_logged` now pins clock + shifts.
+  It used to measure the shift gate (409 out of hours, ShiftConfigDegraded
+  without a DB), which kept main CI red and hid the integration step.
+- Local static suite: 1200 passed, 2 failed (`autologin_guard` ×2 fail only
+  in the local container env; they pass in GitHub CI).
+- GitHub CI on 5473c8a: first run at 06:20 ICT had 7 `test_kiosk_scan_to_board`
+  + 1 `test_p0_scan_auth` failures, all 409 OUTSIDE_SHIFT. Integration tests
+  hit the REAL shift gate with no calendar pinning, so they are
+  time-of-day dependent (pre-existing; they were hidden while the unit step
+  failed). Re-run at 07:34 ICT: all of those pass; 616 passed, 1 failed:
+  `test_rework_overview_rollup` (`progress_percent` None). That one also
+  fails on pre-hotfix code (throwaway probe branch on 8aa78a6, CI run
+  36504419675, now deleted), so it is pre-existing and unrelated.
+
+**Live DEV verification (image 37b1f79).**
+- 06:15 ICT (outside shift): `/start` → `409 SHF-409 OUTSIDE_SHIFT "Ngoài ca
+  làm việc. Không thể bắt đầu phiên mới (giờ ca: Ca ngày 08:00–17:00 · Ca tối
+  18:00–00:00)."`, shown on screen as that exact message.
+- 07:31–07:33 ICT (inside the early window): demo employee → demo OP →
+  `/start` **201** → screen "started", at 1366×768 and 390×844. Each test
+  session was closed through the kiosk (re-scan badge → 0/0 → confirm):
+  DEV work_sessions #8, #9, #10 for DEV-001 / op 4, all CLOSED with 0 qty.
+- mesflow.net / production not touched (still 71.0.0.376).
+
+**Open items.**
+- Integration tests that call `/start` need a pinned shift (e.g. an
+  all-day fixture shift) or CI goes red outside 07:30–17:00 / 17:30–00:00
+  Mon–Sat. Adding a shift changes shift attribution, so do it with care.
+- `test_rework_overview_rollup` progress_percent None: pre-existing, not
+  investigated.
+- A kiosk tab with the demo panel open never auto-reloads to a new version
+  (`isIdleForReload` requires the panel closed). Demo users can stay on old
+  JS after a deploy until they close the panel or refresh.
+
+## Recent handoff — kiosk demo scan P0 hotfix (2026-09-29, pass 1)
 
 **Bug.** On `/kiosk` with the "Mô phỏng quét QR" panel open: demo employee →
 demo OP (server rejects, e.g. SES-409 "Ngoài ca làm việc") → demo OP again →
