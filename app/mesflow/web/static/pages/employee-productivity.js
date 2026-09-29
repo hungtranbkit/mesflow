@@ -52,7 +52,7 @@ async function renderEmployeeProductivity() {
   title.textContent = 'Báo cáo năng suất nhân viên';
   subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các phiên làm việc đã kết thúc của từng nhân viên trong khoảng ngày.';
   content.innerHTML = `<div class="page-shell">
-    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epExport">Xuất Excel</button><button class="btn" id="epReload">Làm mới</button>' })}
+    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epExport" type="button" aria-haspopup="menu" aria-expanded="false">Xuất Excel ▾</button><button class="btn" id="epReload">Làm mới</button>' })}
     <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
     <!-- Section 21: giữ tách biệt khỏi filter bar phía trên -- panel riêng,
     không dùng chung state với bộ lọc bảng (epFrom/epTo/epDept chỉ ảnh hưởng
@@ -223,7 +223,10 @@ async function renderEmployeeProductivity() {
     }
   };
 
-  const exportExcel = () => {
+  // mode: 'summary' = the existing one-row-per-employee report (URL left
+  // exactly as before, no mode param); 'detail' = one row per session behind
+  // it plus a "Tong hop NV" sheet. Both carry the SAME active filters/sort.
+  const exportExcel = (mode = 'summary') => {
     const q = new URLSearchParams();
     q.set('from', document.getElementById('epFrom').value);
     q.set('to', document.getElementById('epTo').value);
@@ -233,6 +236,7 @@ async function renderEmployeeProductivity() {
     if (dept) q.set('department', dept);
     q.set('sort', sortKey);
     q.set('dir', sortDir === 1 ? 'asc' : 'desc');
+    if (mode === 'detail') q.set('mode', 'detail');
     const link = document.createElement('a');
     link.href = `/api/reports/employee-productivity/export.xlsx?${q.toString()}`;
     link.style.display = 'none';
@@ -241,7 +245,10 @@ async function renderEmployeeProductivity() {
     link.remove();
   };
 
-  document.getElementById('epExport').onclick = exportExcel;
+  document.getElementById('epExport').onclick = e => MFUI.rowMenu(e.currentTarget, [
+    { label: 'Tổng hợp theo nhân viên', onSelect: () => exportExcel('summary') },
+    { label: 'Chi tiết từng nhân viên (từng phiên làm việc)', onSelect: () => exportExcel('detail') },
+  ]);
 
   document.getElementById('epReload').onclick = load;
   document.getElementById('epFrom').onchange = load;

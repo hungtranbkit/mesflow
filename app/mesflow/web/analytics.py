@@ -316,25 +316,38 @@ def employee_productivity_report():
 def employee_productivity_export_xlsx():
     try:
         from flask import send_file
-        from mesflow.web.productivity_excel import build_employee_productivity_xlsx
+        from mesflow.web.productivity_excel import build_employee_productivity_xlsx,build_employee_productivity_detail_xlsx
 
+        # mode=summary (default, unchanged output) | mode=detail: one row per
+        # session behind the same summary (plus a "Tong hop NV" sheet).
+        mode=(request.args.get('mode') or 'summary').strip().lower()
+        if mode not in ('summary','detail'): raise ValueError('mode must be summary or detail')
         employee=request.args.get('employee_id','').strip()
         department=request.args.get('department') or None
-        report=ReportRepository().employee_productivity(
+        repo=ReportRepository()
+        report=repo.employee_productivity(
             request.args.get('from'),request.args.get('to'),
             int(employee) if employee else None,
             department,request.args.get('team') or None,5000)
-        output=build_employee_productivity_xlsx(
-            report,
+        options=dict(
             search=request.args.get('search',''),
             department=department or '',
             sort_key=request.args.get('sort') or 'productivity_percent',
             sort_dir=request.args.get('dir') or 'desc',
         )
+        if mode=='detail':
+            detail=repo.employee_productivity_sessions(
+                request.args.get('from'),request.args.get('to'),
+                int(employee) if employee else None,
+                department,request.args.get('team') or None)
+            output=build_employee_productivity_detail_xlsx(report,detail,timezone_name=settings.timezone_name,**options)
+        else:
+            output=build_employee_productivity_xlsx(report,**options)
         summary=report.get('summary') or {}
         date_from=summary.get('from') or request.args.get('from') or 'from'
         date_to=summary.get('to') or request.args.get('to') or 'to'
-        filename=f"nang-suat-nhan-vien_{date_from}_{date_to}.xlsx"
+        prefix='nang-suat-nhan-vien-chi-tiet' if mode=='detail' else 'nang-suat-nhan-vien'
+        filename=f"{prefix}_{date_from}_{date_to}.xlsx"
         return send_file(
             output,
             as_attachment=True,
