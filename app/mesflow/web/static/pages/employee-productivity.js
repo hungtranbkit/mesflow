@@ -52,7 +52,7 @@ async function renderEmployeeProductivity() {
   title.textContent = 'Báo cáo năng suất nhân viên';
   subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các phiên làm việc đã kết thúc của từng nhân viên trong khoảng ngày.';
   content.innerHTML = `<div class="page-shell">
-    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epExport" type="button" aria-haspopup="menu" aria-expanded="false">Xuất Excel ▾</button><button class="btn" id="epReload">Làm mới</button>' })}
+    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epExport" type="button">Xuất Excel</button><button class="btn" id="epPrint" type="button" aria-haspopup="dialog">In</button><button class="btn" id="epReload">Làm mới</button>' })}
     <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
     <!-- Section 21: giữ tách biệt khỏi filter bar phía trên -- panel riêng,
     không dùng chung state với bộ lọc bảng (epFrom/epTo/epDept chỉ ảnh hưởng
@@ -223,10 +223,12 @@ async function renderEmployeeProductivity() {
     }
   };
 
-  // mode: 'summary' = the existing one-row-per-employee report (URL left
-  // exactly as before, no mode param); 'detail' = one row per session behind
-  // it plus a "Tong hop NV" sheet. Both carry the SAME active filters/sort.
-  const exportExcel = (mode = 'summary') => {
+  // Excel and print read the SAME filters/sort as the table. One click on
+  // "Xuất Excel" = one .xlsx: sheet "Tổng hợp" + one detail sheet per
+  // employee in the current filtered list (built server-side from one bulk
+  // query). "In" opens the same data as a printable page in a NEW tab, so
+  // printing never navigates this screen away.
+  const reportQuery = () => {
     const q = new URLSearchParams();
     q.set('from', document.getElementById('epFrom').value);
     q.set('to', document.getElementById('epTo').value);
@@ -236,7 +238,10 @@ async function renderEmployeeProductivity() {
     if (dept) q.set('department', dept);
     q.set('sort', sortKey);
     q.set('dir', sortDir === 1 ? 'asc' : 'desc');
-    if (mode === 'detail') q.set('mode', 'detail');
+    return q;
+  };
+  const exportExcel = () => {
+    const q = reportQuery();
     const link = document.createElement('a');
     link.href = `/api/reports/employee-productivity/export.xlsx?${q.toString()}`;
     link.style.display = 'none';
@@ -244,11 +249,35 @@ async function renderEmployeeProductivity() {
     link.click();
     link.remove();
   };
+  const openPrint = employeeId => {
+    const q = reportQuery();
+    if (employeeId) q.set('employee_id', String(employeeId));
+    q.set('autoprint', '1');
+    window.open(`/api/reports/employee-productivity/print?${q.toString()}`, '_blank');
+  };
+  const openPrintDialog = () => {
+    // Choices come from the rows the table shows right now (same filters).
+    const options = rows.map(x => `<option value="${x.employee_id}">${esc(x.employee_code)} · ${esc(x.employee_name)}</option>`).join('');
+    const modal = MFUI.openModal({
+      id: 'epPrintDialog', title: 'In báo cáo năng suất', size: 'SM',
+      content: `<div class="ep-print-options">
+        <p class="ep-print-hint">In theo đúng bộ lọc đang chọn (${rows.length} nhân viên).</p>
+        <button class="btn primary" id="epPrintAll" type="button"${rows.length ? '' : ' disabled'}>In toàn bộ</button>
+        <label class="ui-field"><span>In theo nhân viên</span><select id="epPrintEmployee"${rows.length ? '' : ' disabled'}>${options}</select></label>
+        <button class="btn" id="epPrintOne" type="button"${rows.length ? '' : ' disabled'}>In theo nhân viên</button>
+      </div>`,
+      footer: '<button class="btn" id="epPrintCancel" type="button">Đóng</button>',
+    });
+    modal.root.querySelector('#epPrintCancel').onclick = modal.close;
+    modal.root.querySelector('#epPrintAll').onclick = () => { modal.close(); openPrint(null); };
+    modal.root.querySelector('#epPrintOne').onclick = () => {
+      const id = modal.root.querySelector('#epPrintEmployee').value;
+      modal.close(); if (id) openPrint(id);
+    };
+  };
 
-  document.getElementById('epExport').onclick = e => MFUI.rowMenu(e.currentTarget, [
-    { label: 'Tổng hợp theo nhân viên', onSelect: () => exportExcel('summary') },
-    { label: 'Chi tiết từng nhân viên (từng phiên làm việc)', onSelect: () => exportExcel('detail') },
-  ]);
+  document.getElementById('epExport').onclick = exportExcel;
+  document.getElementById('epPrint').onclick = openPrintDialog;
 
   document.getElementById('epReload').onclick = load;
   document.getElementById('epFrom').onchange = load;

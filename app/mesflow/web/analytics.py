@@ -314,40 +314,17 @@ def employee_productivity_report():
 @bp.get('/reports/employee-productivity/export.xlsx')
 @login_required
 def employee_productivity_export_xlsx():
+    # ONE workbook per click: "Tổng hợp" (the summary the screen shows) +
+    # one detail sheet per employee in it. Filters are parsed and applied by
+    # productivity_export exactly as for the print view below.
     try:
         from flask import send_file
-        from mesflow.web.productivity_excel import build_employee_productivity_xlsx,build_employee_productivity_detail_xlsx
+        from mesflow.web.productivity_excel import build_employee_productivity_workbook
+        from mesflow.web.productivity_export import parse_filters,load_export_data
 
-        # mode=summary (default, unchanged output) | mode=detail: one row per
-        # session behind the same summary (plus a "Tong hop NV" sheet).
-        mode=(request.args.get('mode') or 'summary').strip().lower()
-        if mode not in ('summary','detail'): raise ValueError('mode must be summary or detail')
-        employee=request.args.get('employee_id','').strip()
-        department=request.args.get('department') or None
-        repo=ReportRepository()
-        report=repo.employee_productivity(
-            request.args.get('from'),request.args.get('to'),
-            int(employee) if employee else None,
-            department,request.args.get('team') or None,5000)
-        options=dict(
-            search=request.args.get('search',''),
-            department=department or '',
-            sort_key=request.args.get('sort') or 'productivity_percent',
-            sort_dir=request.args.get('dir') or 'desc',
-        )
-        if mode=='detail':
-            detail=repo.employee_productivity_sessions(
-                request.args.get('from'),request.args.get('to'),
-                int(employee) if employee else None,
-                department,request.args.get('team') or None)
-            output=build_employee_productivity_detail_xlsx(report,detail,timezone_name=settings.timezone_name,**options)
-        else:
-            output=build_employee_productivity_xlsx(report,**options)
-        summary=report.get('summary') or {}
-        date_from=summary.get('from') or request.args.get('from') or 'from'
-        date_to=summary.get('to') or request.args.get('to') or 'to'
-        prefix='nang-suat-nhan-vien-chi-tiet' if mode=='detail' else 'nang-suat-nhan-vien'
-        filename=f"{prefix}_{date_from}_{date_to}.xlsx"
+        data=load_export_data(parse_filters(request.args),ReportRepository())
+        output=build_employee_productivity_workbook(data,timezone_name=settings.timezone_name)
+        filename=f"nang-suat-nhan-vien_{data['date_from'] or 'from'}_{data['date_to'] or 'to'}.xlsx"
         return send_file(
             output,
             as_attachment=True,
@@ -355,6 +332,35 @@ def employee_productivity_export_xlsx():
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             max_age=0,
         )
+    except Exception as exc: return error(exc)
+
+@bp.get('/reports/employee-productivity/print')
+@login_required
+def employee_productivity_print():
+    """Printable HTML (browser print, A4 landscape) of the same data as the
+    Excel export. No employee_id = "In toàn bộ" (summary + every employee,
+    page break before each); employee_id = "In theo nhân viên" (that
+    employee only; must be inside the current filters, else 404). Opened in
+    its own tab by the screen, so printing never navigates the app away."""
+    try:
+        from flask import render_template
+        from mesflow.core.time_policy import site_now
+        from mesflow.web.productivity_excel import session_status_note
+        from mesflow.web.productivity_export import parse_filters,load_export_data
+        from zoneinfo import ZoneInfo
+
+        filters=parse_filters(request.args)
+        data=load_export_data(filters,ReportRepository())
+        tz=ZoneInfo(settings.timezone_name)
+        local=lambda v:v.astimezone(tz).strftime('%d/%m/%Y %H:%M') if v else '—'
+        for group in data['groups']:
+            for s in group['sessions']:
+                s['started_local']=local(s.get('started_at')); s['ended_local']=local(s.get('ended_at'))
+                s['status_note']=session_status_note(s)
+        return render_template('employee_productivity_print.html',data=data,filters=filters,
+            single=filters['employee_id'] is not None,
+            autoprint=request.args.get('autoprint')=='1',
+            printed_at=site_now().strftime('%d/%m/%Y %H:%M'),printed_by=actor())
     except Exception as exc: return error(exc)
 
 @bp.get('/reports/employee-productivity/<int:employee_id>')

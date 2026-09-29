@@ -5,7 +5,8 @@ from openpyxl import load_workbook
 
 from mesflow.web.productivity_excel import (
     EXPORT_HEADERS,
-    build_employee_productivity_xlsx,
+    SUMMARY_SHEET,
+    build_employee_productivity_workbook,
     filter_and_sort_employee_rows,
 )
 
@@ -35,11 +36,16 @@ def test_filter_and_sort_matches_visible_employee_list():
 
 
 def test_workbook_is_print_ready_and_has_signature_column():
-    stream = build_employee_productivity_xlsx(
-        _report(), search="an", department="May", sort_key="good_qty", sort_dir="desc"
-    )
+    # The summary is now the first sheet ("Tổng hợp") of the one-file export.
+    rows = filter_and_sort_employee_rows(_report()["employees"], search="an", department="May",
+                                         sort_key="good_qty", sort_dir="desc")
+    stream = build_employee_productivity_workbook({
+        "report": _report(), "employees": rows, "groups": [],
+        "filters": {"search": "an", "department": "May"},
+    })
     wb = load_workbook(BytesIO(stream.getvalue()))
-    ws = wb["Năng suất nhân viên"]
+    assert wb.sheetnames[0] == SUMMARY_SHEET
+    ws = wb[SUMMARY_SHEET]
     assert [ws.cell(4, col).value for col in range(1, len(EXPORT_HEADERS) + 1)] == EXPORT_HEADERS
     assert "Bộ phận: May" in ws["A2"].value
     assert "Tìm nhân viên: an" in ws["A2"].value
@@ -67,7 +73,5 @@ def test_frontend_export_uses_current_filters_and_sort():
 def test_export_route_contract():
     source = Path("app/mesflow/web/analytics.py").read_text()
     assert "@bp.get('/reports/employee-productivity/export.xlsx')" in source
-    assert "build_employee_productivity_xlsx" in source
-    assert "int(employee) if employee else None" in source
-    assert "if employe else None" not in source
+    assert "build_employee_productivity_workbook" in source
     assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in source

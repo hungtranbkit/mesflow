@@ -81,31 +81,6 @@ def _duration_days(seconds: Any) -> float:
         return 0.0
 
 
-def build_employee_productivity_xlsx(
-    report: dict[str, Any],
-    *,
-    search: str = "",
-    department: str = "",
-    sort_key: str = "productivity_percent",
-    sort_dir: str = "desc",
-) -> BytesIO:
-    rows = filter_and_sort_employee_rows(
-        report.get("employees") or [],
-        search=search,
-        department=department,
-        sort_key=sort_key,
-        sort_dir=sort_dir,
-    )
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Năng suất nhân viên"
-    _write_summary_sheet(ws, report, rows, search=search, department=department)
-    stream = BytesIO()
-    wb.save(stream)
-    stream.seek(0)
-    return stream
-
-
 def _write_summary_sheet(ws, report: dict[str, Any], rows: list[dict[str, Any]], *, search: str, department: str) -> None:
     """The "Tổng hợp" sheet. Shared verbatim by the summary export and the
     detail workbook's "Tong hop NV" sheet, so both show the same numbers."""
@@ -201,23 +176,6 @@ def _write_summary_sheet(ws, report: dict[str, Any], rows: list[dict[str, Any]],
         ws.column_dimensions[get_column_letter(col)].width = width
 
 
-# --- "Chi tiết từng nhân viên" ------------------------------------------------
-# One row = one session behind the summary numbers
-# (ReportRepository.employee_productivity_sessions, same scope and the same
-# per-session score). "% năng suất" is that session's completion_percent =
-# thời gian định mức / thời gian thực tế; the employee's summary % is the
-# average of the non-empty values in their rows -- no new formula.
-DETAIL_HEADERS = [
-    "STT", "Mã NV", "Nhân viên", "Bộ phận", "Ngày", "PO", "Part", "Mã OP", "Operation",
-    "Bắt đầu", "Kết thúc", "Thời gian thực tế", "Sản lượng đạt", "Lỗi",
-    "Định mức (giây/SP)", "Thời gian định mức", "% năng suất", "Trạng thái / ghi chú",
-    "NV xác nhận", "Mã phiên",
-]
-DETAIL_WIDTHS = [6, 12, 24, 16, 11, 14, 16, 16, 24, 16, 16, 13, 11, 8, 12, 13, 12, 34, 18, 10]
-DETAIL_SHEET = "Chi tiet"
-DETAIL_SUMMARY_SHEET = "Tong hop NV"
-
-
 def _local_naive(value: Any, tz: ZoneInfo) -> Any:
     """Excel has no time zones: show the factory's local wall-clock time."""
     if isinstance(value, datetime):
@@ -260,73 +218,92 @@ def session_status_note(session: dict[str, Any]) -> str:
     return " · ".join(parts)
 
 
-def detail_rows_for_employees(
-    employees: list[dict[str, Any]], sessions: Iterable[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """Sessions of the (already filtered + sorted) employees, grouped in the
-    same employee order as the summary, each employee's sessions by start."""
-    order = {row.get("employee_id"): index for index, row in enumerate(employees)}
-    picked = [dict(s) for s in sessions if s.get("employee_id") in order]
-    picked.sort(key=lambda s: (order[s.get("employee_id")], str(s.get("started_at") or ""), s.get("session_id") or 0))
-    return picked
+# --- One workbook: "Tổng hợp" + one detail sheet per employee ---------------
+# Data comes from productivity_export.load_export_data(): the filtered and
+# sorted summary rows plus each employee's sessions (one bulk query). A
+# session's "% năng suất" is its completion_percent (thời gian định mức /
+# thời gian thực tế); the employee's % on "Tổng hợp" is the AVG of the
+# non-empty values on their sheet -- the existing formula, nothing new.
+SUMMARY_SHEET = "Tổng hợp"
+EMPLOYEE_HEADERS = [
+    "STT", "Mã NV", "Tên NV", "Ngày", "PO", "Part", "Mã OP", "Operation",
+    "Bắt đầu", "Kết thúc", "Thời gian thực tế", "Sản lượng đạt", "Lỗi",
+    "Định mức (giây/SP)", "Thời gian định mức", "% năng suất",
+    "Trạng thái / ghi chú", "NV xác nhận", "Mã phiên",
+]
+EMPLOYEE_WIDTHS = [6, 12, 22, 11, 14, 22, 18, 24, 16, 16, 13, 11, 8, 12, 13, 12, 34, 18, 10]
+SHEET_NAME_MAX = 31
+_SHEET_FORBIDDEN = set('[]:*?/\\')
+# Excel refuses "History" as a sheet name; names compare case-insensitively.
+_RESERVED_SHEET_NAMES = {SUMMARY_SHEET.casefold(), "history"}
 
 
-def build_employee_productivity_detail_xlsx(
-    report: dict[str, Any],
-    detail: dict[str, Any],
-    *,
-    search: str = "",
-    department: str = "",
-    sort_key: str = "productivity_percent",
-    sort_dir: str = "desc",
-    timezone_name: str = "Asia/Ho_Chi_Minh",
-) -> BytesIO:
-    employees = filter_and_sort_employee_rows(
-        report.get("employees") or [],
-        search=search,
-        department=department,
-        sort_key=sort_key,
-        sort_dir=sort_dir,
-    )
-    rows = detail_rows_for_employees(employees, detail.get("sessions") or [])
-    tz = ZoneInfo(timezone_name)
-    summary = report.get("summary") or {}
+def _clean_sheet_text(text: str) -> str:
+    cleaned = "".join(" " if ch in _SHEET_FORBIDDEN or ord(ch) < 32 else ch for ch in str(text or ""))
+    cleaned = " ".join(cleaned.split())
+    return cleaned.strip("'").strip()
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = DETAIL_SHEET
-    ws.sheet_view.showGridLines = False
-    last_col = len(DETAIL_HEADERS)
+
+def employee_sheet_names(employees: list[dict[str, Any]]) -> list[str]:
+    """Deterministic, Excel-valid, unique sheet names: "<Mã NV> <Tên>",
+    forbidden characters replaced, <= 31 chars, never "Tổng hợp". A
+    collision gets " (2)", " (3)"... with the base shortened to fit."""
+    used = set(_RESERVED_SHEET_NAMES)
+    names: list[str] = []
+    for row in employees:
+        code = _clean_sheet_text(row.get("employee_code") or "")
+        name = _clean_sheet_text(row.get("employee_name") or "")
+        base = " ".join(x for x in (code, name) if x) or f"NV {row.get('employee_id') or len(names) + 1}"
+        base = base[:SHEET_NAME_MAX].rstrip().strip("'") or "NV"
+        candidate, n = base, 1
+        while candidate.casefold() in used:
+            n += 1
+            suffix = f" ({n})"
+            candidate = base[:SHEET_NAME_MAX - len(suffix)].rstrip() + suffix
+        used.add(candidate.casefold())
+        names.append(candidate)
+    return names
+
+
+def _write_employee_sheet(ws, group: dict[str, Any], data: dict[str, Any], tz: ZoneInfo) -> None:
+    emp = group["employee"]
+    sessions = group["sessions"]
+    filters = data.get("filters") or {}
+    last_col = len(EMPLOYEE_HEADERS)
     last_letter = get_column_letter(last_col)
+    ws.sheet_view.showGridLines = False
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
-    ws["A1"] = "BÁO CÁO NĂNG SUẤT CHI TIẾT TỪNG NHÂN VIÊN"
-    ws["A1"].font = Font(bold=True, size=16)
-    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[1].height = 26
-    filters = [
-        f"Từ ngày: {summary.get('from') or '—'}",
-        f"Đến ngày: {summary.get('to') or '—'}",
-        f"Bộ phận: {department or 'Tất cả'}",
-        f"Tìm nhân viên: {search.strip() or 'Tất cả'}",
-        f"{len(employees)} nhân viên · {len(rows)} phiên làm việc đã kết thúc",
+    ws["A1"] = f"CHI TIẾT NĂNG SUẤT · {emp.get('employee_code') or ''} · {emp.get('employee_name') or ''}"
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.row_dimensions[1].height = 24
+    pct = emp.get("productivity_percent")
+    facts = [
+        f"Bộ phận: {emp.get('department') or '—'}",
+        f"Từ ngày: {data.get('date_from') or '—'}",
+        f"Đến ngày: {data.get('date_to') or '—'}",
+        f"Phiên đã kết thúc: {int(emp.get('completed_sessions') or 0)}",
+        f"Phiên hợp lệ: {int(emp.get('completed_valid_sessions') or 0)}",
+        f"Năng suất TB: {float(pct):.1f}%" if pct is not None else "Năng suất TB: —",
+        f"Đạt {int(emp.get('good_qty') or 0)} · Lỗi {int(emp.get('defect_qty') or 0)}",
     ]
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
-    ws["A2"] = " | ".join(filters)
+    ws["A2"] = " | ".join(facts)
     ws["A2"].font = Font(size=10)
     ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=last_col)
-    note = ('Mỗi dòng là một phiên làm việc đã kết thúc. % năng suất = thời gian định mức / thời gian thực tế; '
-            'năng suất của nhân viên (sheet "Tong hop NV") là trung bình các % có giá trị.')
-    if detail.get("truncated"):
-        note += " CẢNH BÁO: vượt giới hạn số dòng, danh sách bị cắt -- thu hẹp khoảng ngày."
-    ws["A3"] = note
-    ws["A3"].font = Font(italic=True, size=10, color="C43232" if detail.get("truncated") else None)
+    context = [f"Bộ phận lọc: {filters.get('department') or 'Tất cả'}",
+               f"Tìm nhân viên: {str(filters.get('search') or '').strip() or 'Tất cả'}",
+               "% năng suất = thời gian định mức / thời gian thực tế; Năng suất TB = trung bình các % có giá trị"]
+    if data.get("truncated"):
+        context.append("CẢNH BÁO: vượt giới hạn số dòng, thu hẹp khoảng ngày")
+    ws["A3"] = " | ".join(context)
+    ws["A3"].font = Font(italic=True, size=10, color="C43232" if data.get("truncated") else None)
 
     header_row = 4
     thin = Side(style="thin", color="B8C2CC")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     header_fill = PatternFill("solid", fgColor="D9EAF7")
-    for col, header in enumerate(DETAIL_HEADERS, 1):
+    for col, header in enumerate(EMPLOYEE_HEADERS, 1):
         cell = ws.cell(header_row, col, header)
         cell.font = Font(bold=True)
         cell.fill = header_fill
@@ -334,15 +311,14 @@ def build_employee_productivity_detail_xlsx(
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.row_dimensions[header_row].height = 32
 
-    text_cols = {2, 3, 4, 6, 7, 8, 9, 18, 19}
-    for index, item in enumerate(rows, 1):
+    text_cols = {2, 3, 5, 6, 7, 8, 17, 18}
+    for index, item in enumerate(sessions, 1):
         row_idx = header_row + index
-        pct = item.get("completion_percent")
+        spct = item.get("completion_percent")
         values = [
             index,
-            item.get("employee_code") or "",
-            item.get("employee_name") or "",
-            item.get("department") or "",
+            item.get("employee_code") or emp.get("employee_code") or "",
+            item.get("employee_name") or emp.get("employee_name") or "",
             item.get("work_date"),
             item.get("po_code") or "",
             _part_label(item),
@@ -355,7 +331,7 @@ def build_employee_productivity_detail_xlsx(
             int(item.get("defect_qty") or 0),
             float(item.get("standard_seconds_per_unit") or 0) or None,
             _duration_days(item.get("expected_seconds")) if item.get("expected_seconds") else None,
-            (float(pct) / 100.0) if pct is not None else None,
+            (float(spct) / 100.0) if spct is not None else None,
             session_status_note(item),
             "",
             item.get("session_id"),
@@ -364,20 +340,20 @@ def build_employee_productivity_detail_xlsx(
             cell = ws.cell(row_idx, col, value)
             cell.border = border
             cell.alignment = Alignment(
-                horizontal="left" if col in text_cols else ("right" if col >= 12 else "center"),
+                horizontal="left" if col in text_cols else ("right" if col >= 11 else "center"),
                 vertical="center",
-                wrap_text=col in (3, 9, 18),
+                wrap_text=col in (3, 8, 17),
             )
-        ws.cell(row_idx, 5).number_format = "dd/mm/yyyy"
+        ws.cell(row_idx, 4).number_format = "dd/mm/yyyy"
+        ws.cell(row_idx, 9).number_format = "dd/mm/yyyy hh:mm"
         ws.cell(row_idx, 10).number_format = "dd/mm/yyyy hh:mm"
-        ws.cell(row_idx, 11).number_format = "dd/mm/yyyy hh:mm"
-        ws.cell(row_idx, 12).number_format = "[h]:mm:ss"
-        ws.cell(row_idx, 15).number_format = "0.##"
-        ws.cell(row_idx, 16).number_format = "[h]:mm:ss"
-        ws.cell(row_idx, 17).number_format = "0.0%"
+        ws.cell(row_idx, 11).number_format = "[h]:mm:ss"
+        ws.cell(row_idx, 14).number_format = "0.##"
+        ws.cell(row_idx, 15).number_format = "[h]:mm:ss"
+        ws.cell(row_idx, 16).number_format = "0.0%"
 
-    last_row = max(header_row, header_row + len(rows))
-    ws.freeze_panes = "D5"  # header rows + Mã NV / Nhân viên stay visible
+    last_row = max(header_row, header_row + len(sessions))
+    ws.freeze_panes = "A5"
     ws.auto_filter.ref = f"A{header_row}:{last_letter}{last_row}"
     ws.print_title_rows = f"{header_row}:{header_row}"
     ws.page_setup.orientation = "landscape"
@@ -386,11 +362,23 @@ def build_employee_productivity_detail_xlsx(
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.oddFooter.center.text = "Trang &[Page]/&[Pages]"
-    for col, width in enumerate(DETAIL_WIDTHS, 1):
+    for col, width in enumerate(EMPLOYEE_WIDTHS, 1):
         ws.column_dimensions[get_column_letter(col)].width = width
 
-    _write_summary_sheet(wb.create_sheet(DETAIL_SUMMARY_SHEET), report, employees, search=search, department=department)
 
+def build_employee_productivity_workbook(data: dict[str, Any], *, timezone_name: str = "Asia/Ho_Chi_Minh") -> BytesIO:
+    """ONE .xlsx: sheet "Tổng hợp" (the existing summary, unchanged) then one
+    detail sheet per employee on it, in the same order."""
+    filters = data.get("filters") or {}
+    tz = ZoneInfo(timezone_name)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = SUMMARY_SHEET
+    _write_summary_sheet(ws, data.get("report") or {}, data.get("employees") or [],
+                         search=str(filters.get("search") or ""), department=str(filters.get("department") or ""))
+    groups = data.get("groups") or []
+    for name, group in zip(employee_sheet_names([g["employee"] for g in groups]), groups):
+        _write_employee_sheet(wb.create_sheet(name), group, data, tz)
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)

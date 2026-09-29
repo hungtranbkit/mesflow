@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% if single %}Năng suất · {{ data.employees[0].employee_code }} {{ data.employees[0].employee_name }}{% else %}Báo cáo năng suất nhân viên{% endif %} · {{ data.date_from }} → {{ data.date_to }}</title>
+  <style>
+    /* Browser print of the same data as the Excel export
+       (productivity_export.load_export_data). A4 landscape; the toolbar is
+       screen-only; every employee section starts on a new page; table
+       headers repeat on each printed page (thead). */
+    @page { size: A4 landscape; margin: 10mm 9mm 11mm; }
+    *{box-sizing:border-box}
+    body{margin:0;font:12px/1.4 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#111;background:#eef1f4}
+    .toolbar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 16px;background:#18364e;color:#fff}
+    .toolbar b{font-size:14px}
+    .toolbar .actions{display:flex;gap:8px}
+    .toolbar button{min-height:40px;padding:8px 16px;font:inherit;font-size:14px;font-weight:700;border-radius:8px;cursor:pointer;border:1px solid #fff}
+    .toolbar .print{background:#fff;color:#18364e}
+    .toolbar .close{background:transparent;color:#fff}
+    .page{max-width:287mm;margin:12px auto;padding:10mm 9mm;background:#fff;box-shadow:0 2px 6px rgba(16,43,63,.12)}
+    header.report{border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:10px}
+    header.report h1{margin:0 0 3px;font-size:18px;letter-spacing:.01em}
+    .context{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;font-size:11.5px;color:#333}
+    .context b{color:#111}
+    h2{font-size:14px;margin:12px 0 6px}
+    table{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}
+    thead{display:table-header-group}
+    tr{break-inside:avoid;page-break-inside:avoid}
+    th,td{border:1px solid #9aa6b2;padding:4px 5px;vertical-align:top;text-align:left}
+    th{background:#e3edf6;font-weight:700;white-space:nowrap}
+    td.num,th.num{text-align:right;white-space:nowrap}
+    td.sign{min-width:24mm}
+    .employee{margin-top:12px}
+    .employee.page-break{break-before:page;page-break-before:always}
+    .employee-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 18px;border:1px solid #333;border-radius:4px;padding:6px 10px;margin-bottom:8px}
+    .employee-head .who b{display:block;font-size:15px}
+    .employee-head .facts{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;font-size:11.5px}
+    .empty{padding:10px;color:#555;font-style:italic;border:1px dashed #bbb}
+    .note{font-size:10.5px;color:#444;margin:6px 0 0}
+    .warn{color:#c43232;font-weight:700}
+    .signature{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:18px;font-size:11.5px}
+    .signature div{border-top:1px solid #333;padding-top:5px;text-align:center;color:#333}
+    footer.meta{margin-top:10px;font-size:10px;color:#555}
+    @media (max-width:700px){
+      .page{margin:0;padding:12px;box-shadow:none;max-width:none}
+      .table-scroll{overflow-x:auto}
+      .toolbar .actions{width:100%}.toolbar .actions button{flex:1}
+    }
+    @media print{
+      body{background:#fff}
+      .toolbar{display:none}
+      .page{margin:0;padding:0;box-shadow:none;max-width:none}
+      .table-scroll{overflow:visible}
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <b>{% if single %}In theo nhân viên{% else %}In toàn bộ{% endif %} · {{ data.employees|length }} nhân viên</b>
+    <div class="actions">
+      <button type="button" class="close" onclick="window.close()">Đóng</button>
+      <button type="button" class="print" onclick="window.print()">In</button>
+    </div>
+  </div>
+  {% macro pct(v) %}{% if v is none %}—{% else %}{{ '%.1f'|format(v)|replace('.', ',') }}%{% endif %}{% endmacro %}
+  {% macro dur(sec) %}{% set t = (sec or 0)|int %}{{ '%d:%02d:%02d'|format(t // 3600, (t % 3600) // 60, t % 60) }}{% endmacro %}
+  {% set f = filters %}
+  <main class="page">
+    <header class="report">
+      <h1>{% if single %}BÁO CÁO NĂNG SUẤT · {{ data.employees[0].employee_code }} · {{ data.employees[0].employee_name }}{% else %}BÁO CÁO NĂNG SUẤT NHÂN VIÊN{% endif %}</h1>
+      <p class="context">
+        <span><b>Từ ngày:</b> {{ data.date_from }}</span>
+        <span><b>Đến ngày:</b> {{ data.date_to }}</span>
+        <span><b>Bộ phận:</b> {{ f.department or 'Tất cả' }}</span>
+        <span><b>Tìm nhân viên:</b> {{ (f.search or '').strip() or 'Tất cả' }}</span>
+        <span><b>In lúc:</b> {{ printed_at }} bởi {{ printed_by }}</span>
+      </p>
+    </header>
+
+    <h2>Tổng hợp</h2>
+    <div class="table-scroll"><table class="summary">
+      <thead><tr><th>STT</th><th>Mã NV</th><th>Nhân viên</th><th>Bộ phận</th><th class="num">Phiên hoàn tất</th><th class="num">Phiên hợp lệ</th><th class="num">Năng suất TB</th><th class="num">Sản lượng đạt</th><th class="num">Lỗi</th><th class="num">Tổng thời gian</th><th>NV xác nhận</th></tr></thead>
+      <tbody>
+      {% for e in data.employees %}
+        <tr><td>{{ loop.index }}</td><td>{{ e.employee_code }}</td><td>{{ e.employee_name }}</td><td>{{ e.department or '' }}</td>
+          <td class="num">{{ e.completed_sessions }}</td><td class="num">{{ e.completed_valid_sessions }}</td><td class="num">{{ pct(e.productivity_percent) }}</td>
+          <td class="num">{{ e.good_qty }}</td><td class="num">{{ e.defect_qty }}</td><td class="num">{{ dur(e.worked_seconds) }}</td><td class="sign"></td></tr>
+      {% else %}
+        <tr><td colspan="11" class="empty">Không có phiên làm việc hoàn thành trong khoảng ngày đã chọn.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <p class="note">% năng suất của một phiên = thời gian định mức / thời gian thực tế. Năng suất TB = trung bình các % có giá trị của nhân viên (giống màn hình và Excel).{% if data.truncated %} <span class="warn">Cảnh báo: vượt giới hạn số dòng — thu hẹp khoảng ngày.</span>{% endif %}</p>
+
+    {% for g in data.groups %}{% set e = g.employee %}
+    <section class="employee{% if not single %} page-break{% endif %}" data-employee-id="{{ e.employee_id }}">
+      <div class="employee-head">
+        <div class="who"><b>{{ e.employee_code }} · {{ e.employee_name }}</b>{{ e.department or '' }}</div>
+        <div class="facts">
+          <span>{{ data.date_from }} → {{ data.date_to }}</span>
+          <span>Phiên: <b>{{ e.completed_sessions }}</b> ({{ e.completed_valid_sessions }} hợp lệ)</span>
+          <span>Năng suất TB: <b>{{ pct(e.productivity_percent) }}</b></span>
+          <span>Đạt <b>{{ e.good_qty }}</b> · Lỗi <b>{{ e.defect_qty }}</b></span>
+          <span>Thời gian: <b>{{ dur(e.worked_seconds) }}</b></span>
+        </div>
+      </div>
+      <div class="table-scroll"><table class="detail">
+        <thead><tr><th>STT</th><th>Ngày</th><th>PO</th><th>Part</th><th>Mã OP</th><th>Operation</th><th>Bắt đầu</th><th>Kết thúc</th><th class="num">Thực tế</th><th class="num">Đạt</th><th class="num">Lỗi</th><th class="num">Định mức</th><th class="num">% năng suất</th><th>Trạng thái / ghi chú</th></tr></thead>
+        <tbody>
+        {% for s in g.sessions %}
+          <tr><td>{{ loop.index }}</td><td>{{ s.work_date.strftime('%d/%m/%Y') if s.work_date else '' }}</td><td>{{ s.po_code or '' }}</td><td>{{ s.part_code or '' }}</td><td>{{ s.operation_code or '' }}</td><td>{{ s.operation_name or '' }}</td>
+            <td>{{ s.started_local }}</td><td>{{ s.ended_local }}</td><td class="num">{{ dur(s.actual_seconds) }}</td><td class="num">{{ s.good_qty }}</td><td class="num">{{ s.defect_qty }}</td>
+            <td class="num">{{ dur(s.expected_seconds) if s.expected_seconds else '—' }}</td><td class="num">{{ pct(s.completion_percent) }}</td><td>{{ s.status_note }}</td></tr>
+        {% else %}
+          <tr><td colspan="14" class="empty">Không có phiên làm việc.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      <div class="signature"><div>Nhân viên xác nhận<br>{{ e.employee_name }}</div><div>Quản lý xác nhận</div></div>
+    </section>
+    {% endfor %}
+    <footer class="meta">MESFlow · in lúc {{ printed_at }}</footer>
+  </main>
+  {% if autoprint %}<script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));</script>{% endif %}
+</body>
+</html>

@@ -1,24 +1,30 @@
-"""Excel năng suất -- "Chi tiết từng nhân viên" (hotfix 2026-09-29).
+"""Excel + print năng suất nhân viên (hotfix 2026-09-29, one file + print).
 
-One row per session behind the summary report, same filters, same
-per-session score; the summary export itself must not change.
+- "Xuất Excel" = ONE .xlsx: sheet "Tổng hợp" (unchanged summary) + one
+  detail sheet per employee in the current filters, one row per session.
+- "In" = printable HTML of the same data (all employees, or one employee
+  that must belong to the current filters).
 """
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from openpyxl import load_workbook
 
+from mesflow.db.repositories.base import NotFoundError
+from mesflow.web import analytics as analytics_module
+from mesflow.web import app as app_module
+from mesflow.web import auth as auth_module
 from mesflow.web.productivity_excel import (
-    DETAIL_HEADERS,
-    DETAIL_SHEET,
-    DETAIL_SUMMARY_SHEET,
+    EMPLOYEE_HEADERS,
     EXPORT_HEADERS,
-    build_employee_productivity_detail_xlsx,
-    build_employee_productivity_xlsx,
-    detail_rows_for_employees,
+    SUMMARY_SHEET,
+    build_employee_productivity_workbook,
+    employee_sheet_names,
     session_status_note,
 )
+from mesflow.web.productivity_export import group_sessions, load_export_data, parse_filters
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -32,149 +38,253 @@ def _employee(emp_id, code, name, dept, sessions, valid, pct, good, defect, seco
 
 
 def _session(sid, emp_id, code, name, dept, op, start, end, good, defect, std, pct, **extra):
-    actual = (end - start).total_seconds()
     row = {"session_id": sid, "employee_id": emp_id, "employee_code": code, "employee_name": name, "department": dept,
            "team": "", "status": "CLOSED", "started_at": start, "ended_at": end, "work_date": date(2026, 9, end.day),
-           "actual_seconds": actual, "standard_seconds_per_unit": std, "expected_seconds": std * (good + defect),
-           "good_qty": good, "defect_qty": defect, "po_code": "PO-1", "part_code": "P-1", "part_name": "Thân",
-           "operation_code": op, "operation_name": f"Công đoạn {op}", "station_code": "ST1",
-           "closed_by_system": False, "quantity_confirmed": True, "close_reason": None, "note": None,
-           "is_repair": False, "operation_type": "PRODUCTION", "completion_percent": pct}
+           "actual_seconds": (end - start).total_seconds(), "standard_seconds_per_unit": std,
+           "expected_seconds": std * (good + defect), "good_qty": good, "defect_qty": defect, "po_code": "PO-1",
+           "part_code": "P-1", "part_name": "Thân", "operation_code": op, "operation_name": f"Công đoạn {op}",
+           "station_code": "ST1", "closed_by_system": False, "quantity_confirmed": True, "close_reason": None,
+           "note": None, "is_repair": False, "operation_type": "PRODUCTION", "completion_percent": pct}
     row.update(extra)
     return row
 
 
-def _fixture():
-    t = lambda d, h, m=0: datetime(2026, 9, d, h, m, tzinfo=UTC)
-    # An (NV01): 3 sessions, TWO on the same OP10 -> each must be its own row.
-    # 01:00Z = 08:00 Asia/Ho_Chi_Minh.
-    sessions = [
-        _session(11, 1, "NV01", "An", "May", "OP10", t(2, 1), t(2, 2), 24, 0, 120, 80.0),
-        _session(12, 1, "NV01", "An", "May", "OP10", t(2, 3), t(2, 4), 36, 0, 100, 100.0),
-        _session(13, 1, "NV01", "An", "May", "OP20", t(3, 1), t(3, 1, 30), 0, 0, 0, None),
-        # Bình (NV02): one scored session, auto-closed without a confirmed quantity.
-        _session(21, 2, "NV02", "Bình", "May", "OP10", t(2, 5), t(2, 6), 45, 5, 60, 83.33,
-                 closed_by_system=True, quantity_confirmed=False, close_reason="Hết ca"),
-        # Cường (NV03) is in another department -> filtered out.
-        _session(31, 3, "NV03", "Cường", "Kho", "OP90", t(2, 1), t(2, 2), 10, 0, 360, 100.0),
-    ]
-    employees = [
-        _employee(1, "NV01", "An", "May", 3, 2, 90.0, 60, 0, 9000),
-        _employee(2, "NV02", "Bình", "May", 1, 1, 83.33, 45, 5, 3600),
-        _employee(3, "NV03", "Cường", "Kho", 1, 1, 100.0, 10, 0, 3600),
-    ]
-    report = {"summary": {"from": "2026-09-01", "to": "2026-09-29"}, "employees": employees}
-    return report, {"from": "2026-09-01", "to": "2026-09-29", "sessions": sessions, "truncated": False}
+T = lambda d, h, m=0: datetime(2026, 9, d, h, m, tzinfo=UTC)  # 01:00Z = 08:00 ICT
+SESSIONS = [
+    # An (NV01): 3 sessions, TWO on the same OP10 -> two separate rows.
+    _session(12, 1, "NV01", "An", "May", "OP10", T(2, 3), T(2, 4), 36, 0, 100, 100.0),
+    _session(11, 1, "NV01", "An", "May", "OP10", T(2, 1), T(2, 2), 24, 0, 120, 80.0),
+    _session(13, 1, "NV01", "An", "May", "OP20", T(3, 1), T(3, 1, 30), 0, 0, 0, None),
+    # Bình (NV02): auto-closed, quantity never confirmed.
+    _session(21, 2, "NV02", "Bình", "May", "OP10", T(2, 5), T(2, 6), 45, 5, 60, 83.33,
+             closed_by_system=True, quantity_confirmed=False, close_reason="Hết ca"),
+    # Cường (NV03): other department.
+    _session(31, 3, "NV03", "Cường", "Kho", "OP90", T(2, 1), T(2, 2), 10, 0, 360, 100.0),
+]
+EMPLOYEES = [
+    _employee(1, "NV01", "An", "May", 3, 2, 90.0, 60, 0, 9000),
+    _employee(2, "NV02", "Bình", "May", 1, 1, 83.33, 45, 5, 3600),
+    _employee(3, "NV03", "Cường", "Kho", 1, 1, 100.0, 10, 0, 3600),
+]
 
 
-def _book(**kw):
-    report, detail = _fixture()
-    stream = build_employee_productivity_detail_xlsx(report, detail, **kw)
-    return load_workbook(BytesIO(stream.getvalue()))
+class FakeRepo:
+    """Stands in for ReportRepository: records calls so tests can prove the
+    export uses exactly two queries and passes the filters through."""
+
+    def __init__(self):
+        self.calls = []
+
+    def employee_productivity(self, date_from, date_to, employee_id, department, team, limit):
+        self.calls.append(("summary", date_from, date_to, employee_id, department, team))
+        rows = [dict(e) for e in EMPLOYEES if (not employee_id or e["employee_id"] == employee_id)
+                and (not department or e["department"] == department)]
+        return {"summary": {"from": date_from or "2026-09-01", "to": date_to or "2026-09-29"}, "employees": rows}
+
+    def employee_productivity_sessions(self, date_from, date_to, employee_id, department, team):
+        self.calls.append(("sessions", date_from, date_to, employee_id, department, team))
+        rows = [dict(s) for s in SESSIONS if (not employee_id or s["employee_id"] == employee_id)
+                and (not department or s["department"] == department)]
+        return {"sessions": rows, "truncated": False}
 
 
-def _data_rows(ws, first=5):
+def _data(**args):
+    return load_export_data(parse_filters({"from": "2026-09-01", "to": "2026-09-29", **args}), FakeRepo())
+
+
+def _wb(**args):
+    return load_workbook(BytesIO(build_employee_productivity_workbook(_data(**args)).getvalue()))
+
+
+def _rows(ws, first=5):
     return [[ws.cell(r, c).value for c in range(1, ws.max_column + 1)] for r in range(first, ws.max_row + 1)
             if ws.cell(r, 1).value is not None]
 
 
-def test_detail_sheet_has_required_columns_and_one_row_per_session():
-    wb = _book(department="May", sort_key="productivity_percent", sort_dir="desc")
-    assert wb.sheetnames == [DETAIL_SHEET, DETAIL_SUMMARY_SHEET]
-    ws = wb[DETAIL_SHEET]
-    assert [ws.cell(4, c).value for c in range(1, len(DETAIL_HEADERS) + 1)] == DETAIL_HEADERS
-    for required in ("Mã NV", "Nhân viên", "Ngày", "PO", "Part", "Mã OP", "Operation", "Bắt đầu", "Kết thúc",
+# ------------------------------------------------------------ workbook shape
+def test_one_workbook_summary_first_then_one_sheet_per_employee():
+    wb = _wb()
+    assert wb.sheetnames[0] == SUMMARY_SHEET and len(wb.sheetnames) == 1 + 3
+    # Summary order == employee sheet order (productivity desc: Cường 100, An 90, Bình 83.33).
+    summary_codes = [r[1] for r in _rows(wb[SUMMARY_SHEET])]
+    assert summary_codes == ["NV03", "NV01", "NV02"]
+    assert [ws.title for ws in wb.worksheets[1:]] == ["NV03 Cường", "NV01 An", "NV02 Bình"]
+
+
+def test_filters_decide_which_employee_sheets_exist():
+    assert _wb(department="May").sheetnames == [SUMMARY_SHEET, "NV01 An", "NV02 Bình"]
+    assert _wb(search="bình").sheetnames == [SUMMARY_SHEET, "NV02 Bình"]
+    one = _wb(employee_id="1")
+    assert one.sheetnames == [SUMMARY_SHEET, "NV01 An"]
+    assert [r[1] for r in _rows(one[SUMMARY_SHEET])] == ["NV01"]
+
+
+def test_employee_sheet_one_row_per_session_grouped_and_mapped():
+    ws = _wb()["NV01 An"]
+    assert [ws.cell(4, c).value for c in range(1, len(EMPLOYEE_HEADERS) + 1)] == EMPLOYEE_HEADERS
+    for required in ("Mã NV", "Tên NV", "Ngày", "PO", "Part", "Mã OP", "Operation", "Bắt đầu", "Kết thúc",
                      "Thời gian thực tế", "Sản lượng đạt", "Thời gian định mức", "% năng suất",
                      "Trạng thái / ghi chú", "NV xác nhận"):
-        assert required in DETAIL_HEADERS
-    rows = _data_rows(ws)
-    col = {h: i for i, h in enumerate(DETAIL_HEADERS)}
-    # Department filter drops NV03; order follows the summary sort
-    # (An 90.0 before Bình 83.33); within An by start time; OP10 twice.
-    assert [r[col["Mã phiên"]] for r in rows] == [11, 12, 13, 21]
-    assert [r[col["Mã OP"]] for r in rows[:2]] == ["OP10", "OP10"]
-    assert rows[0][col["Part"]] == "P-1 · Thân"
-    # Local wall-clock time (08:00 ICT), stored as a real Excel datetime.
-    assert rows[0][col["Bắt đầu"]] == datetime(2026, 9, 2, 8, 0)
-    assert rows[0][col["Thời gian thực tế"]] == timedelta(hours=1)
-    assert rows[0][col["Thời gian định mức"]] == timedelta(seconds=2880)
-    assert rows[0][col["% năng suất"]] == 0.8
+        assert required in EMPLOYEE_HEADERS
+    col = {h: i for i, h in enumerate(EMPLOYEE_HEADERS)}
+    rows = _rows(ws)
+    assert [r[col["Mã phiên"]] for r in rows] == [11, 12, 13]  # by start time, not input order
+    assert [r[col["Mã OP"]] for r in rows] == ["OP10", "OP10", "OP20"]  # same OP twice = 2 rows
+    first = rows[0]
+    assert first[col["Mã NV"]] == "NV01" and first[col["Tên NV"]] == "An"
+    assert first[col["Part"]] == "P-1 · Thân"
+    assert first[col["Bắt đầu"]] == datetime(2026, 9, 2, 8, 0)  # local wall-clock
+    assert first[col["Thời gian thực tế"]] == timedelta(hours=1)
+    assert first[col["Thời gian định mức"]] == timedelta(seconds=2880)
+    assert first[col["% năng suất"]] == 0.8
     assert rows[2][col["% năng suất"]] is None
-    assert rows[0][col["NV xác nhận"]] is None  # signature column, left blank
-    assert "Tìm nhân viên: Tất cả" in ws["A2"].value and "Bộ phận: May" in ws["A2"].value
-    assert "2 nhân viên · 4 phiên" in ws["A2"].value
+    assert first[col["NV xác nhận"]] is None
+    assert "Năng suất TB: 90.0%" in ws["A2"].value and "Bộ phận: May" in ws["A2"].value
+    assert ws.freeze_panes == "A5" and ws.auto_filter.ref == "A4:S7"
+    assert ws["I5"].number_format == "dd/mm/yyyy hh:mm" and ws["K5"].number_format == "[h]:mm:ss"
+    assert ws["P5"].number_format == "0.0%" and ws["D5"].number_format == "dd/mm/yyyy"
+    assert ws.column_dimensions["Q"].width >= 30
 
 
-def test_detail_sheet_is_usable_freeze_filter_and_formats():
-    ws = _book()[DETAIL_SHEET]
-    assert ws.freeze_panes == "D5"
-    assert ws.auto_filter.ref == f"A4:T{4 + 5}"
-    assert ws["J5"].number_format == "dd/mm/yyyy hh:mm"
-    assert ws["L5"].number_format == "[h]:mm:ss"
-    assert ws["P5"].number_format == "[h]:mm:ss"
-    assert ws["Q5"].number_format == "0.0%"
-    assert ws["E5"].number_format == "dd/mm/yyyy"
-    assert ws.column_dimensions["R"].width >= 30
-
-
-def test_search_filter_matches_the_summary_screen_filter():
-    rows = _data_rows(_book(search="bình")[DETAIL_SHEET])
-    assert {r[1] for r in rows} == {"NV02"}
-
-
-def test_detail_percent_reconciles_with_summary_percent():
-    """Summary productivity_percent = AVG of the non-empty per-session %."""
-    report, detail = _fixture()
-    rows = detail_rows_for_employees(report["employees"], detail["sessions"])
-    for emp in report["employees"]:
-        mine = [r for r in rows if r["employee_id"] == emp["employee_id"]]
-        assert len(mine) == emp["completed_sessions"]
-        scored = [r["completion_percent"] for r in mine if r["completion_percent"] is not None]
-        assert len(scored) == emp["completed_valid_sessions"]
+def test_employee_percent_is_the_average_of_their_session_percents():
+    for group in _data()["groups"]:
+        emp, sessions = group["employee"], group["sessions"]
+        scored = [s["completion_percent"] for s in sessions if s["completion_percent"] is not None]
+        assert len(sessions) == emp["completed_sessions"] and len(scored) == emp["completed_valid_sessions"]
         assert round(sum(scored) / len(scored), 2) == emp["productivity_percent"]
-        assert sum(r["good_qty"] for r in mine) == emp["good_qty"]
 
 
-def test_tong_hop_sheet_is_the_unchanged_summary_sheet():
-    report, _ = _fixture()
-    kw = dict(search="", department="May", sort_key="productivity_percent", sort_dir="desc")
-    summary = load_workbook(BytesIO(build_employee_productivity_xlsx(report, **kw).getvalue()))["Năng suất nhân viên"]
-    tong_hop = _book(**kw)[DETAIL_SUMMARY_SHEET]
-    assert [tong_hop.cell(4, c).value for c in range(1, len(EXPORT_HEADERS) + 1)] == EXPORT_HEADERS
-    grid = lambda ws: [[ws.cell(r, c).value for c in range(1, 13)] for r in range(1, ws.max_row + 1)]
-    assert grid(tong_hop) == grid(summary)
-    assert tong_hop.freeze_panes == summary.freeze_panes == "A5"
+def test_summary_sheet_semantics_unchanged():
+    ws = _wb(search="an", department="May", sort="good_qty", dir="desc")[SUMMARY_SHEET]
+    assert [ws.cell(4, c).value for c in range(1, len(EXPORT_HEADERS) + 1)] == EXPORT_HEADERS
+    assert ws["A1"].value == "BÁO CÁO NĂNG SUẤT NHÂN VIÊN"
+    assert "Bộ phận: May" in ws["A2"].value and "Tìm nhân viên: an" in ws["A2"].value
+    assert "Năng suất TB theo bộ lọc: 90.0%" in ws["A2"].value
+    assert ws["B5"].value == "NV01" and ws["H5"].value == 0.9 and ws["L5"].value is None
+    assert ws.freeze_panes == "A5" and ws["K5"].number_format == "[h]:mm"
+
+
+def test_exactly_two_queries_whatever_the_employee_count():
+    repo = FakeRepo()
+    data = load_export_data(parse_filters({"from": "2026-09-01", "department": "May"}), repo)
+    assert [c[0] for c in repo.calls] == ["summary", "sessions"]
+    assert repo.calls[1][4] == "May"  # filters reach the bulk session query
+    assert len(data["groups"]) == 2
+
+
+# ------------------------------------------------------------ sheet names
+def test_sheet_names_are_valid_unique_and_deterministic():
+    emps = [
+        {"employee_id": 1, "employee_code": "NV01", "employee_name": "Nguyễn Thị Minh Khai Phương Hoàng Anh"},
+        {"employee_id": 2, "employee_code": "NV01", "employee_name": "Nguyễn Thị Minh Khai Phương Hoàng Anh"},
+        {"employee_id": 3, "employee_code": "A/B", "employee_name": "x[y]:z*?\\"},
+        {"employee_id": 4, "employee_code": "", "employee_name": "Tổng hợp"},
+        {"employee_id": 5, "employee_code": "", "employee_name": "TỔNG HỢP"},
+        {"employee_id": 6, "employee_code": "'Q'", "employee_name": ""},
+        {"employee_id": 7, "employee_code": "", "employee_name": ""},
+    ]
+    names = employee_sheet_names(emps)
+    assert names == employee_sheet_names(emps)  # deterministic
+    assert all(0 < len(n) <= 31 for n in names)
+    assert all(not set(n) & set('[]:*?/\\') for n in names)
+    assert all(not n.startswith("'") and not n.endswith("'") for n in names)
+    assert len({n.casefold() for n in names}) == len(names)
+    assert SUMMARY_SHEET.casefold() not in {n.casefold() for n in names}
+    assert names[0] == "NV01 Nguyễn Thị Minh Khai Phương"[:31]
+    assert names[1].endswith(" (2)") and len(names[1]) <= 31
+    assert names[2] == "A B x y z"
+    assert names[3] == "Tổng hợp (2)" and names[4] == "TỔNG HỢP (3)"
+    assert names[5] == "Q" and names[6] == "NV 7"
+    # openpyxl accepts every generated name in one workbook.
+    wb = build_employee_productivity_workbook({"report": {"summary": {}}, "employees": [],
+        "groups": [{"employee": e, "sessions": []} for e in emps], "filters": {}})
+    assert load_workbook(BytesIO(wb.getvalue())).sheetnames == [SUMMARY_SHEET, *names]
 
 
 def test_status_note_uses_existing_session_flags_only():
-    report, detail = _fixture()
-    by_id = {s["session_id"]: s for s in detail["sessions"]}
+    by_id = {s["session_id"]: s for s in SESSIONS}
     assert session_status_note(by_id[11]) == "Tính năng suất"
     assert session_status_note(by_id[13]) == "Thiếu định mức · không tính năng suất"
     assert session_status_note(by_id[21]) == "Tính năng suất · Hệ thống tự đóng · Chưa xác nhận sản lượng · Hết ca"
-    assert session_status_note({**by_id[13], "is_repair": True}) == "Ca sửa hàng · không có định mức"
-    no_output = {**by_id[11], "completion_percent": None, "good_qty": 0, "defect_qty": 0}
-    assert session_status_note(no_output) == "Không có sản lượng · không tính năng suất"
+    assert session_status_note({**by_id[11], "completion_percent": None, "good_qty": 0}) == "Không có sản lượng · không tính năng suất"
 
 
-def test_truncation_is_announced_in_the_sheet():
-    report, detail = _fixture()
-    detail["truncated"] = True
-    ws = load_workbook(BytesIO(build_employee_productivity_detail_xlsx(report, detail).getvalue()))[DETAIL_SHEET]
-    assert "CẢNH BÁO" in ws["A3"].value
+def test_group_sessions_drops_employees_outside_the_list():
+    groups = group_sessions([EMPLOYEES[1]], SESSIONS)
+    assert [g["employee"]["employee_code"] for g in groups] == ["NV02"]
+    assert [s["session_id"] for s in groups[0]["sessions"]] == [21]
 
 
-def test_route_offers_detail_mode_without_changing_summary_default():
-    src = (ROOT / "app/mesflow/web/analytics.py").read_text(encoding="utf-8")
-    route = src.split("@bp.get('/reports/employee-productivity/export.xlsx')", 1)[1].split("@bp.get(", 1)[0]
-    assert "@login_required" in route  # same access rule as the summary export
-    assert "mode=(request.args.get('mode') or 'summary')" in route
-    assert "if mode not in ('summary','detail'): raise ValueError" in route
-    assert "repo.employee_productivity_sessions(" in route
-    assert "build_employee_productivity_xlsx(report,**options)" in route
-    assert "nang-suat-nhan-vien-chi-tiet" in route
+def test_selected_employee_must_be_inside_the_filters():
+    with pytest.raises(NotFoundError):
+        _data(employee_id="3", department="May")
+    with pytest.raises(ValueError):
+        parse_filters({"employee_id": "1; drop"})
 
 
+# ------------------------------------------------------------ HTTP routes
+@pytest.fixture
+def client(monkeypatch):
+    state = {"logged_in": True}
+    monkeypatch.setattr(auth_module, "validate_and_touch", lambda: None if state["logged_in"] else "NOT_LOGGED_IN")
+    monkeypatch.setattr(analytics_module, "ReportRepository", FakeRepo)
+    app = app_module.create_app()
+    app.config["TESTING"] = True
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess["user_id"] = 1
+        sess["username"] = "quanly"
+        sess["role"] = "manager"
+    c.state = state
+    return c
+
+
+BASE = "/api/reports/employee-productivity"
+Q = "from=2026-09-01&to=2026-09-29"
+
+
+def test_export_route_returns_one_workbook_with_employee_sheets(client):
+    r = client.get(f"{BASE}/export.xlsx?{Q}&department=May")
+    assert r.status_code == 200
+    assert r.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert "nang-suat-nhan-vien_2026-09-01_2026-09-29.xlsx" in r.headers["Content-Disposition"]
+    assert load_workbook(BytesIO(r.data)).sheetnames == [SUMMARY_SHEET, "NV01 An", "NV02 Bình"]
+
+
+def test_print_all_has_summary_and_a_page_per_employee(client):
+    html = client.get(f"{BASE}/print?{Q}&department=May&autoprint=1").get_data(as_text=True)
+    assert "BÁO CÁO NĂNG SUẤT NHÂN VIÊN" in html and "Tổng hợp" in html
+    assert html.count('class="employee page-break"') == 2
+    assert 'data-employee-id="1"' in html and 'data-employee-id="2"' in html and 'data-employee-id="3"' not in html
+    assert "Bộ phận:</b> May" in html and "size: A4 landscape" in html
+    assert "window.print()" in html and "thead{display:table-header-group}" in html
+    assert "Hệ thống tự đóng · Chưa xác nhận sản lượng" in html  # session detail rendered
+    assert "80,0%" in html and "90,0%" in html  # session % and employee % (vi format)
+
+
+def test_print_one_employee_only(client):
+    r = client.get(f"{BASE}/print?{Q}&employee_id=2")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert "BÁO CÁO NĂNG SUẤT · NV02 · Bình" in html
+    assert 'data-employee-id="2"' in html and 'data-employee-id="1"' not in html
+    assert "page-break" not in html.split("<main", 1)[1]  # no blank first page for one employee
+    assert "setTimeout(() => window.print()" not in html  # autoprint only when asked
+
+
+def test_print_rejects_employee_outside_filters_and_bad_ids(client):
+    assert client.get(f"{BASE}/print?{Q}&department=Kho&employee_id=1").status_code == 404
+    assert client.get(f"{BASE}/print?{Q}&employee_id=abc").status_code == 400
+    assert client.get(f"{BASE}/export.xlsx?{Q}&department=Kho&employee_id=1").status_code == 404
+
+
+def test_print_and_export_require_login(client):
+    client.state["logged_in"] = False
+    assert client.get(f"{BASE}/print?{Q}").status_code == 401
+    assert client.get(f"{BASE}/export.xlsx?{Q}").status_code == 401
+
+
+# ------------------------------------------------------------ source contracts
 def test_repository_detail_uses_the_same_scope_and_score_as_the_summary():
     src = (ROOT / "app/mesflow/db/repositories/analytics.py").read_text(encoding="utf-8")
     agg = src.split("    def employee_productivity(self", 1)[1].split("\n    def ", 1)[0]
@@ -182,13 +292,15 @@ def test_repository_detail_uses_the_same_scope_and_score_as_the_summary():
     for body in (agg, det):
         assert "self._productivity_scope(date_from,date_to,employee_id,department,team)" in body
         assert "{self._SESSION_COMPLETION_PERCENT_SQL} completion_percent" in body
-    assert "fetch_all(" in det and det.count("fetch_all(") == 1  # one query, no N+1
+    assert det.count("fetch_all(") == 1
 
 
-def test_frontend_export_menu_offers_summary_and_detail():
+def test_frontend_single_excel_button_and_print_dialog():
     js = (ROOT / "app/mesflow/web/static/pages/employee-productivity.js").read_text(encoding="utf-8")
-    assert 'id="epExport"' in js and 'aria-haspopup="menu"' in js
-    assert "MFUI.rowMenu(e.currentTarget, [" in js
-    assert "'Tổng hợp theo nhân viên', onSelect: () => exportExcel('summary')" in js
-    assert "'Chi tiết từng nhân viên (từng phiên làm việc)', onSelect: () => exportExcel('detail')" in js
-    assert "if (mode === 'detail') q.set('mode', 'detail');" in js
+    assert '<button class="btn" id="epExport" type="button">Xuất Excel</button>' in js
+    assert '<button class="btn" id="epPrint" type="button" aria-haspopup="dialog">In</button>' in js
+    assert "rowMenu" not in js and "mode=detail" not in js and "'detail'" not in js
+    assert "document.getElementById('epExport').onclick = exportExcel;" in js
+    assert "In toàn bộ" in js and "In theo nhân viên" in js
+    assert "window.open(`/api/reports/employee-productivity/print?${q.toString()}`, '_blank')" in js
+    assert "rows.map(x => `<option value=\"${x.employee_id}\">" in js  # choices = current filtered rows
