@@ -18,8 +18,16 @@ anything stale here; fix this file when they disagree.
   DEV currently runs the UI refactor line, so DEV images are built from an
   integration of `refactor/ui-consolidation-20260928` + main (see Current
   state). Never deploy a plain main image to DEV; it would wipe UI P0–P3.
-- "production test" = https://mesflow.net (VPS). Not deployed by the hotfix
-  below; still 71.0.0.376.
+- TEST = "production test" = https://mesflow.net = VPS `vps-78ae7aec`
+  (148.113.207.13, `/opt/mesflow`, compose project `mesflow`, container
+  `mesflow-app` on 127.0.0.1:8080, SERVER_ROLE=PRODUCTION_TEST, DB =
+  Patroni `mesflow-patroni-test` reached as `postgres`; the old
+  `mesflow-postgres` container is exited and unused). Deploy ONLY with
+  `REMOTE_TEST_TARGET_FILE=<main checkout>/scripts/remote-test-target.env
+  REMOTE_TEST_SSH_CONFIG=~/.ssh/config scripts/deploy-remote-test.sh <ver>`
+  (bundle transfer; local image must be tagged `mesflow-app:<ver>`). Real
+  PROD (`mesflow-prod`, ssh-prod.mesflow.net) and the local
+  `mesflow-prodtest-*` pair are different targets and are not touched by it.
 - Version bump on main: `scripts/bump-version.sh <X.Y.Z.W>` then
   `scripts/check-version-sync.sh`. Main hotfixes land as a fix commit + a
   `chore(release): bump …` commit.
@@ -35,7 +43,28 @@ anything stale here; fix this file when they disagree.
 - DEV runs `mesflow-app:dev-380-133cb22` (built from the integration worktree;
   `.env` pinned, previous `mesflow-app:dev-kioskfix-37b1f79`, kept for
   rollback). `/api/system/ready` → 71.0.0.380, commit 133cb22, DEV.
-  mesflow.net (PRODUCTION_TEST) untouched: 71.0.0.376.
+- TEST (mesflow.net) runs 71.0.0.380 since 2026-09-29 ~10:05 ICT: image
+  `mesflow-app:71.0.0.380` = the SAME image as DEV's
+  `mesflow-app:dev-380-133cb22` (ID `sha256:22f12e07…`, retagged, not
+  rebuilt). `/api/system/ready` → 71.0.0.380, commit 133cb22,
+  PRODUCTION_TEST, migration 0054 (no schema change; migrate step was a
+  no-op). The script wrote `/opt/mesflow/deploy-state.json`.
+  - Rollback: previous image `mesflow-app:71.0.0.376`
+    (`sha256:170dd929…`, commit unknown) is still on the VPS. Set it in
+    `/opt/mesflow/.env` MESFLOW_IMAGE, then
+    `sudo docker compose --env-file .env up -d --no-deps mesflow`.
+  - DB backup before the deploy: VPS
+    `~/backups/mesflow-pre-380-20260929T030338Z.dump` (pg_dump -Fc, 4.6 MB).
+  - Verified on https://mesflow.net (Playwright, P3 and legacy mode,
+    1366×768 + 390×844):
+    - P3 "Năng suất" with tabs Nhân viên/Operation;
+    - exactly one "Xuất Excel" and one "In", no menu;
+    - one workbook: Tổng hợp + 18 employee sheets, 156 session rows, each
+      sheet's rows = its "Phiên hoàn tất";
+    - print dialog shows "In toàn bộ"/"In theo nhân viên";
+    - print-all: 18 sections, 18 page breaks, print() called;
+    - print-one: 1 employee;
+    - `/kiosk` 200; no JS errors.
 
 ## Recent handoff — Năng suất: one-file Excel + "In" (2026-09-29, 71.0.0.380)
 
