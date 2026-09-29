@@ -29,8 +29,13 @@ anything stale here; fix this file when they disagree.
 - main = 71.0.0.380: kiosk hotfixes 377/378, the 379 detail export, and
   380 (`2252e57` feature, `255b61f` bump), which REPLACES 379's export
   menu with one-file Excel + print. Handoff below.
-- P3 integration / DEV: see "P3 integration + DEV" at the end of the 380
-  handoff.
+- Refactor line `refactor/ui-consolidation-20260928` = `133cb22`: merge of
+  main `685de6d` (all fixes through 380) into P3 `57a71d8`. It no longer
+  lacks any main fix.
+- DEV runs `mesflow-app:dev-380-133cb22` (built from the integration worktree;
+  `.env` pinned, previous `mesflow-app:dev-kioskfix-37b1f79`, kept for
+  rollback). `/api/system/ready` → 71.0.0.380, commit 133cb22, DEV.
+  mesflow.net (PRODUCTION_TEST) untouched: 71.0.0.376.
 
 ## Recent handoff — Năng suất: one-file Excel + "In" (2026-09-29, 71.0.0.380)
 
@@ -115,8 +120,30 @@ unchanged.
     Tho Dev";
   - app tab URL unchanged, 0 px body overflow, no JS errors.
 
-**P3 integration + DEV.** Pending at the time of this commit; updated below
-once done.
+**P3 integration + DEV.**
+- Child branch `ui-refactor/merge-main-380-20260929` merged main `685de6d`
+  into refactor `57a71d8` → `133cb22`; the integration branch was
+  fast-forwarded and both were pushed.
+- Conflicts:
+  - `pages/employee-productivity.js`: kept the P3 layout. The action row
+    is Làm mới · In · Xuất Excel (the single `.primary`). Export/print code
+    comes from main.
+  - `PROJECT_CONTEXT.md` add/add: concatenated, main first, then P0–P3.
+  - Tests: `test_ui_productivity_consolidation` checks the shared
+    `reportQuery()`; the frontend test accepts the P3 `.primary` export
+    button.
+- Merged-tree static suite: 1244 passed / 2 failed / 51 skipped (the same 2
+  `autologin_guard` baseline failures). The P3 base `57a71d8` was 1204 / 3;
+  its third failure is fixed by main.
+- Browser on a merge preview AND on public https://dev.mesflow.net after
+  deploy, P3 mode (`ui_refactor=1`) and legacy mode, 1366×768 + 390×844:
+  - "Xuất Excel"/"In" labels, no menu;
+  - one workbook `Tổng hợp` + `NV001 Huỳnh Thị Mơ` (3 rows) +
+    `DEV-001 Tho Dev` (7 rows);
+  - print-all → `window.print()` called, 2 sections, 2 page-breaks;
+  - print-one → only employee 28;
+  - app URL unchanged, 0 px overflow, no JS errors.
+- Anonymous print → 401. `/kiosk` 200 with the 377/378 kiosk code present.
 
 ## (Superseded) Excel năng suất: "Chi tiết từng nhân viên" menu (71.0.0.379)
 
