@@ -58,12 +58,14 @@ async function renderOverview(){
   // Dashboard theo ngày. Nothing is rendered when nobody is on it, so idle
   // rows keep their exact previous shape.
   const T=v=>v?new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(v)):'';
-  // Production Overview hotfix (2026-09-26, part 2): today's history and a
-  // compact "Hôm nay" block per Operation, from the backend's `today` /
-  // today_worker_list (factory calendar day 00:00-24:00, one grouped query).
-  // Keep the backend lists distinct: today_worker_list contains closed-today
-  // workers only, while active_worker_list contains OPEN sessions only.
-  const workerRows=x=>{const active=Array.isArray(x.active_worker_list)?x.active_worker_list:[],closed=Array.isArray(x.today_worker_list)?x.today_worker_list:[],rows=[...active.map(w=>({w,active:true})),...closed.map(w=>({w,active:false}))];if(!rows.length)return '';return `<section class="overview-op-workers" aria-label="Nhân viên"><small>Nhân viên</small><div class="overview-op-worker-list" role="list">${rows.map(({w,active})=>`<div class="ov-worker${active?' is-active':' is-finished'}" role="listitem" title="${E([w.name,w.employee_no].filter(Boolean).join(' · '))}"><i aria-hidden="true"></i><span class="ov-worker-identity"><b class="ov-worker-name">${E(w.name||w.employee_no||'—')}</b>${w.employee_no?`<small>${E(w.employee_no)}</small>`:''}</span><span class="ov-worker-status">${active?`Đang làm${w.started_at?` ${T(w.started_at)}`:''}`:`Đã kết thúc${w.last_ended_at?` ${T(w.last_ended_at)}`:''}`}</span></div>`).join('')}</div></section>`};
+  // Active-only hotfix (2026-09-30, core/overview-active.js): the per-OP
+  // "Hôm nay" block lists ONLY workers with an OPEN session. A worker who
+  // finishes (incl. AUTO_CLOSED at shift end) drops out on the next refresh,
+  // the others stay; with nobody active the whole block is gone. Closed-today
+  // history (today_worker_list) is no longer drawn here -- it is still in
+  // the API for Operation detail / Dashboard theo ngày.
+  const activeWorkers=x=>MFOverviewActive.activeWorkers(x);
+  const workerRows=workers=>{if(!workers.length)return '';return `<section class="overview-op-workers" aria-label="Nhân viên đang làm"><small>Nhân viên</small><div class="overview-op-worker-list" role="list">${workers.map(w=>`<div class="ov-worker is-active" role="listitem" data-employee-id="${E(w.employee_id??'')}" title="${E([w.name,w.employee_no].filter(Boolean).join(' · '))}"><i aria-hidden="true"></i><span class="ov-worker-identity"><b class="ov-worker-name">${E(w.name||w.employee_no||'—')}</b>${w.employee_no?`<small>${E(w.employee_no)}</small>`:''}</span><span class="ov-worker-status">Đang làm${w.started_at?` ${T(w.started_at)}`:''}</span></div>`).join('')}</div></section>`};
   // Dashboard's hour wording (app.js fmtDuration "2g 05p"), minutes kept
   // equally short ("25p") so a line never wraps on the pace text.
   const dur=sec=>{sec=Math.max(0,Math.round(Number(sec)||0));const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60);return h?`${h}g ${String(m).padStart(2,'0')}p`:m?`${m}p`:`${sec} giây`};
@@ -81,7 +83,7 @@ async function renderOverview(){
   const PACE={SLOW:{text:'Chậm hơn dự kiến',speed:'Chậm hơn định mức',cls:'slow'},FAST:{text:'Nhanh hơn dự kiến',speed:'Nhanh hơn định mức',cls:'fast'},ON_TARGET:{text:'Đúng dự kiến',speed:'Đúng định mức',cls:'target'}};
   const paceText=(pace,delta)=>{const p=PACE[pace];return !p?'':pace==='ON_TARGET'?p.text:`${p.text} ${dur(Math.abs(Number(delta)||0))}`};
   const todayM=(k,label,value,tip='',cls='',unit='')=>`<span class="ov-today-m${cls}" data-today="${k}"${tip?` title="${E(tip)}"`:''}>${label?`<small>${label}</small>`:''}<b>${value}</b>${unit?`<small>${unit}</small>`:''}</span>`;
-  const todayMetrics=x=>{const t=x.today,workers=workerRows(x);if(!t||!Number(t.session_count))return `<div class="overview-op-today is-empty" data-today-metrics><small>Hôm nay</small>${workers}<span>Chưa có phiên làm việc</span></div>`;
+  const todayMetrics=x=>{const active=activeWorkers(x);if(!active.length)return '';const t=x.today,workers=workerRows(active);if(!t||!Number(t.session_count))return `<div class="overview-op-today" data-today-metrics aria-label="Hôm nay"><div class="ov-today-line"><small class="ov-today-label">Hôm nay</small>${todayM('employees','',N(active.length),'Nhân viên đang làm Operation này','','NV')}</div>${workers}</div>`;
     const running=Number(t.open_session_count)>0||x.today_state==='RUNNING',span=`${t.first_started_at?T(t.first_started_at):'—'} → ${running?'đang chạy':(t.last_ended_at?T(t.last_ended_at):'—')}`;
     const spanTip=running?'Bắt đầu sớm nhất hôm nay · vẫn còn phiên đang mở':'Bắt đầu sớm nhất → kết thúc muộn nhất hôm nay';
     const qty=Number(t.good_qty||0)+Number(t.defect_qty||0),p=PACE[t.pace],pct=t.weighted_productivity_percent==null?null:Number(t.weighted_productivity_percent);
@@ -92,7 +94,7 @@ async function renderOverview(){
         +todayM('productivity','So ĐM',pct==null?'—':pctText(pct),pctTip,` op-speed ${p?p.cls:'na'}`)
         +(p?todayM('delta','',paceText(t.pace,t.delta_seconds),`Thực tế − dự kiến, cộng dồn ${basis}`,` op-speed ${p.cls}`):'')
       :todayM('productivity','','Chưa có định mức','Operation chưa cấu hình định mức (giây/SP) -- không tính dự kiến và So định mức',' op-speed na');
-    return `<div class="overview-op-today" data-today-metrics aria-label="Hôm nay"><div class="ov-today-line"><small class="ov-today-label">Hôm nay</small>${todayM('employees','',N(t.employee_count),'Nhân viên có phiên làm việc hôm nay','','NV')}${todayM('sessions','',N(t.session_count),`${N(t.open_session_count)} đang mở`,'','phiên')}${todayM('span','',span,spanTip)}</div>${workers}<div class="ov-today-line">${todayM('good','Đạt',N(t.good_qty))}${todayM('defect','Lỗi',N(t.defect_qty))}${todayM('rework','Sửa được',N(t.rework_qty),'Lỗi sửa được -- nằm trong Lỗi, không cộng thêm vào sản lượng')}${todayM('time','Làm',dur(t.actual_work_seconds??t.work_seconds),'Thời gian làm thực tế trong giờ làm việc (trừ giờ nghỉ theo lịch làm việc), như Dashboard theo ngày')}</div><div class="ov-today-line">${compare}</div></div>`};
+    return `<div class="overview-op-today" data-today-metrics aria-label="Hôm nay"><div class="ov-today-line"><small class="ov-today-label">Hôm nay</small>${todayM('employees','',N(active.length),'Nhân viên đang làm Operation này','','NV')}${todayM('sessions','',N(t.session_count),`${N(t.open_session_count)} đang mở`,'','phiên')}${todayM('span','',span,spanTip)}</div>${workers}<div class="ov-today-line">${todayM('good','Đạt',N(t.good_qty))}${todayM('defect','Lỗi',N(t.defect_qty))}${todayM('rework','Sửa được',N(t.rework_qty),'Lỗi sửa được -- nằm trong Lỗi, không cộng thêm vào sản lượng')}${todayM('time','Làm',dur(t.actual_work_seconds??t.work_seconds),'Thời gian làm thực tế trong giờ làm việc (trừ giờ nghỉ theo lịch làm việc), như Dashboard theo ngày')}</div><div class="ov-today-line">${compare}</div></div>`};
   // PO "Hôm nay" strip: derived from the SAME operation rows (no extra
   // request). Distinct NV is exact -- a union of each row's employee_ids,
   // not a sum of per-OP counts. So định mức / OP chậm only use Operations

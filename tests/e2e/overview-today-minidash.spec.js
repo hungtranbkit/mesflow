@@ -16,8 +16,8 @@ async function mock(page){
  const operations=[
   OP(1,'May thân',{active:[W(1,'Nguyễn Văn An',{started_at:'2026-09-26T01:00:00Z'}),W(4,'Phạm Dũng',{started_at:'2026-09-26T02:00:00Z'})],state:'RUNNING',history:[W(2,'Trần Thị Bình',{last_ended_at:'2026-09-26T08:30:00Z'}),W(3,'Lê Chi',{last_ended_at:'2026-09-26T09:15:00Z'})],
    today:TODAY({employee_count:2,employee_ids:[1,2],session_count:3,open_session_count:1,good_qty:120,defect_qty:4,rework_qty:2,work_seconds:9000,actual_work_seconds:9000,expected_seconds:7440,scored_work_seconds:9000,scored_expected_seconds:9387,weighted_session_count:2,weighted_productivity_percent:104.3,delta_seconds:-387,pace:'FAST'})}),
-  OP(2,'Ráp cổ',{state:'STOPPED',history:[W(2,'Trần Thị Bình'),W(3,'Lê Chi')],
-   today:TODAY({employee_count:2,employee_ids:[2,3],session_count:2,good_qty:200,defect_qty:10,rework_qty:3,work_seconds:10800,actual_work_seconds:10800,expected_seconds:12600,scored_work_seconds:14000,scored_expected_seconds:12600,weighted_session_count:2,weighted_productivity_percent:90,delta_seconds:1400,pace:'SLOW'})}),
+  OP(2,'Ráp cổ',{active:[W(5,'Hoàng Em',{started_at:'2026-09-26T03:00:00Z'})],state:'RUNNING',history:[W(2,'Trần Thị Bình'),W(3,'Lê Chi')],
+   today:TODAY({employee_count:2,employee_ids:[2,3],session_count:2,open_session_count:1,good_qty:200,defect_qty:10,rework_qty:3,work_seconds:10800,actual_work_seconds:10800,expected_seconds:12600,scored_work_seconds:14000,scored_expected_seconds:12600,weighted_session_count:2,weighted_productivity_percent:90,delta_seconds:1400,pace:'SLOW'})}),
   OP(3,'Đóng nút',{active:[W(4,'Phạm Dũng',{started_at:'2026-09-26T06:00:00Z'})],state:'RUNNING',
    today:TODAY({employee_count:1,employee_ids:[4],session_count:2,open_session_count:1,good_qty:30,defect_qty:0,rework_qty:0,work_seconds:2400,actual_work_seconds:2400,expected_seconds:1800,scored_work_seconds:1820,scored_expected_seconds:1800,weighted_session_count:1,weighted_productivity_percent:98.9,delta_seconds:20,pace:'ON_TARGET'})}),
   OP(4,'Chưa có định mức',{state:'STOPPED',history:[W(1,'Nguyễn Văn An')],
@@ -39,7 +39,7 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(m(1,'employees').locator('b')).toHaveText('2');
  await expect(m(1,'sessions').locator('b')).toHaveText('3');
  await expect(m(1,'span')).toHaveText('07:42 → đang chạy');
- await expect(m(2,'span')).toHaveText('07:42 → 17:00');
+ await expect(m(2,'span')).toHaveText('07:42 → đang chạy');
  expect(await txt(row(1).locator('.ov-today-line').nth(1))).toBe('Đạt120Lỗi4Sửa được2Làm2g 30p');  // separators are CSS-only
  await expect(m(1,'time').locator('b')).toHaveText('2g 30p');
  await expect(m(1,'expected').locator('b')).toHaveText('2g 04p');
@@ -52,39 +52,40 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(m(2,'productivity').locator('b')).toHaveText('90,0%');
  await expect(m(3,'delta')).toHaveText('Đúng dự kiến');
  await expect(m(3,'delta')).toHaveClass(/target/);
- // No định mức: honest label, no fake %, no ĐM, no pace.
- await expect(m(4,'productivity')).toHaveText('Chưa có định mức');
- await expect(m(4,'expected')).toHaveCount(0);
- await expect(m(4,'delta')).toHaveCount(0);
- await expect(m(4,'time').locator('b')).toHaveText('25p');
- await expect(row(5).locator('[data-today-metrics]')).toContainText('Chưa có phiên làm việc');
- // Active and finished-today employees stay visible together, one per row.
+ // Active-only (2026-09-30): an Operation nobody is on -- worked earlier
+ // today (4) or not at all (5) -- has no Hôm nay block and no placeholder.
+ for(const id of [4,5,6,7,8,9]){
+  await expect(row(id).locator('[data-today-metrics]')).toHaveCount(0);
+  await expect(row(id).locator('.overview-op-workers')).toHaveCount(0);
+ }
+ await expect(row(4)).not.toContainText('Nguyễn Văn An');
+ await expect(row(5)).not.toContainText('Chưa có phiên làm việc');
+ // Only the people on it right now, one per row; finished-today are hidden.
  const workers=row(1).locator('[data-today-metrics] .overview-op-worker-list .ov-worker');
  await expect(row(1).locator('[data-today-metrics] .overview-op-workers > small')).toHaveText('Nhân viên');
- await expect(workers).toHaveCount(4);
+ await expect(workers).toHaveCount(2);
  await expect(workers.nth(0)).toContainText('Nguyễn Văn An');
  await expect(workers.nth(0)).toContainText('Đang làm 08:00');
  await expect(workers.nth(1)).toContainText('Phạm Dũng');
  await expect(workers.nth(1)).toContainText('Đang làm 09:00');
- await expect(workers.nth(2)).toContainText('Trần Thị Bình');
- await expect(workers.nth(2)).toContainText('Đã kết thúc 15:30');
- await expect(workers.nth(3)).toContainText('Lê Chi');
- await expect(workers.nth(3)).toContainText('Đã kết thúc 16:15');
+ await expect(row(1).locator('[data-today-metrics]')).not.toContainText('Trần Thị Bình');
+ await expect(row(1).locator('[data-today-metrics]')).not.toContainText('Lê Chi');
+ await expect(row(1).locator('[data-today-metrics]')).not.toContainText('Đã kết thúc');
  await expect(workers.nth(0)).toHaveClass(/is-active/);
  await expect(workers.nth(1)).toHaveClass(/is-active/);
- await expect(workers.nth(2)).toHaveClass(/is-finished/);
- await expect(workers.nth(3)).toHaveClass(/is-finished/);
+ await expect(row(1).locator('.ov-worker.is-finished')).toHaveCount(0);
+ await expect(m(1,'employees').locator('b')).toHaveText('2');  // people on it now
  const dotColors=await workers.evaluateAll(es=>es.map(e=>getComputedStyle(e.querySelector('i')).backgroundColor));
  expect(dotColors[0]).toBe('rgb(23, 116, 81)');expect(dotColors[1]).toBe(dotColors[0]);
- expect(dotColors[2]).toBe('rgb(85, 97, 112)');expect(dotColors[3]).toBe(dotColors[2]);
  const workerLayout=await workers.evaluateAll(es=>es.map(e=>{const dot=e.querySelector('i'),name=e.querySelector('.ov-worker-name'),status=e.querySelector('.ov-worker-status');return {top:e.getBoundingClientRect().top,dotBeforeName:dot?.nextElementSibling?.contains(name),statusBelowName:status?.getBoundingClientRect().top>name?.getBoundingClientRect().top}}));
- expect(new Set(workerLayout.map(x=>Math.round(x.top))).size).toBe(4);
+ expect(new Set(workerLayout.map(x=>Math.round(x.top))).size).toBe(2);
  expect(workerLayout.every(x=>x.dotBeforeName)).toBe(true);
  expect(workerLayout.every(x=>x.statusBelowName)).toBe(true);
  await expect(row(1).locator('[data-today-metrics] .overview-op-workers')).toHaveCount(1);
  await expect(row(1).locator(':scope > .overview-op-workers')).toHaveCount(0);
  expect(await row(1).locator('[data-today-metrics] .overview-op-workers').evaluate(e=>e.parentElement.matches('[data-today-metrics]'))).toBe(true);
- await expect(row(2).locator('[data-today-metrics] .overview-op-worker-list .ov-worker')).toHaveCount(2);
+ await expect(row(2).locator('[data-today-metrics] .overview-op-worker-list .ov-worker')).toHaveCount(1);
+ await expect(row(2).locator('[data-today-metrics]')).not.toContainText('Trần Thị Bình');
  await expect(row(2).locator(':scope > .overview-op-workers')).toHaveCount(0);
  // ---- PO strip, derived from the same rows.
  const strip=page.locator('[data-po-section="1"] [data-po-today]').first(),s=k=>strip.locator(`[data-po-today="${k}"]`);
@@ -92,7 +93,7 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(s('employees').locator('b')).toHaveText('4');          // union {1,2,3,4}, not 2+2+1+1
  await expect(s('sessions').locator('b')).toHaveText('8');
  await expect(s('ops').locator('b')).toHaveText('4/9');
- await expect(s('running').locator('b')).toHaveText('2');
+ await expect(s('running').locator('b')).toHaveText('3');
  await expect(s('good').locator('b')).toHaveText('355');
  await expect(s('defect').locator('b')).toHaveText('14');
  await expect(s('rework').locator('b')).toHaveText('5');

@@ -1,7 +1,9 @@
 const {test,expect}=require('@playwright/test');
-// Production Overview hotfix (2026-09-26, part 2): "Hôm nay" block per
-// Operation row + neutral "Đã dừng HH:mm" line for closed-today workers.
-// OPEN (active_worker_list) wins over the today history.
+// Production Overview "Hôm nay" block per Operation row.
+// Active-only hotfix (2026-09-30): the block exists ONLY while someone has an
+// OPEN session on the Operation, and lists only those people. Closed-today
+// workers (today_worker_list) are not drawn; an Operation nobody is on has no
+// block and no placeholder. Day metrics inside the block are unchanged.
 async function login(page){await page.goto('/login');await page.request.post('/api/auth/test-auto-login');
  await page.waitForURL(/\/app/,{timeout:20000}).catch(()=>{});
  await page.goto('/app');await expect(page.locator('#appLayout')).toBeVisible()}
@@ -13,25 +15,34 @@ async function mock(page){
  const operations=[OP(1,'Chưa làm hôm nay'),
   OP(2,'Đang làm và đã làm',{active:[W(1,'Nguyễn Văn An',{started_at:'2026-09-26T08:00:00Z'})],today:TODAY({open_session_count:1}),history:[W(2,'Trần Thị Bình',{last_ended_at:'2026-09-26T07:00:00Z'})],state:'RUNNING'}),
   OP(3,'Đã dừng nhiều người',{today:TODAY({employee_count:5,session_count:6,productivity_percent:87.5,weighted_productivity_percent:87.5,delta_seconds:1286,pace:'SLOW'}),history:[W(3,'Lê Chi',{last_ended_at:'2026-09-26T09:30:00Z',auto_closed:true}),W(4,'Phạm Dũng'),W(5,'Hoàng Em',{session_count:2}),W(6,'Võ Phương'),W(7,'Đỗ Giang')],state:'STOPPED'}),
-  OP(4,'Chưa có định mức',{today:TODAY({employee_count:1,session_count:1,productivity_percent:null,standard_seconds_per_unit:0,work_seconds:1500,actual_work_seconds:1500,expected_seconds:0,standard_configured:false,weighted_productivity_percent:null,delta_seconds:null,pace:null}),history:[W(8,'Bùi Hà')],state:'STOPPED'})];
+  OP(4,'Chưa có định mức',{active:[W(9,'Mai Khoa',{started_at:'2026-09-26T08:10:00Z'})],today:TODAY({employee_count:2,session_count:2,open_session_count:1,productivity_percent:null,standard_seconds_per_unit:0,work_seconds:1500,actual_work_seconds:1500,expected_seconds:0,standard_configured:false,weighted_productivity_percent:null,delta_seconds:null,pace:null}),history:[W(8,'Bùi Hà')],state:'RUNNING'})];
  await page.route('**/api/dashboard/overview*',r=>r.fulfill({json:{ok:true,production_orders,operations,summary:{}}}));
  await page.route('**/api/production-control*',r=>r.fulfill({json:{ok:true,production_orders:[{po_id:1,control_state:'ON_TRACK'}],operations:[],summary:{}}}))}
 for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:390,height:844}])test(`today activity ${viewport.width}x${viewport.height}`,async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.setViewportSize(viewport);await mock(page);await login(page);
  await page.evaluate(()=>openPage('overview'));await expect(page.locator('.overview-po')).toHaveCount(1);
  const row=id=>page.locator(`[data-repair-op="${id}"]`);
- await expect(page.locator('[data-today-metrics]')).toHaveCount(4);
- // Idle row: compact empty block, no worker line.
- await expect(row(1).locator('[data-today-metrics]')).toContainText('Chưa có phiên làm việc');
- await expect(row(1).locator('[data-today-metrics] .overview-op-workers')).toHaveCount(0);
- await expect(row(1).locator(':scope > .overview-op-workers')).toHaveCount(0);
- // OPEN wins: green line only, no neutral history line.
- await expect(row(2).locator('[data-today-metrics] .overview-op-workers')).toHaveCount(1);
- await expect(row(2).locator('[data-today-metrics] .overview-op-workers')).toContainText('Đang làm');
- await expect(row(2).locator('[data-today-metrics] .overview-op-workers.is-stopped')).toHaveCount(0);
- await expect(row(2).locator(':scope > .overview-op-workers')).toHaveCount(0);
+ // Only the two Operations with someone on them have a Hôm nay block.
+ await expect(page.locator('[data-today-metrics]')).toHaveCount(2);
+ // Idle row and stopped-today row: no block, no placeholder, no names.
+ for(const id of [1,3]){
+  await expect(row(id).locator('[data-today-metrics]')).toHaveCount(0);
+  await expect(row(id).locator('.overview-op-workers')).toHaveCount(0);
+  await expect(row(id)).not.toContainText('Chưa có phiên làm việc');
+  await expect(row(id)).not.toContainText('Đã kết thúc');
+ }
+ await expect(row(3)).not.toContainText('Lê Chi');
+ // Running row: only the active worker; the finished colleague is hidden.
  const t2=row(2).locator('[data-today-metrics]');
- await expect(t2.locator('[data-today="employees"] b')).toHaveText('2');
+ await expect(t2.locator('.ov-worker')).toHaveCount(1);
+ await expect(t2.locator('.ov-worker.is-active')).toContainText('Nguyễn Văn An');
+ await expect(t2.locator('.ov-worker.is-active')).toContainText('Đang làm');
+ await expect(t2).not.toContainText('Trần Thị Bình');
+ await expect(t2.locator('.ov-worker.is-finished')).toHaveCount(0);
+ await expect(row(2).locator(':scope > .overview-op-workers')).toHaveCount(0);
+ // NV = people on it now; day metrics unchanged.
+ await expect(t2.locator('[data-today="employees"] b')).toHaveText('1');
  await expect(t2.locator('[data-today="sessions"] b')).toHaveText('3');
  await expect(t2.locator('[data-today="good"] b')).toHaveText('120');
  await expect(t2.locator('[data-today="defect"] b')).toHaveText('4');
@@ -40,18 +51,14 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  await expect(t2.locator('[data-today="productivity"] b')).toHaveText('104,3%');
  await expect(t2.locator('[data-today="productivity"]')).toHaveClass(/fast/);
  await expect(t2.locator('[data-today="productivity"]')).toHaveAttribute('title',/Nhanh hơn định mức[\s\S]*định mức × \(Đạt \+ Lỗi\) ÷ thời gian thực tế × 100%/);
- // Closed-today: each finished worker is a neutral gray row inside Hôm nay.
- const stopped=row(3).locator('[data-today-metrics] .overview-op-worker-list .ov-worker.is-finished');
- await expect(row(3).locator(':scope > .overview-op-workers')).toHaveCount(0);
- await expect(stopped).toHaveCount(5);
- await expect(stopped.nth(0)).toContainText('Lê Chi');
- await expect(stopped.nth(0)).toContainText('Đã kết thúc 16:30');
- await expect(stopped.nth(2)).toContainText('Hoàng Em');
- await expect(row(3).locator('[data-today="productivity"]')).toHaveClass(/slow/);
- await expect(row(4).locator('[data-today="productivity"] b')).toHaveText('Chưa có định mức');
- await expect(row(4).locator('[data-today="time"] b')).toHaveText('25p');
+ const t4=row(4).locator('[data-today-metrics]');
+ await expect(t4.locator('.ov-worker')).toHaveCount(1);
+ await expect(t4).not.toContainText('Bùi Hà');
+ await expect(t4.locator('[data-today="productivity"] b')).toHaveText('Chưa có định mức');
+ await expect(t4.locator('[data-today="time"] b')).toHaveText('25p');
  // Existing columns untouched.
  await expect(row(2)).toContainText('40.0%');
+ await expect(row(3)).toContainText('40.0%');
  if(viewport.width>900){
   await expect(row(2).locator('[data-open-op]')).toBeVisible();
   await expect(page.locator('.overview-op-today-head')).toHaveText('Hôm nay');
@@ -64,4 +71,5 @@ for(const viewport of [{width:1920,height:1080},{width:1366,height:768},{width:3
  const spill=await page.locator('[data-today-metrics],.overview-op-workers').evaluateAll(els=>els.filter(el=>el.scrollWidth>el.clientWidth+1||el.getBoundingClientRect().right>el.parentElement.getBoundingClientRect().right+1).length);
  expect(spill).toBe(0);
  expect(await page.locator('body').evaluate(x=>x.scrollWidth>x.clientWidth)).toBe(false);
+ expect(errors).toEqual([]);
  await page.screenshot({path:`test-results/overview-today-activity-${viewport.width}x${viewport.height}.png`,fullPage:true})});

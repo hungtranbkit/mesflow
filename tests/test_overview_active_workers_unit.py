@@ -104,12 +104,15 @@ def test_active_worker_source_is_open_sessions_and_page_renders_it():
     body = repo.split('def active_workers_by_operation', 1)[1].split('def overview', 1)[0]
     assert "ws.status='OPEN'" in body and "reportable_session_sql('ws')" in body
     assert 'parent_operation_id' in body
-    assert 'x.active_worker_list' in page
-    assert 'x.active_worker_list' in page and 'x.today_worker_list' in page
-    assert 'const workerRows=x=>' in page  # OPEN and closed-today workers render together
+    # Active-only hotfix (2026-09-30): the page draws active_worker_list only,
+    # through the pure projection in core/overview-active.js.
+    active_js = (ROOT / 'app/mesflow/web/static/core/overview-active.js').read_text(encoding='utf-8')
+    assert 'row.active_worker_list' in active_js and 'today_worker_list' not in active_js.split('(function', 1)[1]
+    assert 'const activeWorkers=x=>MFOverviewActive.activeWorkers(x);' in page
+    assert 'const workerRows=workers=>' in page
     assert 'activeWorkers(x)||todayWorkers(x)' not in page
     assert 'overview-op-worker-list' in page
     assert 'role="list"' in page and 'role="listitem"' in page
     assert 'ov-worker-name' in page and 'ov-worker-status' in page
-    worker_renderer = page.split('const workerRows=x=>', 1)[1].split('const dur=', 1)[0]
+    worker_renderer = page.split('const workerRows=workers=>', 1)[1].split('const dur=', 1)[0]
     assert '.slice(' not in worker_renderer and 'more' not in worker_renderer

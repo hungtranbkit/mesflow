@@ -131,9 +131,12 @@ def test_page_contract_operation_block():
     assert 'định mức × (Đạt + Lỗi) ÷ thời gian thực tế × 100%' in block
     # Worker status and names live inside the Hôm nay block, with no sibling row.
     assert '</div>${workers}<div class="ov-today-line">' in PAGE
-    assert 'const workerRows=x=>' in PAGE
-    assert 'x.active_worker_list' in PAGE and 'x.today_worker_list' in PAGE
-    assert 'last_ended_at?` ${T(w.last_ended_at)}`' in PAGE
+    # Active-only hotfix (2026-09-30): no block without an active worker, no
+    # finished-worker rows, no "Chưa có phiên làm việc" placeholder.
+    assert 'const workerRows=workers=>' in PAGE
+    assert "const active=activeWorkers(x);if(!active.length)return '';" in block
+    assert 'w.last_ended_at' not in PAGE and 'Chưa có phiên làm việc</span>' not in block
+    assert "todayM('employees','',N(active.length)" in block
     assert 'activeWorkers(x)||todayWorkers(x)' not in PAGE
     assert 'overview-op-worker-list' in PAGE
     assert 'data-today-metrics' in PAGE
