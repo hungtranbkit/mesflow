@@ -41,7 +41,25 @@ anything stale here; fix this file when they disagree.
 - DEV runs `mesflow-app:dev-381-e66587f` (`.env` pinned; previous
   `mesflow-app:dev-380-133cb22`, kept for rollback). `/api/system/ready`
   → 71.0.0.381, commit e66587f, DEV.
-- TEST (mesflow.net) is still 71.0.0.380 — 381 NOT deployed there.
+- TEST (mesflow.net) runs 71.0.0.381 since 2026-09-30 17:05 ICT: image
+  `mesflow-app:71.0.0.381` = the SAME image as DEV `dev-381-e66587f` (ID
+  `sha256:d4786d47…`, retagged, not rebuilt). It was deployed with
+  `scripts/deploy-remote-test.sh 71.0.0.381` → DEPLOY PASS.
+  `/api/system/ready` → 71.0.0.381, commit e66587f, PRODUCTION_TEST,
+  migration 0054 (no schema change).
+  - Rollback: `mesflow-app:71.0.0.380` (`sha256:22f12e07…`, commit
+    133cb22) is still on the VPS.
+  - DB backup before the deploy: VPS
+    `~/backups/mesflow-pre-381-20260930T100410Z.dump` (4.9 MB, 69 tables).
+  - Verified read-only on https://mesflow.net, P3 + legacy, 1366 + 390:
+    - 363 Operation rows; DOM == live API active lists, 0 mismatches;
+    - 13 Operations with finished-today workers in the API show no block
+      and no names;
+    - 0 active at 17:05, so 0 blocks;
+    - no JS errors.
+  - No TEST data was created: TEST has only 26 real employees and no test
+    accounts. "Active worker shown" is proven live on DEV with the identical
+    image.
 - 381 verification on DEV:
   - Merged tree: static suite 1246 passed / 2 failed (baseline
     `autologin_guard` ×2); Overview e2e 11/11.
