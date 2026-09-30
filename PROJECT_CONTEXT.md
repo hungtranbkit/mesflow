@@ -32,7 +32,10 @@ anything stale here; fix this file when they disagree.
   `scripts/check-version-sync.sh`. Main hotfixes land as a fix commit + a
   `chore(release): bump …` commit.
 
-## Current state (2026-09-29, after the productivity one-file export + print hotfix)
+## Current state (2026-09-30, after the Tổng quan active-only hotfix)
+
+- main = 71.0.0.381 (Tổng quan active-only, handoff below). DEV/refactor
+  integration of 381: pending at this commit; updated after deploy.
 
 - main = 71.0.0.380: kiosk hotfixes 377/378, the 379 detail export, and
   380 (`2252e57` feature, `255b61f` bump), which REPLACES 379's export
@@ -65,6 +68,71 @@ anything stale here; fix this file when they disagree.
     - print-all: 18 sections, 18 page breaks, print() called;
     - print-one: 1 employee;
     - `/kiosk` 200; no JS errors.
+
+## Recent handoff — Tổng quan: active-only workers (2026-09-30, 71.0.0.381)
+
+**Ask.** Tổng quan must show only the employees with an active session
+on each Operation. When someone finishes they disappear on the next
+refresh; others on the same Operation stay; an Operation with nobody
+active has no "Hôm nay" block (no finished/empty placeholder). This is a
+display change only.
+
+**Change.**
+- New `app/mesflow/web/static/core/overview-active.js` (UMD, pure).
+  `MFOverviewActive.activeWorkers(row)` builds the list from
+  `row.active_worker_list` (OPEN sessions only, server-side):
+  - it drops any entry that is not OPEN, has `ended_at`/`closed_at`, or
+    has `session_count` <= 0 (defensive);
+  - one entry per employee (duplicates folded, earliest start, session
+    counts summed);
+  - the API row is never mutated.
+  `hasActiveWork(row)` = list not empty. It is loaded in `app.html` before
+  `pages/overview.js`.
+- `pages/overview.js`:
+  - `todayMetrics(x)` returns '' when there is no active worker.
+  - Otherwise the block lists only active workers (`.ov-worker.is-active`,
+    "Đang làm HH:mm"). The NV metric = active count ("Nhân viên đang làm
+    Operation này").
+  - Day metrics (phiên, span, Đạt/Lỗi/Sửa được, Làm, ĐM, So ĐM, pace) are
+    unchanged.
+  - `today_worker_list` (closed-today history) is no longer drawn on
+    Tổng quan.
+  - The PO-level "Hôm nay" strip (counts only, no names) is unchanged.
+  - The 60 s timer and the "Làm mới" load path are untouched.
+- Backend untouched. `active_workers_by_operation()` is already
+  `ws.status='OPEN'` + reportable, SETUP folded onto its parent OP, and
+  multi-OPEN folded. AUTO_CLOSED sessions are CLOSED, so they leave on the
+  next refresh. `today_worker_list`/`today` are still returned for
+  Operation detail, Dashboard theo ngày and reports.
+
+**Tests.**
+- New `tests/test_overview_active_only.py` (7): the projection under Node
+  covers:
+  - 2 workers → 1 finishes → the other remains;
+  - last finishes → no block;
+  - CLOSED/AUTO_SHIFT_END/ended/zero-session entries excluded;
+  - multi-session fold, no mutation;
+  - page/backend contracts.
+- New `tests/e2e/overview-active-only.spec.js`: refresh sequence at
+  1366×768 and 390×844, plus one employee active on 2 OPs and AUTO_CLOSED.
+  It FAILS on the pre-fix build (`dev-380-133cb22`: NV 3 ≠ 2) and passes
+  on the fix.
+- Updated the 2026-09-26/28 pins that required finished workers /
+  placeholder: `test_overview_active_workers_unit.py`,
+  `test_overview_today_activity_unit.py`,
+  `test_overview_today_minidash_unit.py`,
+  `e2e/overview-today-activity.spec.js`, `e2e/overview-today-minidash.spec.js`.
+- e2e, isolated (throwaway `postgres:17-alpine` + test-mode preview with
+  auto-login on 127.0.0.1:8319, both removed): 11/11 passed —
+  overview-active-only ×2, overview-active-workers ×3,
+  overview-today-activity ×3, overview-today-minidash ×3.
+- Static suite (`mesflow-aw0926-tests`): 1220 passed / 2 failed / 18
+  skipped vs main `3d185d8` 1218 / 2 / 13. The same 2 baseline-only
+  `autologin_guard` failures; +5 skips are the Node tests, which pass on
+  the host.
+
+**Release.** `8a98290` fix, `1ed9abd` bump 71.0.0.381, plus this handoff.
+DEV deploy / refactor-line integration: see Current state.
 
 ## Recent handoff — Năng suất: one-file Excel + "In" (2026-09-29, 71.0.0.380)
 
