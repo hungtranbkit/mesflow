@@ -34,8 +34,28 @@ anything stale here; fix this file when they disagree.
 
 ## Current state (2026-09-30, after the Tổng quan active-only hotfix)
 
-- main = 71.0.0.381 (Tổng quan active-only, handoff below). DEV/refactor
-  integration of 381: pending at this commit; updated after deploy.
+- main = 71.0.0.381 (Tổng quan active-only, handoff below).
+- Refactor line = `e66587f`: merge of main `28070b9` into `6b7c545`. The only
+  conflict was a PROJECT_CONTEXT insertion; the overview code is identical
+  to main.
+- DEV runs `mesflow-app:dev-381-e66587f` (`.env` pinned; previous
+  `mesflow-app:dev-380-133cb22`, kept for rollback). `/api/system/ready`
+  → 71.0.0.381, commit e66587f, DEV.
+- TEST (mesflow.net) is still 71.0.0.380 — 381 NOT deployed there.
+- 381 verification on DEV:
+  - Merged tree: static suite 1246 passed / 2 failed (baseline
+    `autologin_guard` ×2); Overview e2e 11/11.
+  - Public https://dev.mesflow.net Tổng quan, P3 + legacy, 1366 + 390:
+    225 rows, DOM == API active lists, no finished/placeholder text, no
+    JS errors (DEV had no active sessions at the time).
+  - Live sequence at 16:21 ICT via the real kiosk scan path: DEV-001 +
+    NV002 started on op 4 (6126-…-01-OP01) → Overview listed both (NV 2).
+    Finished NV002 (session #16, 0 qty) → only "Tho Dev" (NV 1). Finished
+    DEV-001 (#15, 0 qty) → no Hôm nay block. The API still returned both in
+    `today_worker_list`, so the data is preserved. DEV sessions #15/#16 are
+    CLOSED, 0 qty, note "DEV verify: Tổng quan active-only hotfix 381".
+- The PO header "Hôm nay" strip (day counts, no names) is intentionally
+  unchanged.
 
 - main = 71.0.0.380: kiosk hotfixes 377/378, the 379 detail export, and
   380 (`2252e57` feature, `255b61f` bump), which REPLACES 379's export
