@@ -422,3 +422,12 @@ No backend/API/schema change.
   "Ngoài ca làm việc".
 - mesflow.net / production were not touched; promote 377 only with explicit
   approval.
+
+
+## Public showcase landing + isolated demo (2026-10-05)
+- Branch: `feat/showcase-landing-demo` (customer-facing showcase work; keep separate from production rollout until merged/deployed).
+- Public routes added: `/welcome` and `/demo`.
+- `/welcome` is a marketing/product landing with a direct “Dùng thử demo” CTA and clear MESFlow workflow/value explanation.
+- `/demo` is intentionally client-only: fixed sample data, no `/api/*` calls, no database/session/admin token, no write actions. It demonstrates Overview → Kiosk flow → Exceptions → Productivity and provides a browser-only Reset Demo.
+- Safety contract is guarded by `tests/test_showcase_public_routes.py`; production `/app`, auth, kiosk and data APIs are unchanged.
+- Deployment state: code/PR only until the host is explicitly updated. Do not claim the routes are live until the public host is verified after merge/deploy.
