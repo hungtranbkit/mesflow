@@ -48,7 +48,7 @@ def test_demo_reset_only_resets_browser_session_state():
     assert "localStorage" not in DEMO
 
 
-def test_demo_has_customer_quick-tour_surfaces():
+def test_demo_has_customer_quick_tour_surfaces():
     for label in ("Tổng quan", "Kiosk flow", "Ngoại lệ", "Năng suất"):
         assert label in DEMO
     assert re.search(r"1/4.+Tổng quan", DEMO)
