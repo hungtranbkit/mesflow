@@ -275,6 +275,17 @@ def create_app():
     def version():
         return jsonify(version=__version__,database_backend='postgresql',architecture='postgres-native',phase='production-ready',deployment_id=settings.deployment_id)
 
+    # Public showcase surfaces. These routes are intentionally independent
+    # from the authenticated MES runtime: /demo renders fixed sample data in
+    # the browser and never calls production APIs or writes to the database.
+    @app.get('/welcome')
+    def welcome_page():
+        return render_template('welcome.html', version=__version__)
+
+    @app.get('/demo')
+    def showcase_demo_page():
+        return render_template('demo_showcase.html', version=__version__)
+
     @app.get('/')
     def home():
         return redirect(url_for('app_page') if session_policy.validate_and_touch() is None else url_for('login_page'))

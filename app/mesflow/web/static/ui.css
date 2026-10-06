@@ -3762,7 +3762,11 @@ details.overview-po>summary:focus-visible{outline:2px solid var(--action-primary
 .po-expected-missing{color:var(--status-warning);font-size:11px}
 .template-expected-summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;margin:6px 0 0}
 .template-expected-note{color:var(--text-secondary);font-size:11px}
-.template-old-op-row .time-metric{margin-left:8px}
+/* Dự kiến / 1 SP nằm CÙNG ô "Thời gian / SP" với input chu kỳ: hàng OP có
+   đúng 5 ô như header. Để nó là ô thứ 6 thì nút xoá rơi xuống dòng dưới,
+   lệch khỏi hàng control của chính OP đó. */
+.template-old-op-row .op-cycle-cell{display:grid;gap:3px;min-width:0}
+.template-old-op-row .time-metric{margin-left:2px}
 .template-old-op-row .time-metric small{font-size:10px}
 /* Mobile: cho phép xuống dòng thay vì đẩy ngang -- không tạo overflow. */
 @media(max-width:760px){

@@ -78,6 +78,11 @@ test.describe('Lỗi tạm thời tự hồi phục', () => {
 
   test('mất mạng thật: báo "Mất kết nối mạng", không phải lỗi của trình duyệt', async ({ page, context }) => {
     await login(page);
+    // /app mở sẵn Tổng quan. Phải chờ lần tải đầu đó XONG rồi mới cắt mạng:
+    // nếu GET của nó còn đang bay, openPage bên dưới dùng chung request đó
+    // (MFNet dedupe GET đang bay) và nhận dữ liệu thật đã xin lúc còn online
+    // -- màn vẽ đúng, không có lỗi nào để báo, bài test đỏ ngẫu nhiên trên CI.
+    await expect(page.locator('#ovPos .overview-loading')).toHaveCount(0, { timeout: 20000 });
     await context.setOffline(true);
     try {
       await page.evaluate(() => openPage('overview', document.querySelector('[data-page="overview"]')));

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MESFlow Demo Mode</title>
+<style>
+:root{--bg:#f4f7fb;--ink:#1c2b3a;--muted:#65768a;--nav:#102236;--accent:#0e9f83;--line:#dce5ee;--warn:#fff3cd}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
+.demo-bar{position:sticky;top:0;z-index:20;background:var(--warn);border-bottom:1px solid #efd17a;padding:8px 16px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap}.demo-bar b{color:#775b00}.demo-bar button,.demo-bar a{border:1px solid #d8b94f;background:white;padding:7px 10px;border-radius:8px;text-decoration:none;color:var(--ink);font-weight:650;cursor:pointer}
+.shell{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 49px)}aside{background:var(--nav);color:#dbe8f5;padding:18px}.brand{font-weight:800;font-size:20px;margin-bottom:22px}.brand span{color:#55d9b9}.navbtn{display:block;width:100%;text-align:left;border:0;background:transparent;color:#c6d5e5;padding:11px 12px;border-radius:8px;cursor:pointer;margin:4px 0}.navbtn.active,.navbtn:hover{background:#1b3652;color:white}.content{padding:24px;max-width:1200px}.page{display:none}.page.active{display:block}h1{margin:0 0 4px;font-size:28px}.sub{color:var(--muted);margin:0 0 22px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{background:white;border:1px solid var(--line);border-radius:12px;padding:16px}.kpi b{font-size:27px;display:block}.kpi small{color:var(--muted)}table{width:100%;border-collapse:collapse;background:white;border:1px solid var(--line);border-radius:12px;overflow:hidden}th,td{text-align:left;padding:11px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:12px}.running{color:#087d68;font-weight:700}.chip{display:inline-block;padding:4px 8px;border-radius:999px;background:#e8f8f4;color:#087d68;font-size:12px}.kiosk{max-width:560px;margin:auto;background:#0d2134;color:white;padding:24px;border-radius:18px;box-shadow:0 18px 45px #20364a22}.scan{background:white;color:var(--ink);border-radius:12px;padding:18px;margin:12px 0}.scan h3{margin:0 0 8px}.scan button{width:100%;padding:12px;border:0;border-radius:9px;background:var(--accent);color:white;font-weight:750;cursor:pointer}.timeline{display:flex;gap:6px;margin-top:12px}.dot{height:8px;flex:1;border-radius:5px;background:#c8d5e1}.dot.on{background:var(--accent)}.bar{height:10px;background:#e4ebf2;border-radius:8px;overflow:hidden}.bar>span{display:block;height:100%;background:var(--accent)}.exception{border-left:4px solid #e6a23c}.walk{position:fixed;right:18px;bottom:18px;width:min(360px,calc(100vw - 36px));background:white;border:1px solid var(--line);box-shadow:0 12px 42px #10223633;border-radius:12px;padding:16px;z-index:30}.walk h3{margin:0 0 8px}.walk p{color:var(--muted)}.walk .actions{display:flex;gap:8px}.walk button{padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:white;cursor:pointer}.walk button.primary{background:var(--accent);color:white;border-color:var(--accent)}
+@media(max-width:780px){.shell{grid-template-columns:1fr}aside{padding:10px;display:flex;gap:4px;overflow:auto}.brand{display:none}.navbtn{white-space:nowrap;width:auto}.content{padding:16px}.grid{grid-template-columns:1fr 1fr}.walk{bottom:10px}.demo-bar{position:relative}}
+</style>
+</head>
+<body>
+<div class="demo-bar"><b>DEMO MODE</b><span>Dữ liệu mẫu · không kết nối production · không có thao tác ghi</span><button id="reset">Đặt lại demo</button><a href="/welcome">Giới thiệu</a></div>
+<div class="shell"><aside><div class="brand">MES<span>Flow</span></div>
+<button class="navbtn active" data-page="overview">Tổng quan</button><button class="navbtn" data-page="kiosk">Kiosk flow</button><button class="navbtn" data-page="exceptions">Ngoại lệ</button><button class="navbtn" data-page="productivity">Năng suất</button>
+</aside><main class="content">
+<section class="page active" id="overview"><h1>Tổng quan sản xuất</h1><p class="sub">Ảnh chụp logic của một ca mẫu — tất cả dữ liệu dưới đây chỉ tồn tại trong trang demo.</p>
+<div class="grid"><div class="card kpi"><small>Nhân viên đang làm</small><b>7</b></div><div class="card kpi"><small>Operation đang chạy</small><b>5</b></div><div class="card kpi"><small>Sản lượng hôm nay</small><b>1,284</b></div><div class="card kpi"><small>Đúng định mức</small><b>86%</b></div></div>
+<h2>Hoạt động hiện tại</h2><table><thead><tr><th>PO / Operation</th><th>Nhân viên</th><th>Bắt đầu</th><th>Sản lượng</th><th>Trạng thái</th></tr></thead><tbody><tr><td><b>PO-24018 · OP20</b><br>Cắt & chuẩn bị</td><td>Nguyễn An</td><td>09:12</td><td>320</td><td class="running">Đang chạy</td></tr><tr><td><b>PO-24021 · OP10</b><br>Lắp ráp</td><td>Trần Minh</td><td>09:31</td><td>185</td><td class="running">Đang chạy</td></tr><tr><td><b>PO-24017 · OP40</b><br>Kiểm tra</td><td>Lê Bình</td><td>08:05</td><td>450</td><td><span class="chip">Hoàn tất</span></td></tr></tbody></table></section>
+<section class="page" id="kiosk"><h1>Kiosk flow</h1><p class="sub">Mô phỏng đúng thứ tự thao tác: thẻ nhân viên → Operation → bắt đầu → nhập sản lượng → hoàn tất.</p><div class="kiosk"><div class="scan"><h3 id="scan-title">1. Quét thẻ nhân viên</h3><p id="scan-copy">Nhân viên mẫu: Nguyễn An · NV-014</p><button id="scan-next">Mô phỏng quét</button><div class="timeline"><i class="dot on"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i></div></div><p id="kiosk-note">Không có request nào được gửi tới MESFlow thật.</p></div></section>
+<section class="page" id="exceptions"><h1>Trung tâm ngoại lệ</h1><p class="sub">Ngoại lệ được hiển thị để quản lý xử lý; trang demo không cho phép ghi chỉnh sửa.</p><div class="card exception"><b>Thiếu scan kết thúc · PO-24018 / OP20</b><p>Session mở 2h18 · nhân viên Nguyễn An · cần xác minh trước khi điều chỉnh.</p><span class="chip">Cần xem xét</span></div><br><div class="card exception"><b>Sản lượng 0 · PO-24022 / OP30</b><p>Đã dừng session nhưng chưa ghi sản lượng.</p><span class="chip">Cần xem xét</span></div></section>
+<section class="page" id="productivity"><h1>Năng suất</h1><p class="sub">So sánh nhanh theo nhân viên và Operation.</p><div class="card"><b>Nguyễn An · 94%</b><div class="bar"><span style="width:94%"></span></div><p>OP20 · 505 pcs · 3h48</p></div><br><div class="card"><b>Trần Minh · 88%</b><div class="bar"><span style="width:88%"></span></div><p>OP10 · 412 pcs · 4h11</p></div><br><div class="card"><b>Lê Bình · 103%</b><div class="bar"><span style="width:100%"></span></div><p>OP40 · 450 pcs · 3h05</p></div></section>
+</main></div>
+<div class="walk" id="walk"><h3>Bắt đầu tại đây</h3><p id="walk-copy">1/4 — Xem “Tổng quan” để biết ai đang làm Operation nào và tiến độ trong ca.</p><div class="actions"><button id="walk-close">Đóng</button><button class="primary" id="walk-next">Bước tiếp →</button></div></div>
+<script>
+(()=>{
+const pages=['overview','kiosk','exceptions','productivity'];
+const labels=[
+'1/4 — Xem “Tổng quan” để biết ai đang làm Operation nào và tiến độ trong ca.',
+'2/4 — Mở “Kiosk flow”, bấm Mô phỏng quét để đi qua luồng thẻ nhân viên → Operation → hoàn tất.',
+'3/4 — Mở “Ngoại lệ” để thấy các trường hợp cần quản lý xác minh trước khi sửa.',
+'4/4 — Mở “Năng suất” để so sánh mức đạt theo nhân viên / Operation.'
+];
+let step=+(sessionStorage.getItem('mesflow-demo-step')||0);
+function open(id){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===id));document.querySelectorAll('.navbtn').forEach(x=>x.classList.toggle('active',x.dataset.page===id));}
+document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>open(b.dataset.page));
+function paint(){document.querySelector('#walk-copy').textContent=labels[step];}
+document.querySelector('#walk-next').onclick=()=>{step=(step+1)%pages.length;sessionStorage.setItem('mesflow-demo-step',step);open(pages[step]);paint()};
+document.querySelector('#walk-close').onclick=()=>document.querySelector('#walk').hidden=true;
+let scan=+(sessionStorage.getItem('mesflow-demo-scan')||0);
+const scanTitles=['1. Quét thẻ nhân viên','2. Quét Operation','3. Session đang chạy','4. Hoàn tất Operation'];
+const scanCopy=['Nguyễn An · NV-014','PO-24018 · Part A12 · OP20','Bắt đầu 09:12 · sản lượng hiện tại 320','Ghi thêm 40 pcs · tổng 360 · thời gian 01:24'];
+function paintScan(){document.querySelector('#scan-title').textContent=scanTitles[scan];document.querySelector('#scan-copy').textContent=scanCopy[scan];document.querySelector('#scan-next').textContent=scan===3?'Chạy lại demo':'Mô phỏng quét';document.querySelectorAll('.dot').forEach((d,i)=>d.classList.toggle('on',i<=scan));}
+document.querySelector('#scan-next').onclick=()=>{scan=(scan+1)%4;sessionStorage.setItem('mesflow-demo-scan',scan);paintScan()};
+document.querySelector('#reset').onclick=()=>{sessionStorage.removeItem('mesflow-demo-step');sessionStorage.removeItem('mesflow-demo-scan');step=0;scan=0;open('overview');document.querySelector('#walk').hidden=false;paint();paintScan()};
+paint();paintScan();
+})();
+</script>
+</body></html>

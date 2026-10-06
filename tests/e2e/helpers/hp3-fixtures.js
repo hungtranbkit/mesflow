@@ -209,9 +209,9 @@ function scaleOverview(date, opts) {
   const rows = scaleRows(date, opts);
   const byPo = new Map();
   for (const r of rows) {
-    if (!byPo.has(r.po_id)) byPo.set(r.po_id, { ...r, good_quantity: 0, defect_quantity: 0 });
+    if (!byPo.has(r.po_id)) byPo.set(r.po_id, { ...r, good_quantity: 0, defect_quantity: 0, plan_sum: 0 });
     const g = byPo.get(r.po_id);
-    g.good_quantity += r.done_qty; g.defect_quantity += r.defect_qty;
+    g.good_quantity += r.done_qty; g.defect_quantity += r.defect_qty; g.plan_sum += r.planned_quantity;
   }
   return { ok: true, summary: { unconfirmed_quantity_sessions: 7 },
     production_orders: [...byPo.values()].map(g => ({
@@ -219,6 +219,12 @@ function scaleOverview(date, opts) {
       good_quantity: g.good_quantity, defect_quantity: g.defect_quantity, scrap_quantity: 3,
       remaining_quantity: Math.max(0, 4000 - g.good_quantity),
       progress_percent: Math.min(100, Math.round(g.good_quantity / 40)),
+      // Cùng hình dạng /api/dashboard/overview trả về từ a8977ef
+      // (analytics.py progress_rollup): tiến độ = tổng đạt / tổng kế hoạch của
+      // từng Operation. Thiếu ba trường này thì mọi PO rơi vào nhánh "Chưa có
+      // định mức sản lượng" -- dữ liệu thật ở quy mô này không như thế.
+      progress_actual_good_qty: g.good_quantity, progress_planned_qty: g.plan_sum,
+      progress_missing_operation_count: 0, progress_basis: 'SUM_GOOD_OVER_SUM_PLANNED',
       due_date: g.due_date, repair_pending_quantity: g.po_id % 3, repair_unconfigured_operation_count: 0,
       estimated_repair_work_seconds: 3600, control_state: g.po_id % 5 === 0 ? 'CRITICAL' : (g.po_id % 3 === 0 ? 'WARNING' : 'ON_TRACK'),
     })), operations: rows };
