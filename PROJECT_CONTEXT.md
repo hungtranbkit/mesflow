@@ -425,6 +425,8 @@ No backend/API/schema change.
 
 
 ## Public showcase landing + isolated demo (2026-10-05)
+- CI follow-up 2026-10-06: the rework overview regression now explicitly sets the Part planned quantity to 100 before asserting 92%/98% progress. The production query intentionally returns progress_percent=null when no operation/part planned quantity is configured; the old test depended on that missing denominator while testing an unrelated rework rollup concern. Commit 0586302f contains the test correction.
+
 - Branch: `feat/showcase-landing-demo` (customer-facing showcase work; keep separate from production rollout until merged/deployed).
 - Public routes added: `/welcome` and `/demo`.
 - `/welcome` is a marketing/product landing with a direct “Dùng thử demo” CTA and clear MESFlow workflow/value explanation.
