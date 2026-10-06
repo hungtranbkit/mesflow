@@ -64,6 +64,11 @@ def _rework_op_id(db, po_id):
 def test_resolving_rework_keeps_po_progress_and_repair_buckets_honest(api, db, seeded_factory):
     graph = seeded_factory
     po_id = graph['po_id']
+    # Progress is now explicitly based on configured Part/Operation planned
+    # quantity. This regression is about rework rollups, so give its one Part
+    # the same 100-unit target as the PO instead of relying on a legacy NULL
+    # denominator (which correctly reports progress_percent=None).
+    db.execute('UPDATE parts SET planned_quantity=%s WHERE id=%s', (100, graph['part_id']))
     source = _start(api, graph)
     assert source.status_code == 201, source.text
     source_id = source.json()['session']['id']

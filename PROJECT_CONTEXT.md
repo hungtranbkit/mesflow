@@ -537,3 +537,54 @@ P2 System console consolidation (done), P3 Productivity (done), then P4 Master D
 - Browser verification on public https://dev.mesflow.net (Playwright in the mesflow-aw0926-playwright image, --network host) at 1920x1080, 1366x768, 390x844, refactor mode plus legacy mode at 1366: title "Năng suất", 2 inline tabs with correct active tab, shell strip hidden, 4 KPIs, sticky header, numeric cells right-aligned, 0px body horizontal overflow, no console/page errors. Filters kept across Nhân viên -> Operation -> Nhân viên; the Excel request carried from/to/search/sort/dir. Filtered export downloaded from DEV: 200 xlsx, header ends in "NV xác nhận", search=Mơ -> 1 row. Screenshots: docs/ui-golden/productivity/*.png.
 - Known risks / notes: static assets use `?v=<version>` and the version was not bumped (same as P2), so browsers with a cached 71.0.0.376 ui.css/app.js may show stale UI for up to max-age=14400s (hard-reload fixes it). A dirty sibling worktree /home/dell/workspace/.worktrees/mesflow-ui-dev-default-20260929 (branch ui-refactor/dev-default-canonical-20260929, uncommitted app.py server_role change) belongs to another task and was not touched. No Operation-tab Excel export exists (none existed before); candidate for a later phase.
 - Next: P4 Master Data (Employees + QR Print + Equipment) using the P3 primitives; then P5 Quality, P6 Kiosk, P7 Trace/Logs, P10 Planning, P11 Admin, P8 Sessions, P9 Overview, P12 cleanup.
+
+
+## Public showcase landing + isolated demo (2026-10-05)
+- CI follow-up 2026-10-06: the rework overview regression now explicitly sets the Part planned quantity to 100 before asserting 92%/98% progress. The production query intentionally returns progress_percent=null when no operation/part planned quantity is configured; the old test depended on that missing denominator while testing an unrelated rework rollup concern. Commit 0586302f contains the test correction.
+
+- Branch: `feat/showcase-landing-demo` (customer-facing showcase work; keep separate from production rollout until merged/deployed).
+- Public routes added: `/welcome` and `/demo`.
+- `/welcome` is a marketing/product landing with a direct “Dùng thử demo” CTA and clear MESFlow workflow/value explanation.
+- `/demo` is intentionally client-only: fixed sample data, no `/api/*` calls, no database/session/admin token, no write actions. It demonstrates Overview → Kiosk flow → Exceptions → Productivity and provides a browser-only Reset Demo.
+- Safety contract is guarded by `tests/test_showcase_public_routes.py`; production `/app`, auth, kiosk and data APIs are unchanged.
+- Deployment state: code/PR only until the host is explicitly updated. Do not claim the routes are live until the public host is verified after merge/deploy.
+- CI follow-up 2 (2026-10-06, run 37399700729): after the Python stage went
+  green, the Playwright stage showed 3 hard failures + 1 flaky. None were
+  caused by the showcase routes. main has the same latent failures, but main's
+  CI stops at the Python stage, so it never reaches Playwright. Fixes (branch
+  `fix/pr30-ci-e2e` pushed into `feat/showcase-landing-demo`):
+  - `daily-dashboard-kiosk.spec.js:243`: stale copy. 8f8eab3 renamed
+    "Tỉ lệ NG cao" → "Tỉ lệ lỗi cao" in daily-dashboard-kiosk.js; the test now
+    expects the shipped label.
+  - `part-block-primitive.spec.js:206` "lệch tâm 44px": REAL UI regression from
+    ea094c5 (.322). The Template editor OP row gained a 6th grid cell
+    ("Dự kiến / 1 sản phẩm"), but the header/grid have 5 columns, so the delete
+    button wrapped onto the flow-config line. Fix: `oldOperationRow` in
+    `static/app.js` wraps the cycle input + metric in `.op-cycle-cell` (one cell
+    under the "Thời gian / SP" header); CSS in `ui.css` next to the
+    `.template-old-op-row .time-metric` rules. Keep the row at 5 cells.
+  - `production-progressive-disclosure.spec.js:46` @390 (5.1 viewports): stale
+    fixture. `tests/e2e/helpers/hp3-fixtures.js` `scaleOverview` lacked the
+    `progress_planned_qty/progress_actual_good_qty/progress_missing_operation_count/progress_basis`
+    fields `/api/dashboard/overview` has returned since a8977ef, so every PO
+    rendered the taller "Chưa có định mức sản lượng" state. The fixture now
+    mirrors analytics.py `progress_rollup` (sum of done / sum of plan). The
+    5-viewport threshold is unchanged.
+  - `network-resilience.spec.js:79` (flaky): test race, not a product bug.
+    `/app` lands on Tổng quan, whose first GET may still be in flight when the
+    test goes offline; `openPage` then shares it via the MFNet in-flight GET
+    dedupe and correctly renders the real data. The test now waits for
+    `#ovPos .overview-loading` to clear before `setOffline(true)`.
+  - Verification on dell (isolated stack `docker compose -p mesflow-t-pr30 -f
+    compose.test.yml`): the 4 specs, `--retries=0`: 58/58 passed;
+    network-resilience `--repeat-each=8`: 72/72 passed. Python stage (`tests`
+    service): 386/874/45/617 passed, "All suites passed". Full Playwright:
+    585 passed / 4 skipped / 1 failed; the 1 was the ESP tutorial test, from a
+    missing local fixture. After `scripts/test/generate-esp-tutorial-fixture.sh`,
+    `mesflow.spec.js` passed 7/7.
+  - Local repro gotchas (not CI issues): run the `tests` service BEFORE
+    Playwright (`admin-list-card-consistency.spec.js:82` clicks the first real
+    PO and times out on an empty DB), and generate the ESP fixture BEFORE the
+    first `up`. Otherwise Docker creates `runtime/tutorials` empty and
+    root-owned, and the generator fails with `mkdir: Permission denied`.
+    `scripts/test/docker-test.sh` already does both.

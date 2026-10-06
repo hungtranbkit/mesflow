@@ -248,7 +248,8 @@ test.describe('Kiosk điều hành', () => {
     await openKiosk(page, date);
 
     await expect(page.locator('#kioskAttention')).toContainText('Phiên làm việc chưa xác nhận');
-    await expect(page.locator('#kioskAttention')).toContainText('Tỉ lệ NG cao');
+    // Nhãn đổi "NG" -> "lỗi" theo 8f8eab3 (fix(copy): label defect quantities as loi).
+    await expect(page.locator('#kioskAttention')).toContainText('Tỉ lệ lỗi cao');
     await expect(page.locator('#kioskAttentionFoot')).toContainText('chưa có nguồn dữ liệu');
     await expect(page.locator('#kioskChartNote')).toContainText('SP đạt trong ngày');
   });
