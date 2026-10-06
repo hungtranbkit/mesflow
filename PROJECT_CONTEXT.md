@@ -588,3 +588,41 @@ P2 System console consolidation (done), P3 Productivity (done), then P4 Master D
     first `up`. Otherwise Docker creates `runtime/tutorials` empty and
     root-owned, and the generator fails with `mkdir: Permission denied`.
     `scripts/test/docker-test.sh` already does both.
+
+## 71.0.0.382 release candidate: public showcase on the live UI line (2026-10-06)
+- main 8337843 = squash of PR #30 (showcase `/welcome` + client-only `/demo`, plus the
+  CI fixes from a1760dd; tree identical to a1760dd).
+- mesflow.net (TEST) and DEV both ran 71.0.0.381 = commit e66587f, the UI refactor line
+  merged with main. Deploying plain main there would wipe UI P0–P3, so the release is
+  built on the refactor line instead:
+  - branch `release/71.0.0.382-showcase`;
+  - `8355f32` = merge of main 8337843 into refactor 8fa6145. Only conflict: this file
+    (add/add, concatenated). app.js/ui.css merged automatically; `.op-cycle-cell` is
+    present;
+  - `dd5870c` = `scripts/bump-version.sh 71.0.0.382` (VERSION_VERIFY PASS).
+- Local image `mesflow-app:dev-382-dd5870c` (sha256:b7d463cc…, VERSION 71.0.0.382,
+  MESFLOW_BUILD_COMMIT dd5870c). No migration change (head stays 0054).
+- Verified on dell, isolated `-p mesflow-t-rel382` stack:
+  - Python stage: 386/902/45/617 passed. `docs/` was mounted read-only: `Dockerfile.test`
+    does not COPY `docs/`, and refactor-line tests read `docs/ui-inventory.json`. This
+    gap already existed on the refactor line; it is why that line's CI is red;
+  - Playwright: 586 passed / 4 skipped / 0 failed;
+  - showcase browser check @1366 + @390: `/welcome` 200 (4 demo links), `/demo` 200,
+    exactly 1 request (`GET /demo`) after clicking every visible button, 0 `/api/*`,
+    0 non-GET, no horizontal overflow.
+- DEPLOY STATUS: NOT DEPLOYED. The agent's permission policy blocked changing the shared
+  DEV pin (`mesflow-dev/.env` MESFLOW_IMAGE) and recreating the container, and TEST was
+  not attempted. On 2026-10-06 https://mesflow.net/welcome returns 404 (still 381).
+  Next steps for the operator:
+  1. DEV: set `MESFLOW_IMAGE=mesflow-app:dev-382-dd5870c` in
+     `/home/dell/workspace/mesflow-dev/.env`, run
+     `docker compose -f compose.dev.yml up -d app`, then check
+     `curl https://dev.mesflow.net/api/system/ready` → 71.0.0.382 / dd5870c.
+  2. TEST: on the VPS, take a backup first:
+     `sudo docker exec mesflow-patroni-test pg_dump -U postgres -Fc mesflow > ~/backups/mesflow-pre-382-<ts>.dump`.
+     Then `docker tag mesflow-app:dev-382-dd5870c mesflow-app:71.0.0.382` and
+     `REMOTE_TEST_TARGET_FILE=<main checkout>/scripts/remote-test-target.env REMOTE_TEST_SSH_CONFIG=~/.ssh/config scripts/deploy-remote-test.sh 71.0.0.382`.
+     Rollback image: `mesflow-app:71.0.0.381` (d4786d47) is still on the VPS.
+  3. Verify https://mesflow.net/welcome and /demo (200, `/demo` 0 `/api/*` requests).
+- mesflow-demo.mesflow.net is a different public demo (gateway + viewer, image 381). Its
+  gateway owns `/demo`, so the app's `/demo` is not reachable there. It was left unchanged.
