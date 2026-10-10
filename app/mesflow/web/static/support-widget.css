@@ -16,3 +16,5 @@
 .support-links{flex-wrap:wrap;gap:10px;font-size:13px}
 /* Keep the existing scroll control above the persistent support launcher. */
 .admin-body .ui-back-to-top{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+/* Business dialogs own the screen until closed, like the existing scroll control. */
+.modal-open .support-widget,.ui-overlay-open .support-widget{display:none}

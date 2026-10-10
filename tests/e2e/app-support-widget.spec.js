@@ -70,6 +70,15 @@ for (const browserName of ['chromium','webkit']) {
     await top.tap();await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBe(0);
     await expect(page.locator('#support-launch')).toBeVisible();
   });
+  test('business drawer actions take priority and closing restores support',async({page})=>{
+    await login(page);
+    await page.evaluate(()=>MFUI.openDrawer({title:'Drawer priority',footer:'<button id="drawer-action">Continue</button>'}));
+    await expect(page.locator('#support-launch')).toBeHidden();
+    await page.locator('#drawer-action').tap();
+    await page.locator('[data-ui-close]').tap();
+    await expect(page.locator('#support-launch')).toBeVisible();
+    await page.locator('#support-launch').tap();await expect(page.locator('#support-panel')).toBeVisible();
+  });
   test('helper outage keeps launcher and recovery links usable',async({page})=>{
     await login(page);
     await page.route('**/support/assistant.js',route=>route.abort());
