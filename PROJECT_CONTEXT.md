@@ -49,7 +49,43 @@ anything stale here; fix this file when they disagree.
 - Verification: focused Python suite 46 passed; browser coverage exercises
   1366/390/320px, keyboard, reset, text-only rendering, fake gateway/outage and
   payload privacy. These mocked browser checks are NOT proof of live AI.
-- Deploy status: pending merge and live root/mobile/auth/AI verification.
+- **Live verified 2026-10-10 11:19 ICT:** https://mesflow.net/ returns 200 at
+  the root URL. Public browser checks at 1366×768, 390×844 and 320×568 passed
+  without overflow, page errors or business API requests. First Excel response
+  was `mode=gateway`, actual provider `gemini-web`; the next two were explicitly
+  `gateway_cached`. This is real public E2E evidence, not a mocked response.
+- Anonymous `/app` remains 302 → `/login`; `/api/auth/me` remains 401; manual
+  login form works. An existing authenticated mobile session opened the root,
+  followed the login CTA to `/app?page=overview`, and retained API authentication
+  with no page errors. Do not logout the verification account: that can revoke
+  other sessions. No authentication implementation was changed.
+- Merged PR #32 (`374ecfa`, source `df7f048`) after full CI run 38022215529:
+  1,944 Python/PostgreSQL passed (27 skipped), 590 browser passed (4 skipped).
+  The original 20-minute gate timed out; job limit is now 40 minutes and
+  Playwright artifacts use their own directory so they do not erase JUnit files.
+- Actual nginx found a runtime-only alias problem during first live check:
+  exact `/` plus a file alias appended `index.html` and returned 500. The original
+  gateway config was restored while correcting it. PR #36 (`1d88af2`, source
+  `7dfa87e`) replaces that alias with an INTERNAL rewrite to the already working
+  exact `/welcome` static location; the browser URL remains `/`. Corrected route
+  was first exercised by a separate loopback nginx process in the real container
+  (response hash equals welcome.html), then 46 focused tests, merge, reload, and
+  the public browser checks above. Full follow-up CI also runs on PR #36.
+- TEST only: `vps-78ae7aec`, `148.113.207.13`, ready role `PRODUCTION_TEST`.
+  Support image `mesflow-public-support:c034ae4`, digest
+  `sha256:10b3b030a922b480fbc94128546cc2675e6d611fb0e18acdbb9e60b7792bb4a6`;
+  isolated compose `/opt/mesflow/public-support/compose.yml`, key env
+  `/opt/mesflow/public-support.env` (root 0600). No published support port.
+  The MES app STILL has version 71.0.0.381, image `sha256:d4786d47…`, and start
+  time `2026-09-30T10:06:11.689145751Z`: it was not restarted or replaced.
+- Root rollback: `/opt/mesflow-gateway/rollback/root-support-20261010T0335Z/`.
+  Restore nginx.conf IN PLACE and both welcome HTML copies, validate/reload;
+  stop only the support compose if retiring it. Never recreate the MES app.
+- HP evidence: `/tmp/mesflow-root-evidence-20261010/` contains CI logs, immutable
+  image archive, corrected nginx config, deployment scripts, live browser JSON
+  and screenshots. Authenticated evidence and temporary session/key files are
+  private; never commit them. See the report assistant handoff for its separate
+  rollout; a healthy support endpoint does not imply reporting is deployed.
 
 ## Public landing live on TEST — 2026-10-10 09:00 ICT
 
