@@ -1,0 +1,16 @@
+<div class="support-widget">
+<button type="button" class="support-launch" id="support-launch" aria-controls="support-panel" aria-expanded="false">Hỏi MESFlow</button>
+<section class="support-panel" id="support-panel" role="dialog" aria-labelledby="support-title" aria-describedby="support-note" hidden>
+  <header class="support-head"><h2 id="support-title">Hỗ trợ MESFlow</h2><button type="button" class="support-close" id="support-close" aria-label="Đóng hỗ trợ">✕</button></header>
+  <p class="support-note" id="support-note">FAQ trả lời ngay, không gửi câu hỏi đi. AI chỉ giải thích thêm khi bạn đồng ý gửi câu hỏi công khai được hiển thị bên dưới. Không nhập thông tin riêng tư.</p>
+  <div class="support-log" id="support-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Hội thoại hỗ trợ" tabindex="0"><p class="support-message">Chào bạn! Chọn chủ đề hoặc nhập câu hỏi ngắn về MESFlow. Hội thoại chỉ ở trang này và mất khi tải lại.</p></div>
+  <div class="support-topics" id="support-topics" aria-label="Chủ đề hỗ trợ"></div>
+  <form class="support-form" id="support-form"><label for="support-question">Câu hỏi của bạn</label><input id="support-question" name="question" maxlength="300" autocomplete="off" placeholder="Ví dụ: Xuất Excel thế nào?" required><button type="submit">Gửi</button></form>
+  <div class="support-note" id="support-optin" hidden><p>Câu hỏi công khai gửi AI; không kèm nguyên văn hay lịch sử:</p><p id="support-preview"></p><button type="button" id="support-ai">Đồng ý gửi · AI giải thích thêm</button></div>
+  <p class="support-note" id="support-status" role="status"></p>
+  <nav class="support-links" aria-label="Liên kết hỗ trợ">
+    {% if report_assistant_available|default(true) %}<a href="/reports">Tạo báo cáo</a>{% endif %}
+    <a href="/demo">Dùng thử demo</a><a href="/login?noauto=1">Đăng nhập</a>
+  </nav>
+</section>
+</div>

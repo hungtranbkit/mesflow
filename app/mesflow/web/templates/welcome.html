@@ -231,6 +231,11 @@
     } catch(_) {if(current===generation)status.textContent='AI chưa trả lời trong thời gian cho phép. FAQ đã có sẵn phía trên.';}
     finally {clearTimeout(timeout);if(current===generation){controller=null;aiButton.disabled=false;}}
   });
+  if (!assistant) {
+    status.textContent='Hỗ trợ đang tạm gián đoạn. Bạn có thể xem hướng dẫn hoặc mở báo cáo bên dưới.';
+    input.disabled=true;document.querySelector('#support-form button').disabled=true;
+    return;
+  }
   for(const id of ['faq','qr','excel','active','multi','slow','demo','login']) {
     const topic=assistant.topics.find(t=>t.id===id),button=document.createElement('button');button.type='button';button.textContent=topic.label;
     button.addEventListener('click',()=>ask(topic.label,assistant.faq(topic.id)));document.getElementById('support-topics').append(button);
