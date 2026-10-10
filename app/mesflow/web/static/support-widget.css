@@ -14,3 +14,5 @@
 #support-ai{margin:6px 0;min-height:44px;padding:8px;border-radius:8px;border:1px solid #34806e;background:#173c3d;color:#d9fff0}
 #support-preview{overflow-wrap:anywhere}
 .support-links{flex-wrap:wrap;gap:10px;font-size:13px}
+/* Keep the existing scroll control above the persistent support launcher. */
+.admin-body .ui-back-to-top{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
