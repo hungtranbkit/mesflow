@@ -16,7 +16,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Backend suites + ~600 serial browser tests exceed 20 minutes on CI.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Run full PostgreSQL/Docker suite

@@ -1,6 +1,7 @@
 const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests/e2e',
+  outputDir: 'test-results/browser-artifacts',
   timeout: 30000,
   expect: { timeout: 7000 },
   retries: 1,
