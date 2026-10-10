@@ -22,6 +22,8 @@ def service(monkeypatch,tmp_path):
     module.app.config.update(TESTING=True)
     monkeypatch.setattr(module,'AUDIT',tmp_path/'audit.jsonl')
     monkeypatch.setattr(module,'GATEWAY_KEY','')
+    module.real_verify_scope = module.verify_scope
+    monkeypatch.setattr(module,'verify_scope',lambda user:None)
     module.calls=[]
     def backend(path,params=None):
         module.calls.append((path,params))

@@ -24,8 +24,11 @@ EXCEPTION_FIELDS = ('exception_code', 'severity', 'workflow_status', 'exception_
 
 
 def select(row, fields):
-    return {key: format_datetime(row[key].astimezone(timezone.utc), usegmt=True)
-            if isinstance(row.get(key), datetime) else row.get(key) for key in fields}
+    value = {key: format_datetime(row[key].astimezone(timezone.utc), usegmt=True)
+             if isinstance(row.get(key), datetime) else row.get(key) for key in fields}
+    if 'started_at' in fields:
+        value['_started_at'] = row['started_at'].isoformat()
+    return value
 
 
 def bounded(rows, cap):
@@ -113,6 +116,8 @@ def readonly_source():
 
 
 def main():
+    from scope_auth import start_scope_server
+    start_scope_server()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
     next_reports = 0
     while True:

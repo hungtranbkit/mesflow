@@ -81,6 +81,12 @@ def employee_cells(rows):
     return list(groups.values())
 
 
+def start_instant(row):
+    # Flask's displayed HTTP dates omit microseconds. Retain SQL ordering even
+    # when two sessions started in the same second, across daily partitions.
+    return datetime.fromisoformat(row['_started_at']) if '_started_at' in row else parsedate_to_datetime(row['started_at'])
+
+
 class SnapshotSource:
     def __init__(self, directory, intent):
         self.value, self.metadata = load(directory, 'reports.json', 150)
@@ -104,7 +110,7 @@ class SnapshotSource:
             rows = [row for part in self.partitions for row in part['sessions']]
             for key in ('po_id', 'operation_id', 'employee_id'):
                 if params.get(key): rows = [row for row in rows if row[key] == params[key]]
-            rows.sort(key=lambda row: (parsedate_to_datetime(row['started_at']), row['session_id']), reverse=True)
+            rows.sort(key=lambda row: (start_instant(row), row['session_id']), reverse=True)
             return {'items': rows[:params['limit']]}
         if path.startswith('/api/session-management/'):
             key = path.rsplit('/', 1)[1]
@@ -129,7 +135,7 @@ class SnapshotSource:
         if path.startswith('/api/reports/employee-productivity/'):
             employee_id = int(path.rsplit('/', 1)[1])
             rows = [row for part in self.partitions for row in part['productivity'] if row['employee_id'] == employee_id]
-            rows.sort(key=lambda row: parsedate_to_datetime(row['started_at']), reverse=True)
+            rows.sort(key=start_instant, reverse=True)
             # Match the existing detail API's per-session rounding, before the
             # report assistant applies its existing filtered aggregation.
             rows = [{**row, 'completion_percent': round(float(row['completion_percent']), 2)

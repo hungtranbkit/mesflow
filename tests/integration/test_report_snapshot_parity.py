@@ -63,3 +63,53 @@ def test_worker_database_rejects_writes_even_with_test_owner_credential(monkeypa
     with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
         with readonly_source() as (_repo, fetch):
             fetch("UPDATE work_sessions SET good_qty=good_qty WHERE false RETURNING id")
+
+
+def test_real_stale_login_role_is_denied_for_preview_chat_and_download(db, api, monkeypatch, tmp_path):
+    import importlib.util
+    import threading
+    import requests
+    from http.server import HTTPServer
+    from mesflow.db.repositories.user_repository import UserRepository
+    root = Path(__file__).resolve().parents[2]
+    monkeypatch.syspath_prepend(str(root / 'services/report-assistant'))
+    from scope_auth import ScopeHandler
+    from snapshot_store import publish
+    key = 'isolated-scope-test-key-not-a-real-secret'
+    monkeypatch.setenv('REPORT_SCOPE_KEY', key)
+    server = HTTPServer(('127.0.0.1', 0), ScopeHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    spec = importlib.util.spec_from_file_location('report_scope_integration', root / 'services/report-assistant/server.py')
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    module.BACKEND = 'http://mesflow-test-api:8080'
+    module.SCOPE_BACKEND = 'http://127.0.0.1:' + str(server.server_port)
+    module.SCOPE_KEY = key
+    module.AUDIT = tmp_path / 'audit.jsonl'; module.SNAPSHOT_DIR = tmp_path
+    now = datetime.now(timezone.utc); day = now.date().isoformat()
+    publish(tmp_path, 'reports.json', {'schema':1,'generated_at':now.isoformat(),'watermark':now.isoformat(),
+            'days':{day:{'employees':[],'sessions':[],'productivity':[]}},'pos':{},'operations':{},'exceptions':{}})
+    username = 'scope-test-' + str(int(now.timestamp()*1000000))
+    users = UserRepository(); user_id = users.create(username, 'Isolated role fixture', 'Test@123456', 'admin', must_change=False)
+    try:
+        session = requests.Session()
+        result = session.post(module.BACKEND+'/api/auth/login',json={'username':username,'password':'Test@123456'},timeout=10)
+        assert result.status_code == 200
+        client = module.app.test_client(); client.set_cookie('session', session.cookies.get('session'))
+        intent = {'report_type':'productivity','from':day,'to':day,'po_id':None,'operation_id':None,'employee_id':None}
+        result = client.post('/reports-api/preview',json={'mode':'live','intent':intent})
+        assert result.status_code == 200, result.json
+        report_id = result.json['id']
+        users.update_profile(user_id, 'Isolated role fixture', 'operator', True)
+        # Regression reproduction: the original backend still returns the old
+        # signed-session role. The private SELECT check must override that claim.
+        stale = session.get(module.BACKEND+'/api/auth/me',timeout=10)
+        assert stale.status_code == 200 and stale.json()['user']['role'] == 'admin'
+        assert client.post('/reports-api/preview',json={'mode':'live','intent':intent}).status_code == 403
+        assert client.post('/reports-api/chat-data',json={'intent':intent}).status_code == 403
+        assert client.post('/reports-api/export',json={'report_id':report_id,'format':'csv'}).status_code == 403
+        assert client.get('/reports-api/active-sessions').status_code == 403
+        denied = requests.get(module.SCOPE_BACKEND+'/scope/'+str(user_id),timeout=3)
+        assert denied.status_code == 403 and username not in denied.text
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=3)
+        db.execute('DELETE FROM users WHERE id=%s', (user_id,))

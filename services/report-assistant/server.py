@@ -34,6 +34,8 @@ GATEWAY_KEY = os.environ.get('SUPPORT_GATEWAY_KEY', '')
 AUDIT = Path(os.environ.get('REPORT_AUDIT_PATH', '/audit/reports.jsonl'))
 ORIGIN = os.environ.get('REPORT_ORIGIN', 'https://mesflow.net')
 SNAPSHOT_DIR = Path(os.environ.get('REPORT_SNAPSHOT_DIR', '/snapshots'))
+SCOPE_BACKEND = os.environ.get('REPORT_SCOPE_BACKEND', 'http://mesflow-report-snapshots:8090')
+SCOPE_KEY = os.environ.get('REPORT_SCOPE_KEY', '')
 pdf_slots = threading.BoundedSemaphore(1)
 lock = threading.Lock()
 slots = threading.BoundedSemaphore(2)
@@ -109,10 +111,28 @@ def current_user(required=True):
     if not session_cookie():
         if required: raise ReportError('Cần đăng nhập để xem dữ liệu MES.', 401)
         return None
-    try: return backend('/api/auth/me')['user']
+    try:
+        user = backend('/api/auth/me')['user']
+        verify_scope(user)
+        return user
     except ReportError as error:
         if not required and error.status==401: return None
         raise
+
+
+def verify_scope(user):
+    if not SCOPE_KEY: raise ReportError('Chưa xác nhận được quyền hiện tại.', 503)
+    try:
+        req = Request(SCOPE_BACKEND + '/scope/' + str(int(user['id'])),
+                      headers={'Authorization': 'Bearer ' + SCOPE_KEY})
+        with urlopen(req, timeout=3) as response:
+            raw = response.read(2049)
+            if len(raw) > 2048: raise ValueError()
+            scope = json.loads(raw)['scope']
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ReportError('Không xác nhận được quyền hiện tại. Thử lại sau.', 503)
+    if not scope or scope.get('id') != user['id'] or not scope.get('active') or scope.get('must_change_password') or scope.get('role') != user.get('role'):
+        raise ReportError('Quyền hoặc trạng thái tài khoản đã thay đổi. Đăng nhập lại.', 403)
 
 
 def rate(key, maximum=6):
@@ -303,7 +323,8 @@ def export_bytes(record,format):
             encoded = json.dumps(record, ensure_ascii=False).encode()
             if len(encoded) > 1_000_000: raise ReportError('Báo cáo quá lớn cho PDF.', 422)
             result = subprocess.run([sys.executable, str(Path(__file__).with_name('snapshot_pdf.py'))],
-                                    input=encoded, capture_output=True, timeout=12, check=True)
+                                    input=encoded, capture_output=True, timeout=12, check=True,
+                                    env={'PATH': os.defpath, 'LANG': 'C.UTF-8', 'HOME': '/tmp'})
             if not result.stdout.startswith(b'%PDF-'): raise ValueError()
             return result.stdout
         except (subprocess.SubprocessError, ValueError, OSError):

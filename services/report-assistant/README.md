@@ -13,7 +13,8 @@ The root support dialog links here for report requests. No migrations.
   plus the session endpoints' role restriction. Password-change-required users
   are denied. No service account or bearer token is used to fetch reports.
 - Only `/api/auth/me` can be requested from `mesflow-app:8080`; the session
-  cookie is forwarded solely for current identity/RBAC checks. Business source
+  cookie is forwarded solely for session/RBAC checks. A private live role check
+  also rejects stale login-role claims after account changes. Business source
   reads are served by the private snapshot adapter, never by request-time HTTP.
   The deployment is a single workshop: there is no claimed multi-tenant feature.
   Clients cannot select a tenant, database, URL, user identity or SQL; snapshot
@@ -39,7 +40,8 @@ The root support dialog links here for report requests. No migrations.
   bounded API reads/timeouts; 20 AI attempts/hour and five-minute intent cache.
   Download grants last five minutes, max 3/user and 30 globally. Downloads recheck
   identity/RBAC, max 3/snapshot and 10/min/user. One worker keeps in-memory
-  limits coherent. Restart clears snapshots and resets rate budgets.
+  limits coherent. Restart clears download grants and rate budgets; private
+  precomputed source files persist.
 - Excel and UTF-8 BOM CSV use the exact preview snapshot, with source/filter
   metadata, formula-safe cells and SHA-256 verified by the browser. Server audit
   records user, filters, count and download hash, never rows/prompt/cookies/key;
@@ -55,7 +57,9 @@ The root support dialog links here for report requests. No migrations.
 seeding or MES background jobs. The worker reuses `ReportRepository` queries
 inside a single PostgreSQL REPEATABLE READ READ ONLY transaction per batch,
 with 5s statement / 1s lock / 25s transaction timeouts. The credential has SELECT
-only on the source tables; it has no access to users/auth or audit tables. The
+only on the source tables and four user-scope columns (`id`, `role`, `active`,
+`must_change_password`). It cannot read passwords, names, usernames or audit
+tables. The
 report service has no database credential. Snapshot JSON is private (directory
 0700, files 0600, UID 65534), mounted read-only into reports, with no nginx alias
 or public file endpoint. This is the current single-workshop authorization
@@ -75,13 +79,27 @@ model, not tenant isolation: clients cannot override scope, tenant or database.
   worker restart rebuilds automatically without a question. Cold, corrupt,
   unknown-schema, future-dated or expired sources return 503 with retry text;
   they never fall back to rebuilding through live business APIs.
+- Current-role security: the existing backend `/api/auth/me` returns the role
+  stored in the signed login, even after `UserRepository.update_profile` changes
+  the database role. Therefore reports additionally call the worker's private
+  `/scope/<user_id>` checker for every authenticated operation. It reads only
+  the four allowed columns in a read-only 1.5s-bounded query; changed role,
+  inactive/missing user or required password change denies access. Role grants
+  are still reread by the backend. Failure of either check fails closed. No
+  changes to the MES app, session signing key or business tables are needed.
+  This internal HTTP service requires a separate shared key, is on a private
+  compose network with no published port, logs no requests and serves one read
+  at a time (at most two worker DB connections including the background batch).
+  The PDF subprocess inherits neither that key nor the AI Gateway key.
 - One atomic replace publishes the entire reports generation; an independent
   active generation keeps its shorter cadence. The watermark is the UTC batch
   read time, not a source event sequence. Generated time, age, TTL and SHA-256
   are attached to preview, export metadata and audit. Downloading an existing
   preview preserves its exact original rows for its five-minute grant lifetime,
-  even if a newer source generation exists.
-- Two files, each <=24MiB. Sources fail closed at 10,000 sessions / 20,000
+  even if a newer source generation exists. Export/audit metadata recomputes
+  age and labels an old frozen preview stale instead of claiming it is fresh.
+- Two published files, each <=24MiB; interrupted staging files are reaped by
+  the single producer before the next publication. Sources fail closed at 10,000 sessions / 20,000
   productivity sessions / 5,000 exceptions / bounded catalogs; no silent
   truncation. One worker, 0.5 CPU/256MiB; report service also 0.5 CPU/256MiB.
   A failed build retains the last complete generation only until its TTL.
@@ -100,7 +118,9 @@ model, not tenant isolation: clients cannot override scope, tenant or database.
 
 Deployment additionally needs `SNAPSHOT_IMAGE` and
 `SNAPSHOT_DB_NETWORK=mesflow_network` in the report compose `.env`, a root-0600
-`/opt/mesflow/report-snapshots.env` containing only the SELECT-only DATABASE_URL,
+`/opt/mesflow/report-snapshots.env` containing the SELECT-only DATABASE_URL and
+private REPORT_SCOPE_KEY, `/opt/mesflow/report-scope.env` with only that scope
+key for reports,
 and `/opt/mesflow/report-snapshots` owned 65534:65534, mode 0700. Build both
 images once and transfer the same artifacts to TEST. Verify current TEST role,
 app/image/config and exclusive report ownership immediately before rollout.
@@ -115,7 +135,7 @@ filters, all five report kinds, simulated scan freshness, DB write rejection).
 Live proof must separately record warm browser/API p50/p95 and compare rows
 against the authorized source APIs; mocked tests cannot establish that.
 
-## TEST deployment only
+## Initial TEST route installation (already deployed)
 
 Use only the verified `vps-78ae7aec` (`148.113.207.13`), `/api/system/ready`
 server role `PRODUCTION_TEST`. Keep live `mesflow-app` image/start time unchanged.

@@ -139,3 +139,44 @@ def test_old_preview_export_keeps_rows_but_labels_current_source_age(service):
     metadata = json.loads(row['snapshot'])
     assert metadata['stale'] and metadata['age_seconds'] >= 160
     assert row['good_qty'] == '12'
+
+
+def test_actual_scope_check_blocks_stale_login_role_and_outage(service, monkeypatch):
+    import io
+    monkeypatch.setattr(service, 'verify_scope', service.real_verify_scope)
+    monkeypatch.setattr(service, 'SCOPE_KEY', 'private-test-key-never-forward-cookies')
+    scope = {'id':1, 'role':'manager', 'active':True, 'must_change_password':False}
+    def open_scope(req, **kwargs):
+        assert req.full_url.endswith('/scope/1')
+        assert not req.has_header('Cookie')
+        assert req.get_header('Authorization') == 'Bearer private-test-key-never-forward-cookies'
+        assert kwargs['timeout'] == 3
+        return io.BytesIO(json.dumps({'scope': scope}).encode())
+    monkeypatch.setattr(service, 'urlopen', open_scope)
+    client = authenticated(service)
+    record = preview(service, client)
+    # The backend mock still claims manager, exactly like the stale MES login.
+    scope['role'] = 'operator'
+    assert client.post('/reports-api/preview', json={'mode':'live','intent':BASE}).status_code == 403
+    assert client.post('/reports-api/export', json={'report_id':record['id'],'format':'csv'}).status_code == 403
+    assert client.post('/reports-api/chat-data', json={'intent':BASE}).status_code == 403
+    assert client.get('/reports-api/active-sessions').status_code == 403
+    scope['role'] = 'manager'; scope['active'] = False
+    assert client.post('/reports-api/preview', json={'mode':'live','intent':BASE}).status_code == 403
+    def outage(*args, **kwargs): raise OSError('offline')
+    monkeypatch.setattr(service, 'urlopen', outage)
+    assert client.post('/reports-api/preview', json={'mode':'live','intent':BASE}).status_code == 503
+
+
+def test_order_preserves_microseconds_across_daily_partitions(service):
+    from snapshot_store import publish, SnapshotSource
+    from snapshot_worker import select, PRODUCTIVITY_FIELDS
+    value = json.loads((service.SNAPSHOT_DIR / 'reports.json').read_text())
+    for index, day in enumerate((BASE['from'], '2026-10-02')):
+        row = {'employee_id':7, 'session_id':index+1, 'completion_percent':None,
+               'started_at':datetime(2026,10,1,0,0,0,100000+index*800000,tzinfo=timezone.utc)}
+        value['days'][day]['productivity'] = [select(row, PRODUCTIVITY_FIELDS)]
+    publish(service.SNAPSHOT_DIR, 'reports.json', value)
+    rows = SnapshotSource(service.SNAPSHOT_DIR, BASE).get('/api/reports/employee-productivity/7', {})['sessions']
+    assert [row['session_id'] for row in rows] == [2,1]
+    assert rows[0]['started_at'] == rows[1]['started_at']

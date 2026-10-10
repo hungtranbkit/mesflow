@@ -3,7 +3,7 @@ services:
   reports:
     image: ${REPORT_IMAGE:?Set immutable report image tag}
     container_name: mesflow-report-assistant
-    env_file: /opt/mesflow/public-support.env
+    env_file: [/opt/mesflow/public-support.env, /opt/mesflow/report-scope.env]
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp:size=32m]
@@ -12,9 +12,9 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
     cpus: 0.5
-    networks: [gateway]
+    networks: [gateway, scope]
     healthcheck:
-      test: [CMD, python, -c, "from snapshot_store import load; load('/snapshots','reports.json',150); load('/snapshots','active.json',60)"]
+      test: [CMD, python, snapshot_health.py]
       interval: 20s
       timeout: 5s
       retries: 3
@@ -34,9 +34,9 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
     cpus: 0.5
-    networks: [database]
+    networks: [database, scope]
     healthcheck:
-      test: [CMD, python, -c, "from snapshot_store import load; load('/snapshots','reports.json',150); load('/snapshots','active.json',60)"]
+      test: [CMD, python, snapshot_health.py]
       interval: 20s
       timeout: 5s
       retries: 3
@@ -45,6 +45,8 @@ services:
       driver: json-file
       options: {max-size: 5m, max-file: '2'}
 networks:
+  scope:
+    internal: true
   gateway:
     external: true
     name: mesflow-edge
