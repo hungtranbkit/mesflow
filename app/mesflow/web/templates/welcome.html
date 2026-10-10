@@ -1,41 +1,121 @@
 <!doctype html>
 <html lang="vi">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MESFlow — Theo dõi sản xuất theo công đoạn</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#081522">
+<meta name="description" content="MESFlow giúp xưởng sản xuất theo dõi tiến độ theo PO → Part → Operation: quét thẻ và QR công đoạn, sản lượng, định mức, năng suất và ngoại lệ có dấu vết. Trải nghiệm demo an toàn.">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://mesflow.net/welcome">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="vi_VN">
+<meta property="og:title" content="MESFlow | Theo dõi sản xuất theo từng công đoạn">
+<meta property="og:description" content="Biết ai đang làm công đoạn nào, tiến độ đến đâu và số liệu đến từ đâu. Xem demo MESFlow không cần tài khoản.">
+<meta property="og:url" content="https://mesflow.net/welcome">
+<title>MESFlow | Theo dõi sản xuất theo công đoạn, quét QR và quản lý năng suất</title>
 <style>
-:root{--bg:#07111f;--panel:#0d1b2c;--line:#20344d;--text:#ecf4ff;--muted:#a7b7c9;--accent:#49d6b2;--blue:#73a8ff;--warn:#ffd166}
-*{box-sizing:border-box}body{margin:0;font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
-a{color:inherit}.wrap{max-width:1160px;margin:auto;padding:0 24px}.nav{position:sticky;top:0;z-index:10;background:rgba(7,17,31,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-.nav .wrap{height:68px;display:flex;align-items:center;justify-content:space-between}.brand{font-weight:800;letter-spacing:.02em}.brand b{color:var(--accent)}
-.actions{display:flex;gap:10px;flex-wrap:wrap}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:10px;border:1px solid var(--line);text-decoration:none;font-weight:700}
-.btn.primary{background:var(--accent);color:#061419;border-color:var(--accent)}.btn:hover{filter:brightness(1.06)}
-.hero{padding:88px 0 64px;background:radial-gradient(circle at 75% 20%,#123152 0,transparent 42%)}.badge{display:inline-block;padding:6px 10px;border:1px solid #2f6c60;border-radius:999px;color:#a9f0df;background:#0a241f;font-size:13px;font-weight:700}
-h1{font-size:clamp(38px,6vw,68px);line-height:1.04;margin:20px 0;max-width:850px}.lead{font-size:20px;color:var(--muted);max-width:760px}.hero .actions{margin-top:28px}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{background:linear-gradient(180deg,#0e2034,#0a1726);border:1px solid var(--line);border-radius:16px;padding:22px}.card h3{margin:0 0 8px}.card p{margin:0;color:var(--muted)}
-.section{padding:64px 0}.section h2{font-size:34px;margin:0 0 10px}.section .intro{color:var(--muted);max-width:760px;margin:0 0 28px}
-.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.step{border-left:3px solid var(--accent);padding:12px 14px;background:#0b1929;border-radius:8px}.step strong{display:block}.step span{color:var(--muted);font-size:14px}
-.proof{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.screen{background:#e9eef5;color:#152238;border-radius:14px;padding:14px;min-height:330px;box-shadow:0 18px 70px #0008}.screenbar{height:34px;background:#152238;border-radius:8px;margin-bottom:14px}.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.kpi{background:white;border-radius:8px;padding:14px}.kpi b{display:block;font-size:24px}.rows{margin-top:12px}.row{display:grid;grid-template-columns:1.2fr .7fr .7fr;gap:8px;background:white;margin:6px 0;padding:10px;border-radius:7px;font-size:13px}.side-note{display:flex;flex-direction:column;justify-content:center}.side-note ul{color:var(--muted);padding-left:20px}.status{color:var(--accent);font-weight:700}
-.cta{background:#0d2136;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:54px 0}.cta .wrap{display:flex;align-items:center;justify-content:space-between;gap:24px}.cta h2{margin:0}.footer{padding:30px 0;color:var(--muted);font-size:14px}
-@media(max-width:800px){.grid,.flow{grid-template-columns:1fr}.proof{grid-template-columns:1fr}.nav .secondary{display:none}.cta .wrap{display:block}.cta .actions{margin-top:18px}.hero{padding-top:58px}.kpis{grid-template-columns:1fr}}
+:root{--night:#081522;--navy:#0d2031;--panel:#102638;--border:#294458;--ink:#f0f8fb;--muted:#aec0cc;--soft:#d9e8f0;--mint:#68e5c4;--mint2:#2bbd98;--sky:#83c7f7;--gold:#f7c979}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:96px}body{margin:0;font:16px/1.58 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--night);color:var(--ink)}a{color:inherit}button{font:inherit}a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid var(--gold);outline-offset:3px}::selection{background:#2f816e;color:white}.container{width:min(1180px,calc(100% - 44px));margin-inline:auto}.muted{color:var(--muted)}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:var(--mint)}.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;background:#173c3d;border:1px solid #34806e;border-radius:99px;color:#adf9df;font-weight:700;font-size:12px}.pill:before{content:"";width:7px;height:7px;background:var(--mint);border-radius:50%}
+.skip{position:absolute;top:-80px;left:8px;padding:8px;background:white;color:#061522;z-index:100}.skip:focus{top:8px}
+.site-nav{position:sticky;top:0;z-index:20;background:#081522ee;backdrop-filter:blur(18px);border-bottom:1px solid #244055}.nav-inner{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:14px}.brand{display:flex;align-items:center;gap:9px;font-size:22px;font-weight:850;letter-spacing:-.055em;text-decoration:none;white-space:nowrap}.brand-mark{display:grid;place-items:center;width:32px;height:32px;background:var(--mint);color:#07252a;border-radius:9px;font-size:21px;letter-spacing:-.15em;padding-right:4px}.brand strong{color:var(--mint);font-weight:850}.nav-links{display:flex;align-items:center;gap:22px}.nav-links>a:not(.btn){color:#c5d3df;text-decoration:none;font-size:14px}.nav-links>a:not(.btn):hover{color:white}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;border:1px solid #4b6978;border-radius:11px;text-decoration:none;min-height:46px;padding:0 19px;font-weight:750;font-size:14px;white-space:nowrap;transition:transform .18s,background .18s,border-color .18s}.btn:hover{transform:translateY(-2px);border-color:var(--sky)}.btn.primary{background:var(--mint);border-color:var(--mint);color:#072225;box-shadow:0 10px 35px #35b99b25}.btn.primary:hover{background:#a0f8de}.btn.ghost{background:#142b3d}.btn.softer{background:#fff1;color:#eaf5f8}
+.hero{overflow:hidden;position:relative;padding:88px 0 94px;background:radial-gradient(ellipse 760px 430px at 76% 17%,#1a4d63aa,transparent 77%),linear-gradient(180deg,#0b1b2b 0%,#081522 100%)}.hero:after{content:"";position:absolute;pointer-events:none;inset:auto 0 0;height:1px;background:linear-gradient(90deg,transparent,#356574,transparent)}.hero-grid{display:grid;grid-template-columns:minmax(0,1.03fr) minmax(0,.97fr);align-items:center;gap:46px}.hero h1{font-size:clamp(37px,4.5vw,62px);line-height:1.09;letter-spacing:-.055em;margin:22px 0 20px;font-weight:860}.hero h1 em{font-style:normal;color:var(--mint)}.hero .lead{max-width:620px;font-size:18px;line-height:1.75;color:#c5d3df}.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin:29px 0}.trust-row{display:flex;gap:12px;flex-wrap:wrap;color:#bad0dc;font-size:12px;font-weight:700}.trust-row span{padding:6px 10px;background:#152f3e;border-radius:7px;border:1px solid #2b4e5e}.hero-note{color:#a6b9c8;font-size:12px;margin-top:9px}
+.console{border:1px solid #365668;border-radius:19px;box-shadow:0 35px 90px #0008;overflow:hidden;background:#0c1d2c;transform:rotate(1deg)}.console-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid #2a4c5c;gap:10px}.console-brand{font-weight:800;letter-spacing:-.02em}.console-head small{font-size:10px;color:#103532;background:#91efc9;border-radius:100px;padding:4px 9px;font-weight:800}.console-body{padding:18px}.console-title{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px}.console-title b{font-size:16px}.console-title span{font-size:11px;color:#a9beca}.console-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.console-kpi{background:#163146;border:1px solid #2b5264;padding:12px;border-radius:10px}.console-kpi small{display:block;color:#b2cbd8;font-size:10px}.console-kpi strong{font-size:25px;line-height:1.4}.console-kpi:nth-child(2) strong{color:var(--mint)}.op-card{margin-top:11px;background:#10293b;border:1px solid #28465b;border-radius:11px;padding:12px}.op-top{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:12px}.op-top strong{color:#f5fbff}.op-top small{color:#8ee5c9;white-space:nowrap}.op-desc{font-size:11px;color:#b8cbd8;margin:5px 0 10px}.progress-track{height:6px;background:#2b4655;border-radius:9px;overflow:hidden}.progress-fill{height:100%;background:linear-gradient(90deg,#2aba99,#91f5ce);border-radius:9px}.console-bottom{display:flex;justify-content:space-between;gap:5px;margin-top:13px;color:#afc6d3;font-size:10px}.console-bottom span:last-child{color:#93ead2}
+.section{padding:82px 0}.section.tint{background:#0c1e2d}.section-head{max-width:770px;margin-bottom:33px}.section-head h2{font-size:clamp(29px,3vw,43px);line-height:1.2;letter-spacing:-.037em;margin:10px 0 12px}.section-head p{margin:0;color:var(--muted);font-size:17px}.three{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.six{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.tile{padding:25px;border:1px solid #294458;border-radius:16px;background:linear-gradient(155deg,#152d40,#0d2030);min-height:197px}.tile .number{display:inline-block;font-size:12px;letter-spacing:.09em;color:var(--mint);font-weight:800;margin-bottom:17px}.tile h3{font-size:19px;letter-spacing:-.02em;margin:0 0 9px}.tile p{margin:0;color:#b7c8d4;font-size:14px;line-height:1.65}.tile .glyph{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:#1a4e4c;color:#94f5d7;font-size:19px;font-weight:800;margin-bottom:17px}.feature-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}.feature-tags span{font-size:11px;color:#a0e8d3;background:#173c40;border-radius:6px;padding:3px 7px}
+.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:30px}.flow-step{border:1px solid #365567;border-radius:14px;background:#142d3e;padding:18px 15px;position:relative}.flow-step:before{content:attr(data-step);display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--mint);color:#0b2630;font-weight:850;font-size:13px;margin-bottom:16px}.flow-step h3{font-size:15px;margin:0 0 5px}.flow-step p{font-size:12px;color:#bbcfdb;margin:0}.flow-step:not(:last-child):after{content:"›";position:absolute;right:-12px;top:50%;color:#70d1b8;font-size:23px;z-index:1}
+.demo-block{border:1px solid #3a6772;background:linear-gradient(115deg,#173b49 0%,#123036 100%);padding:40px;border-radius:22px;display:grid;grid-template-columns:1.2fr .8fr;gap:35px;align-items:center}.demo-block h2{font-size:34px;letter-spacing:-.03em;line-height:1.2;margin:9px 0 13px}.demo-block p{color:#c8dbdf;margin:0 0 22px}.demo-points{display:grid;grid-template-columns:1fr 1fr;gap:9px}.demo-points span{border:1px solid #477276;padding:9px 12px;border-radius:9px;font-size:13px;color:#d5f6f0}.demo-safe{background:#102734;border:1px solid #426c6d;border-radius:14px;padding:22px}.demo-safe strong{display:block;color:#8ee9d2}.demo-safe p{margin:10px 0;color:#bed3d8;font-size:13px}
+.faq{display:grid;grid-template-columns:.75fr 1.25fr;gap:40px}.faq h2{font-size:35px;letter-spacing:-.04em;margin:10px 0}.faq details{border-bottom:1px solid #36505f;padding:15px 0}.faq summary{cursor:pointer;font-weight:750;list-style-position:inside}.faq details p{color:#bfd0da;margin:10px 0 4px;padding-left:14px;font-size:14px}
+.final{padding:60px 0;background:radial-gradient(ellipse at 55% 0%,#1b5060,transparent 75%),#0b2533;text-align:center;border-block:1px solid #32596a}.final h2{font-size:clamp(28px,3.4vw,43px);letter-spacing:-.04em;line-height:1.2;max-width:760px;margin:13px auto}.final p{max-width:690px;margin:14px auto 24px;color:#c5d7e1}.final .actions{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}.footer{padding:28px 0 36px;font-size:13px;color:#b0c3cf}.footer .container{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}.footer a{text-decoration:none;color:var(--muted)}
+@media(max-width:940px){.hero-grid{grid-template-columns:1fr;gap:40px}.hero{padding-top:58px}.console{transform:none;max-width:650px}.six,.three{grid-template-columns:repeat(2,1fr)}.flow{grid-template-columns:repeat(3,1fr)}.flow-step:after{display:none}.nav-links{gap:12px}.nav-links>a:not(.btn){display:none}}
+@media(max-width:640px){.container{width:min(100% - 32px,1180px)}.nav-inner{min-height:64px}.nav-links .btn{font-size:12px;padding:0 13px;min-height:40px}.hero{padding:48px 0 68px}.hero h1{font-size:39px}.hero .lead{font-size:16px}.hero-cta .btn{width:100%}.console-body{padding:12px}.console-kpi{padding:9px}.console-kpi strong{font-size:20px}.console-title span{display:none}.six,.three,.flow,.demo-block,.faq{grid-template-columns:1fr}.section{padding:57px 0}.tile{min-height:auto}.flow-step{padding:17px}.demo-block{padding:22px}.demo-block h2{font-size:30px}.demo-points{grid-template-columns:1fr}.footer .container{display:block}.footer span{display:block;margin-bottom:5px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}.btn:hover{transform:none}}
 </style>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MESFlow","applicationCategory":"BusinessApplication","operatingSystem":"Web","url":"https://mesflow.net/welcome","inLanguage":"vi","description":"Phần mềm theo dõi vận hành sản xuất theo PO, Part, Operation; quét QR, sản lượng, định mức, năng suất và ngoại lệ."}
+</script>
 </head>
 <body>
-<header class="nav"><div class="wrap"><div class="brand">MES<b>Flow</b></div><div class="actions"><a class="btn secondary" href="#workflow">Quy trình</a><a class="btn primary" href="/demo">Xem demo</a></div></div></header>
-<main>
-<section class="hero"><div class="wrap"><span class="badge">Sản phẩm đang vận hành · Demo công khai an toàn</span><h1>Biết ai đang làm gì, ở công đoạn nào, và tiến độ thực tế ra sao.</h1><p class="lead">MESFlow theo dõi sản xuất theo PO → Part → Operation. Nhân viên quét thẻ và QR công đoạn để bắt đầu/kết thúc; quản lý xem tiến độ, sản lượng, năng suất, ngoại lệ và lịch sử theo thời gian thực.</p><div class="actions"><a class="btn primary" href="/demo">Dùng thử demo →</a><a class="btn" href="https://www.facebook.com/groups/1628011585666818">Góp ý / Trao đổi triển khai</a></div></div></section>
-<section class="section"><div class="wrap"><h2>Tập trung vào luồng thật trong xưởng</h2><p class="intro">Không bắt đầu từ dashboard đẹp. MESFlow bắt đầu từ thao tác thực tế của người vận hành và giữ nguyên dấu vết đến báo cáo.</p><div class="grid">
-<div class="card"><h3>Quét để bắt đầu / kết thúc</h3><p>Thẻ nhân viên + QR Operation. Hỗ trợ nhiều phiên đồng thời, số lượng hoàn thành và thời gian thực tế.</p></div>
-<div class="card"><h3>Tổng quan thời gian thực</h3><p>Ai đang làm, PO/Part/OP nào đang chạy, sản lượng, thời gian và mức đạt định mức.</p></div>
-<div class="card"><h3>Năng suất & báo cáo</h3><p>Theo nhân viên và Operation, bộ lọc theo thời gian/PO/Part, xuất dữ liệu và đối chiếu.</p></div>
-<div class="card"><h3>Ngoại lệ có audit</h3><p>Sửa thời gian, sản lượng, nhân viên hoặc station có dấu vết thay đổi; không sửa âm thầm.</p></div>
-<div class="card"><h3>Bản vẽ & dữ liệu sản xuất</h3><p>Drawing theo Part, import/export Excel, mã QR, định mức và dữ liệu vận hành trong một luồng.</p></div>
-<div class="card"><h3>Kiosk cho xưởng</h3><p>Giao diện tối giản cho máy tại hiện trường; luồng demo công khai bên dưới không kết nối production.</p></div>
-</div></div></section>
-<section class="section" id="workflow"><div class="wrap"><h2>Một luồng xuyên suốt</h2><p class="intro">Khách demo có thể đi theo đúng thứ tự này trong khoảng một phút.</p><div class="flow">
-<div class="step"><strong>1. PO</strong><span>Chọn đơn sản xuất</span></div><div class="step"><strong>2. Part</strong><span>Xem chi tiết / drawing</span></div><div class="step"><strong>3. Operation</strong><span>Quét và bắt đầu</span></div><div class="step"><strong>4. Theo dõi</strong><span>Thời gian + sản lượng</span></div><div class="step"><strong>5. Phân tích</strong><span>Năng suất + ngoại lệ</span></div>
-</div></div></section>
-<section class="section"><div class="wrap proof"><div class="screen"><div class="screenbar"></div><div class="kpis"><div class="kpi"><small>Đang hoạt động</small><b>7</b></div><div class="kpi"><small>Sản lượng hôm nay</small><b>1,284</b></div><div class="kpi"><small>Đúng tiến độ</small><b>86%</b></div></div><div class="rows"><div class="row"><b>PO-24018 · OP20</b><span>Nguyễn An</span><span class="status">Đang chạy</span></div><div class="row"><b>PO-24021 · OP10</b><span>Trần Minh</span><span class="status">Đang chạy</span></div><div class="row"><b>PO-24017 · OP40</b><span>Lê Bình</span><span>Hoàn tất</span></div></div></div><div class="side-note"><h2>Demo tách khỏi production</h2><ul><li>Dữ liệu mẫu cố định, không có thông tin khách hàng.</li><li>Không gọi API ghi dữ liệu.</li><li>Không dùng tài khoản admin hoặc token production.</li><li>Nút “Đặt lại demo” chỉ reset trạng thái trong trình duyệt.</li></ul><a class="btn primary" href="/demo">Mở Demo Mode</a></div></div></section>
-<section class="cta"><div class="wrap"><div><h2>Có quy trình tương tự trong xưởng của bạn?</h2><p class="intro">Đưa workflow thực tế, biểu mẫu và cách tính hiện tại; MESFlow Lab có thể đánh giá phạm vi triển khai.</p></div><div class="actions"><a class="btn primary" href="/demo">Xem demo</a><a class="btn" href="https://www.facebook.com/groups/1628011585666818">Trao đổi</a></div></div></section>
-</main><footer class="footer"><div class="wrap">MESFlow · MESFlow Lab · Demo công khai chỉ dùng dữ liệu mẫu.</div></footer>
-</body></html>
+<a class="skip" href="#main">Đi tới nội dung chính</a>
+<header class="site-nav"><div class="container nav-inner">
+  <a class="brand" href="/welcome" aria-label="MESFlow — Trang giới thiệu"><span class="brand-mark" aria-hidden="true">m</span><span>MES<strong>Flow</strong></span></a>
+  <nav class="nav-links" aria-label="Điều hướng"><a href="#tinh-nang">Tính năng</a><a href="#quy-trinh">Quy trình</a><a href="#hoi-dap">Hỏi đáp</a><a href="/demo" class="btn primary">Xem demo <span aria-hidden="true">↗</span></a></nav>
+</div></header>
+<main id="main">
+<section class="hero"><div class="container hero-grid">
+  <div>
+    <span class="pill">Theo dõi sản xuất đến từng công đoạn</span>
+    <h1>Biết <em>ai đang làm gì.</em><br>Tiến độ thật, ngay tại xưởng.</h1>
+    <p class="lead">Từ lệnh sản xuất đến từng công đoạn: nhân viên quét thẻ và QR để ghi nhận thời gian, sản lượng. Quản lý theo dõi tiến độ, so định mức và xử lý ngoại lệ trên cùng một hệ thống.</p>
+    <div class="hero-cta"><a href="/demo" class="btn primary">Dùng thử demo <span aria-hidden="true">→</span></a><a href="#tinh-nang" class="btn ghost">Khám phá tính năng <span aria-hidden="true">↓</span></a></div>
+    <div class="trust-row"><span>PO → Part → Operation</span><span>Quét thẻ + mã QR</span><span>Báo cáo &amp; truy vết</span></div>
+    <p class="hero-note">Demo công khai không cần đăng nhập, không kết nối production và không có thao tác ghi lên dữ liệu thật.</p>
+  </div>
+  <div class="console" role="img" aria-label="Minh họa bảng theo dõi MESFlow sử dụng số liệu giả lập">
+    <div class="console-head"><span class="console-brand">MES<span style="color:#71e9c5">Flow</span> / Tổng quan</span><small>DỮ LIỆU DEMO</small></div>
+    <div class="console-body">
+      <div class="console-title"><b>Hoạt động trong ca</b><span>Hiển thị minh họa, không phải dữ liệu thật</span></div>
+      <div class="console-kpis"><div class="console-kpi"><small>Operation đang làm</small><strong>03</strong></div><div class="console-kpi"><small>Nhân viên đang làm</small><strong>06</strong></div><div class="console-kpi"><small>Phiên cần kiểm tra</small><strong>02</strong></div></div>
+      <div class="op-card"><div class="op-top"><strong>PO-24018 / OP20</strong><small>● Đang thực hiện</small></div><div class="op-desc">Gia công chi tiết A · Nhân viên: An, Minh</div><div class="progress-track"><div class="progress-fill" style="width:76%"></div></div><div class="console-bottom"><span>Tiến độ minh họa</span><span>76%</span></div></div>
+      <div class="op-card"><div class="op-top"><strong>PO-24021 / OP10</strong><small>● Đang thực hiện</small></div><div class="op-desc">Lắp ráp cụm B · Nhân viên: Bình, Huy</div><div class="progress-track"><div class="progress-fill" style="width:48%"></div></div><div class="console-bottom"><span>Tiến độ minh họa</span><span>48%</span></div></div>
+      <div class="op-card"><div class="op-top"><strong>PO-24022 / OP30</strong><small>● Đang thực hiện</small></div><div class="op-desc">Kiểm tra thành phẩm · Nhân viên: Lan, Hà</div><div class="progress-track"><div class="progress-fill" style="width:91%"></div></div><div class="console-bottom"><span>Tiến độ minh họa</span><span>91%</span></div></div>
+    </div>
+  </div>
+</div></section>
+<section class="section" id="van-de"><div class="container">
+  <div class="section-head"><span class="eyebrow">Vấn đề từ hiện trường</span><h2>Dữ liệu có rồi. Nhưng thường nằm rải rác ở giấy, Excel và trí nhớ.</h2><p>Khi không ghi nhận theo từng công đoạn, quản lý khó biết chính xác việc gì đang diễn ra — và mất thêm thời gian tổng hợp vào cuối ngày.</p></div>
+  <div class="three">
+    <article class="tile"><span class="number">01 / TIẾN ĐỘ</span><h3>Không rõ ai đang làm công đoạn nào</h3><p>Muốn biết tiến độ phải đi hỏi từng tổ, từng nhân viên, trong khi công việc vẫn liên tục thay đổi.</p></article>
+    <article class="tile"><span class="number">02 / NĂNG SUẤT</span><h3>Khó đối chiếu thực tế với định mức</h3><p>Thời gian, số lượng đạt và lỗi nằm ở nhiều bảng khác nhau nên khó xác định chỗ đang chậm.</p></article>
+    <article class="tile"><span class="number">03 / TRUY VẾT</span><h3>Sửa số liệu mà thiếu bối cảnh</h3><p>Quên quét kết thúc, sản lượng bằng 0 hoặc thay đổi phiên làm việc đều cần được kiểm tra và lưu lịch sử.</p></article>
+  </div>
+</div></section>
+<section class="section tint" id="tinh-nang"><div class="container">
+  <div class="section-head"><span class="eyebrow">Năng lực MESFlow</span><h2>Một luồng dữ liệu từ hiện trường đến báo cáo</h2><p>Tập trung vào quản lý theo Operation thay vì yêu cầu người vận hành nhập lại cùng một thông tin ở nhiều nơi.</p></div>
+  <div class="six">
+    <article class="tile"><span class="glyph" aria-hidden="true">▦</span><h3>Quét thẻ và QR công đoạn</h3><p>Nhân viên xác thực bằng thẻ rồi quét mã Operation để bắt đầu, dừng hoặc tiếp tục phiên làm việc; có hỗ trợ nhiều phiên đồng thời.</p><div class="feature-tags"><span>Kiosk</span><span>Start / Stop</span></div></article>
+    <article class="tile"><span class="glyph" aria-hidden="true">↗</span><h3>Tổng quan sản xuất</h3><p>Nhìn theo PO, Part, Operation, người đang làm, sản lượng và tiến độ. Màn hình Tổng quan tự làm mới theo chu kỳ 60 giây.</p><div class="feature-tags"><span>Đang làm</span><span>Tiến độ</span></div></article>
+    <article class="tile"><span class="glyph" aria-hidden="true">◎</span><h3>Sản lượng và định mức</h3><p>Ghi nhận số lượng đạt, lỗi, sửa được; đối chiếu thời gian thực tế với định mức theo từng công đoạn và phiên.</p><div class="feature-tags"><span>Đạt / Lỗi</span><span>So định mức</span></div></article>
+    <article class="tile"><span class="glyph" aria-hidden="true">!</span><h3>Ngoại lệ có lịch sử điều chỉnh</h3><p>Phát hiện phiên thiếu quét, sản lượng 0 hoặc số liệu cần xác minh. Điều chỉnh có ghi nhận thay đổi để phục vụ truy vết.</p><div class="feature-tags"><span>Exceptions</span><span>Audit</span></div></article>
+    <article class="tile"><span class="glyph" aria-hidden="true">▥</span><h3>Năng suất và báo cáo</h3><p>Theo dõi năng suất nhân viên và Operation, lọc theo phạm vi thời gian; xuất một file Excel gồm tổng hợp và chi tiết từng nhân viên, hoặc in báo cáo.</p><div class="feature-tags"><span>Excel</span><span>In theo nhân viên</span></div></article>
+    <article class="tile"><span class="glyph" aria-hidden="true">⌑</span><h3>Bản vẽ và dữ liệu đầu vào</h3><p>Tổ chức lệnh PO → Part → OP, lưu bản vẽ theo Part, quản lý định mức, tạo QR và nhập/xuất thông tin qua Excel.</p><div class="feature-tags"><span>Drawing</span><span>Import / Export</span></div></article>
+  </div>
+</div></section>
+<section class="section" id="quy-trinh"><div class="container">
+  <div class="section-head"><span class="eyebrow">Quy trình vận hành</span><h2>Từ một lệnh sản xuất đến số liệu có thể kiểm tra</h2><p>Hệ thống nối từng bước thực tế trong xưởng vào một chuỗi dữ liệu xuyên suốt.</p></div>
+  <div class="flow">
+    <div class="flow-step" data-step="1"><h3>Tạo PO</h3><p>Đơn hàng và yêu cầu sản xuất</p></div>
+    <div class="flow-step" data-step="2"><h3>Chia Part / OP</h3><p>Công đoạn, bản vẽ, định mức</p></div>
+    <div class="flow-step" data-step="3"><h3>Quét QR</h3><p>Nhân viên và Operation</p></div>
+    <div class="flow-step" data-step="4"><h3>Ghi nhận</h3><p>Thời gian, sản lượng, lỗi</p></div>
+    <div class="flow-step" data-step="5"><h3>Phân tích</h3><p>Tiến độ, năng suất, audit</p></div>
+  </div>
+</div></section>
+<section class="section tint" id="trai-nghiem"><div class="container">
+  <div class="demo-block">
+    <div><span class="eyebrow">Demo tương tác, không cần tài khoản</span><h2>Xem luồng vận hành mẫu ngay trên trình duyệt</h2><p>Thử cách MESFlow trình bày dữ liệu theo Operation, mô phỏng thao tác quét, theo dõi ngoại lệ và xem báo cáo năng suất. Không cần tiếp cận dữ liệu xưởng thật.</p>
+      <div class="demo-points"><span>01 · Tổng quan</span><span>02 · Kiosk &amp; quét QR</span><span>03 · Ngoại lệ</span><span>04 · Năng suất</span></div>
+      <div style="margin-top:23px"><a class="btn primary" href="/demo">Mở demo tương tác <span aria-hidden="true">→</span></a></div>
+    </div>
+    <aside class="demo-safe"><strong>✓ Demo được cô lập</strong><p>Dùng dữ liệu mẫu cố định trong trình duyệt; không đăng nhập vào ứng dụng thật, không kết nối production, không gửi lệnh sản xuất hay thay đổi cơ sở dữ liệu.</p><strong>✓ Có thể bắt đầu lại</strong><p>Nút “Đặt lại demo” chỉ đặt lại trạng thái trải nghiệm trong trình duyệt.</p><strong>✓ Không gọi API ghi dữ liệu</strong></aside>
+  </div>
+</div></section>
+<section class="section" id="hoi-dap"><div class="container faq">
+  <div><span class="eyebrow">Hỏi đáp</span><h2>Các câu hỏi trước khi dùng thử</h2><p class="muted">Các tính năng cần được kiểm tra trong quy trình và hạ tầng triển khai cụ thể của từng xưởng.</p></div>
+  <div>
+    <details><summary>MESFlow phù hợp với loại hình sản xuất nào?</summary><p>MESFlow hướng tới xưởng có quy trình theo đơn sản xuất, chi tiết và nhiều công đoạn, chẳng hạn gia công hoặc lắp ráp theo PO. Phạm vi phù hợp cần được đánh giá trên quy trình thực tế.</p></details>
+    <details><summary>Nhân viên có cần nhập liệu phức tạp?</summary><p>Luồng cơ bản tại kiosk bắt đầu từ quét thẻ nhân viên, tiếp theo quét QR Operation; số liệu cần nhập tùy thao tác và cấu hình công đoạn.</p></details>
+    <details><summary>Có thể quản lý nhiều nhân viên trên cùng công đoạn?</summary><p>Có. MESFlow ghi nhận phiên theo từng nhân viên, gồm các tình huống nhiều người cùng làm một Operation hoặc một người có nhiều phiên đang mở.</p></details>
+    <details><summary>Demo có sử dụng dữ liệu sản xuất thật không?</summary><p>Không. Đây là giao diện mô phỏng chỉ có dữ liệu mẫu, không kết nối dữ liệu khách hàng, không có tài khoản quản trị hay API ghi.</p></details>
+    <details><summary>Có thể sử dụng Excel cùng MESFlow?</summary><p>Hệ thống có chức năng nhập/xuất dữ liệu phù hợp và báo cáo Excel. Nội dung mẫu, cách đồng bộ và chuẩn đối chiếu cần được thống nhất khi triển khai.</p></details>
+  </div>
+</div></section>
+<section class="final" id="lien-he"><div class="container">
+  <span class="eyebrow">Bắt đầu từ bài toán của xưởng</span>
+  <h2>Đưa quy trình thực tế lên màn hình — rồi mới mở rộng.</h2>
+  <p>Nếu xưởng đang theo dõi tiến độ bằng bảng giấy hoặc nhiều file Excel rời rạc, hãy trải nghiệm demo trước. Có thể trao đổi về luồng PO, công đoạn, định mức và báo cáo cần theo dõi.</p>
+  <div class="actions"><a class="btn primary" href="/demo">Xem MESFlow demo <span aria-hidden="true">↗</span></a></div>
+</div></section>
+</main>
+<footer class="footer"><div class="container"><span>© MESFlow · Giải pháp theo dõi sản xuất theo công đoạn</span><span>Demo minh họa bằng dữ liệu mẫu · Không kết nối production</span></div></footer>
+</body>
+</html>

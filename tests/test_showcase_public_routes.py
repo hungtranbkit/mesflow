@@ -52,3 +52,15 @@ def test_demo_has_customer_quick_tour_surfaces():
     for label in ("Tổng quan", "Kiosk flow", "Ngoại lệ", "Năng suất"):
         assert label in DEMO
     assert re.search(r"1/4.+Tổng quan", DEMO)
+
+
+def test_landing_does_not_publish_unverified_contact_channels():
+    from html.parser import HTMLParser
+
+    class Links(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            if tag == 'a':
+                href = dict(attrs).get('href', '')
+                assert href.startswith(('#', '/')), f'Contact link needs ownership evidence: {href}'
+
+    Links().feed(WELCOME)
