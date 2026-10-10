@@ -15,3 +15,9 @@ updated=text[:start]+'<!-- PUBLIC SUPPORT GENERATED -->\n<script>\n'+script+'\n'
 if '--check' in sys.argv:
  if updated!=text:raise SystemExit('Run scripts/sync-public-support.py')
 else:p.write_text(updated)
+
+# The authenticated shell uses the same controller, without duplicating the KB.
+app_widget=ROOT/'app/mesflow/web/static/support-widget.js'
+if '--check' in sys.argv:
+ if app_widget.read_text()!=widget:raise SystemExit('Run scripts/sync-public-support.py')
+else:app_widget.write_text(widget)

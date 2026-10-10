@@ -75,7 +75,7 @@ mkdir -p "$dist"
 build_tag="${image}__building_$$"
 cleanup_build_tag(){ docker rmi "$build_tag" >/dev/null 2>&1 || true; }
 trap cleanup_build_tag EXIT
-docker build --build-arg GIT_COMMIT="$(git -c safe.directory='*' rev-parse --short=12 HEAD 2>/dev/null || echo unknown)" -t "$build_tag" .
+docker build -t "$build_tag" .
 new_id="$(docker image inspect "$build_tag" --format '{{.Id}}')"
 [[ "$new_id" == sha256:* ]] || die "IMAGE_ID_UNAVAILABLE"
 if docker image inspect "$image" >/dev/null 2>&1; then
