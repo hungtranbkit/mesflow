@@ -120,101 +120,126 @@
 <style>
 .support-launch{position:fixed;right:16px;bottom:max(16px,env(safe-area-inset-bottom));z-index:40;background:var(--mint);color:#072225;border:1px solid #34806e;border-radius:28px;padding:12px 18px;min-height:48px;font-weight:750;box-shadow:0 6px 24px #0006;cursor:pointer}
 .support-panel{position:fixed;right:16px;bottom:max(16px,env(safe-area-inset-bottom));z-index:41;width:min(370px,calc(100vw - 24px));max-height:calc(100dvh - 24px);background:var(--navy);border:1px solid #4b6978;border-radius:16px;box-shadow:0 12px 50px #0009;display:flex;flex-direction:column;overflow:hidden;font-size:14px}
-#support-status{margin:0 14px 6px;line-height:1.4}#support-status:empty{display:none}.support-panel{overflow-y:auto}.support-panel[hidden],.support-launch[hidden]{display:none}.support-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;gap:8px;border-bottom:1px solid var(--border)}.support-head h2{margin:0;font-size:17px}.support-panel button{cursor:pointer}.support-close{background:transparent;color:var(--ink);border:1px solid var(--border);border-radius:8px;min-width:44px;min-height:44px}.support-note{margin:10px 14px;color:var(--muted);font-size:12px}.support-log{overflow-y:auto;min-height:70px;max-height:220px;flex:1 1 auto;overscroll-behavior:contain;padding:0 14px}.support-message{background:var(--panel);border-radius:9px;padding:10px;margin:0 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}.support-message.user{background:#23444c}.support-message a{display:block;color:var(--mint);margin-top:6px}.support-topics{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px}.support-topics button{background:#173c3d;border:1px solid #34806e;color:#d9fff0;border-radius:8px;padding:5px 9px;min-height:44px;font-size:12px}.support-form{padding:0 14px 14px;display:flex;flex-wrap:wrap;gap:6px}.support-form label{width:100%;font-size:12px}.support-form input{flex:1;min-width:0;border:1px solid #5e7f90;border-radius:8px;background:#081522;color:var(--ink);padding:10px;font:16px system-ui}.support-form input:focus-visible{outline:3px solid var(--gold);outline-offset:1px}.support-form button{border:0;border-radius:8px;background:var(--mint);color:#072225;padding:8px 12px;min-height:44px;font-weight:700}.support-links{padding:0 14px 12px;display:flex;gap:10px;flex-wrap:wrap;font-size:13px}.support-links a{color:var(--mint);min-height:28px}
+#support-status{margin:0 14px 6px;line-height:1.4}#support-status:empty{display:none}.support-panel{overflow-y:auto}.support-head,.support-form,.support-links,.support-topics,.support-note{flex-shrink:0}.support-log{flex:1 1 160px;min-height:70px}.support-panel.is-complex #support-note,.support-panel.is-complex .support-topics{display:none}#support-optin{max-height:200px;overflow:auto}#support-optin p{margin:6px 0}#support-ai{margin:6px 0}#support-ai{min-height:44px;padding:8px;border-radius:8px;border:1px solid #34806e;background:#173c3d;color:#d9fff0}#support-preview{overflow-wrap:anywhere}.support-panel[hidden],.support-launch[hidden]{display:none}.support-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;gap:8px;border-bottom:1px solid var(--border)}.support-head h2{margin:0;font-size:17px}.support-panel button{cursor:pointer}.support-close{background:transparent;color:var(--ink);border:1px solid var(--border);border-radius:8px;min-width:44px;min-height:44px}.support-note{margin:10px 14px;color:var(--muted);font-size:12px}.support-log{overflow-y:auto;min-height:70px;max-height:220px;flex:1 1 auto;overscroll-behavior:contain;padding:0 14px}.support-message{background:var(--panel);border-radius:9px;padding:10px;margin:0 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}.support-message.user{background:#23444c}.support-message a{display:block;color:var(--mint);margin-top:6px}.support-topics{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;padding:10px 14px}.support-topics button{flex-shrink:0;background:#173c3d;border:1px solid #34806e;color:#d9fff0;border-radius:8px;padding:5px 9px;min-height:44px;font-size:12px}.support-form{padding:0 14px 14px;display:flex;flex-wrap:wrap;gap:6px}.support-form label{width:100%;font-size:12px}.support-form input{flex:1;min-width:0;border:1px solid #5e7f90;border-radius:8px;background:#081522;color:var(--ink);padding:10px;font:16px system-ui}.support-form input:focus-visible{outline:3px solid var(--gold);outline-offset:1px}.support-form button{border:0;border-radius:8px;background:var(--mint);color:#072225;padding:8px 12px;min-height:44px;font-weight:700}.support-links{padding:0 14px 12px;display:flex;gap:10px;flex-wrap:wrap;font-size:13px}.support-links a{color:var(--mint);min-height:28px}
 @media(max-width:640px){.support-panel{right:12px}.nav-links{gap:6px}.nav-inner{flex-wrap:wrap;padding-block:8px}.nav-links .btn{padding:0 9px}.brand{font-size:20px}.footer{padding-bottom:90px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}
 </style>
 <button type="button" class="support-launch" id="support-launch" aria-controls="support-panel" aria-expanded="false">Hỏi MESFlow</button>
 <section class="support-panel" id="support-panel" role="dialog" aria-labelledby="support-title" aria-describedby="support-note" hidden>
   <header class="support-head"><h2 id="support-title">Hỗ trợ MESFlow</h2><button type="button" class="support-close" id="support-close" aria-label="Đóng hỗ trợ">✕</button></header>
-  <p class="support-note" id="support-note">AI chọn thông tin sản phẩm đã kiểm tra; lỗi kết nối dùng FAQ dự phòng. Chỉ gửi chủ đề, không gửi nguyên văn câu hỏi tới AI. Không nhập thông tin riêng tư.</p>
+  <p class="support-note" id="support-note">FAQ trả lời ngay, không gửi câu hỏi đi. AI chỉ giải thích thêm khi bạn đồng ý gửi câu hỏi công khai được hiển thị bên dưới. Không nhập thông tin riêng tư.</p>
   <div class="support-log" id="support-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Hội thoại hỗ trợ" tabindex="0"><p class="support-message">Chào bạn! Chọn chủ đề hoặc nhập câu hỏi ngắn về MESFlow. Hội thoại chỉ ở trang này và mất khi tải lại.</p></div>
   <div class="support-topics" id="support-topics" aria-label="Chủ đề hỗ trợ"></div>
   <form class="support-form" id="support-form"><label for="support-question">Câu hỏi của bạn</label><input id="support-question" name="question" maxlength="300" autocomplete="off" placeholder="Ví dụ: Xuất Excel thế nào?" required><button type="submit">Gửi</button></form>
+  <div class="support-note" id="support-optin" hidden><p>Câu hỏi công khai gửi AI; không kèm nguyên văn hay lịch sử:</p><p id="support-preview"></p><button type="button" id="support-ai">Đồng ý gửi · AI giải thích thêm</button></div>
   <p class="support-note" id="support-status" role="status"></p>
   <nav class="support-links" aria-label="Liên kết hỗ trợ"><a href="/reports">Tạo báo cáo</a><a href="/demo">Dùng thử demo</a><a href="/login?noauto=1">Đăng nhập</a></nav>
 </section>
-<script type="application/json" id="support-facts">[{"label":"PO → Part → Operation","keys":["po","part","operation","cong doan","quy trinh","lenh san xuat"],"text":"MESFlow tổ chức lệnh sản xuất (PO) → chi tiết (Part) → công đoạn (Operation). Mỗi công đoạn gắn với định mức và phiên làm việc để theo dõi tiến độ, thời gian và sản lượng.","href":"#quy-trinh","id":"workflow"},{"label":"Thẻ & QR","keys":["qr","the","quet","kiosk","nhan vien","scan","card"],"text":"Tại kiosk, quét thẻ nhân viên trước, rồi quét QR Operation. MESFlow ghi nhận phiên làm việc theo nhân viên và công đoạn; thao tác và số liệu cần nhập tùy cấu hình. Có hỗ trợ nhiều người cùng làm một Operation và nhiều phiên đang mở.","href":"#tinh-nang","id":"qr"},{"label":"Năng suất","keys":["nang suat","dinh muc","productivity","san luong"],"text":"Báo cáo năng suất theo nhân viên và Operation, có lọc thời gian. Hệ thống đối chiếu thời gian thực tế với định mức và ghi nhận sản lượng đạt, lỗi, sửa được. Kết quả phụ thuộc dữ liệu và định mức của xưởng; bot không truy cập báo cáo thật.","href":"#tinh-nang","id":"productivity"},{"label":"Dashboard","keys":["dashboard","tong quan","tien do","dang lam"],"text":"Màn hình Tổng quan trình bày PO, Part, Operation, tiến độ và sản lượng. Danh sách người đang làm chỉ hiển thị nhân viên có phiên đang mở; người đã kết thúc không còn trong danh sách đang làm. Xem giao diện minh họa trong demo.","href":"/demo","id":"dashboard"},{"label":"Excel","keys":["excel","xuat","nhap","bao cao","in bao cao","export"],"text":"Báo cáo năng suất có một file Excel gồm tổng hợp và chi tiết từng nhân viên, cùng chức năng in báo cáo. MESFlow cũng hỗ trợ nhập/xuất dữ liệu theo mẫu phù hợp; cần thống nhất cấu trúc và đối chiếu dữ liệu khi triển khai.","href":"/reports","id":"excel"},{"label":"Demo","keys":["demo","dung thu","thu nghiem"],"text":"Demo không cần tài khoản, dùng dữ liệu mẫu cố định trong trình duyệt. Bạn có thể xem Tổng quan, mô phỏng quét tại kiosk, Ngoại lệ và Năng suất. Đặt lại demo chỉ đặt lại trạng thái trình duyệt, không thay đổi dữ liệu xưởng.","href":"/demo","id":"demo"},{"label":"FAQ","keys":["faq","hoi dap","phu hop","loai hinh","xuong","la gi"],"text":"MESFlow hướng tới xưởng quản lý theo lệnh sản xuất, chi tiết và nhiều công đoạn, như gia công hoặc lắp ráp theo PO. Mức độ phù hợp cần đánh giá trên quy trình thực tế. Xem mục Hỏi đáp hoặc thử demo với dữ liệu mẫu.","href":"#hoi-dap","id":"faq"},{"label":"Đăng nhập","keys":["dang nhap","tai khoan","login","mat khau","password"],"text":"Dùng trang Đăng nhập để vào ứng dụng theo quyền của tài khoản. Bot không đăng nhập, cấp tài khoản, đặt lại mật khẩu hoặc xem dữ liệu nội bộ. Không gửi mật khẩu trong hội thoại này.","href":"/login?noauto=1","id":"login"}]</script>
+<!-- PUBLIC SUPPORT GENERATED -->
 <script>
+/* Shared public product knowledge and matching. Generated inline into welcome
+ * for offline FAQ; also served at /support/assistant.js for the /app widget.
+ * No visitor text, cookies, page context or conversation history leaves here. */
+(function (root) {
+  'use strict';
+  const topics = [{"id": "workflow", "label": "PO → Part → Operation", "text": "MESFlow tổ chức lệnh sản xuất (PO) → chi tiết (Part) → công đoạn (Operation). Mỗi công đoạn gắn với định mức và phiên làm việc để theo dõi tiến độ, thời gian và sản lượng.", "keys": ["po part operation", "quy trinh san xuat", "lenh san xuat", "part", "operation", "cong doan", "po", "quy trinh"], "href": "#quy-trinh"}, {"id": "qr", "label": "Cách quét thẻ và QR", "text": "Tại kiosk web, quét thẻ nhân viên trước, rồi quét QR Operation chưa mở để bắt đầu phiên; hệ thống bắt đầu khi quét thành công, không có bước xác nhận bắt đầu riêng. Nếu nhân viên chỉ có một phiên đang mở, quét thẻ sẽ vào luồng kết thúc phiên đó. Kiểm tra đúng công đoạn, nhập sản lượng theo loại công đoạn và xác nhận trước khi kết thúc; phiên cài đặt bỏ qua nhập sản lượng.", "keys": ["quet the", "quet qr", "the nhan vien", "kiosk", "scan", "card", "qr", "quet ma", "ma qr"], "href": "#tinh-nang"}, {"id": "productivity", "label": "Năng suất", "text": "Báo cáo năng suất theo nhân viên và Operation, có lọc thời gian. Hệ thống đối chiếu thời gian thực tế với định mức và ghi nhận sản lượng đạt, lỗi, sửa được. Kết quả phụ thuộc dữ liệu và định mức của xưởng; bot không truy cập báo cáo thật.", "keys": ["nang suat", "dinh muc", "productivity", "san luong", "bao cao"], "href": "#tinh-nang"}, {"id": "dashboard", "label": "Tổng quan tiến độ", "text": "Màn hình Tổng quan trình bày PO, Part, Operation, tiến độ và sản lượng. Danh sách người đang làm chỉ hiển thị nhân viên có phiên đang mở; người đã kết thúc không còn trong danh sách đang làm. Tiến độ và năng suất là hai góc nhìn khác nhau: sản lượng so với kế hoạch và thời gian thực tế so với định mức.", "keys": ["dashboard", "tong quan", "tien do"], "href": "/demo"}, {"id": "excel", "label": "Xuất Excel từng nhân viên", "text": "Trong Năng suất, chọn khoảng thời gian rồi chọn Xuất Excel. Báo cáo năng suất có một file Excel gồm trang tổng hợp và chi tiết từng nhân viên. Muốn in, chọn In toàn bộ hoặc In theo nhân viên. Liên kết Tạo báo cáo mở trợ lý báo cáo riêng; báo cáo thật yêu cầu đăng nhập và quyền phù hợp.", "keys": ["xuat excel", "excel", "export", "xuat bao cao", "bao cao tung nhan vien", "bao cao nang suat tung nhan vien", "in bao cao"], "href": "/reports"}, {"id": "demo", "label": "Demo", "text": "Demo không cần tài khoản, dùng dữ liệu mẫu cố định trong trình duyệt. Bạn có thể xem Tổng quan, mô phỏng quét tại kiosk, Ngoại lệ và Năng suất. Đặt lại demo chỉ đặt lại trạng thái trình duyệt, không thay đổi dữ liệu xưởng.", "keys": ["demo", "dung thu", "thu nghiem"], "href": "/demo"}, {"id": "faq", "label": "MESFlow là gì?", "text": "MESFlow giúp xưởng theo dõi lệnh sản xuất (PO), chi tiết (Part), công đoạn (Operation), phiên làm việc và năng suất. Phù hợp với quy trình gia công hoặc lắp ráp theo PO; mức độ phù hợp cần đánh giá trên quy trình thực tế. Bạn có thể thử demo bằng dữ liệu mẫu trước.", "keys": ["mesflow la gi", "mes flow la gi", "gioi thieu", "phu hop", "loai hinh", "hoi dap"], "href": "#hoi-dap"}, {"id": "login", "label": "Đăng nhập", "text": "Dùng trang Đăng nhập để vào ứng dụng theo quyền của tài khoản. Bot không đăng nhập, cấp tài khoản, đặt lại mật khẩu hoặc xem dữ liệu nội bộ. Không gửi mật khẩu trong hội thoại này.", "keys": ["dang nhap", "login", "tai khoan", "quen mat khau"], "href": "/login?noauto=1"}, {"id": "active", "label": "Ai đang chạy OP?", "text": "Trong Tổng quan, mở PO và tìm Operation cần xem. Danh sách người đang làm chỉ gồm nhân viên có phiên đang mở. Khi nhân viên kết thúc, tên biến mất ở lần làm mới tiếp theo; nếu không còn ai đang làm thì không có khối người đang làm. Trợ lý công khai không xem danh sách nhân viên thật.", "keys": ["ai dang chay", "ai dang lam", "nguoi dang lam", "nhan vien dang lam", "dang chay op", "dang chay operation"], "href": "/demo"}, {"id": "multi", "label": "Một người, nhiều công đoạn", "text": "Kiosk hỗ trợ một nhân viên có nhiều phiên đang mở trên các Operation khác nhau. Quét lại thẻ nhân viên, rồi quét QR Operation chưa mở để bắt đầu thêm công đoạn; thao tác này không tự kết thúc phiên của công đoạn thứ nhất. Với nhiều phiên đang mở, xem danh sách rồi quét QR của Operation đang mở cần kết thúc. Với một phiên đang mở, quét thẻ vào thẳng luồng kết thúc. Nhập sản lượng theo loại công đoạn rồi xác nhận; phiên cài đặt bỏ qua nhập sản lượng.", "keys": ["hai cong doan", "nhieu cong doan", "hai op", "nhieu op", "nhieu phien", "dong thoi", "song song", "2 cong doan"], "href": "/demo"}, {"id": "slow", "label": "Kiểm tra tiến độ chậm", "text": "Trợ lý công khai không có dữ liệu để kết luận nguyên nhân chậm của một đơn hàng. Để kiểm tra: xem sản lượng và kế hoạch của từng Operation trong Tổng quan; kiểm tra phiên đang mở; đối chiếu thời gian thực tế với định mức trong Năng suất; xem Ngoại lệ để tìm phiên cần rà soát. Thiếu định mức sản lượng thì chưa thể đánh giá phần trăm tiến độ. Đây là các bước kiểm tra, không phải kết luận về xưởng của bạn.", "keys": ["tien do cham", "cham tien do", "tre tien do", "tai sao cham", "nguyen nhan cham"], "href": "/demo"}, {"id": "finish", "label": "Kết thúc và sản lượng", "text": "Khi kết thúc phiên sản xuất trên kiosk web, nhập số sản phẩm đạt và lỗi. Nếu có lỗi, màn hình cho phép khai báo số lỗi sửa được; nếu không có lỗi thì bỏ qua bước hỏi sửa được. Kiểm tra màn hình xác nhận trước khi gửi. Số lượng để trống không được coi là không có; nhập 0 nếu không có sản lượng tương ứng.", "keys": ["ket thuc", "san pham loi", "san pham dat", "loi sua duoc", "nhap san luong"], "href": "/demo"}, {"id": "planned", "label": "Thiếu định mức", "text": "Phần trăm tiến độ cần có sản lượng kế hoạch. Nếu thiếu định mức sản lượng, Tổng quan hiển thị chưa có định mức thay vì một phần trăm không có cơ sở. Định mức thời gian dùng để đối chiếu năng suất với thời gian thực tế; không thay thế sản lượng kế hoạch.", "keys": ["thieu dinh muc", "chua co dinh muc", "phan tram", "san luong ke hoach"], "href": "/demo"}, {"id": "exceptions", "label": "Ngoại lệ phiên làm việc", "text": "Ngoại lệ giúp rà soát phiên làm việc có dấu hiệu cần kiểm tra, như phiên mở quá lâu hoặc chưa kết thúc. Cần người có quyền xem xét dữ liệu và bối cảnh trước khi xử lý. Trợ lý công khai chỉ giải thích cách dùng, không sửa phiên hoặc thao tác thay người dùng.", "keys": ["ngoai le", "phien mo qua lau", "quen ket thuc"], "href": "/demo"}];
+  const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const has = (text,key) => (' '+text+' ').includes(' '+key+' ');
+  const intents = {
+    guide:'Giải thích cách kết hợp các bước sau trong MESFlow, theo thứ tự thực hiện',
+    compare:'So sánh mục đích và cách sử dụng các chức năng sau trong MESFlow',
+    diagnose:'Hướng dẫn kiểm tra theo các chức năng sau, không kết luận nguyên nhân khi chưa có dữ liệu xưởng'
+  };
+  const generic = 'xin vui long a ah nhe oi on cam ban lam on mesflow mes flow la gi cach lam sao the nao toi muon biet hay cho minh ban co the khong va voi de thi neu mot hai nhieu tai sao khi can giup huong dan giai thich ket hop so sanh khac nhau giua tu den sau truoc tung theo trong hien thi xem su dung chay ai dang nhan vien cong nhan the quet qr op loi nhu nao nhu the nao cham vi sao nguyen nhan duoc hoac bao cao xuat in tim voi nhau lien quan tiep theo';
+  const vocabulary = new Set(normalize(topics.map(t=>t.label+' '+t.text+' '+t.keys.join(' ')).join(' ')+' '+generic).split(' '));
+  const clarify = 'Mình chưa có thông tin đã kiểm tra để trả lời câu này. Bạn muốn hỏi cách quét QR, xem người đang làm, tiến độ hay xuất báo cáo? Hãy chọn một chủ đề hoặc diễn đạt lại chỉ về cách dùng sản phẩm.';
+  const privateReply = 'Mình chỉ hướng dẫn sản phẩm công khai, không xem hoặc gửi dữ liệu nội bộ. Không nhập tên người, mã đơn hàng, tài khoản, mật khẩu hay số liệu xưởng. Để xem báo cáo thật, dùng Tạo báo cáo và đăng nhập theo quyền.';
+  function result(ids, intent) {
+    const selected=ids.map(id=>topics.find(t=>t.id===id));
+    return {mode:'faq',topic_ids:ids,answer:selected.map(t=>t.text).join('\n\n'),
+      sources:selected.map(t=>({id:t.id,label:t.label,href:'/support/knowledge#'+t.id,action_href:t.href})),
+      ...(intent ? {ai:{topics:ids,intent,consent:true},public_question:intents[intent]+': '+selected.map(t=>t.label).join('; ')+'.'} : {})};
+  }
+  function match(value) {
+    const text=normalize(value);
+    const riskText=text.replace(/\b(danh gia|gia cong|san luong)\b/g,'');
+    if (['gia','price','pricing','bao nhieu tien','lien he','contact','email','zalo','dien thoai'].some(k=>has(riskText,k)))
+      return {mode:'decline',answer:'Giá và kênh liên hệ chưa được công bố ở đây; mình không cung cấp thông tin chưa xác minh. Bạn có thể thử demo hoặc xem thông tin sản phẩm.',sources:[]};
+    if (/[<>@{}\\/:=]|\d/.test(value) || ['du lieu that','du lieu noi bo','khach hang','don hang cua','xuong toi','xuong cua','ten nhan vien','luong','doanh thu','token','secret','api','password','mat khau la','ignore','instructions','system','bo qua','bi mat'].some(k=>has(riskText,k)))
+      return {mode:'decline',answer:privateReply,sources:[]};
+    // Unknown names, identifiers and unsupported features are never interpreted
+    // as context for AI. The canonical opt-in question contains only KB labels.
+    if (!text || text.split(' ').some(word=>!vocabulary.has(word))) return {mode:'clarify',answer:clarify,sources:[]};
+    const ranked = clause => topics.map(t=>({id:t.id,score:Math.max(0,...t.keys.filter(k=>has(clause,k)).map(k=>k.split(' ').length*10+k.length/100))})).filter(t=>t.score>0).sort((a,b)=>b.score-a.score);
+    const hits=ranked(text);
+    if (!hits.length) return {mode:'clarify',answer:clarify,sources:[]};
+    // Match each explicit clause independently. A specific export phrase must
+    // not swallow a separately requested QR/productivity step.
+    const clauses=text.split(/\b(?:va|voi|sau do|roi|ket hop|so sanh|khac nhau giua)\b/).map(s=>s.trim()).filter(Boolean);
+    const clauseIds=clauses.map(clause=>ranked(clause)[0]?.id).filter(Boolean);
+    const ids=clauses.length>1 && clauseIds.length>1 ? [...new Set(clauseIds)] : [hits[0].id];
+    if(ids.length>3) return {mode:'clarify',answer:'Bạn muốn làm bước nào trước? Chọn tối đa ba chủ đề để mình giải thích rõ hơn.',sources:[]};
+    const intent=ids.length>1 && !ids.includes('login') ? (/so sanh|khac nhau/.test(text)?'compare':/tai sao|nguyen nhan/.test(text)?'diagnose':'guide') : null;
+    return result(ids,intent);
+  }
+  async function deeper(plan,signal) {
+    const response=await fetch('/support/chat',{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},body:JSON.stringify(plan),signal});
+    if (!response.ok) throw new Error('AI unavailable');
+    return response.json();
+  }
+  root.MESFlowSupport={topics,match,faq:id=>result([id]),deeper};
+})(typeof window === 'undefined' ? globalThis : window);
+
 (() => {
   'use strict';
-  // Approved public facts only. The server receives topic IDs, never raw text,
-  // conversation history, cookies or business data. Gateway prose is not rendered.
-  const topics = JSON.parse(document.getElementById("support-facts").textContent);
-  const fallback = {text:'Mình chưa có thông tin đã kiểm tra để trả lời câu này. Bạn có thể chọn chủ đề bên dưới, xem Hỏi đáp hoặc thử demo. Giá và kênh liên hệ chưa được công bố ở đây; mình không cung cấp thông tin chưa xác minh.', href:'#hoi-dap'};
-  const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  const includes = (text, key) => (' '+text+' ').includes(' '+key+' ');
-  const answer = value => {
-    const text = normalize(value);
-    if (['gia','price','pricing','bao nhieu','lien he','contact','email','zalo','dien thoai','du lieu that','du lieu noi bo','api','token','secret'].some(key => includes(text,key))) return fallback;
-    // Prefer the topic with the longest matching phrase; whole words avoid
-    // accidental PO matches in unrelated words. No generative answers.
-    let best = fallback, score = 0;
-    for (const topic of topics) for (const key of topic.keys) {
-      if (includes(text,key) && key.length > score) { best = topic; score = key.length; }
-    }
-    return best;
-  };
-  const panel = document.getElementById('support-panel');
-  const launch = document.getElementById('support-launch');
-  const input = document.getElementById('support-question');
-  const log = document.getElementById('support-log');
-  function close() { panel.hidden = true; launch.hidden = false; launch.setAttribute('aria-expanded','false'); launch.focus(); }
-  launch.addEventListener('click', () => { panel.hidden = false; launch.hidden = true; launch.setAttribute('aria-expanded','true'); document.getElementById('support-close').focus(); });
+  const assistant=window.MESFlowSupport;
+  const panel=document.getElementById('support-panel'), launch=document.getElementById('support-launch');
+  const input=document.getElementById('support-question'), log=document.getElementById('support-log');
+  const status=document.getElementById('support-status'), optin=document.getElementById('support-optin');
+  const aiButton=document.getElementById('support-ai'), preview=document.getElementById('support-preview');
+  let plan=null, generation=0, controller=null;
+  function cancel() { generation++; if(controller) controller.abort(); controller=null;status.textContent='';aiButton.disabled=false; }
+  function close() { cancel();panel.hidden=true;launch.hidden=false;launch.setAttribute('aria-expanded','false');launch.focus(); }
+  launch.addEventListener('click',()=>{panel.hidden=false;launch.hidden=true;launch.setAttribute('aria-expanded','true');document.getElementById('support-close').focus();});
   document.getElementById('support-close').addEventListener('click',close);
-  panel.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); close(); } });
-  function message(text, user, href) {
-    const item = document.createElement('p'); item.className = 'support-message'+(user?' user':'');
-    item.textContent = (user?'Bạn: ':'MESFlow: ')+text;
-    if (href) { const link = document.createElement('a'); link.href = href; link.textContent = href.startsWith('/demo')?'Mở demo':href.startsWith('/login')?'Mở trang đăng nhập':'Xem thông tin sản phẩm'; item.append(link); }
-    log.append(item);
-    while (log.children.length > 24) log.firstElementChild.remove();
-    log.scrollTop = log.scrollHeight;
-  }
-  let busy = false;
-  async function ask(question, reply) {
-    if (busy) return;
-    message(question,true);
-    if (!reply.id) { message(reply.text,false,reply.href); return; }
-    busy = true;
-    const status = document.getElementById('support-status');
-    const controls = panel.querySelectorAll('#support-topics button, #support-form button, #support-question');
-    controls.forEach(control => control.disabled = true);
-    status.textContent = 'Đang hỏi AI…';
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 26000);
-    let selected = [reply], source = 'FAQ dự phòng — AI không khả dụng.';
-    try {
-      const response = await fetch('/support/chat', {
-        method:'POST', credentials:'omit', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({topics:[reply.id]}), signal:controller.signal
-      });
-      if (!response.ok) throw new Error('Support unavailable');
-      const data = await response.json();
-      if (['gateway','gateway_cached'].includes(data.mode) && Array.isArray(data.topic_ids) && data.topic_ids.length === 1 && data.topic_ids[0] === reply.id) {
-        selected = data.topic_ids.map(id => topics.find(topic => topic.id === id));
-        source = data.mode === 'gateway' ? 'AI Gateway · Nội dung đã kiểm tra' : 'AI Gateway · Kết quả đã lưu tạm';
-      }
-    } catch (_) { /* The curated answer remains available during any outage. */ }
-    finally {
-      clearTimeout(timeout); busy = false;
-      controls.forEach(control => control.disabled = false);
+  panel.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();close();}});
+  function message(text,user,sources=[]) {
+    const item=document.createElement('p');item.className='support-message'+(user?' user':'');item.textContent=(user?'Bạn: ':'MESFlow: ')+text;
+    for(const source of sources) {
+      // Links always come from the local approved KB, never model strings.
+      const fact=assistant.topics.find(t=>t.id===source.id);if(!fact)continue;
+      const link=document.createElement('a');link.href='/support/knowledge#'+fact.id;link.textContent='Nguồn: '+fact.label;item.append(link);
+      if(fact.href.startsWith('/')){const action=document.createElement('a');action.href=fact.href;action.textContent=fact.href==='/reports'?'Tạo báo cáo':fact.href==='/demo'?'Mở demo':'Đăng nhập';item.append(action);}
     }
-    for (const item of selected) message(source+'\n'+item.text,false,item.href);
-    status.textContent = '';
+    log.append(item);while(log.children.length>24)log.firstElementChild.remove();log.scrollTop=Math.max(0,log.scrollHeight-item.offsetHeight);
   }
-  for (const topic of topics) {
-    const button = document.createElement('button'); button.type = 'button'; button.textContent = topic.label;
-    button.addEventListener('click',() => ask(topic.label,topic)); document.getElementById('support-topics').append(button);
+  function ask(question,reply) {
+    cancel();message(question,true);message((reply.mode==='faq'?'FAQ · Thông tin sản phẩm\n':'')+reply.answer,false,reply.sources);
+    plan=reply.ai||null;optin.hidden=!plan;panel.classList.toggle('is-complex',!!plan);preview.textContent=reply.public_question||'';
   }
-  document.getElementById('support-form').addEventListener('submit',event => {
-    event.preventDefault(); const question = input.value.trim(); if (!question) return;
-    input.value = ''; ask(question,answer(question)).then(() => { if (!panel.hidden) input.focus(); });
+  aiButton.addEventListener('click',async()=>{
+    if(!plan||controller)return;
+    const current=++generation;controller=new AbortController();const signal=controller.signal;
+    aiButton.disabled=true;status.textContent='AI đang giải thích thêm; FAQ phía trên dùng được ngay. Tối đa 9 giây.';
+    const timeout=setTimeout(()=>controller && controller.abort(),10000);
+    try {
+      const data=await assistant.deeper(plan,signal);if(current!==generation)return;
+      if(['gateway','gateway_cached'].includes(data.mode) && typeof data.answer==='string' && data.answer.length<=1800 && Array.isArray(data.topic_ids) && data.topic_ids.length && data.topic_ids.every(id=>plan.topics.includes(id))) {
+        message((data.mode==='gateway'?'AI · Giải thích từ nguồn công khai':'AI · Kết quả đã lưu tạm')+'\n'+data.answer,false,data.topic_ids.map(id=>({id})));
+        status.textContent='Câu trả lời do AI tổng hợp; xem nguồn để đối chiếu.';
+      } else status.textContent='AI chưa trả lời được lúc này. FAQ đã có sẵn phía trên; bạn có thể tiếp tục hỏi.';
+    } catch(_) {if(current===generation)status.textContent='AI chưa trả lời trong thời gian cho phép. FAQ đã có sẵn phía trên.';}
+    finally {clearTimeout(timeout);if(current===generation){controller=null;aiButton.disabled=false;}}
   });
-  panel.querySelectorAll('a[href^="#"]').forEach(link => link.addEventListener('click',close));
-  log.addEventListener('click', event => { if (event.target.closest('a[href^="#"]')) close(); });
+  for(const id of ['faq','qr','excel','active','multi','slow','demo','login']) {
+    const topic=assistant.topics.find(t=>t.id===id),button=document.createElement('button');button.type='button';button.textContent=topic.label;
+    button.addEventListener('click',()=>ask(topic.label,assistant.faq(topic.id)));document.getElementById('support-topics').append(button);
+  }
+  document.getElementById('support-form').addEventListener('submit',event=>{event.preventDefault();const question=input.value.trim();if(!question)return;input.value='';ask(question,assistant.match(question));input.focus();});
 })();
+
 </script>
+<!-- /PUBLIC SUPPORT GENERATED -->
 
 </body>
 </html>

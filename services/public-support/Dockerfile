@@ -1,8 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /srv
 RUN pip install --no-cache-dir Flask==3.1.1 gunicorn==23.0.0
-COPY services/public-support/server.py /srv/services/public-support/server.py
-COPY app/mesflow/web/templates/welcome.html /srv/app/mesflow/web/templates/welcome.html
+COPY services/public-support/ /srv/services/public-support/
 WORKDIR /srv/services/public-support
 USER 65534:65534
 EXPOSE 8088

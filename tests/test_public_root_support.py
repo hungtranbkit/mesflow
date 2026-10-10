@@ -49,9 +49,10 @@ def test_support_contains_only_public_copy_and_no_data_channels():
                       'localStorage', 'sessionStorage', 'document.cookie',
                       'innerHTML', 'api_key', 'DATABASE_URL'):
         assert forbidden not in script
-    assert 'FAQ dự phòng' in html
+    assert 'FAQ · Thông tin sản phẩm' in html
     assert "credentials:'omit'" in script
-    assert "JSON.stringify({topics:[reply.id]})" in script
+    assert "body:JSON.stringify(plan)" in script
+    assert "Không nhập thông tin riêng tư" in html
     assert script.count('fetch(') == 1
     assert 'maxlength="300"' in html
 
