@@ -130,9 +130,16 @@ def peer():
     return request.headers.get('X-Report-Client-IP', request.remote_addr)
 
 
+def snapshot_freshness(record):
+    metadata = record.get('snapshot')
+    if not metadata: return None
+    age = (datetime.now(timezone.utc) - datetime.fromisoformat(metadata['generated_at'])).total_seconds()
+    return {**metadata, 'age_seconds': round(age, 1), 'stale': age > metadata['ttl_seconds']}
+
+
 def audit(action, owner, record, **extra):
     event={'at':datetime.now(timezone.utc).isoformat(),'action':action,'user_id':owner,'report_id':record['id'], 'mode':record['mode'],
-           'filters':record['intent'],'row_count':len(record['rows']),'snapshot':record.get('snapshot'),**extra}
+           'filters':record['intent'],'row_count':len(record['rows']),'snapshot':snapshot_freshness(record),**extra}
     try:
         encoded=(json.dumps(event,ensure_ascii=False)+'\n').encode()
         # Append metadata only; report rows, cookie, raw prompt and AI key never logged.
@@ -284,6 +291,9 @@ def safe_cell(value):
 
 
 def export_bytes(record,format):
+    # Grants preserve exact rows for five minutes; freshness is measured again
+    # at export, so an older frozen preview never claims to be freshly computed.
+    record = {**record, 'snapshot': snapshot_freshness(record)}
     if format == 'pdf':
         if len(record['rows']) > 200:
             raise ReportError('PDF giới hạn 200 dòng. Thu hẹp bộ lọc hoặc tải Excel/CSV.', 422)

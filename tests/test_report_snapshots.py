@@ -124,3 +124,17 @@ def test_worker_caps_do_not_replace_last_good_snapshot(service, monkeypatch):
     monkeypatch.setattr(snapshot_store, 'MAX_BYTES', 1)
     with pytest.raises(ValueError): publish(service.SNAPSHOT_DIR, 'reports.json', {'oversized': True})
     assert (service.SNAPSHOT_DIR / 'reports.json').read_bytes() == before
+
+
+def test_old_preview_export_keeps_rows_but_labels_current_source_age(service):
+    client = authenticated(service)
+    record = preview(service, client)
+    stored = service.snapshots[record['id']]
+    stored['snapshot']['generated_at'] = (datetime.now(timezone.utc) - timedelta(seconds=160)).isoformat()
+    response = client.post('/reports-api/export', json={'report_id': record['id'], 'format': 'csv'})
+    assert response.status_code == 200
+    import csv, io
+    row = next(csv.DictReader(io.StringIO(response.data.decode('utf-8-sig'))))
+    metadata = json.loads(row['snapshot'])
+    assert metadata['stale'] and metadata['age_seconds'] >= 160
+    assert row['good_qty'] == '12'
