@@ -9,34 +9,47 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
-## Public root support chatbot — 2026-10-10 (implementation)
+## Public root support + real AI Gateway — 2026-10-10 (implementation)
 
-- Root `/` now renders the public landing, with an always-visible login CTA
-  (`/login?noauto=1`) and compact “Hỏi MESFlow” support dialog. Signed-in users
-  can still enter `/app` directly or via the login CTA. `/login` continues to
-  redirect valid sessions to `/app`; authentication policy is unchanged.
-- Bot is deterministic, explicitly labelled “không phải AI”, and answers only
-  reviewed public product topics. Sources: the landing's `#quy-trinh`,
-  `#tinh-nang`, `#hoi-dap`, the isolated `/demo`, and the verified 380/381
-  productivity/active-worker behavior documented below. No prices or contact
-  channels supplied; unknown/private questions fall back to FAQ/demo.
-- No API calls, LLM, keys, cookies, storage, customer data, or message telemetry
-  in chatbot code. Messages use textContent, are bounded, and vanish on reload.
-  The existing Cloudflare analytics beacon is outside chatbot code.
-- Keyboard open/close, Escape + focus return, labelled input/live log,
-  44px touch controls, reduced motion, and 320/390/1366px browser coverage.
-- TEST is served by static nginx overrides: updating the Flask route alone is
-  insufficient. `scripts/prepare-public-root-nginx.py` prepares an exact `/`
-  location in the verified gateway config: HTTP redirects to HTTPS; HTTPS
-  serves welcome.html; Host must be mesflow.net; GET/HEAD only. It leaves the
-  existing proxy configuration byte-for-byte intact, including `/app`, login,
-  APIs, kiosk and deploy-agent. Validate candidate with nginx -t before reload.
-- Deploy status: pending merge and public verification. Static deployment must
-  synchronize `/opt/mesflow/public-showcase/welcome.html` AND the running
-  nginx container's `/usr/share/nginx/html/mesflow-showcase/welcome.html`.
-  The declared read-only compose bind becomes active only on a future recreate.
-- Existing auth persistence tests now probe protected `/app` (or `/login` for
-  a valid-session redirect) instead of assuming the public root is protected.
+- `/` renders the public landing with login CTA (`/login?noauto=1`) and
+  compact “Hỏi MESFlow” dialog. `/app` remains protected; `/login` still
+  redirects valid sessions to `/app`. Auth/session/RBAC code is unchanged.
+- Grounding: approved public facts embedded in `welcome.html#support-facts`,
+  sourced from landing workflow/features/FAQ, isolated demo, and verified
+  380/381 Excel and active-worker behavior below. Browser matches questions
+  to topic IDs. ONLY those IDs cross the public support endpoint; raw visitor
+  questions/history/cookies/customer data never go to the gateway. Unsupported,
+  pricing/contact/private questions get curated fallback without an AI call.
+- `services/public-support/server.py` is a standalone Flask service with no
+  MES imports, DB, session secret, tools or business API access. It loads the
+  same approved facts from the HTML. AI selects allowed fact IDs; arbitrary
+  model prose is rejected, so it cannot add unverified pricing/contact claims.
+- Gateway verified: HP-local `127.0.0.1:8788` and the old repoport prefix are
+  mock-only. User approved the REAL `https://ai-gateway.mesflow.net/v1` on m910.
+  Authenticated models/config confirm `facebook-chat` is non-queued and uses
+  only grok-web/gemini-web/deepseek-web. The service checks those candidates
+  before each uncached call and rejects mock/Claude or unknown actual providers.
+  A real non-streaming probe returned HTTP 200, Gemini, `{"topic_ids":["excel"]}`
+  in 15.2s. Dedicated client key name `mesflow-public-support-test-20261010`,
+  key ID `3e5491064a61`; the secret stays outside source/browser in a 0600 env file.
+- Request controls: 300 characters locally, 256-byte server body, strict JSON
+  schema (1–2 approved topic IDs), origin check, 6 requests/minute per gateway
+  client IP, 20 upstream attempts/hour globally, 2 in flight, 20s completion
+  timeout + 4s model check, 26s browser timeout, 60s failure cooldown, 5min cache.
+  One gunicorn worker preserves these process-local budgets; restart resets them.
+  UI labels fresh AI, cached AI, and FAQ fallback separately. No conversations
+  are stored. The existing Cloudflare analytics beacon is separate.
+- TEST rollout is static HTML + separate support container only: do not replace
+  the live MES application image. `scripts/prepare-public-root-nginx.py` adds
+  exact `/` and `/support/chat` locations in HTTPS; HTTP root redirects HTTPS.
+  Support forwards neither Authorization nor Cookie, strips Set-Cookie, and
+  overwrites client-IP. No public support container port. Other proxy blocks
+  remain byte-for-byte intact. Existing nginx compose has a future read-only
+  showcase bind; synchronize BOTH host HTML and current container HTML.
+- Verification: focused Python suite 46 passed; browser coverage exercises
+  1366/390/320px, keyboard, reset, text-only rendering, fake gateway/outage and
+  payload privacy. These mocked browser checks are NOT proof of live AI.
+- Deploy status: pending merge and live root/mobile/auth/AI verification.
 
 ## Public landing live on TEST — 2026-10-10 09:00 ICT
 

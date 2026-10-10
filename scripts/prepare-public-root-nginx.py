@@ -16,7 +16,23 @@ HTTP = '''    # Public root; keep login and all business routes on the backend.
     }
 
 '''
-HTTPS = '''    # Public root; keep login and all business routes on the backend.
+HTTPS = '''    # Public product-only support service; never forward auth or cookies.
+    location = /support/chat {
+      if ($host != mesflow.net) { return 404; }
+      limit_except POST { deny all; }
+      client_max_body_size 256;
+      proxy_pass http://mesflow-public-support:8088;
+      proxy_set_header Host mesflow.net;
+      proxy_set_header Cookie "";
+      proxy_set_header Authorization "";
+      proxy_set_header X-Support-Client-IP $remote_addr;
+      proxy_connect_timeout 2s;
+      proxy_read_timeout 27s;
+      proxy_hide_header Set-Cookie;
+      add_header Cache-Control "no-store" always;
+    }
+
+    # Public root; keep login and all business routes on the backend.
     location = / {
       if ($host != mesflow.net) { return 404; }
       alias /usr/share/nginx/html/mesflow-showcase/welcome.html;

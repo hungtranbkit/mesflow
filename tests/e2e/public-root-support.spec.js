@@ -4,6 +4,7 @@ for (const viewport of [{width:1366,height:768},{width:390,height:844},{width:32
   test(`anonymous root support and secure login entry ${viewport.width}`, async ({browser, baseURL}) => {
     const context = await browser.newContext({viewport, baseURL});
     const page = await context.newPage();
+    await page.route('**/support/chat', route => route.fulfill({status:503, contentType:'application/json', body:'{}'}));
     const errors = [], api = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) api.push(request.url()); });
@@ -49,3 +50,24 @@ for (const viewport of [{width:1366,height:768},{width:390,height:844},{width:32
     await context.close();
   });
 }
+
+
+test('gateway status is truthful and only public topic IDs leave the browser', async ({page}) => {
+  const calls = [];
+  await page.route('**/support/chat', route => {
+    calls.push(route.request().postDataJSON());
+    expect(route.request().headers().cookie).toBeUndefined();
+    return route.fulfill({json:{mode:'gateway',topic_ids:['excel'],provider:'gemini-web'}});
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'Hỏi MESFlow',exact:true}).click();
+  const input = page.getByLabel('Câu hỏi của bạn');
+  await input.fill('Excel raw-private-probe'); await input.press('Enter');
+  await expect(page.locator('.support-message').last()).toContainText('AI Gateway · Nội dung đã kiểm tra');
+  expect(calls).toEqual([{topics:['excel']}]);
+  await page.unroute('**/support/chat');
+  await page.route('**/support/chat', route => route.abort('failed'));
+  await input.fill('Excel'); await input.press('Enter');
+  await expect(page.locator('.support-message').last()).toContainText('FAQ dự phòng');
+  await expect(page.locator('.support-message').last()).toContainText('một file Excel');
+});

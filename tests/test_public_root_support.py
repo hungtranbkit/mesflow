@@ -45,11 +45,14 @@ def test_public_root_does_not_modify_an_existing_session(client):
 def test_support_contains_only_public_copy_and_no_data_channels():
     html = (ROOT / 'app/mesflow/web/templates/welcome.html').read_text()
     script = html.split('<script>')[1].split('</script>')[0]
-    for forbidden in ('fetch(', 'XMLHttpRequest', 'WebSocket', 'sendBeacon',
+    for forbidden in ('XMLHttpRequest', 'WebSocket', 'sendBeacon',
                       'localStorage', 'sessionStorage', 'document.cookie',
                       'innerHTML', 'api_key', 'DATABASE_URL'):
         assert forbidden not in script
-    assert 'không phải AI' in html
+    assert 'FAQ dự phòng' in html
+    assert "credentials:'omit'" in script
+    assert "JSON.stringify({topics:[reply.id]})" in script
+    assert script.count('fetch(') == 1
     assert 'maxlength="300"' in html
 
 
