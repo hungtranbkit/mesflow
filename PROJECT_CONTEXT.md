@@ -9,6 +9,37 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Precomputed report snapshots — issue #45 (implementation, not yet deployed)
+
+- Fresh branch/worktree `feat/45-precomputed-snapshots` / `mesflow-issue45`,
+  based on main `1dca8df`. The referenced workspace `../AGENTS.md` is absent
+  on HP; repo AGENTS.md, PROJECT.yaml and this handoff were read.
+- Separate SELECT-only worker reuses existing repository SQL in bounded
+  REPEATABLE READ READ ONLY transactions. Private atomic JSON daily partitions
+  cover 93 days; active sessions refresh 20s, report sources 60s. No business
+  writes, migration, request-time export rebuild or external AI data transfer.
+- `/reports` live preview now uses only those precomputed sources. It rechecks
+  `/api/auth/me` and current dataset RBAC every request/download; expired/cold
+  sources return 503. Current PO values versus period facts remain distinct.
+  Unrounded additive score statistics preserve existing SQL productivity AVG;
+  existing per-session report rounding is preserved for filtered projections.
+- Authenticated `/reports-api/chat-data` and `/reports-api/active-sessions`
+  expose minimal local facts, not names/IDs/prompts; explicitly not approved for
+  external AI. #39/#43 and #34 were notified via issue/PR comments. #40 public
+  product support stays separate. No app widget, app image or nginx edits.
+- XLSX/CSV and new bounded native WeasyPrint PDF use the exact authorized
+  preview, with SHA/audit and freshness metadata; browser Print is still a
+  separate fallback. #34's separate live-query report engine is unchanged.
+- Verification so far: 49 focused tests, 2 PostgreSQL integration tests including
+  five filters/all five report kinds, simulated scan refresh and enforced
+  read-only transactions; project preflight passed. Full gate and live proof
+  pending; do not interpret implementation status as deployment completion.
+- TEST app is being changed by concurrent #34/#43 sessions: observed 385 /
+  bf15a040e5e9 at 05:02 UTC, then 383 / 4fb2882 at 05:07. Both owners notified.
+  Verify actual runtime at deployment time, preserve it and do not restore an
+  older app as part of report rollback. Runbook and limits live in
+  `services/report-assistant/README.md`.
+
 ## Secure natural-language report assistant — 2026-10-10 (live TEST)
 
 - Separate `services/report-assistant` service, root chatbot link → `/reports`.

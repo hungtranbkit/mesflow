@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+WORKDIR /srv
+RUN pip install --no-cache-dir 'psycopg[binary]==3.2.13'
+COPY app/mesflow /srv/mesflow
+COPY VERSION.txt /srv/VERSION.txt
+COPY services/report-assistant/schema.py services/report-assistant/snapshot_store.py services/report-assistant/snapshot_worker.py /srv/
+ENV MESFLOW_TIMEZONE=Asia/Ho_Chi_Minh
+USER 65534:65534
+CMD ["python", "snapshot_worker.py"]

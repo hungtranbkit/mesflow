@@ -2084,7 +2084,7 @@ class ReportRepository:
 
     def employee_productivity_sessions(self,date_from:str|None=None,date_to:str|None=None,
                                        employee_id:int|None=None,department:str|None=None,
-                                       team:str|None=None,limit:int=50000):
+                                       team:str|None=None,limit:int=50000,*,raw_scores:bool=False):
         """Every session behind employee_productivity() for the same filters,
         one row per session, in ONE query (Excel "Chi tiết từng nhân viên").
 
@@ -2121,7 +2121,11 @@ class ReportRepository:
         for row in rows[:cap]:
             item=dict(row)
             pct=item.get('completion_percent')
-            item['completion_percent']=round(float(pct),2) if pct is not None else None
+            # Snapshot aggregation needs the database precision before final rounding.
+            item['completion_percent']=(pct if raw_scores else round(float(pct),2)) if pct is not None else None
+            if raw_scores:
+                sessions.append(item)
+                continue
             item['actual_seconds']=float(item.get('actual_seconds') or 0)
             item['expected_seconds']=float(item.get('expected_seconds') or 0)
             item['standard_seconds_per_unit']=float(item.get('standard_seconds_per_unit') or 0)

@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp:size=32m]
-    volumes: [/opt/mesflow/report-audit:/audit]
+    volumes: [/opt/mesflow/report-audit:/audit, /opt/mesflow/report-snapshots:/snapshots:ro]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
@@ -16,7 +16,26 @@ services:
     logging:
       driver: json-file
       options: {max-size: 5m, max-file: '2'}
+  snapshots:
+    image: ${SNAPSHOT_IMAGE:?Set immutable snapshot worker image tag}
+    container_name: mesflow-report-snapshots
+    env_file: /opt/mesflow/report-snapshots.env
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp:size=8m]
+    volumes: [/opt/mesflow/report-snapshots:/snapshots]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    networks: [database]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '2'}
 networks:
   gateway:
     external: true
     name: mesflow-edge
+  database:
+    external: true
+    name: ${SNAPSHOT_DB_NETWORK:?Set verified TEST database network}

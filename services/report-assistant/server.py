@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import re
 import secrets
+import subprocess
+import sys
 import threading
 import time
 from urllib.error import HTTPError
@@ -23,6 +25,7 @@ from flask import Flask, g, jsonify, request, send_file, send_from_directory
 from openpyxl import Workbook
 from schema import ReportError, TYPES, extract, validate
 from data import authorize, project, demo
+from snapshot_store import SnapshotSource, load as load_snapshot
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2048
@@ -30,11 +33,13 @@ BACKEND = os.environ.get('REPORT_BACKEND', 'http://mesflow-app:8080')
 GATEWAY_KEY = os.environ.get('SUPPORT_GATEWAY_KEY', '')
 AUDIT = Path(os.environ.get('REPORT_AUDIT_PATH', '/audit/reports.jsonl'))
 ORIGIN = os.environ.get('REPORT_ORIGIN', 'https://mesflow.net')
+SNAPSHOT_DIR = Path(os.environ.get('REPORT_SNAPSHOT_DIR', '/snapshots'))
+pdf_slots = threading.BoundedSemaphore(1)
 lock = threading.Lock()
 slots = threading.BoundedSemaphore(2)
 snapshots, rates, ai_cache = {}, {}, {}
 ai_budget = []
-ALLOWED = re.compile(r'^/api/(auth/me|operations/\d+|reports/production-orders/\d+|reports/employee-productivity(?:/\d+)?|session-management(?:/\d+)?)$')
+ALLOWED = re.compile(r'^/api/auth/me$')
 
 
 @app.errorhandler(ReportError)
@@ -127,7 +132,7 @@ def peer():
 
 def audit(action, owner, record, **extra):
     event={'at':datetime.now(timezone.utc).isoformat(),'action':action,'user_id':owner,'report_id':record['id'], 'mode':record['mode'],
-           'filters':record['intent'],'row_count':len(record['rows']),**extra}
+           'filters':record['intent'],'row_count':len(record['rows']),'snapshot':record.get('snapshot'),**extra}
     try:
         encoded=(json.dumps(event,ensure_ascii=False)+'\n').encode()
         # Append metadata only; report rows, cookie, raw prompt and AI key never logged.
@@ -216,14 +221,12 @@ def preview():
     rate(('preview',owner if user else peer()))
     if not slots.acquire(blocking=False): raise ReportError('Đang xử lý báo cáo khác. Thử lại sau.',429)
     try:
-        deadline=time.monotonic()+16
-        def read(path,params):
-            if time.monotonic()>deadline: raise ReportError('Phạm vi mất quá lâu. Thu hẹp bộ lọc.',422)
-            return backend(path,params)
-        data=project(filters,read) if user else demo(filters)
+        source = SnapshotSource(SNAPSHOT_DIR, filters) if user else None
+        data = project(filters, source.get) if source else demo(filters)
+        if source: data['snapshot'] = source.metadata
     finally: slots.release()
     now=time.monotonic()
-    record={**data,'id':secrets.token_urlsafe(24),'intent':filters,'mode':value['mode'],'owner':owner,'created':now,'downloads':0,'generated_at':datetime.now(timezone.utc).isoformat()}
+    record={**data,'id':secrets.token_urlsafe(24),'intent':filters,'mode':value['mode'],'owner':owner,'created':now,'downloads':0,'generated_at':data.get('snapshot', {}).get('generated_at', datetime.now(timezone.utc).isoformat())}
     audit('REPORT_PREVIEW',owner,record)
     with lock:
         for token in list(snapshots):
@@ -235,6 +238,45 @@ def preview():
     return jsonify({**{k:v for k,v in record.items() if k not in ('owner','created','downloads')},'expires_in':300})
 
 
+@app.post('/reports-api/chat-data')
+def chat_data():
+    """Internal authenticated facts; never a public/external AI integration."""
+    value = body({'intent'})
+    filters = validate(value.get('intent'))
+    user = current_user()
+    authorize(user, filters['report_type'])
+    if (filters['po_id'] or filters['operation_id']) and user.get('role') not in ('admin', 'super_admin') and 'po.view' not in user.get('permissions', []):
+        raise ReportError('Bạn chưa có quyền xem PO/công đoạn.', 403)
+    rate(('chat-data', user['id']), 30)
+    if not slots.acquire(blocking=False): raise ReportError('Đang xử lý báo cáo khác. Thử lại sau.', 429)
+    try:
+        source = SnapshotSource(SNAPSHOT_DIR, filters)
+        report = project(filters, source.get)
+    finally:
+        slots.release()
+    # Counts only: no names, entity IDs, free text, or invalid sums of PO/OP KPI.
+    # These facts stay in MESFlow; they are NOT an approved Gateway payload.
+    facts = {'report_type': filters['report_type'], 'row_count': len(report['rows'])}
+    if filters['report_type'] == 'productivity':
+        for key in ('completed_sessions', 'good_qty', 'defect_qty', 'worked_seconds'):
+            facts[key] = sum(row[key] or 0 for row in report['rows'])
+        scores = [row['productivity_percent'] for row in report['rows'] if row['productivity_percent'] is not None]
+        facts['avg_employee_productivity_percent'] = round(sum(scores) / len(scores), 2) if scores else None
+    return jsonify(facts=facts,
+                   snapshot=source.metadata, external_ai_allowed=False)
+
+
+@app.get('/reports-api/active-sessions')
+def active_sessions():
+    user = current_user()
+    authorize(user, 'operation_output')
+    rate(('active-sessions', user['id']), 30)
+    data, metadata = load_snapshot(SNAPSHOT_DIR, 'active.json', 60)
+    return jsonify(facts={'active_sessions': len(data['sessions']),
+                          'active_employees': len({row['employee_id'] for row in data['sessions']})},
+                   snapshot=metadata, external_ai_allowed=False)
+
+
 def safe_cell(value):
     if not isinstance(value,str): return value
     value=re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','',value)
@@ -242,8 +284,24 @@ def safe_cell(value):
 
 
 def export_bytes(record,format):
+    if format == 'pdf':
+        if len(record['rows']) > 200:
+            raise ReportError('PDF giới hạn 200 dòng. Thu hẹp bộ lọc hoặc tải Excel/CSV.', 422)
+        if not pdf_slots.acquire(blocking=False):
+            raise ReportError('Đang tạo PDF khác. Thử lại sau.', 429)
+        try:
+            encoded = json.dumps(record, ensure_ascii=False).encode()
+            if len(encoded) > 1_000_000: raise ReportError('Báo cáo quá lớn cho PDF.', 422)
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name('snapshot_pdf.py'))],
+                                    input=encoded, capture_output=True, timeout=12, check=True)
+            if not result.stdout.startswith(b'%PDF-'): raise ValueError()
+            return result.stdout
+        except (subprocess.SubprocessError, ValueError, OSError):
+            raise ReportError('Bộ tạo PDF chưa sẵn sàng. Dùng In / Lưu PDF hoặc Excel.', 503)
+        finally:
+            pdf_slots.release()
     meta={'report_mode': 'DEMO — DỮ LIỆU MẪU' if record['mode']=='demo' else 'MES — dữ liệu theo quyền',
-          'report_id':record['id'],'generated_at':record['generated_at'],
+          'report_id':record['id'],'generated_at':record['generated_at'],'snapshot':json.dumps(record.get('snapshot'),ensure_ascii=False),
           'applied_filters':json.dumps(record['intent'],ensure_ascii=False),'sources':json.dumps(record['sources'],ensure_ascii=False),'notes':'\n'.join(record['notes'])}
     if format=='csv':
         output=io.StringIO(newline=''); writer=csv.writer(output)
@@ -261,7 +319,7 @@ def export_bytes(record,format):
 @app.post('/reports-api/export')
 def export():
     value=body({'report_id','format'})
-    if value.get('format') not in ('xlsx','csv') or not isinstance(value.get('report_id'),str): raise ReportError('Chỉ hỗ trợ Excel và CSV; dùng In để lưu PDF qua trình duyệt.')
+    if value.get('format') not in ('xlsx','csv','pdf') or not isinstance(value.get('report_id'),str): raise ReportError('Chỉ hỗ trợ Excel, CSV và PDF.')
     with lock: record=snapshots.get(value['report_id'])
     if not record or time.monotonic()-record['created']>300: raise ReportError('Bản xem trước đã hết hạn. Tạo lại báo cáo.',404)
     user=current_user() if record['mode']=='live' else None
@@ -278,6 +336,6 @@ def export():
     payload=export_bytes(record,value['format']); digest=hashlib.sha256(payload).hexdigest()
     audit('REPORT_DOWNLOAD_GRANTED',owner,record,format=value['format'],bytes=len(payload),sha256=digest)
     name=('DEMO_' if record['mode']=='demo' else 'MES_')+record['intent']['report_type']+'_'+record['intent']['from']+'_'+record['intent']['to']+'.'+value['format']
-    response=send_file(io.BytesIO(payload),as_attachment=True,download_name=name,mimetype='text/csv; charset=utf-8' if value['format']=='csv' else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response=send_file(io.BytesIO(payload),as_attachment=True,download_name=name,mimetype={'csv':'text/csv; charset=utf-8','pdf':'application/pdf','xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}[value['format']])
     response.headers['X-Report-SHA256']=digest
     return response
