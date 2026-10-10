@@ -9,6 +9,59 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Public landing live on TEST — 2026-10-10 09:00 ICT
+
+- **Live:** https://mesflow.net/welcome and https://mesflow.net/demo, both HTTPS
+  200 (previously `/welcome` was 404). Source: PR #30 + PR #31 landing refresh
+  `1c8111418d534fcf9e5adcb4bbddf445160d76f5`, with `c3675f6` removing the
+  unverified Facebook contact link. Only the internal demo CTA is retained;
+  no phone/email/Zalo contact was invented.
+- Target verified over HP → SSH: `ubuntu@148.113.207.13`, hostname
+  `vps-78ae7aec`; `/api/system/ready` reports `PRODUCTION_TEST`. No connection
+  to `ssh-prod.mesflow.net`, DNS change, business-data write or migration.
+- Static rollout only: `/opt/mesflow/public-showcase/{welcome.html,demo_showcase.html}`.
+  The existing **container** `mesflow-nginx` serves exact `location = /welcome`
+  and `location = /demo`, restricted to Host `mesflow.net`, from
+  `/usr/share/nginx/html/mesflow-showcase/`. GET/HEAD only; no directory route.
+  Nginx config: `/opt/mesflow-gateway/nginx/nginx.conf`. Existing `/`, `/app`,
+  `/api`, kiosk and deploy-agent proxy blocks are unchanged.
+- Backup: `/opt/mesflow-gateway/rollback/public-showcase-20261010T0159Z/`
+  contains `nginx.conf` and `compose.yml` before this change. Updated the bound
+  nginx.conf **in place** (preserve inode), ran `docker compose config --quiet`
+  and `docker exec mesflow-nginx nginx -t`, then `nginx -s reload`; all passed.
+  No container was recreated. HTML was copied into the current container;
+  `/opt/mesflow-gateway/compose.yml` now declares a read-only bind mount from
+  `/opt/mesflow/public-showcase` to that same container path for future recreates.
+  Keep host HTML synchronized when refreshing the landing; application deploys
+  alone do not update this static override.
+- Backend unchanged: app container start time `2026-09-30T10:06:11Z`, version
+  `71.0.0.381`, commit `e66587f`, image `sha256:d4786d47…`, migration `0054`.
+- Verification: `pytest -q tests/test_showcase_public_routes.py`: **6 passed**.
+  Local and LIVE Chromium at **1366×768** and **390×844**: landing → demo CTA,
+  all four demo tabs, simulated scan completion and browser-only reset passed;
+  no JavaScript/console errors, no horizontal document overflow, **zero `/api/*`
+  requests**. The pages contain only fixed sample data. Public Cloudflare
+  injects its existing analytics beacon (`static.cloudflareinsights.com` and
+  POST `/cdn-cgi/rum`); this is not MESFlow API traffic, so do not claim zero
+  network requests. Origin HTML hashes equal repository files; public HTML
+  differs only by the edge-injected analytics script.
+- `/` and `/app` remain anonymous `302 → /login` (same as before), not a public
+  business dashboard. No authenticated app or real kiosk workflow was exercised.
+- SHA256: welcome `7572574ca59176366694e41d4ccc399eabc637389683656660b8d23540f5f442`;
+  demo `96c2a865c703040a7247804d54218e9c1ec85a2e6d50845c174655612f168425`.
+- HP evidence: `/tmp/mesflow-public-evidence-20261010/` contains local/live
+  screenshots, browser request/error reports, config before/after and the
+  deployment script. GitHub PR #31 is the source of truth for CI/merge status.
+
+Rollback (on **TEST VPS only**, no app restart or migration):
+```sh
+sudo sh -c 'cat /opt/mesflow-gateway/rollback/public-showcase-20261010T0159Z/nginx.conf > /opt/mesflow-gateway/nginx/nginx.conf'
+sudo cp -p /opt/mesflow-gateway/rollback/public-showcase-20261010T0159Z/compose.yml /opt/mesflow-gateway/compose.yml
+sudo docker exec mesflow-nginx nginx -t && sudo docker exec mesflow-nginx nginx -s reload
+```
+This removes both static overrides; the still-old backend will return 404 for
+showcase routes again. The inert HTML copies can remain for recovery.
+
 ## Environments (as of 2026-09-29)
 
 - DEV = https://dev.mesflow.net → cloudflared `kiosk-local-test` →
