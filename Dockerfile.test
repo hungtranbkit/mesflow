@@ -17,6 +17,7 @@ COPY app ./app
 COPY tests ./tests
 COPY scripts ./scripts
 COPY services/public-support ./services/public-support
+COPY services/report-assistant ./services/report-assistant
 COPY compose.yml compose.test.yml compose.sandbox.yml compose.projectflow-local.yml pytest.ini VERSION.txt release.json USER_GUIDE_VIDEO.md ./
 COPY Dockerfile Dockerfile.test ./
 COPY tutorial ./tutorial

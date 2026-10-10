@@ -3,6 +3,7 @@ WORKDIR /workspace
 COPY package.json playwright.config.js ./
 RUN npm install --no-audit --no-fund
 COPY tests/e2e ./tests/e2e
+COPY services/report-assistant/reports.html ./services/report-assistant/reports.html
 # Some specs read a local frontend asset directly (e.g. mobile-navigation.spec.js's
 # page.addStyleTag({path: '.../app/mesflow/web/static/ui.css'})) rather than only
 # fetching it over HTTP from the app server -- without this, that read is a bare
