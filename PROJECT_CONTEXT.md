@@ -9,6 +9,44 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Issue #40 — instant FAQ and opt-in grounded product assistant (2026-10-10)
+
+- Isolated branch/worktree `fix/40-product-assistant` / `mesflow-issue40`, from
+  main `987c249`; no edits to the #39 app widget, report service, MES app or DB.
+- Replaced gateway topic selection with immediate browser FAQ, including
+  Vietnamese/accent-free matching and specific active-worker, multi-operation,
+  per-employee export and slow-progress guidance. Fourteen reviewed public
+  topics; `services/public-support/public-facts.json` records review sources.
+- Multi-intent public questions show FAQ first, then an explicit opt-in preview.
+  Only topic IDs + fixed intent + consent leave the browser. Server reconstructs
+  the preview question and retrieves approved excerpts; raw question, unknown
+  identifiers, page context, history, sessions and business data never go to AI.
+  Gateway generates concise contextual prose with validated source citations;
+  invalid/unsupported output remains FAQ. AI labels do not claim verified prose.
+- Shared `/support/assistant.js` exposes `MESFlowSupport.match/faq/deeper/topics`
+  for #39. The identical helper is embedded into the landing, so service outages
+  do not prevent local FAQ. Legacy `{topics:[id]}` returns immediate FAQ with
+  `topic_ids` preserved. `/support/knowledge#id` exposes cited public evidence.
+- Nine-second wall deadline, nonblocking UI, stale-response cancellation,
+  two bounded upstream workers, in-flight dedupe, five-minute cache, six AI
+  calls/minute/IP and 20 attempts/hour globally. Route validation cached five
+  minutes; actual provider checked per response. No mock/Claude/paid route.
+- Internal-only aggregate metrics count response modes/fallbacks and rolling
+  p50/p95 (last 200 per mode); no prompts/identifiers logged or persisted.
+- Before measurements on live TEST: FAQ uncached 18,304ms and 16,363ms;
+  cached 802ms. Real contextual Gemini probe produced valid cited prose in
+  17,768ms with an extended diagnostic timeout. The deployed path keeps 9s;
+  no claim of fast AI is based on that diagnostic. FAQ never waits for AI.
+- Focused verification: 43 Python passed; 7 Playwright passed at 320/390/1366,
+  including no-request FAQ, consent/privacy, keyboard/layout, cancellation and
+  outage. Full CI, merge, TEST rollout and post-deploy evidence still pending.
+- Support-only rollout contract/rollback: `services/public-support/README.md`.
+  `prepare-support-assistant-nginx.py` patches only exact support routes; capture
+  actual config and reject drift. Preserve both host and container HTML copies,
+  previous support image env and config. Never recreate MES app/report/DB.
+- Evidence: `/tmp/mesflow-issue40-evidence/` on HP; #39 coordination posted at
+  https://github.com/hungtranbkit/mesflow/issues/39#issuecomment-6093885362.
+
 ## Secure natural-language report assistant — 2026-10-10 (implementation)
 
 - Separate `services/report-assistant` service, root chatbot link → `/reports`.
