@@ -200,6 +200,12 @@ def test_exceptions_readonly_detail_and_limit(service):
     assert result['rows'][0]['exception_code']=='MISSING_END'
     assert '/api/session-exceptions' not in calls
 
+    def capped(path,params):
+        if path=='/api/session-management': return {'items':[{'session_id':9}]}
+        return {'session':{'session_id':9},'exceptions':[{}]*200}
+    with pytest.raises(service.ReportError,match='quá rộng'):
+        data.project({**BASE,'report_type':'exceptions'},capped)
+
 
 def test_planned_actual_uses_existing_session_scores_and_excludes_invalidated_rows(service):
     import data

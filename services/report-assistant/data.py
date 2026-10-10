@@ -120,6 +120,9 @@ def project(intent, get):
             for session in sessions:
                 detail = read('/api/session-management/'+str(session['session_id']))
                 if detail['session']['session_id'] != session['session_id']: raise ReportError('Nguồn phiên không khớp.', 502)
+                # This existing endpoint caps its exception list at 200 without
+                # a total count. Reaching that cap cannot prove completeness.
+                bounded(detail['exceptions'], 199)
                 for item in detail['exceptions']:
                     rows.append({'session_id':session['session_id'],'employee_code':session['employee_code'], 'po_code':session['po_code'], 'operation_code':session['operation_code'],
                                  'exception_code':item.get('exception_code'),'severity':item.get('severity'),'workflow_status':item.get('workflow_status'),'message':item.get('exception_message')})
