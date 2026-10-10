@@ -60,7 +60,7 @@ def validate(value, complete=True):
     if not isinstance(value, dict) or set(value) - FIELDS:
         raise ReportError('Chỉ chấp nhận loại báo cáo và bộ lọc đã công bố.')
     result = {key: value.get(key) for key in FIELDS}
-    if result['report_type'] not in TYPES:
+    if not isinstance(result['report_type'], str) or result['report_type'] not in TYPES:
         raise ReportError('Chọn loại báo cáo cần tạo.')
     for name in ('po_id', 'operation_id', 'employee_id'):
         number = result[name]

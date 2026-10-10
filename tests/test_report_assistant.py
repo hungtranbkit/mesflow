@@ -73,6 +73,13 @@ def test_no_cross_tenant_database_identity_or_query_override(service,extra):
     assert service.calls==[]
 
 
+@pytest.mark.parametrize('kind',[[],{}])
+def test_non_string_report_type_is_rejected_before_source_access(service,kind):
+    response=authenticated(service).post('/reports-api/preview',json={'mode':'live','intent':{**BASE,'report_type':kind}})
+    assert response.status_code==400
+    assert service.calls==[]
+
+
 def test_snapshot_owner_and_current_auth_rechecked_at_download(service):
     alice=authenticated(service);record=preview(service,alice)
     for who,status in [('bob',403),('expired',401),('denied',403)]:
