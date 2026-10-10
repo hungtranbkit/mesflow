@@ -18,4 +18,4 @@ services:
 networks:
   gateway:
     external: true
-    name: mesflow_network
+    name: mesflow-edge

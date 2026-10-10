@@ -21,7 +21,8 @@ HTTPS = '''    # Public product-only support service; never forward auth or cook
       if ($host != mesflow.net) { return 404; }
       limit_except POST { deny all; }
       client_max_body_size 256;
-      proxy_pass http://mesflow-public-support:8088;
+      set $public_support_backend http://mesflow-public-support:8088;
+      proxy_pass $public_support_backend;
       proxy_set_header Host mesflow.net;
       proxy_set_header Cookie "";
       proxy_set_header Authorization "";
