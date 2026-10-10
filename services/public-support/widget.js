@@ -19,7 +19,7 @@
       const link=document.createElement('a');link.href='/support/knowledge#'+fact.id;link.textContent='Nguồn: '+fact.label;item.append(link);
       if(fact.href.startsWith('/')){const action=document.createElement('a');action.href=fact.href;action.textContent=fact.href==='/reports'?'Tạo báo cáo':fact.href==='/demo'?'Mở demo':'Đăng nhập';item.append(action);}
     }
-    log.append(item);while(log.children.length>24)log.firstElementChild.remove();log.scrollTop=log.scrollHeight;
+    log.append(item);while(log.children.length>24)log.firstElementChild.remove();log.scrollTop=Math.max(0,log.scrollHeight-item.offsetHeight);
   }
   function ask(question,reply) {
     cancel();message(question,true);message((reply.mode==='faq'?'FAQ · Thông tin sản phẩm\n':'')+reply.answer,false,reply.sources);

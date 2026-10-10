@@ -50,7 +50,7 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844},{width:320
   await page.locator('#support-question').fill('Kết hợp quét QR và báo cáo năng suất');await page.locator('#support-question').press('Enter');
   expect(calls).toEqual([]);await expect(page.locator('.support-message').last()).toContainText('FAQ ·');
   await expect(page.locator('#support-preview')).toContainText('Giải thích cách kết hợp');
-  await expect(page.locator('#support-ai')).toBeInViewport();await expect(page.locator('#support-question')).toBeInViewport();
+  await expect(page.locator('#support-ai')).toBeInViewport({ratio:1});await expect(page.locator('#support-question')).toBeInViewport();
   await page.locator('#support-ai').click();await expect(page.locator('.support-message').last()).toContainText('AI · Giải thích');
   expect(calls).toEqual([{topics:['qr','productivity'],intent:'guide',consent:true}]);
   await expect(page.locator('.support-message').last().getByRole('link',{name:'Nguồn: Cách quét thẻ và QR'})).toHaveAttribute('href','/support/knowledge#qr');
