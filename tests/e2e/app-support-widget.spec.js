@@ -16,7 +16,6 @@ test('signed-in app keeps the support launcher across screens and omits session 
   const launcher = page.getByRole('button',{name:'Hỏi MESFlow',exact:true});
   const reportLink = page.getByRole('link',{name:'Tạo báo cáo',exact:true});
   await expect(launcher).toBeVisible();
-  await expect(reportLink).toHaveAttribute('href','/reports');
 
   for (const screen of ['overview','production-orders','employee-productivity']) {
     await page.goto(`/app?page=${screen}`);
@@ -27,6 +26,7 @@ test('signed-in app keeps the support launcher across screens and omits session 
   await launcher.click();
   const panel = page.getByRole('dialog',{name:'Hỗ trợ MESFlow'});
   await expect(panel).toBeVisible();
+  await expect(reportLink).toHaveAttribute('href','/reports');
   await panel.getByRole('button',{name:'Excel',exact:true}).click();
   await expect(panel.locator('.support-message').last()).toContainText('một file Excel');
   expect(calls).toEqual([{body:{topics:['excel']},cookie:undefined}]);
@@ -39,7 +39,7 @@ test('signed-in app keeps the support launcher across screens and omits session 
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   expect(box.y + box.height).toBeLessThanOrEqual(844);
-  await page.keyboard.press('Escape');
+  await panel.getByRole('button',{name:'Đóng'}).click();
   await expect(panel).toBeHidden();
   await expect(launcher).toBeFocused();
   await expect(page.locator('#content')).toBeVisible();
