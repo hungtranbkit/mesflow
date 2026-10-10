@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ doc.title }} · {{ doc.metadata.date_from }} → {{ doc.metadata.date_to }}</title>
+  <style>
+    /* MESFlow Report Engine print layout. Rendered to PDF by WeasyPrint and
+       served as-is for format=html (browser print / PDF fallback). No
+       external resources: fonts come from the system (DejaVu Sans covers
+       Vietnamese), so the PDF never fetches anything. */
+    @page {
+      size: A4 landscape; margin: 11mm 9mm 13mm;
+      @bottom-left { content: string(meta); font: 8px "DejaVu Sans", sans-serif; color: #555; }
+      @bottom-right { content: "Trang " counter(page) "/" counter(pages); font: 8px "DejaVu Sans", sans-serif; color: #555; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 10px/1.4 "DejaVu Sans", "Noto Sans", "Segoe UI", Arial, sans-serif; color: #111; }
+    .footer-meta { string-set: meta content(); font-size: 0; height: 0; overflow: hidden; }
+    header.report { border-bottom: 2px solid #111; padding-bottom: 5px; margin-bottom: 8px; }
+    h1 { margin: 0 0 3px; font-size: 16px; }
+    h2 { font-size: 12.5px; margin: 0 0 5px; }
+    .context { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0; font-size: 9.5px; color: #333; }
+    .context b { color: #111; }
+    .warn { color: #b42318; font-weight: 700; }
+    .kpis { display: flex; gap: 6px; margin: 6px 0 8px; }
+    .kpi { border: 1px solid #9aa6b2; border-radius: 3px; padding: 4px 8px; min-width: 28mm; }
+    .kpi span { display: block; font-size: 8.5px; color: #444; }
+    .kpi b { font-size: 13px; }
+    section.part { margin-top: 8px; }
+    section.part.page-break { break-before: page; page-break-before: always; }
+    .facts { font-size: 9.5px; margin: 0 0 4px; color: #333; }
+    table { width: 100%; border-collapse: collapse; font-size: 8.5px; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    th, td { border: 1px solid #9aa6b2; padding: 2px 3px; vertical-align: top; text-align: left; }
+    th { background: #e3edf6; font-weight: 700; }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    tr.total td { font-weight: 700; background: #f2f5f8; }
+    .empty { padding: 8px; color: #555; font-style: italic; border: 1px dashed #bbb; }
+    .toolbar { display: none; }
+    @media screen {
+      body { background: #eef1f4; }
+      .toolbar { display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 10px 16px; background: #18364e; color: #fff; position: sticky; top: 0; }
+      .toolbar button { min-height: 40px; padding: 8px 16px; font: inherit; font-weight: 700; border-radius: 8px; border: 1px solid #fff; background: #fff; color: #18364e; cursor: pointer; }
+      .page { max-width: 287mm; margin: 12px auto; padding: 10mm 9mm; background: #fff; }
+      .footer-meta { display: none; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  {% if html_mode %}<div class="toolbar"><b>{{ doc.title }}</b><button type="button" onclick="window.print()">In / Lưu PDF</button></div>{% endif %}
+  <div class="footer-meta">MESFlow · {{ doc.metadata.dataset_title }} · {{ doc.metadata.date_from }} → {{ doc.metadata.date_to }} · Xuất {{ doc.metadata.generated_at }} bởi {{ doc.metadata.generated_by }}</div>
+  <div class="page">
+    <header class="report">
+      <h1>{{ doc.title }}</h1>
+      <p class="context">
+        <span><b>Từ ngày:</b> {{ doc.metadata.date_from or '—' }}</span>
+        <span><b>Đến ngày:</b> {{ doc.metadata.date_to or '—' }}</span>
+        <span><b>Múi giờ:</b> {{ doc.metadata.timezone }}</span>
+        <span><b>Xuất lúc:</b> {{ doc.metadata.generated_at }} bởi {{ doc.metadata.generated_by }}</span>
+        {% for label, value in doc.metadata.filters %}<span><b>{{ label }}:</b> {{ value }}</span>{% endfor %}
+      </p>
+      {% for w in doc.warnings %}<p class="context warn">CẢNH BÁO: {{ w }}</p>{% endfor %}
+    </header>
+    <div class="kpis">
+      {% for label, value, kind in doc.kpis %}<div class="kpi"><span>{{ label }}</span><b>{{ fmt(value, kind) }}</b></div>{% endfor %}
+    </div>
+    {% for section in doc.sections %}
+    <section class="part{% if section.page_break %} page-break{% endif %}">
+      <h2>{{ section.title }}</h2>
+      {% if section.facts %}<p class="facts">{% for k, v in section.facts %}<b>{{ k }}:</b> {{ v }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+      {% if section.rows %}
+      <table>
+        <thead><tr>{% for col in section.columns %}<th{% if col.kind not in ('text',) %} class="num"{% endif %}>{{ col.label }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in section.rows %}<tr>{% for col in section.columns %}<td{% if col.kind not in ('text',) %} class="num"{% endif %}>{{ fmt(row.get(col.key), col.kind) }}</td>{% endfor %}</tr>
+          {% endfor %}
+          {% if section.totals %}<tr class="total">{% for col in section.columns %}<td{% if col.kind not in ('text',) %} class="num"{% endif %}>{{ fmt(section.totals.get(col.key), col.kind) }}</td>{% endfor %}</tr>{% endif %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">Không có dữ liệu trong bộ lọc này.</p>
+      {% endif %}
+    </section>
+    {% endfor %}
+  </div>
+</body>
+</html>
