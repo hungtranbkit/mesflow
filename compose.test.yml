@@ -103,14 +103,39 @@ services:
     volumes:
       - ./test-results:/workspace/test-results
 
+  public-support-test:
+    build:
+      context: .
+      dockerfile: services/public-support/Dockerfile
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  mesflow-test-edge:
+    image: nginx:1.29-alpine
+    volumes:
+      - ./tests/fixtures/support-app-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      mesflow-test-api:
+        condition: service_healthy
+      public-support-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/support/assistant.js"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
   playwright:
     build:
       context: .
       dockerfile: Dockerfile.playwright
     environment:
-      MESFLOW_BASE_URL: http://mesflow-test-api:8080
+      MESFLOW_BASE_URL: http://mesflow-test-edge:8080
     depends_on:
-      mesflow-test-api:
+      mesflow-test-edge:
         condition: service_healthy
     volumes:
       - ./test-results:/workspace/test-results
