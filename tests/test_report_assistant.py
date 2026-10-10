@@ -176,11 +176,12 @@ def test_po_operation_and_employee_filters_preserve_source_semantics(service):
     def get(path,params):
         calls.append((path,params))
         if path.endswith('production-orders/12'):
-            return {'report':{'production_order':{'id':12,'code':'PO12'},'operations':[{'id':34,'code':'OP34','planned_qty':100,'done_qty':50,'status':'IN_PROGRESS'},{'id':35,'code':'OP35','planned_qty':200}]}}
+            return {'report':{'production_order':{'id':12,'code':'PO12'},'parts':[{'id':9,'code':'PART9','planned_quantity':'100'}],'operations':[{'id':34,'code':'OP34','part_id':9,'done_qty':50,'status':'IN_PROGRESS'},{'id':35,'code':'OP35','planned_qty':200}]}}
         if path=='/api/operations/34': return {'item':{'id':34,'code':'OP34','production_order_id':12}}
         return {'items':[{'session_id':1,'po_id':12,'operation_id':34,'employee_id':7,'good_qty':8,'excluded_from_reports':False},{'session_id':2,'po_id':12,'operation_id':34,'employee_id':7,'good_qty':99,'excluded_from_reports':True}]}
     result=data.project(intent,get)
     assert len(result['rows'])==1
+    assert result['rows'][0]['part_planned_qty_now']==100
     assert result['rows'][0]['done_qty_now']==50
     assert result['rows'][0]['good_qty_in_period']==8
     assert any('ẢNH CHỤP HIỆN TẠI' in note for note in result['notes'])

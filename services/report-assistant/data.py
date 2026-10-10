@@ -14,7 +14,7 @@ PERMISSIONS = {
 SESSION_TYPES = {'po_progress', 'operation_output', 'exceptions'}
 NUMERIC = {'completed_sessions','good_qty','defect_qty','rework_qty','worked_seconds',
            'productivity_percent','session_id','actual_seconds','expected_seconds',
-           'completion_percent','duration_seconds','planned_qty_now','done_qty_now',
+           'completion_percent','duration_seconds','part_planned_qty_now','done_qty_now',
            'good_qty_in_period','sessions_in_period'}
 
 
@@ -131,13 +131,16 @@ def project(intent, get):
             notes.append('Chi tiết sản lượng theo phiên; không cộng các công đoạn khác nhau thành sản lượng PO. Loại phiên excluded_from_reports.')
         else:
             rows=[]
+            parts = {part['id']:part for part in po_report['parts']}
             for operation in po_report['operations']:
                 if intent['operation_id'] and operation['id'] != intent['operation_id']: continue
                 scoped=[row for row in sessions if row['operation_id']==operation['id'] and not row.get('excluded_from_reports')]
-                rows.append({'po_code':po_code,'operation_code':operation['code'],'status_now':operation.get('status'),'planned_qty_now':operation.get('planned_qty'),
+                part = parts.get(operation.get('part_id'), {})
+                rows.append({'po_code':po_code,'part_code':part.get('code'),'operation_code':operation['code'],'status_now':operation.get('status'),'part_planned_qty_now':part.get('planned_quantity'),
                              'done_qty_now':operation.get('done_qty'),'good_qty_in_period':sum(number(row.get('good_qty') or 0) for row in scoped), 'sessions_in_period':len(scoped)})
-            columns=['po_code','operation_code','status_now','planned_qty_now','done_qty_now','good_qty_in_period','sessions_in_period']
+            columns=['po_code','part_code','operation_code','status_now','part_planned_qty_now','done_qty_now','good_qty_in_period','sessions_in_period']
             notes.append('Kế hoạch/hoàn thành/trạng thái là ẢNH CHỤP HIỆN TẠI toàn PO, không phải lịch sử theo ngày/nhân viên. Chỉ các cột *_in_period áp dụng bộ lọc phiên/ngày/nhân viên.')
+            notes.append('part_planned_qty_now là kế hoạch của Part chứa Operation, không phải định mức riêng của Operation; không cộng các dòng công đoạn thành số lượng PO.')
     for row in rows:
         for key in NUMERIC & row.keys():
             if row[key] is not None: row[key] = number(row[key])
