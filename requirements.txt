@@ -6,5 +6,9 @@ SQLAlchemy==2.0.42
 Werkzeug==3.1.3
 
 openpyxl==3.1.5
+# Report Engine (issue #33): new XLSX files; openpyxl above keeps editing existing templates.
+XlsxWriter==3.2.9
+# Report Engine PDF; needs the Pango/HarfBuzz + fonts apt packages in Dockerfile/Dockerfile.test.
+weasyprint==66.0
 qrcode==8.2
 Pillow==11.3.0

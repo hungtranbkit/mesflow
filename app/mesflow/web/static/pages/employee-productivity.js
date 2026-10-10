@@ -62,7 +62,7 @@ async function renderEmployeeProductivity() {
   // screen tabs + page actions, standard filter bar, KPI row, table panel;
   // the kiosk wallboard panel is secondary and sits below the data.
   content.innerHTML = `<div class="page-shell mf-report" data-report="productivity" data-report-tab="employees">
-    ${MFUI.reportBar({ tabs: MFUI.screenTabs({ screen: 'productivity', active: 'employee-productivity', canOpen: canOpenPage }), actions: '<button class="btn" id="epReload" type="button">Làm mới</button><button class="btn" id="epPrint" type="button" aria-haspopup="dialog">In</button><button class="btn primary" id="epExport" type="button">Xuất Excel</button>' })}
+    ${MFUI.reportBar({ tabs: MFUI.screenTabs({ screen: 'productivity', active: 'employee-productivity', canOpen: canOpenPage }), actions: '<button class="btn" id="epReload" type="button">Làm mới</button><button class="btn" id="epPrint" type="button" aria-haspopup="dialog">In</button><button class="btn" id="epPdf" type="button" title="Báo cáo PDF (Report Engine)">Tải PDF</button><button class="btn primary" id="epExport" type="button">Xuất Excel</button>' })}
     ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${esc(epFilterMemory.from || epMonthStartHcm())}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${esc(epFilterMemory.to || epTodayHcm())}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên" value="${esc(epFilterMemory.search)}"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, clearId: 'epClear' })}
     <section class="mf-kpis" id="epKpis" aria-live="polite"></section>
     <section class="content-panel mf-table-panel"><div class="content-panel-head"><div><h3>Năng suất theo nhân viên</h3><p id="epRangeLabel"></p></div><span class="mf-count" id="epCount" aria-live="polite"></span></div><div class="content-panel-body" id="epTableHost">${MFUI.loadingState('Đang tải năng suất…')}</div></section>
@@ -278,6 +278,14 @@ async function renderEmployeeProductivity() {
     link.click();
     link.remove();
   };
+  // Report Engine (issue #33): server-rendered PDF of the same filters.
+  // A failed PDF (e.g. 503 PDF_ENGINE_UNAVAILABLE) shows its JSON message in
+  // the new tab, which links the HTML print fallback.
+  const exportPdf = () => {
+    const q = reportQuery();
+    q.set('format', 'pdf');
+    window.open(`/api/reports/engine/employee_productivity/export?${q.toString()}`, '_blank');
+  };
   const openPrint = employeeId => {
     const q = reportQuery();
     if (employeeId) q.set('employee_id', String(employeeId));
@@ -307,6 +315,7 @@ async function renderEmployeeProductivity() {
 
   document.getElementById('epExport').onclick = exportExcel;
   document.getElementById('epPrint').onclick = openPrintDialog;
+  document.getElementById('epPdf').onclick = exportPdf;
 
   document.getElementById('epReload').onclick = load;
   document.getElementById('epFrom').onchange = load;
