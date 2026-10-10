@@ -107,7 +107,7 @@ test('iPhone: iOS thu hồi tab rồi mở lại -> vẫn còn đăng nhập', a
 
   const reopened = await phone(state);
   const back = await reopened.newPage();
-  await back.goto('/');
+  await back.goto('/app');
   // Không chỉ kiểm "có cookie": phải chứng minh cookie đó CÒN DÙNG ĐƯỢC.
   await expect(back.locator('#appLayout')).toBeVisible({ timeout: 20000 });
   expect(back.url()).toContain('/app');
@@ -128,7 +128,7 @@ test('iPhone: mất cookie phiên thì phản hồi đá về đăng nhập là 
   await ctx.clearCookies();
   await ctx.addCookies(kept);
 
-  const nav = await page.request.get('/', { maxRedirects: 0 });
+  const nav = await page.request.get('/app', { maxRedirects: 0 });
   expect(nav.status()).toBe(302);
   expect(nav.headers()['location'] || '').toContain('/login');
 
