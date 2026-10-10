@@ -36,7 +36,7 @@ HTTPS = '''    # Public product-only support service; never forward auth or cook
     # Public root; keep login and all business routes on the backend.
     location = / {
       if ($host != mesflow.net) { return 404; }
-      alias /usr/share/nginx/html/mesflow-showcase/welcome.html;
+      rewrite ^ /welcome last;
       default_type text/html;
       charset utf-8;
       add_header X-Content-Type-Options nosniff always;
