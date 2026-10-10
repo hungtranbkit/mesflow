@@ -935,3 +935,26 @@ P2 System console consolidation (done), P3 Productivity (done), then P4 Master D
   3. Verify https://mesflow.net/welcome and /demo (200, `/demo` 0 `/api/*` requests).
 - mesflow-demo.mesflow.net is a different public demo (gateway + viewer, image 381). Its
   gateway owns `/demo`, so the app's `/demo` is not reachable there. It was left unchanged.
+
+## Completed TEST rollout — 2026-10-10
+
+PR #43 merged as `3bbc630e09bd7b0da88ea0c3faf08e0db5372e61`. Both final PR CI runs passed; primary [run 38032428679](https://github.com/hungtranbkit/mesflow/actions/runs/38032428679) passed 2,000 Python checks and 607 Playwright checks. The actual release integration [run 38032555077](https://github.com/hungtranbkit/mesflow/actions/runs/38032555077) passed 2,072 Python checks and 607 Playwright checks.
+
+TEST mesflow.net now runs `71.0.0.390`, source `e577584d89d0281f4bfb77e6338594af673c2d1a` on `integration/pr43-test-preserve-reports`. It was built from the actual deployed `.383` commit `4fb2882`, preserving its P3 UI and PR #34 Report Engine/PDF changes. **Future TEST deployments must preserve this integration; plain main still lacks those deployed changes.** PR #43's stale `.382` release pins were removed. Earlier candidate versions `.387`–`.389` were not deployed.
+
+Immutable image: `mesflow-app:71.0.0.390`, Docker OCI ID `sha256:c8d082c3179770f8c0ab15c00ac156b980276daaebda9f2a43b9f735109977dd`; config digest `sha256:17a88b388e3f1f4e1440558a3d766b02c5c6e4e19926bca44725223c3c455be0`. Transferred gzip SHA-256 `58a16caad3dc028f6fb1865173c1fac4a1591e07ba975f336e7e861c1b7e3d78`. Host Docker reports the OCI ID, not the config digest; the initial digest guard stopped before app modification, then the verified OCI ID was used.
+
+After deployment, authenticated public `/app` passed in Chromium and iPhone 13 WebKit at 390×844, both legacy and refactor modes: one visible/tappable launcher, bounded panel, local FAQ in 1.5–6 ms with zero `/support/chat` calls, no JavaScript errors or horizontal overflow, Back to top tappable, drawer priority and launcher restoration working, productivity PDF button retained, and report capabilities still WeasyPrint/XlsxWriter. Anonymous `/app` redirects and `/api/auth/me` returns 401. This is iPhone-profile WebKit emulation, not a physical Safari-device test.
+
+Actual rollback to `.383` / `4fb2882` was completed and authenticated access checked in all four browser/mode combinations, then `.390` was reapplied and all final checks passed. An initial combined WebKit smoke timed out during scrolling after chat close; the rollback was performed immediately. The scroll smoke was isolated on a fresh page, matching the passing regression test, then passed against both the immutable image and the public deployment without an application change.
+
+Rollback materials are root-private at `/opt/mesflow/rollback/pr43-20261010T072146Z` on verified TEST host `vps-78ae7aec` (`148.113.207.13`). They contain the original app environment and compose file, image/service manifest, durable guarded `rollout.py`, and deploy/rollback/reapply readiness records. Commands (on that host):
+
+```sh
+sudo python3 /opt/mesflow/rollback/pr43-20261010T072146Z/rollout.py rollback /opt/mesflow/rollback/pr43-20261010T072146Z
+sudo python3 /opt/mesflow/rollback/pr43-20261010T072146Z/rollout.py reapply /opt/mesflow/rollback/pr43-20261010T072146Z
+```
+
+The persistent `/opt/mesflow/compose.pr43-runtime.json` app-only override starts Waitress directly, skipping the stock migration/seeding entrypoint for deployment and rollback. Keep it in subsequent compose operations until a coordinated release explicitly replaces it. Base compose and nginx configuration hashes are unchanged. Report assistant/snapshot worker (`79eb346`), public support, database and nginx image IDs/start times, and app networks are unchanged. Schema remains `72.0.11.0`, migration head `0054_multi_open_session_per_employee`. No migrations, seeders, deployment-record writes, or business-data edits were run; production was untouched. Existing authenticated access was reused without logout or account edits.
+
+Private local evidence: `/tmp/mesflow-pr43-evidence/` (`final-390.json`, `rollback-383.json`, CI logs and screenshots); authenticated screenshots/session material must not be committed. Frozen release bundle: `/home/kimex/workspace/artifacts/releases/71.0.0.390/MESFlow_71.0.0.390.deploy.zip`.
