@@ -95,19 +95,20 @@ def test_real_stale_login_role_is_denied_for_preview_chat_and_download(db, api, 
         result = session.post(module.BACKEND+'/api/auth/login',json={'username':username,'password':'Test@123456'},timeout=10)
         assert result.status_code == 200
         client = module.app.test_client(); client.set_cookie('session', session.cookies.get('session'))
-        intent = {'report_type':'productivity','from':day,'to':day,'po_id':None,'operation_id':None,'employee_id':None}
+        intent = {'report_type':'operation_output','from':day,'to':day,'po_id':None,'operation_id':None,'employee_id':None}
         result = client.post('/reports-api/preview',json={'mode':'live','intent':intent})
         assert result.status_code == 200, result.json
         report_id = result.json['id']
         users.update_profile(user_id, 'Isolated role fixture', 'operator', True)
-        # Regression reproduction: the original backend still returns the old
-        # signed-session role. The private SELECT check must override that claim.
+        # Older backends retain the signed-session role; a future canonical
+        # auth fix may refresh it or revoke the session. Both must stay denied.
         stale = session.get(module.BACKEND+'/api/auth/me',timeout=10)
-        assert stale.status_code == 200 and stale.json()['user']['role'] == 'admin'
-        assert client.post('/reports-api/preview',json={'mode':'live','intent':intent}).status_code == 403
-        assert client.post('/reports-api/chat-data',json={'intent':intent}).status_code == 403
-        assert client.post('/reports-api/export',json={'report_id':report_id,'format':'csv'}).status_code == 403
-        assert client.get('/reports-api/active-sessions').status_code == 403
+        assert stale.status_code in (200,401,403)
+        if stale.status_code == 200: assert stale.json()['user']['role'] in ('admin','operator')
+        assert client.post('/reports-api/preview',json={'mode':'live','intent':intent}).status_code in (401,403)
+        assert client.post('/reports-api/chat-data',json={'intent':intent}).status_code in (401,403)
+        assert client.post('/reports-api/export',json={'report_id':report_id,'format':'csv'}).status_code in (401,403)
+        assert client.get('/reports-api/active-sessions').status_code in (401,403)
         denied = requests.get(module.SCOPE_BACKEND+'/scope/'+str(user_id),timeout=3)
         assert denied.status_code == 403 and username not in denied.text
     finally:
