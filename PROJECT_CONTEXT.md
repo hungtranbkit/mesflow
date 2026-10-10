@@ -9,6 +9,32 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Secure natural-language report assistant — 2026-10-10 (implementation)
+
+- Separate `services/report-assistant` service, root chatbot link → `/reports`.
+  No MES app replacement, DB credentials, migrations or business writes.
+- Anonymous exports are fixed, clearly marked DEMO samples only. Authenticated
+  preview/download revalidates current MES session and RBAC using existing APIs.
+  Five report types: employee productivity, PO progress, Operation output,
+  planned versus actual, exceptions. Filters: explicit dates, numeric PO,
+  Operation and employee IDs; missing fields require confirmation in the UI.
+- AI Gateway sees only public report-type/period enums, never raw questions,
+  entity IDs, report data or sessions. Validated classification only, no SQL.
+  Real non-queued/non-Claude route and provider checked; labeled rules fallback.
+- Sources are fixed authorized GET endpoints; exceptions use session detail,
+  NOT the existing auto-mutating `/api/session-exceptions` endpoint. Report
+  notes distinguish session-start/end date semantics and current PO totals.
+- Excel/CSV export exact preview, source/filter metadata, formula-safe cells,
+  browser SHA-256 checks; PDF via browser Print only. Snapshots bound to user,
+  expire in 5min, max 3 downloads; role/permission checked again. Audited grants
+  fail closed if audit cannot be written. Date/row/size/time/rate limits apply.
+  This is a single-workshop backend, not a newly introduced tenant model.
+- Focused security/projection/export tests and mocked mobile/browser tests added.
+  Full limits, API semantics, deploy/rollback instructions: see
+  `services/report-assistant/README.md`.
+- Deploy status: NOT LIVE yet; requires full CI, merge, isolated TEST rollout,
+  real authenticated source/download comparison and public browser verification.
+
 ## Public root support + real AI Gateway — 2026-10-10 (implementation)
 
 - `/` renders the public landing with login CTA (`/login?noauto=1`) and
