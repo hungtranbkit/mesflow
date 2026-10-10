@@ -9,36 +9,55 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
-## Precomputed report snapshots — issue #45 (implementation, not yet deployed)
+## Precomputed report snapshots — issue #45 (TEST deployed 2026-10-10)
 
-- Fresh branch/worktree `feat/45-precomputed-snapshots` / `mesflow-issue45`,
-  based on main `1dca8df`. The referenced workspace `../AGENTS.md` is absent
-  on HP; repo AGENTS.md, PROJECT.yaml and this handoff were read.
-- Separate SELECT-only worker reuses existing repository SQL in bounded
-  REPEATABLE READ READ ONLY transactions. Private atomic JSON daily partitions
-  cover 93 days; active sessions refresh 20s, report sources 60s. No business
-  writes, migration, request-time export rebuild or external AI data transfer.
-- `/reports` live preview now uses only those precomputed sources. It rechecks
-  `/api/auth/me` and current dataset RBAC every request/download; expired/cold
-  sources return 503. Current PO values versus period facts remain distinct.
-  Unrounded additive score statistics preserve existing SQL productivity AVG;
-  existing per-session report rounding is preserved for filtered projections.
-- Authenticated `/reports-api/chat-data` and `/reports-api/active-sessions`
-  expose minimal local facts, not names/IDs/prompts; explicitly not approved for
-  external AI. #39/#43 and #34 were notified via issue/PR comments. #40 public
-  product support stays separate. No app widget, app image or nginx edits.
-- XLSX/CSV and new bounded native WeasyPrint PDF use the exact authorized
-  preview, with SHA/audit and freshness metadata; browser Print is still a
-  separate fallback. #34's separate live-query report engine is unchanged.
-- Verification so far: 52 focused tests, 3 PostgreSQL integration tests including
-  five filters/all five report kinds, simulated scan refresh, enforced
-  read-only transactions and real stale-login-role revocation; project preflight passed. Full gate and live proof
-  pending; do not interpret implementation status as deployment completion.
-- TEST app is being changed by concurrent #34/#43 sessions: observed 385 /
-  bf15a040e5e9 at 05:02 UTC, then 383 / 4fb2882 at 05:07. Both owners notified.
-  Verify actual runtime at deployment time, preserve it and do not restore an
-  older app as part of report rollback. Runbook and limits live in
-  `services/report-assistant/README.md`.
+- Fresh `feat/45-precomputed-snapshots` / `mesflow-issue45` from main `1dca8df`,
+  merged current main `c2d3b46`; [PR #46](https://github.com/hungtranbkit/mesflow/pull/46).
+  Workspace `../AGENTS.md` is absent; repo rules/context were followed.
+- Isolated SELECT-only worker prepares 93 days of private daily partitions;
+  active refresh 20s/TTL 60s, report refresh 60s/TTL 150s. Preview/local chat
+  combines prepared sources, never rebuilds report exports after a question.
+  Cold/stale/corrupt sources return 503. No business writes, migrations or
+  external AI business-data transfer. Security-role DDL only on TEST.
+- Preserve SQL KPI/rounding/date semantics and distinguish current PO values.
+  Exact-preview XLSX/CSV/native PDF have audited SHA and accurate freshness;
+  frozen five-minute downloads preserve original rows and label source age.
+- Found canonical backend stale-login-role behavior after a database downgrade.
+  Report operations check signed MES session/current permissions AND a private
+  token-protected current-role verifier using SELECT on four user-scope columns.
+  Missing/changed/inactive/password-change scope or checker outage fails closed.
+  Reports have no database credential or signing key. App-wide auth is a
+  separate owner follow-up; #43/#34 were notified.
+- TEST target `vps-78ae7aec` / `148.113.207.13`, role `PRODUCTION_TEST`.
+  Reports `mesflow-report-assistant:79eb346`, digest
+  `sha256:72c8d5a786036285f2fdb6890a1e9fa8b395f01b2be2e2f5acbe428f482d42bb`;
+  worker `mesflow-report-snapshots:79eb346`, digest
+  `sha256:9c07cc13044ba2239869f9f0e00b0969c37d784dde1ab10d28580315c5f2595f`.
+  Both healthy; no host ports; readonly roots; 256MiB/0.5 CPU each. App/support/
+  nginx images/start times and nginx configuration verified unchanged.
+- 52 focused tests, 3 PostgreSQL integration tests (five filters/all report
+  kinds, scan refresh, DB write denial, actual role revocation), 6 focused
+  Playwright tests. TEST browser 1366/390 and anonymous demo 320 passed;
+  all XLSX/CSV/PDF download hashes matched audit; anonymous live endpoints 401.
+  Final full [PR CI 38029108233](https://github.com/hungtranbkit/mesflow/actions/runs/38029108233)
+  passed on `80fc547`: 2,015 Python/PostgreSQL + 600 browser, 31 skipped.
+  [Push CI 38029105260](https://github.com/hungtranbkit/mesflow/actions/runs/38029105260) also passed.
+- Final TEST latency (20 queries): internal facts p50 87.76ms/p95 101.19ms;
+  public browser preview p50 420.77ms/p95 851.21ms (API 369.43/786.15ms).
+  Five background generations observed; source age 1.4–59.3s. These measure
+  prepared-source queries, not AI generation or PDF rendering.
+- `/reports-api/chat-data` and `/reports-api/active-sessions` expose authorized
+  minimal local facts with `external_ai_allowed:false`; #39/#43, #40/#44 and
+  separate report engine #34 coordinated. No app widget/nginx changes. The
+  concurrent TEST app runtime was 383 / `4fb2882`, without a chat button on
+  desktop/mobile; that owner issue is not fixed or masked by this deployment.
+- Safe rollback disables only reports/worker, then recovers pinned images after
+  worker health. Do not restore legacy reports lacking current-role checks.
+  Guarded script + original backups:
+  `/opt/mesflow/report-assistant/rollback/issue45-20261010T0515Z/`.
+  Details, metrics, bounds and proof: [issue #45 TEST evidence](reports/ISSUE45_TEST_SNAPSHOT_PROOF.md)
+  and [service runbook](services/report-assistant/README.md).
+
 ## Issue #40 — instant FAQ live on TEST (2026-10-10 12:28 ICT)
 
 This supersedes the old topic-selection support design recorded below.

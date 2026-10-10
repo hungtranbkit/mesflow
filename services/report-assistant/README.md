@@ -58,9 +58,9 @@ seeding or MES background jobs. The worker reuses `ReportRepository` queries
 inside a single PostgreSQL REPEATABLE READ READ ONLY transaction per batch,
 with 5s statement / 1s lock / 25s transaction timeouts. The credential has SELECT
 only on the source tables and four user-scope columns (`id`, `role`, `active`,
-`must_change_password`). It cannot read passwords, names, usernames or audit
-tables. The
-report service has no database credential. Snapshot JSON is private (directory
+`must_change_password`). It cannot read password, name or username columns
+from `users`, or audit tables. The report service has no database credential.
+Snapshot JSON is private (directory
 0700, files 0600, UID 65534), mounted read-only into reports, with no nginx alias
 or public file endpoint. This is the current single-workshop authorization
 model, not tenant isolation: clients cannot override scope, tenant or database.
@@ -125,9 +125,23 @@ and `/opt/mesflow/report-snapshots` owned 65534:65534, mode 0700. Build both
 images once and transfer the same artifacts to TEST. Verify current TEST role,
 app/image/config and exclusive report ownership immediately before rollout.
 Start the worker and check both private artifacts before replacing reports.
-No nginx change or MES app restart is required. Save the previous compose and
-.env; rollback restores them and recreates reports only, then stops the new
-worker. Preserve audit files. Retire the dedicated role separately if desired.
+No nginx change or MES app restart is required. Preserve previous compose/env,
+images and audit files. **Do not restore the pre-79eb346 report image:** authorization
+verification found that the app can return an old login role after a downgrade;
+legacy reports lack the private current-role check. Emergency rollback is to
+stop only `reports` and `snapshots` (reports become unavailable, access fails
+closed), keeping the app, support, nginx and private evidence unchanged. Recover
+by starting the pinned worker, checking `snapshot_health.py`, then starting the
+pinned report image and checking its health. Never recover reports against an
+unhealthy worker or remove the current-role check.
+
+The TEST-only guarded rollback script is saved at
+`/opt/mesflow/report-assistant/rollback/issue45-20261010T0515Z/rollback.py`.
+Run as root with `check`, `disable`, or `recover`; `exercise` disables then
+recovers both report services. It checks TEST identity, exact image digests,
+compose pins and unchanged app/support/nginx. The original pre-change files
+remain available for investigation, not an authorization-safe restoration.
+See [issue #45 TEST proof](../../reports/ISSUE45_TEST_SNAPSHOT_PROOF.md).
 
 Tests: `tests/test_report_snapshots.py` (lifecycle/security) and
 `tests/integration/test_report_snapshot_parity.py` (real PostgreSQL, five
