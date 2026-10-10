@@ -21,9 +21,7 @@ def test_shared_widget_sends_only_approved_topics_without_session_credentials():
         assert forbidden not in script
 
 
-def test_public_landing_reuses_the_same_support_widget():
+def test_public_landing_keeps_the_same_origin_support_endpoint():
     landing = (ROOT / 'app/mesflow/web/templates/welcome.html').read_text(encoding='utf-8')
-    assert "{% include 'support_widget.html' %}" in landing
-    assert '/static/support-widget.js' in landing
-    assert '/static/support-widget.css' in landing
+    assert "fetch('/support/chat'" in landing
 
