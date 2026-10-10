@@ -148,7 +148,7 @@ test('ESP Kiosk tutorial loads seven runtime videos and plays', async ({ page })
 
 test('QR and system logs render without page errors', async ({ page }) => {
   const errors=[]; page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('/');
+  await page.goto('/app');
   await page.evaluate(()=>openPage('qr-print',document.querySelector('[data-page="qr-print"]')));
   await expect(page.locator('#qrSummary')).toBeVisible();
   await expect(page.locator('#qrList')).not.toContainText('Không thể hiển thị danh sách QR');

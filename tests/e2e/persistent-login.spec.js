@@ -15,9 +15,9 @@ async function login(page) {
   return r;
 }
 const isAuthenticated = async page => {
-  const r = await page.request.get('/', { maxRedirects: 0 });
-  // "/" redirects to /app when signed in, to /login when not.
-  return (r.headers()['location'] || '').includes('/app');
+  const r = await page.request.get('/app', { maxRedirects: 0 });
+  // The business app stays protected; the root is now public.
+  return r.status() === 200;
 };
 
 test('cookie carries a lifetime, HttpOnly, Path=/ and SameSite=Lax', async ({ page }) => {
@@ -74,7 +74,7 @@ test('logout invalidates the cookie immediately and it cannot be replayed', asyn
   // make the old value useless, not merely remove it from this browser.
   const replay = await browser.newContext({ storageState: before });
   const replayed = await replay.newPage();
-  const r = await replayed.request.get('/', { maxRedirects: 0 });
+  const r = await replayed.request.get('/app', { maxRedirects: 0 });
   expect((r.headers()['location'] || '')).toContain('/login');
   await replay.close();
   await ctx.close();
@@ -89,7 +89,7 @@ test('a tampered cookie is refused', async ({ browser }) => {
   await ctx.clearCookies();
   // Flip a character inside the signed payload: the HMAC must reject it.
   await ctx.addCookies([{ ...sess, value: sess.value.replace(/.$/, m => (m === 'a' ? 'b' : 'a')) }]);
-  const r = await page.request.get('/', { maxRedirects: 0 });
+  const r = await page.request.get('/app', { maxRedirects: 0 });
   expect((r.headers()['location'] || '')).toContain('/login');
   await ctx.close();
 });

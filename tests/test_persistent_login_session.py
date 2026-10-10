@@ -264,7 +264,7 @@ def test_tampered_cookie_is_rejected_by_the_signature(app, monkeypatch):
     client = app.test_client()
     client.post('/api/auth/login', json={'username': 'admin', 'password': 'x'})
     client.set_cookie('session', 'this.is.not.a.valid.signed.cookie')
-    r = client.get('/', follow_redirects=False)
+    r = client.get('/app', follow_redirects=False)
     assert r.status_code == 302 and '/login' in r.headers['Location']
 
 
@@ -280,7 +280,7 @@ def test_a_cookie_from_one_app_instance_works_on_a_fresh_one(monkeypatch):
     generated per boot -- the property this asserts.
 
     Verified additionally against a real container recreate on the lane stack:
-    the same cookie still redirected "/" to /app afterwards.
+    the same cookie remained valid afterwards. Probe /login because / is public.
     """
     from mesflow.web import app as app_module
     users = _FakeUsers('hash-one', True)
@@ -299,7 +299,7 @@ def test_a_cookie_from_one_app_instance_works_on_a_fresh_one(monkeypatch):
     after = app_module.create_app(); after.config.update(TESTING=True)
     fresh = after.test_client()
     fresh.set_cookie('session', cookie.value)
-    response = fresh.get('/', follow_redirects=False)
+    response = fresh.get('/login', follow_redirects=False)
     assert response.status_code == 302, response.status_code
     assert '/app' in response.headers['Location'], (
         'a cookie minted before the restart no longer authenticates -- the '

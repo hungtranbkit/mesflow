@@ -9,6 +9,84 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Public root support + real AI Gateway — 2026-10-10 (implementation)
+
+- `/` renders the public landing with login CTA (`/login?noauto=1`) and
+  compact “Hỏi MESFlow” dialog. `/app` remains protected; `/login` still
+  redirects valid sessions to `/app`. Auth/session/RBAC code is unchanged.
+- Grounding: approved public facts embedded in `welcome.html#support-facts`,
+  sourced from landing workflow/features/FAQ, isolated demo, and verified
+  380/381 Excel and active-worker behavior below. Browser matches questions
+  to topic IDs. ONLY those IDs cross the public support endpoint; raw visitor
+  questions/history/cookies/customer data never go to the gateway. Unsupported,
+  pricing/contact/private questions get curated fallback without an AI call.
+- `services/public-support/server.py` is a standalone Flask service with no
+  MES imports, DB, session secret, tools or business API access. It loads the
+  same approved facts from the HTML. AI selects allowed fact IDs; arbitrary
+  model prose is rejected, so it cannot add unverified pricing/contact claims.
+- Gateway verified: HP-local `127.0.0.1:8788` and the old repoport prefix are
+  mock-only. User approved the REAL `https://ai-gateway.mesflow.net/v1` on m910.
+  Authenticated models/config confirm `facebook-chat` is non-queued and uses
+  only grok-web/gemini-web/deepseek-web. The service checks those candidates
+  before each uncached call and rejects mock/Claude or unknown actual providers.
+  A real non-streaming probe returned HTTP 200, Gemini, `{"topic_ids":["excel"]}`
+  in 15.2s. Dedicated client key name `mesflow-public-support-test-20261010`,
+  key ID `3e5491064a61`; the secret stays outside source/browser in a 0600 env file.
+- Request controls: 300 characters locally, 256-byte server body, strict JSON
+  schema (1–2 approved topic IDs), origin check, 6 requests/minute per gateway
+  client IP, 20 upstream attempts/hour globally, 2 in flight, 20s completion
+  timeout + 4s model check, 26s browser timeout, 60s failure cooldown, 5min cache.
+  One gunicorn worker preserves these process-local budgets; restart resets them.
+  UI labels fresh AI, cached AI, and FAQ fallback separately. No conversations
+  are stored. The existing Cloudflare analytics beacon is separate.
+- TEST rollout is static HTML + separate support container only: do not replace
+  the live MES application image. `scripts/prepare-public-root-nginx.py` adds
+  exact `/` and `/support/chat` locations in HTTPS; HTTP root redirects HTTPS.
+  Support forwards neither Authorization nor Cookie, strips Set-Cookie, and
+  overwrites client-IP. No public support container port. Other proxy blocks
+  remain byte-for-byte intact. Existing nginx compose has a future read-only
+  showcase bind; synchronize BOTH host HTML and current container HTML.
+- Verification: focused Python suite 46 passed; browser coverage exercises
+  1366/390/320px, keyboard, reset, text-only rendering, fake gateway/outage and
+  payload privacy. These mocked browser checks are NOT proof of live AI.
+- **Live verified 2026-10-10 11:19 ICT:** https://mesflow.net/ returns 200 at
+  the root URL. Public browser checks at 1366×768, 390×844 and 320×568 passed
+  without overflow, page errors or business API requests. First Excel response
+  was `mode=gateway`, actual provider `gemini-web`; the next two were explicitly
+  `gateway_cached`. This is real public E2E evidence, not a mocked response.
+- Anonymous `/app` remains 302 → `/login`; `/api/auth/me` remains 401; manual
+  login form works. An existing authenticated mobile session opened the root,
+  followed the login CTA to `/app?page=overview`, and retained API authentication
+  with no page errors. Do not logout the verification account: that can revoke
+  other sessions. No authentication implementation was changed.
+- Merged PR #32 (`374ecfa`, source `df7f048`) after full CI run 38022215529:
+  1,944 Python/PostgreSQL passed (27 skipped), 590 browser passed (4 skipped).
+  The original 20-minute gate timed out; job limit is now 40 minutes and
+  Playwright artifacts use their own directory so they do not erase JUnit files.
+- Actual nginx found a runtime-only alias problem during first live check:
+  exact `/` plus a file alias appended `index.html` and returned 500. The original
+  gateway config was restored while correcting it. PR #36 (`1d88af2`, source
+  `7dfa87e`) replaces that alias with an INTERNAL rewrite to the already working
+  exact `/welcome` static location; the browser URL remains `/`. Corrected route
+  was first exercised by a separate loopback nginx process in the real container
+  (response hash equals welcome.html), then 46 focused tests, merge, reload, and
+  the public browser checks above. Full follow-up CI also runs on PR #36.
+- TEST only: `vps-78ae7aec`, `148.113.207.13`, ready role `PRODUCTION_TEST`.
+  Support image `mesflow-public-support:c034ae4`, digest
+  `sha256:10b3b030a922b480fbc94128546cc2675e6d611fb0e18acdbb9e60b7792bb4a6`;
+  isolated compose `/opt/mesflow/public-support/compose.yml`, key env
+  `/opt/mesflow/public-support.env` (root 0600). No published support port.
+  The MES app STILL has version 71.0.0.381, image `sha256:d4786d47…`, and start
+  time `2026-09-30T10:06:11.689145751Z`: it was not restarted or replaced.
+- Root rollback: `/opt/mesflow-gateway/rollback/root-support-20261010T0335Z/`.
+  Restore nginx.conf IN PLACE and both welcome HTML copies, validate/reload;
+  stop only the support compose if retiring it. Never recreate the MES app.
+- HP evidence: `/tmp/mesflow-root-evidence-20261010/` contains CI logs, immutable
+  image archive, corrected nginx config, deployment scripts, live browser JSON
+  and screenshots. Authenticated evidence and temporary session/key files are
+  private; never commit them. See the report assistant handoff for its separate
+  rollout; a healthy support endpoint does not imply reporting is deployed.
+
 ## Public landing live on TEST — 2026-10-10 09:00 ICT
 
 - **Live:** https://mesflow.net/welcome and https://mesflow.net/demo, both HTTPS
