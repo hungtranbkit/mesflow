@@ -53,3 +53,39 @@ test('expired live session cannot silently switch to demo or export data',async(
  await page.getByRole('button',{name:'Xác nhận bộ lọc & xem trước'}).click();
  await expect(page.locator('#notice')).toContainText('Phiên hết hạn');await expect(page.locator('#preview')).toBeHidden();await expect(page.locator('#mode')).toHaveValue('live');
 });
+
+for(const width of [1366,390]){
+ test(`warm snapshot freshness and PDF download ${width}`,async({page})=>{
+  await page.setViewportSize({width,height:844});
+  const calls=[];
+  const intent={report_type:'productivity',from:'2026-10-01',to:'2026-10-10',po_id:null,operation_id:null,employee_id:null};
+  const pdf=Buffer.from('%PDF-1.7\nmock-renderer-output');
+  let stale=false;
+  await page.route('https://reports.test/**',route=>{
+   const path=new URL(route.request().url()).pathname;calls.push(path);
+   if(path==='/reports')return route.fulfill({contentType:'text/html',body:html});
+   if(path.endsWith('/status'))return route.fulfill({json:{authenticated:true,mode:'live'}});
+   if(path.endsWith('/preview'))return stale?route.fulfill({status:503,json:{error:'Ảnh chụp đã cũ. Bộ xử lý nền đang cập nhật.'}}):route.fulfill({json:{id:'warm',mode:'live',intent,generated_at:'2026-10-10T00:00:00Z',snapshot:{age_seconds:12,ttl_seconds:150},columns:['good_qty'],rows:[{good_qty:12}],sources:['precomputed'],notes:[]}});
+   if(path.endsWith('/export')){
+    expect(route.request().postDataJSON()).toEqual({report_id:'warm',format:'pdf'});
+    return route.fulfill({headers:{'Content-Type':'application/pdf','X-Report-SHA256':crypto.createHash('sha256').update(pdf).digest('hex')},body:pdf});
+   }
+   return route.abort();
+  });
+  await page.goto('https://reports.test/reports');
+  await expect(page.locator('#mode')).toHaveValue('live');
+  await page.locator('#report_type').selectOption('productivity');
+  await page.locator('#from').fill(intent.from);await page.locator('#to').fill(intent.to);
+  await page.getByRole('button',{name:'Xác nhận bộ lọc & xem trước'}).click();
+  await expect(page.locator('#metadata')).toContainText('12 giây · TTL 150 giây');
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Tải PDF',exact:true}).click();
+  expect((await download).suggestedFilename()).toBe('MES_productivity.pdf');
+  await expect(page.locator('#notice')).toContainText('SHA-256');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  stale=true;
+  await page.getByRole('button',{name:'Xác nhận bộ lọc & xem trước'}).click();
+  await expect(page.locator('#notice')).toContainText('Ảnh chụp đã cũ');
+  await expect(page.locator('#preview')).toBeHidden();
+  expect(calls.some(path=>path.startsWith('/api/')||path.endsWith('/intent'))).toBe(false);
+ });
+}

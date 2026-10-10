@@ -13,6 +13,12 @@ services:
     mem_limit: 256m
     cpus: 0.5
     networks: [gateway]
+    healthcheck:
+      test: [CMD, python, -c, "from snapshot_store import load; load('/snapshots','reports.json',150); load('/snapshots','active.json',60)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     logging:
       driver: json-file
       options: {max-size: 5m, max-file: '2'}
@@ -29,6 +35,12 @@ services:
     mem_limit: 256m
     cpus: 0.5
     networks: [database]
+    healthcheck:
+      test: [CMD, python, -c, "from snapshot_store import load; load('/snapshots','reports.json',150); load('/snapshots','active.json',60)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     logging:
       driver: json-file
       options: {max-size: 5m, max-file: '2'}

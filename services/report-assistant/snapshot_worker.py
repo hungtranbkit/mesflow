@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 import logging
 import os
+import secrets
 import time
 from zoneinfo import ZoneInfo
 
@@ -87,6 +88,9 @@ def readonly_source():
     preserves existing repository SQL while giving the batch one DB snapshot.
     The deployed credential must also have SELECT-only grants (defence in depth).
     """
+    # Core config requires a secret in production even for repository imports.
+    # This process never serves/signs sessions; do not load the app's real key.
+    os.environ.setdefault('MESFLOW_SECRET_KEY', secrets.token_urlsafe(32))
     import psycopg
     from psycopg.rows import dict_row
     from mesflow.db import connection
