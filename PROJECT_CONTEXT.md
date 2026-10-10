@@ -9,6 +9,90 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Secure natural-language report assistant — 2026-10-10 (live TEST)
+
+- Separate `services/report-assistant` service, root chatbot link → `/reports`.
+  No MES app replacement, DB credentials, migrations or business writes.
+- Anonymous exports are fixed, clearly marked DEMO samples only. Authenticated
+  preview/download revalidates current MES session and RBAC using existing APIs.
+  Five report types: employee productivity, PO progress, Operation output,
+  planned versus actual, exceptions. Filters: explicit dates, numeric PO,
+  Operation and employee IDs; missing fields require confirmation in the UI.
+- AI Gateway sees only public report-type/period enums, never raw questions,
+  entity IDs, report data or sessions. Validated classification only, no SQL.
+  Real non-queued/non-Claude route and provider checked; labeled rules fallback.
+- Sources are fixed authorized GET endpoints; exceptions use session detail,
+  NOT the existing auto-mutating `/api/session-exceptions` endpoint. Report
+  notes distinguish session-start/end date semantics and current PO totals.
+- Excel/CSV export exact preview, source/filter metadata, formula-safe cells,
+  browser SHA-256 checks; PDF via browser Print only. Snapshots bound to user,
+  expire in 5min, max 3 downloads; role/permission checked again. Audited grants
+  fail closed if audit cannot be written. Date/row/size/time/rate limits apply.
+  This is a single-workshop backend, not a newly introduced tenant model.
+- Focused security/projection/export tests and mocked mobile/browser tests added.
+  Full limits, API semantics, deploy/rollback instructions: see
+  `services/report-assistant/README.md`.
+- **Live on TEST 2026-10-10:** root support links to `/reports`. Anonymous
+  reports are DEMO only; authenticated users can preview/export all five types
+  through the existing authorized APIs. Native PDF is NOT deployed: the current
+  button is explicitly browser Print/Save PDF, not a downloadable server PDF.
+- PR #35 merged as `233ca3f` after BOTH full CI runs 38023284317 and
+  38023287805 passed: 1,979 Python/PostgreSQL tests (27 skipped), 594 browser
+  tests (4 skipped). Schema guard PR #38 merged as `987c249` after 37 focused
+  tests on the merged-main tree. Its full PR follow-up run 38024166013 then
+  passed (1,981 Python/PostgreSQL, 594 browser); the duplicate push run was still
+  active at handoff. Mobile table readability PR #41 merged as `3f1e85f`, source
+  `21524bf`, after all 4 report Playwright tests passed (1366/390/320px and
+  expired session). Columns scroll in a named keyboard-focusable region;
+  print sizing stays flexible. Full follow-up CI is separate from these results.
+- Live browser checks on the final image: anonymous DEMO and authenticated
+  Operation output at 1366×844 and 390×844; real Gateway intent responses and
+  explicitly cached responses; the final authenticated desktop intent used
+  labeled rules fallback, while mobile returned a fresh real Gateway result.
+  Confirmed filters, API-equivalent rows, valid
+  Excel/CSV, browser SHA-256 checks, no page errors/overflow, and login CTA back
+  to authenticated `/app`. Other four types compared against their original
+  authorized GET sources, including Part planned quantity and exact date/ID
+  filters. The selected live exception sample was empty; nonempty exceptions
+  are covered by the projection tests. Anonymous live preview and downloads
+  of authenticated snapshots return 401; malformed report types and tenant
+  overrides return 400. Non-admin denial/revocation and cross-user ownership
+  are tested with isolated API fixtures, not fabricated production accounts.
+- Audit verification matches the actual downloaded hashes to
+  `REPORT_DOWNLOAD_GRANTED` records. No rows/raw prompts/secrets in the audit.
+  Root regression checks at 1366/390/320px returned 200, protected `/app` 302
+  to login and `/api/auth/me` 401; all root chat rechecks used verified cached
+  Gemini. An initial transient support request fell back to FAQ; the subsequent
+  browser run passed. Earlier uncached Gemini evidence is in the root handoff below.
+- Deployment: isolated `mesflow-report-assistant:21524bf`, digest
+  `sha256:3a7faa5ef37e043bde64d2e820fa24f587f07a2e95899680eddc7f1d4c05f88c`,
+  compose `/opt/mesflow/report-assistant/compose.yml`, no host port, network
+  `mesflow-edge`. Same dedicated server-only key env as support; audit directory
+  `/opt/mesflow/report-audit` is 0700/65534 and has daily logrotate. Actual nginx
+  config `/opt/mesflow-gateway/nginx/nginx.conf` SHA-256
+  `71a57ef3b6986d3196c23ca8ec4838ff628619e231861c19e39609d1c4a624d7`.
+  Both static landing copies were synchronized. MES app STILL runs e66587f /
+  71.0.0.381, original digest/start time; support image/start time also unchanged.
+- Rollback: `/opt/mesflow-gateway/rollback/report-assistant-20261010T0410Z/`
+  contains pre-report nginx and BOTH welcome copies. Restore config in place,
+  restore both HTML files, validate/reload nginx, then stop only report compose.
+  Keep audit files. For a report-image-only rollback use `039af2b` (same backend,
+  before the CSS accessibility fix). Restarting reports expires its snapshots.
+- Evidence on HP: `/tmp/mesflow-root-evidence-20261010/`, including
+  `live-report-browser.json`, `live-report-api.json`, `live-report-audit.json`,
+  root browser JSON, CI logs, final runtime inspection and private screenshots.
+  Never commit authenticated evidence/session files or gateway credentials.
+- P0 Report Engine belongs to Dell PR #34 (XlsxWriter/WeasyPrint), still separate
+  from the isolated assistant. Review findings posted there: one-sided dates
+  bypass the 366-day cap, and synchronous PDF rendering needs bounded resource
+  admission. Integration with the running refactor line also conflicts in
+  employee-productivity.js: preserve the P3 report layout and add the PDF button
+  there, never replace TEST with plain main. No backend/PDF deployment or native
+  host package installation was performed here. Coordinate deployment ownership
+  on PR #34 before changing the MES app. Issues #39 (chat inside `/app`) and #40
+  (faster/useful public answers) are separate active work, not part of this report
+  rollout; public support behavior was not changed by the report service.
+
 ## Public root support + real AI Gateway — 2026-10-10 (implementation)
 
 - `/` renders the public landing with login CTA (`/login?noauto=1`) and
