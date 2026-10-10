@@ -1,5 +1,6 @@
 """Authenticated reporting boundaries and export integrity, with isolated MES data."""
 import csv
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import io
@@ -21,6 +22,8 @@ def service(monkeypatch,tmp_path):
     module.app.config.update(TESTING=True)
     monkeypatch.setattr(module,'AUDIT',tmp_path/'audit.jsonl')
     monkeypatch.setattr(module,'GATEWAY_KEY','')
+    module.real_verify_scope = module.verify_scope
+    monkeypatch.setattr(module,'verify_scope',lambda user:None)
     module.calls=[]
     def backend(path,params=None):
         module.calls.append((path,params))
@@ -34,6 +37,13 @@ def service(monkeypatch,tmp_path):
             return {'ok':True,'employees':[{'employee_id':7,'employee_code':'NV-7','employee_name':'=HYPERLINK("https://invalid")','completed_sessions':2,'good_qty':12,'defect_qty':1,'worked_seconds':3600,'productivity_percent':88.5}]}
         raise AssertionError('Unexpected source '+path)
     monkeypatch.setattr(module,'backend',backend)
+    monkeypatch.setattr(module,'SNAPSHOT_DIR',tmp_path/'snapshots')
+    from snapshot_store import publish, days
+    partitions = {day: {'sessions': [], 'productivity': [], 'employees': []} for day in days(BASE['from'], BASE['to'])}
+    partitions[BASE['from']]['employees'] = [{'employee_id':7,'employee_code':'NV-7','employee_name':'=HYPERLINK("https://invalid")',
+        'completed_sessions':2,'good_qty':12,'defect_qty':1,'seconds':'3600','score_sum':'177','score_count':2}]
+    now = datetime.now(timezone.utc).isoformat()
+    publish(module.SNAPSHOT_DIR, 'reports.json', {'schema':1,'generated_at':now,'watermark':now,'days':partitions,'pos':{},'operations':{},'exceptions':{}})
     return module
 
 
@@ -96,8 +106,9 @@ def test_revoked_permission_for_same_user_blocks_download(service,monkeypatch):
 
 def test_csv_xlsx_bytes_match_preview_filters_hash_audit_and_formula_safety(service):
     client=authenticated(service);record=preview(service,client,intent={**BASE,'employee_id':7})
-    query=next(params for path,params in service.calls if path.endswith('employee-productivity'))
-    assert query=={'from':BASE['from'],'to':BASE['to'],'limit':501,'employee_id':7}
+    assert all(path == '/api/auth/me' for path, _ in service.calls)
+    assert record['snapshot']['age_seconds'] < 5
+    assert record['rows'][0]['good_qty'] == 12
     for format in ('csv','xlsx'):
         response=client.post('/reports-api/export',json={'report_id':record['id'],'format':format})
         assert response.status_code==200
@@ -157,14 +168,15 @@ def test_body_origin_export_schema_limits(service):
     client=service.app.test_client()
     assert client.post('/reports-api/intent',json={'request':'x'*3000,'mode':'demo'}).status_code==413
     assert client.post('/reports-api/intent',json={'request':'năng suất','mode':'demo'},headers={'Origin':'https://evil'}).status_code==403
-    assert client.post('/reports-api/export',json={'report_id':'anything','format':'pdf'}).status_code==400
+    assert client.post('/reports-api/export',json={'report_id':'anything','format':'pdf'}).status_code==404
     assert client.post('/reports-api/preview',json={'mode':'demo','intent':BASE,'rows':[{'leaked':1}]}).status_code==400
 
 
 def test_readonly_api_allowlist_excludes_mutating_exception_read(service):
     assert not service.ALLOWED.fullmatch('/api/session-exceptions')
     assert not service.ALLOWED.fullmatch('/api/users')
-    assert service.ALLOWED.fullmatch('/api/session-management/123')
+    assert not service.ALLOWED.fullmatch('/api/session-management/123')
+    assert service.ALLOWED.fullmatch('/api/auth/me')
 
 
 def test_scoped_rows_and_no_silent_truncation(service):
