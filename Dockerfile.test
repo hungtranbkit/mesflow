@@ -22,6 +22,7 @@ COPY services/report-assistant ./services/report-assistant
 COPY compose.yml compose.test.yml compose.sandbox.yml compose.projectflow-local.yml pytest.ini VERSION.txt release.json USER_GUIDE_VIDEO.md ./
 COPY Dockerfile Dockerfile.test ./
 COPY tutorial ./tutorial
+COPY docs/ui-inventory.json ./docs/ui-inventory.json
 # mesflow.__version__ (app/mesflow/__init__.py) reads VERSION.txt as a
 # SIBLING of the mesflow/ package directory -- that's where the real
 # Dockerfile puts it (`COPY app /app` + `COPY VERSION.txt /app/VERSION.txt`,
