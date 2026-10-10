@@ -7,15 +7,10 @@ const test=base.extend({
     try { await use(await context.newPage()); } finally { await browser.close(); }
   }
 });
-const fs = require('fs');
-const facts = JSON.parse(fs.readFileSync('services/public-support/public-facts.json','utf8'));
-const helper = fs.readFileSync('services/public-support/assistant.js','utf8')
-  .replace('/*PUBLIC_FACTS*/[]', JSON.stringify(facts.map(({id,label,text,keys,href})=>({id,label,text,keys,href}))));
 
 async function login(page) {
   const response = await page.request.post('/api/auth/test-auto-login');
   expect(response.ok()).toBeTruthy();
-  await page.route('**/support/assistant.js',route=>route.fulfill({contentType:'application/javascript',body:helper}));
   await page.goto('/app?page=overview');
   await expect(page.locator('#appLayout')).toBeVisible();
 }
