@@ -319,7 +319,15 @@ def create_app():
         if session_policy.validate_and_touch() is not None:
             return redirect(url_for('login_page'))
         permissions=RBACRepository().permissions_for_role(session.get('role'))
-        return render_template('app.html', version=__version__, username=session.get('username'), role=session.get('role'), session_user_id=session.get('user_id'), permissions=permissions)
+        permission_set=set(permissions)
+        role=str(session.get('role') or '')
+        report_assistant_available=(
+            role in ('admin','super_admin')
+            or {'dashboard.view','employees.view'} <= permission_set
+            or {'po.view','session.view'} <= permission_set
+            or (role in ('admin','manager','supervisor') and {'exceptions.view','session.view'} <= permission_set)
+        )
+        return render_template('app.html', version=__version__, username=session.get('username'), role=role, session_user_id=session.get('user_id'), permissions=permissions, report_assistant_available=report_assistant_available)
 
     @app.get('/print/setup/<int:operation_id>')
     def setup_print_page(operation_id:int):

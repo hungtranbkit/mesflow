@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KIMEX v{{ version }}</title>
   <link rel="stylesheet" href="/static/ui.css?v={{ version }}">
+  <link rel="stylesheet" href="/static/support-widget.css?v={{ version }}">
 </head>
 <body class="admin-body">
   <!-- THESIS: MESFlow is a workshop dispatch desk, not a SaaS dashboard. OWN-WORLD: command navy shell, neutral work surfaces, compact Swiss typography, precise rules, semantic status only. STORY: operators see exceptions, understand production state, then act without hunting. FIRST VIEWPORT: persistent navigation, compact context header, dense operational workspace, primary action in context. FORM: industrial operations console; seed mesflow-industrial-console. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md. -->
@@ -35,6 +36,7 @@
   </div>
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
   <div id="toast" role="status" aria-live="polite"></div>
+  {% include 'support_widget.html' %}
   <script>window.MESFLOW_USER={{ {'id':session_user_id,'username':username,'role':role,'permissions':permissions}|tojson }};</script>
   <!-- net.js phải nạp TRƯỚC api.js: api() chỉ là lớp mỏng gọi MFNet. -->
   <script src="/static/core/net.js?v={{ version }}"></script>
@@ -108,5 +110,7 @@
       else if(bootParams.get('roles')&&initialPage==='users'&&window.renderRolePermissions)window.renderRolePermissions();
     }
   </script>
+  <script src="/support/assistant.js" defer></script>
+  <script src="/static/support-widget.js?v={{ version }}" defer></script>
 </body>
 </html>
