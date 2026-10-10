@@ -21,6 +21,10 @@ def publish(directory, name, value):
     payload = json.dumps(value, ensure_ascii=False, separators=(',', ':'), default=str).encode()
     if len(payload) > MAX_BYTES:
         raise ValueError('snapshot byte bound exceeded')
+    # There is exactly one producer. Reap its temporary files left by SIGKILL
+    # before creating another, so repeated interrupted writes cannot grow disk.
+    for orphan in directory.glob('.' + name + '*'):
+        orphan.unlink()
     fd, temporary = tempfile.mkstemp(prefix='.' + name, dir=directory)
     try:
         with os.fdopen(fd, 'wb') as stream:

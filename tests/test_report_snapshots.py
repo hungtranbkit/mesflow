@@ -43,6 +43,7 @@ def test_refresh_atomic_generation_and_old_download_consistency(service):
     path = service.SNAPSHOT_DIR / 'reports.json'
     value = json.loads(path.read_text())
     value['days'][BASE['from']]['employees'][0]['good_qty'] = 99
+    (service.SNAPSHOT_DIR / '.reports.json-interrupted').write_bytes(b'incomplete')
     publish(service.SNAPSHOT_DIR, 'reports.json', value)
     second = preview(service, client)
     assert second['rows'][0]['good_qty'] == 99
