@@ -43,8 +43,8 @@ def test_public_root_does_not_modify_an_existing_session(client):
 
 
 def test_support_contains_only_public_copy_and_no_data_channels():
-    html = (ROOT / 'app/mesflow/web/templates/welcome.html').read_text()
-    script = html.split('<script>')[1].split('</script>')[0]
+    html = (ROOT / 'app/mesflow/web/templates/support_widget.html').read_text()
+    script = (ROOT / 'app/mesflow/web/static/support-widget.js').read_text()
     for forbidden in ('XMLHttpRequest', 'WebSocket', 'sendBeacon',
                       'localStorage', 'sessionStorage', 'document.cookie',
                       'innerHTML', 'api_key', 'DATABASE_URL'):
@@ -54,6 +54,7 @@ def test_support_contains_only_public_copy_and_no_data_channels():
     assert "JSON.stringify({topics:[reply.id]})" in script
     assert script.count('fetch(') == 1
     assert 'maxlength="300"' in html
+    assert 'support-widget.js' in (ROOT / 'app/mesflow/web/templates/welcome.html').read_text()
 
 
 def test_nginx_patch_preserves_all_existing_proxy_and_auth_routes():
