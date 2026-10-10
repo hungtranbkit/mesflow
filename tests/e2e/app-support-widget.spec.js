@@ -58,6 +58,18 @@ for (const browserName of ['chromium','webkit']) {
     expect((await page.request.get('/api/auth/me')).status()).toBe(200);
     expect(errors).toEqual([]);
   });
+  test('launcher leaves the back-to-top control tappable',async({page})=>{
+    await login(page);
+    await page.evaluate(()=>{
+      const spacer=document.createElement('div');spacer.style.height='4000px';document.body.append(spacer);
+      window.scrollTo(0,2000);
+    });
+    const top=page.locator('[data-back-to-top]');await expect(top).toBeVisible();
+    const topBox=await top.boundingBox(),chatBox=await page.locator('#support-launch').boundingBox();
+    expect(topBox.y+topBox.height).toBeLessThanOrEqual(chatBox.y);
+    await top.tap();await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBe(0);
+    await expect(page.locator('#support-launch')).toBeVisible();
+  });
   test('helper outage keeps launcher and recovery links usable',async({page})=>{
     await login(page);
     await page.route('**/support/assistant.js',route=>route.abort());
