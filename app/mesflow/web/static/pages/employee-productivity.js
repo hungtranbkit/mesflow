@@ -52,7 +52,7 @@ async function renderEmployeeProductivity() {
   title.textContent = 'Báo cáo năng suất nhân viên';
   subtitle.textContent = 'Năng suất = trung bình cộng % hoàn thành các phiên làm việc đã kết thúc của từng nhân viên trong khoảng ngày.';
   content.innerHTML = `<div class="page-shell">
-    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epExport" type="button">Xuất Excel</button><button class="btn" id="epPrint" type="button" aria-haspopup="dialog">In</button><button class="btn" id="epReload">Làm mới</button>' })}
+    ${MFUI.filterBar({ content: `<label><span>Từ ngày</span><input type="date" id="epFrom" value="${epMonthStartHcm()}"></label><label><span>Đến ngày</span><input type="date" id="epTo" value="${epTodayHcm()}"></label><label><span>Tìm nhân viên</span><input id="epSearch" placeholder="Tên hoặc mã nhân viên"></label><label><span>Bộ phận</span><select id="epDept"><option value="">Tất cả bộ phận</option></select></label>`, actions: '<button class="btn" id="epExport" type="button">Xuất Excel</button><button class="btn" id="epPrint" type="button" aria-haspopup="dialog">In</button><button class="btn" id="epPdf" type="button" title="Báo cáo PDF (Report Engine)">Tải PDF</button><button class="btn" id="epReload">Làm mới</button>' })}
     <section class="daily-kpis" id="epKpis" aria-live="polite"></section>
     <!-- Section 21: giữ tách biệt khỏi filter bar phía trên -- panel riêng,
     không dùng chung state với bộ lọc bảng (epFrom/epTo/epDept chỉ ảnh hưởng
@@ -249,6 +249,14 @@ async function renderEmployeeProductivity() {
     link.click();
     link.remove();
   };
+  // Report Engine (issue #33): server-rendered PDF of the same filters.
+  // A failed PDF (e.g. 503 PDF_ENGINE_UNAVAILABLE) shows its JSON message in
+  // the new tab, which links the HTML print fallback.
+  const exportPdf = () => {
+    const q = reportQuery();
+    q.set('format', 'pdf');
+    window.open(`/api/reports/engine/employee_productivity/export?${q.toString()}`, '_blank');
+  };
   const openPrint = employeeId => {
     const q = reportQuery();
     if (employeeId) q.set('employee_id', String(employeeId));
@@ -278,6 +286,7 @@ async function renderEmployeeProductivity() {
 
   document.getElementById('epExport').onclick = exportExcel;
   document.getElementById('epPrint').onclick = openPrintDialog;
+  document.getElementById('epPdf').onclick = exportPdf;
 
   document.getElementById('epReload').onclick = load;
   document.getElementById('epFrom').onchange = load;
