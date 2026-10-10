@@ -20,7 +20,7 @@ from mesflow.reporting.xlsx import render_xlsx, xlsxwriter_available
 MIMETYPES = {
     'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'pdf': 'application/pdf',
-    'html': 'text/html; charset=utf-8',
+    'html': 'text/html',  # Flask appends '; charset=utf-8'
 }
 
 
