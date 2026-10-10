@@ -33,6 +33,9 @@ for (const viewport of [{width:1366,height:768},{width:390,height:844},{width:32
     const box = await panel.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.y+box.height).toBeLessThanOrEqual(viewport.height);
+    const links = await panel.locator('.support-links').boundingBox();
+    expect(links.y+links.height).toBeLessThanOrEqual(box.y+box.height);
+    await expect(panel.getByRole('link',{name:'Tạo báo cáo',exact:true})).toHaveAttribute('href','/reports');
     await input.press('Escape'); await expect(panel).toBeHidden(); await expect(launcher).toBeFocused();
     await launcher.click(); await expect(panel.locator('.support-message.user').last()).toContainText('<img');
     await page.reload(); await expect(panel).toBeHidden();
