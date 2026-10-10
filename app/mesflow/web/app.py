@@ -288,7 +288,7 @@ def create_app():
 
     @app.get('/')
     def home():
-        return redirect(url_for('app_page') if session_policy.validate_and_touch() is None else url_for('login_page'))
+        return render_template('welcome.html', version=__version__)
 
     @app.get('/login')
     def login_page():

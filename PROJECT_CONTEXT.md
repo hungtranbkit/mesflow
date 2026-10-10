@@ -9,6 +9,35 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Public root support chatbot — 2026-10-10 (implementation)
+
+- Root `/` now renders the public landing, with an always-visible login CTA
+  (`/login?noauto=1`) and compact “Hỏi MESFlow” support dialog. Signed-in users
+  can still enter `/app` directly or via the login CTA. `/login` continues to
+  redirect valid sessions to `/app`; authentication policy is unchanged.
+- Bot is deterministic, explicitly labelled “không phải AI”, and answers only
+  reviewed public product topics. Sources: the landing's `#quy-trinh`,
+  `#tinh-nang`, `#hoi-dap`, the isolated `/demo`, and the verified 380/381
+  productivity/active-worker behavior documented below. No prices or contact
+  channels supplied; unknown/private questions fall back to FAQ/demo.
+- No API calls, LLM, keys, cookies, storage, customer data, or message telemetry
+  in chatbot code. Messages use textContent, are bounded, and vanish on reload.
+  The existing Cloudflare analytics beacon is outside chatbot code.
+- Keyboard open/close, Escape + focus return, labelled input/live log,
+  44px touch controls, reduced motion, and 320/390/1366px browser coverage.
+- TEST is served by static nginx overrides: updating the Flask route alone is
+  insufficient. `scripts/prepare-public-root-nginx.py` prepares an exact `/`
+  location in the verified gateway config: HTTP redirects to HTTPS; HTTPS
+  serves welcome.html; Host must be mesflow.net; GET/HEAD only. It leaves the
+  existing proxy configuration byte-for-byte intact, including `/app`, login,
+  APIs, kiosk and deploy-agent. Validate candidate with nginx -t before reload.
+- Deploy status: pending merge and public verification. Static deployment must
+  synchronize `/opt/mesflow/public-showcase/welcome.html` AND the running
+  nginx container's `/usr/share/nginx/html/mesflow-showcase/welcome.html`.
+  The declared read-only compose bind becomes active only on a future recreate.
+- Existing auth persistence tests now probe protected `/app` (or `/login` for
+  a valid-session redirect) instead of assuming the public root is protected.
+
 ## Public landing live on TEST — 2026-10-10 09:00 ICT
 
 - **Live:** https://mesflow.net/welcome and https://mesflow.net/demo, both HTTPS
