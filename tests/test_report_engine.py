@@ -411,6 +411,7 @@ def test_http_pdf_503_with_html_fallback_when_engine_missing(make_client, monkey
     assert body["error"] == "PDF_ENGINE_UNAVAILABLE" and "format=html" in body["fallback_url"] and "po_id=7" in body["fallback_url"]
     h = c.get(body["fallback_url"])
     assert h.status_code == 200 and h.mimetype == "text/html" and h.headers["Content-Disposition"].startswith("inline")
+    assert h.headers["Content-Type"] == "text/html; charset=utf-8"
     assert "BÁO CÁO PHIÊN LÀM VIỆC" in h.get_data(as_text=True)
     caps = c.get(f"{BASE}/datasets").get_json()["capabilities"]
     assert caps["pdf"]["available"] is False and caps["xlsx"]["available"] is True
