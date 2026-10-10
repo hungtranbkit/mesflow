@@ -37,7 +37,7 @@ anything stale here; fix this file when they disagree.
   cached 802ms. Real contextual Gemini probe produced valid cited prose in
   17,768ms with an extended diagnostic timeout. The deployed path keeps 9s;
   no claim of fast AI is based on that diagnostic. FAQ never waits for AI.
-- Focused verification: 43 Python passed; 7 Playwright passed at 320/390/1366,
+- Focused verification: 43 Python passed; 8 Playwright passed at 320/390/1366,
   including no-request FAQ, consent/privacy, keyboard/layout, cancellation and
   outage. Full CI, merge, TEST rollout and post-deploy evidence still pending.
 - Support-only rollout contract/rollback: `services/public-support/README.md`.

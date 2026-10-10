@@ -9,6 +9,8 @@ const examples=[
  ['xuat bao cao nang suat tung nhan vien','excel','một file Excel'],
  ['ai dang lam','active','phiên đang mở'],
  ['quet the QR','qr','quét thẻ nhân viên trước'],
+ ['Xin hướng dẫn quét QR','qr','không có bước xác nhận bắt đầu riêng'],
+ ['QR','qr','quét thẻ nhân viên trước'],
  ['nhập sản lượng','finish','số sản phẩm đạt'],
  ['sản lượng kế hoạch','planned','sản lượng kế hoạch']
 ];
@@ -50,7 +52,7 @@ for(const viewport of [{width:1366,height:768},{width:390,height:844},{width:320
   await expect(page.locator('#support-preview')).toContainText('Giải thích cách kết hợp');
   await expect(page.locator('#support-ai')).toBeInViewport();await expect(page.locator('#support-question')).toBeInViewport();
   await page.locator('#support-ai').click();await expect(page.locator('.support-message').last()).toContainText('AI · Giải thích');
-  expect(calls).toEqual([{topics:['productivity','qr'],intent:'guide',consent:true}]);
+  expect(calls).toEqual([{topics:['qr','productivity'],intent:'guide',consent:true}]);
   await expect(page.locator('.support-message').last().getByRole('link',{name:'Nguồn: Cách quét thẻ và QR'})).toHaveAttribute('href','/support/knowledge#qr');
   await page.unroute('**/support/chat');await page.route('**/support/chat',async r=>{await new Promise(resolve=>setTimeout(resolve,700));await r.fulfill({json:{mode:'gateway',topic_ids:['qr'],answer:'OLD RESPONSE MUST NOT APPEAR'}}).catch(()=>{});});
   await page.locator('#support-ai').click();await expect(page.locator('#support-question')).toBeEnabled();
@@ -65,4 +67,18 @@ test('AI outage leaves useful FAQ and does not masquerade as AI',async({page})=>
  await page.route('**/support/chat',r=>r.fulfill({json:{mode:'faq',reason:'timeout',topic_ids:['qr','productivity']}}));
  await page.goto('/');await page.locator('#support-launch').click();await page.locator('#support-question').fill('Kết hợp quét QR và báo cáo năng suất');await page.locator('#support-question').press('Enter');await page.locator('#support-ai').click();
  await expect(page.locator('#support-status')).toContainText('AI chưa trả lời');await expect(page.locator('.support-message').last()).toContainText('FAQ ·');
+});
+
+
+test('explicit compound questions retain both intents',async({page})=>{
+ await page.goto('/');
+ for(const [q,ids,intent] of [
+  ['Quét QR và xuất Excel',['qr','excel'],'guide'],
+  ['Quét QR sau đó xem ai đang làm',['qr','active'],'guide'],
+  ['So sánh năng suất và xuất Excel',['productivity','excel'],'compare'],
+  ['So sánh quét QR và quy trình sản xuất',['qr','workflow'],'compare']
+ ]) {
+  const r=await page.evaluate(q=>MESFlowSupport.match(q),q);
+  expect(r.topic_ids).toEqual(ids);expect(r.ai.intent).toBe(intent);
+ }
 });

@@ -11,7 +11,7 @@
     compare:'So sánh mục đích và cách sử dụng các chức năng sau trong MESFlow',
     diagnose:'Hướng dẫn kiểm tra theo các chức năng sau, không kết luận nguyên nhân khi chưa có dữ liệu xưởng'
   };
-  const generic = 'mesflow mes flow la gi cach lam sao the nao toi muon biet hay cho minh ban co the khong va voi de thi neu mot hai nhieu tai sao khi can giup huong dan giai thich ket hop so sanh khac nhau giua tu den sau truoc tung theo trong hien thi xem su dung chay ai dang nhan vien cong nhan the quet qr op loi nhu nao nhu the nao cham vi sao nguyen nhan duoc hoac bao cao xuat in tim voi nhau lien quan tiep theo';
+  const generic = 'xin vui long a ah nhe oi on cam ban lam on mesflow mes flow la gi cach lam sao the nao toi muon biet hay cho minh ban co the khong va voi de thi neu mot hai nhieu tai sao khi can giup huong dan giai thich ket hop so sanh khac nhau giua tu den sau truoc tung theo trong hien thi xem su dung chay ai dang nhan vien cong nhan the quet qr op loi nhu nao nhu the nao cham vi sao nguyen nhan duoc hoac bao cao xuat in tim voi nhau lien quan tiep theo';
   const vocabulary = new Set(normalize(topics.map(t=>t.label+' '+t.text+' '+t.keys.join(' ')).join(' ')+' '+generic).split(' '));
   const clarify = 'Mình chưa có thông tin đã kiểm tra để trả lời câu này. Bạn muốn hỏi cách quét QR, xem người đang làm, tiến độ hay xuất báo cáo? Hãy chọn một chủ đề hoặc diễn đạt lại chỉ về cách dùng sản phẩm.';
   const privateReply = 'Mình chỉ hướng dẫn sản phẩm công khai, không xem hoặc gửi dữ liệu nội bộ. Không nhập tên người, mã đơn hàng, tài khoản, mật khẩu hay số liệu xưởng. Để xem báo cáo thật, dùng Tạo báo cáo và đăng nhập theo quyền.';
@@ -31,22 +31,14 @@
     // Unknown names, identifiers and unsupported features are never interpreted
     // as context for AI. The canonical opt-in question contains only KB labels.
     if (!text || text.split(' ').some(word=>!vocabulary.has(word))) return {mode:'clarify',answer:clarify,sources:[]};
-    const hits=topics.map(t=>({id:t.id,score:Math.max(0,...t.keys.filter(k=>has(text,k)).map(k=>k.split(' ').length*10+k.length/100))})).filter(t=>t.score>0).sort((a,b)=>b.score-a.score);
+    const ranked = clause => topics.map(t=>({id:t.id,score:Math.max(0,...t.keys.filter(k=>has(clause,k)).map(k=>k.split(' ').length*10+k.length/100))})).filter(t=>t.score>0).sort((a,b)=>b.score-a.score);
+    const hits=ranked(text);
     if (!hits.length) return {mode:'clarify',answer:clarify,sources:[]};
-    const explicit = /\b(so sanh|ket hop|khac nhau|lien quan|va|sau do)\b/.test(text);
-    // Specific whole phrases beat broad related words, avoiding the old
-    // 'nhân viên -> QR' and 'báo cáo -> generic productivity' mistakes.
-    const dominant=hits[0].id;
-    let ids;
-    if (['active','multi','slow','excel','finish','planned','faq'].includes(dominant) && !/\b(so sanh|ket hop|khac nhau|lien quan)\b/.test(text)) ids=[dominant];
-    else {
-      ids=hits.filter(h=>h.score>=10).map(h=>h.id);
-      if (ids.includes('qr')) ids=ids.filter(id=>id!=='workflow');
-      if (ids.includes('excel')) ids=ids.filter(id=>id!=='productivity');
-      if (ids.includes('active')) ids=ids.filter(id=>id!=='dashboard'&&id!=='workflow');
-      if (ids.includes('multi')) ids=ids.filter(id=>id!=='workflow');
-      if (!explicit) ids=[dominant];
-    }
+    // Match each explicit clause independently. A specific export phrase must
+    // not swallow a separately requested QR/productivity step.
+    const clauses=text.split(/\b(?:va|voi|sau do|roi|ket hop|so sanh|khac nhau giua)\b/).map(s=>s.trim()).filter(Boolean);
+    const clauseIds=clauses.map(clause=>ranked(clause)[0]?.id).filter(Boolean);
+    const ids=clauses.length>1 && clauseIds.length>1 ? [...new Set(clauseIds)] : [hits[0].id];
     if(ids.length>3) return {mode:'clarify',answer:'Bạn muốn làm bước nào trước? Chọn tối đa ba chủ đề để mình giải thích rõ hơn.',sources:[]};
     const intent=ids.length>1 && !ids.includes('login') ? (/so sanh|khac nhau/.test(text)?'compare':/tai sao|nguyen nhan/.test(text)?'diagnose':'guide') : null;
     return result(ids,intent);

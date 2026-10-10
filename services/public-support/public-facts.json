@@ -27,14 +27,17 @@
       "the nhan vien",
       "kiosk",
       "scan",
-      "card"
+      "card",
+      "qr",
+      "quet ma",
+      "ma qr"
     ],
-    "text": "Tại kiosk, quét thẻ nhân viên trước, rồi quét QR Operation. Kiểm tra đúng công đoạn trên màn hình và xác nhận bắt đầu hoặc kết thúc theo hướng dẫn. Mỗi phiên ghi nhận nhân viên, công đoạn và thời gian; khi kết thúc, nhập sản lượng theo cấu hình.",
+    "text": "Tại kiosk web, quét thẻ nhân viên trước, rồi quét QR Operation chưa mở để bắt đầu phiên; hệ thống bắt đầu khi quét thành công, không có bước xác nhận bắt đầu riêng. Nếu nhân viên chỉ có một phiên đang mở, quét thẻ sẽ vào luồng kết thúc phiên đó. Kiểm tra đúng công đoạn, nhập sản lượng theo loại công đoạn và xác nhận trước khi kết thúc; phiên cài đặt bỏ qua nhập sản lượng.",
     "href": "#tinh-nang",
     "id": "qr",
     "reviewed_in": [
-      "app/mesflow/web/templates/welcome.html",
-      "PROJECT_CONTEXT.md"
+      "app/mesflow/web/static/kiosk.js",
+      "tests/e2e/kiosk-multi-session.spec.js"
     ]
   },
   {
@@ -157,7 +160,7 @@
   {
     "id": "multi",
     "label": "Một người, nhiều công đoạn",
-    "text": "Kiosk hỗ trợ một nhân viên có nhiều phiên đang mở trên các Operation khác nhau. Quét thẻ để nhận diện nhân viên rồi quét QR công đoạn muốn thao tác; kiểm tra đúng công đoạn và chọn bắt đầu hoặc kết thúc. Quét công đoạn thứ hai không tự kết thúc phiên của công đoạn thứ nhất. Không suy ra năng suất bằng cách cộng thời gian chồng lấn; cần đối chiếu báo cáo và cấu hình xưởng.",
+    "text": "Kiosk hỗ trợ một nhân viên có nhiều phiên đang mở trên các Operation khác nhau. Quét lại thẻ nhân viên, rồi quét QR Operation chưa mở để bắt đầu thêm công đoạn; thao tác này không tự kết thúc phiên của công đoạn thứ nhất. Với nhiều phiên đang mở, xem danh sách rồi quét QR của Operation đang mở cần kết thúc. Với một phiên đang mở, quét thẻ vào thẳng luồng kết thúc. Nhập sản lượng theo loại công đoạn rồi xác nhận; phiên cài đặt bỏ qua nhập sản lượng.",
     "keys": [
       "hai cong doan",
       "nhieu cong doan",
@@ -192,7 +195,7 @@
   {
     "id": "finish",
     "label": "Kết thúc và sản lượng",
-    "text": "Khi kết thúc trên kiosk web, nhập số sản phẩm đạt và lỗi. Nếu có lỗi, màn hình cho phép khai báo số lỗi sửa được; nếu không có lỗi thì bỏ qua bước hỏi sửa được. Kiểm tra màn hình xác nhận trước khi gửi. Số lượng để trống không được coi là không có; nhập 0 nếu không có sản lượng tương ứng.",
+    "text": "Khi kết thúc phiên sản xuất trên kiosk web, nhập số sản phẩm đạt và lỗi. Nếu có lỗi, màn hình cho phép khai báo số lỗi sửa được; nếu không có lỗi thì bỏ qua bước hỏi sửa được. Kiểm tra màn hình xác nhận trước khi gửi. Số lượng để trống không được coi là không có; nhập 0 nếu không có sản lượng tương ứng.",
     "keys": [
       "ket thuc",
       "san pham loi",
