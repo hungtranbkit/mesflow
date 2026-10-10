@@ -1,7 +1,7 @@
 const {test,expect}=require('@playwright/test');
 const fs=require('fs');const crypto=require('crypto');
 const html=fs.readFileSync('services/report-assistant/reports.html','utf8');
-for(const width of [1366,390]){
+for(const width of [1366,390,320]){
  test(`report clarification preview and verified download ${width}`,async({page})=>{
   await page.setViewportSize({width,height:844});
   const calls=[];
