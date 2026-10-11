@@ -9,6 +9,36 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Private operational ML adapter — 2026-10-11
+
+- Branch `feat/ml-ops-anomaly-20261011`, isolated worktree from main `3bbc630`.
+  `app/mesflow/ml_ops` is a separate opt-in backend/worker; it is not imported
+  into kiosk app startup, routes, compose or existing services. Defaults off.
+- Real private ML Engine PR #68 (`efbe0e9`, HP 127.0.0.1:18788) IsolationForest
+  plus physical-unit median/MAD evidence on confirmed CLOSED PRODUCTION
+  sessions. No IoT claims or employee performance scoring. Same-OP sessions
+  may span employees. Gateway receives numeric matrices, no MES identifiers.
+- Operator-approved OP-scoped security-barrier view + dedicated SELECT-only
+  credential required. Worker rejects broad/elevated DB roles. No live MES
+  provisioning/business writes. Explicit training only, durable cooldown,
+  inference-only batches, version/no-data/TTL/rate/scope gates, private files.
+- Snapshot reader is M2M-only at 127.0.0.1:18789 with a separate read key;
+  no frontend key or UI route. Future UI integration must enforce current
+  MES session/RBAC before proxying scoped data. Do not publish this endpoint.
+- Real-engine synthetic and actual HTTP disable/recovery/stop smoke PASS.
+  Synthetic holdout: 192 train, 48 held out; 4/36 normal false positives
+  (11.11%), 12/12 injected flags. No claim about real production accuracy.
+- Real enablement/distribution/FPR assessment BLOCKED pending approved scoped
+  reader/view/OP scope and human-reviewed labels. Existing kiosk/admin/
+  replication credentials were not repurposed. No production deployment;
+  temporary adapter stopped, ML/kiosk service/container identities unchanged.
+- [PR #48](https://github.com/hungtranbkit/mesflow/pull/48); full
+  [CI 38129872663](https://github.com/hungtranbkit/mesflow/actions/runs/38129872663) PASS on `a235506`: 2,046 Python/PostgreSQL + 607 browser, 31 skipped.
+  Final handoff commits are documentation only.
+- [Runbook](services/ml-ops-anomaly/README.md),
+  [verification/limits](docs/evidence/ml-ops-anomaly-hp-20261011.md).
+  Rollback disables/stops only adapter; keep gateway and kiosk untouched.
+
 ## Issue #40 — instant FAQ live on TEST (2026-10-10 12:28 ICT)
 
 This supersedes the old topic-selection support design recorded below.

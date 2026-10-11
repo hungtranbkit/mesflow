@@ -1,0 +1,8 @@
+[Unit]
+Description=Opt-in inference only; never schedules training
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=5min
+Unit=mesflow-ml-ops-worker.service
+[Install]
+WantedBy=timers.target
