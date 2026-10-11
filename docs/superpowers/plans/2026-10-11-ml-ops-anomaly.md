@@ -20,7 +20,7 @@ not a browser authentication replacement or multi-tenant service.
       no request-time train, rate limits, cooldown, failure/TTL handling.
 - [x] Verify PostgreSQL scoped reads/write rejection on disposable DB; real
       gateway smoke with synthetic labels and held-out distribution/FPR.
-- [ ] Run project gates/CI, review security and failure paths, document exact
+- [x] Run project gates/CI, review security and failure paths, document exact
       PASS/blocked evidence and rollback; commit, push and open PR.
 
 Data: confirmed CLOSED, non-excluded, non-system-closed PRODUCTION sessions;
@@ -30,3 +30,6 @@ Cohorts are operation IDs; do not mix unlike OPs. Historical samples are not
 normal labels. Human labels are required for real false-positive measurement.
 No real data training without an explicitly scoped readonly DSN. Failing that,
 real assessment is blocked, not replaced with synthetic accuracy claims.
+
+Delivery: runtime `a235506`, CI 38129872663 PASS, PR #48. Real enablement/FPR
+remains blocked pending scoped read credentials and human labels, as planned.

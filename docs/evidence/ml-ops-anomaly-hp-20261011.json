@@ -36,5 +36,26 @@
   "accuracy_claim": false,
   "no_business_writes": true,
   "no_production_restart": true,
-  "rollback": "stop only adapter process; disable config; preserve or securely remove private pilot state"
+  "rollback": "stop only adapter process; disable config; preserve or securely remove private pilot state",
+  "ci": {
+    "url": "https://github.com/hungtranbkit/mesflow/actions/runs/38129872663",
+    "source_commit": "a2355066db57aad5e0cbbae2484065bf276d44e5",
+    "status": "PASS",
+    "python_postgres_passed": 2046,
+    "browser_passed": 607,
+    "skipped": 31
+  },
+  "actual_http_smoke": {
+    "status": "PASS",
+    "source": "synthetic",
+    "actual_loopback_http": true,
+    "missing_invalid_auth": 401,
+    "authenticated_read": 200,
+    "disable_rollback": 503,
+    "reenabled_same_scope": 200,
+    "no_request_time_train": true,
+    "adapter_process_stopped": true,
+    "protected_units_unchanged": true,
+    "kiosk_containers_unchanged": true
+  }
 }

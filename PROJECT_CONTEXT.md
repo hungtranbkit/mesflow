@@ -32,6 +32,9 @@ anything stale here; fix this file when they disagree.
   reader/view/OP scope and human-reviewed labels. Existing kiosk/admin/
   replication credentials were not repurposed. No production deployment;
   temporary adapter stopped, ML/kiosk service/container identities unchanged.
+- [PR #48](https://github.com/hungtranbkit/mesflow/pull/48); full
+  [CI 38129872663](https://github.com/hungtranbkit/mesflow/actions/runs/38129872663) PASS on `a235506`: 2,046 Python/PostgreSQL + 607 browser, 31 skipped.
+  Final handoff commits are documentation only.
 - [Runbook](services/ml-ops-anomaly/README.md),
   [verification/limits](docs/evidence/ml-ops-anomaly-hp-20261011.md).
   Rollback disables/stops only adapter; keep gateway and kiosk untouched.

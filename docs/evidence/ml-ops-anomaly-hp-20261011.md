@@ -20,9 +20,11 @@ infrastructure notes do not override the explicit no-production/no-kiosk scope.
   in isolated `mesflow-ml-ops-20261011` compose DB; no live MESFlow DDL/DML.
 - Project preflight PASS. Local full Python/PostgreSQL suite: 2,040 passed,
   27 skipped (before six additional final negative-contract checks). Final
-  focused suite: 36 passed. Full remote gate is running on runtime commit
+  focused suite: 36 passed. Full remote gate **PASS** on runtime commit
   `a235506`: [CI 38129872663](https://github.com/hungtranbkit/mesflow/actions/runs/38129872663).
-  Final result will be recorded before marking the PR ready.
+  **2,046 Python/PostgreSQL + 607 browser tests passed; 31 skipped**
+  (27 Python, four browser). Subsequent commits change documentation only.
+  [PR #48](https://github.com/hungtranbkit/mesflow/pull/48) is the review handoff.
 - Real authenticated ML pilot at 127.0.0.1:18788 (gateway PR #68 `efbe0e9`),
   no process restart or configuration change. Synthetic training/prediction
   took 2.207s: 192 train rows, 48 chronologically held-out rows. Strict final
