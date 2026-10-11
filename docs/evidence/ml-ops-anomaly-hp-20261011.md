@@ -18,7 +18,11 @@ infrastructure notes do not override the explicit no-production/no-kiosk scope.
   UPDATE even after disabling transaction read-only, cannot read users password
   hashes, and broad/elevated credentials rejected. Provisioning happened only
   in isolated `mesflow-ml-ops-20261011` compose DB; no live MESFlow DDL/DML.
-- Project preflight PASS. Full project/remote CI results recorded in final PR.
+- Project preflight PASS. Local full Python/PostgreSQL suite: 2,040 passed,
+  27 skipped (before six additional final negative-contract checks). Final
+  focused suite: 36 passed. Full remote gate is running on runtime commit
+  `a235506`: [CI 38129872663](https://github.com/hungtranbkit/mesflow/actions/runs/38129872663).
+  Final result will be recorded before marking the PR ready.
 - Real authenticated ML pilot at 127.0.0.1:18788 (gateway PR #68 `efbe0e9`),
   no process restart or configuration change. Synthetic training/prediction
   took 2.207s: 192 train rows, 48 chronologically held-out rows. Strict final
@@ -61,8 +65,9 @@ in the runbook; enabling it is not an implied production deployment.
 limits, key files, explicit training, inference-only timer and rollback.
 Set `enabled:false`, stop only dedicated adapter units; leave kiosk and gateway
 services alone. ML artifacts from synthetic smoke remain in the private pilot
-store under its existing quota; do not delete that running store. Read-service
-credentials/state stay outside git in a private evidence directory.
+store under its existing quota; do not delete that running store. Temporary read-service
+key was removed and its config disabled after smoke. Private state/evidence
+stays outside git; shared ML pilot credentials were left untouched.
 Raw local proof: `/tmp/mesflow-ml-ops-evidence/` (integration.log, smoke.log,
 http-proof.json, preflight.log, full-python.log). No secret/data export is
 attached; only synthetic statistics are committed.
