@@ -1,0 +1,40 @@
+{
+  "status": "PASS",
+  "source": "synthetic",
+  "engine": "real IsolationForest via 127.0.0.1:18788",
+  "train_predict_seconds": 2.207,
+  "training_rows": 192,
+  "heldout_rows": 48,
+  "heldout_normal": 36,
+  "heldout_injected": 12,
+  "false_positives": 4,
+  "synthetic_false_positive_rate": 0.1111111111111111,
+  "detected_injected": 12,
+  "distribution": {
+    "elapsed_seconds": {
+      "min": 526.3661880149781,
+      "median": 613.2255083771483,
+      "p95": 7200,
+      "max": 7200
+    },
+    "total_qty": {
+      "min": 18,
+      "median": 22.0,
+      "p95": 240,
+      "max": 241
+    },
+    "defect_fraction": {
+      "min": 0.0,
+      "median": 0.0,
+      "p95": 0.5769230769230769,
+      "max": 0.625
+    }
+  },
+  "flagged_fraction": 0.3333333333333333,
+  "api_in_process_p95_ms": 1.77,
+  "real_assessment": "BLOCKED: no approved scoped readonly MESFlow credential or human-reviewed labels supplied",
+  "accuracy_claim": false,
+  "no_business_writes": true,
+  "no_production_restart": true,
+  "rollback": "stop only adapter process; disable config; preserve or securely remove private pilot state"
+}

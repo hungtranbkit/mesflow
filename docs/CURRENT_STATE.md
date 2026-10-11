@@ -1,5 +1,19 @@
 # Current state (read this first)
 
+## 2026-10-11 — private operational ML adapter
+
+New opt-in backend/worker in `app/mesflow/ml_ops`, isolated branch from main
+`3bbc630`; no kiosk checkout/service or production deployment changes. Reads
+only a DBA-approved OP-scoped view, prepares read-only anomaly snapshots using
+private ML Engine PR #68 plus baseline evidence. Training is explicit batch
+only. Defaults disabled; real enablement/assessment blocked pending scoped
+readonly credentials and reviewed data labels.
+
+[Runbook](../services/ml-ops-anomaly/README.md) ·
+[HP proof and limits](evidence/ml-ops-anomaly-hp-20261011.md).
+The older infrastructure/version notes below are historical, not a current
+production-target authorization.
+
 Written 2026-08-25, end of the infrastructure/deployment/repository-
 reconciliation phase. Keep this short and factual — update it, don't let
 it go stale, and don't duplicate the full story (see the docs it points to

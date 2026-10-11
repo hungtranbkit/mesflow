@@ -1,0 +1,19 @@
+[Unit]
+Description=MESFlow private read-only anomaly snapshot API (opt-in)
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/mesflow-ml-ops/current
+Environment=PYTHONPATH=%h/.local/share/mesflow-ml-ops/current/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=%h/.local/share/mesflow-ml-ops/venv/bin/python -m mesflow.ml_ops.api --config %h/.config/mesflow-ml-ops/config.json
+MemoryMax=128M
+CPUQuota=25%
+TasksMax=16
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_UNIX
+[Install]
+WantedBy=default.target

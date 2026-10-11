@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "enabled": false,
+  "operations": [101],
+  "source": "real",
+  "state_dir": "/home/USER/.local/share/mesflow-ml-ops/state",
+  "read_key_file": "/home/USER/.config/mesflow-ml-ops/read.key",
+  "engine_key_file": "/home/USER/.config/mesflow-ml-ops/engine.key",
+  "dsn_file": "/home/USER/.config/mesflow-ml-ops/reader.dsn"
+}
