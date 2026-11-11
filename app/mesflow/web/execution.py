@@ -10,6 +10,7 @@ from mesflow.db.connection import transaction,fetch_one
 from mesflow.db.repositories.production_state import reconcile_operation_and_po,reconcile_po_tree
 from mesflow.db.repositories.offline_sync import OfflineSyncRepository
 from mesflow.db.repositories.server_generation import ServerGenerationRepository
+from mesflow.core import instance_identity
 from mesflow.web.errors import api_error_response
 from mesflow.services.session_service import SessionService,StartSessionCommand,FinishSessionCommand
 bp=Blueprint('execution',__name__,url_prefix='/api')
@@ -392,6 +393,7 @@ def legacy_station_heartbeat():
           'free_heap':body.get('free_heap'),'last_error':body.get('last_error') or '',
           'firmware_version':body.get('firmware_version') or body.get('app_version') or '',
           'firmware_build':body.get('firmware_build') or '', 'hardware_model':body.get('hardware_model') or '',
+          'hardware_profile':body.get('hardware_profile') or '', 'firmware_artifact_id':body.get('firmware_artifact_id') or '',
           'ota_capable':bool(body.get('ota_capable',False)),
           'boot_id':body.get('boot_id') or '',
           'uptime_seconds':body.get('uptime_seconds') or 0,
@@ -404,7 +406,11 @@ def legacy_station_heartbeat():
         # successful sync, and it must enter RECONCILING before trusting its
         # "everything up to my last ACK is durable" assumption again.
         generation=ServerGenerationRepository().current()
-        return jsonify(ok=True,enabled=True,config_version=1,status=status,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
+        # Instance-scoped OTA endpoint, delivered over this already-authenticated
+        # kiosk channel: the ESP adopts it instead of any compiled default.
+        ota=instance_identity.current()
+        return jsonify(ok=True,enabled=True,config_version=1,status=status,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'],
+                       instance_id=ota['instance_id'],ota_agent_url=ota['ota_agent_url'] if ota['state']=='VERIFIED' else '')
     except Exception as exc: return err(exc)
 
 @bp.post('/kiosk/reconcile')
