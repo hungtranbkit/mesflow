@@ -240,12 +240,14 @@ class KioskRepository:
                 previous_boot=cur.fetchone() or {};new_boot=str(data.get('boot_id') or '')[:120]
                 boot_loop=bool(new_boot and previous_boot.get('boot_id') and new_boot!=previous_boot.get('boot_id') and previous_boot.get('boot_recent') and int(data.get('uptime_seconds',0) or 0)<300)
                 cur.execute("""UPDATE kiosk_identities SET firmware_version=%s,firmware_build=%s,hardware_model=%s,
+                               hardware_profile=%s,firmware_artifact_id=%s,
                                ota_capable=%s,boot_id=%s,uptime_seconds=%s,boot_reason=%s,
                                boot_seen_at=CASE WHEN boot_id<>%s AND %s<>'' THEN CURRENT_TIMESTAMP ELSE boot_seen_at END,
                                last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                                WHERE device_uuid=%s AND status='ACTIVE' RETURNING station_id""",
                             (str(data.get('firmware_version') or data.get('app_version') or ''),str(data.get('firmware_build') or ''),
-                             str(data.get('hardware_model') or ''),bool(data.get('ota_capable',False)),new_boot,int(data.get('uptime_seconds',0) or 0),
+                             str(data.get('hardware_model') or ''),str(data.get('hardware_profile') or '')[:80],str(data.get('firmware_artifact_id') or '')[:64],
+                             bool(data.get('ota_capable',False)),new_boot,int(data.get('uptime_seconds',0) or 0),
                              str(data.get('boot_reason') or '')[:120],new_boot,new_boot,device_uuid))
                 identity=cur.fetchone()
                 if not identity: raise NotFoundError('active kiosk identity not found')

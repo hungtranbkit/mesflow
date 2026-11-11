@@ -21,3 +21,4 @@ scripts/production-target.env
 scripts/remote-test-target.env
 .bump-version.lock
 .worktrees/
+.venv/
