@@ -10,6 +10,7 @@ from mesflow.db.connection import transaction,fetch_one
 from mesflow.db.repositories.production_state import reconcile_operation_and_po,reconcile_po_tree
 from mesflow.db.repositories.offline_sync import OfflineSyncRepository
 from mesflow.db.repositories.server_generation import ServerGenerationRepository
+from mesflow.core import instance_identity
 from mesflow.web.errors import api_error_response
 from mesflow.services.session_service import SessionService,StartSessionCommand,FinishSessionCommand
 bp=Blueprint('execution',__name__,url_prefix='/api')
@@ -334,6 +335,20 @@ def _legacy_kiosk_identity(body=None):
     row, _token = KioskRepository().bind_legacy(bind_body, request.remote_addr or '')
     return row
 
+def _kiosk_enrollment_response(body):
+    state,row,token=KioskRepository().enrollment_contact(body,request.remote_addr or '')
+    if state=='ACTIVATED':
+        station=fetch_one("SELECT code FROM stations WHERE id=%s",(row.get('station_id'),)) if row.get('station_id') else None
+        generation=ServerGenerationRepository().current()
+        AuditRepository().log('kiosk:'+str(row['device_uuid'])[:60],'KIOSK_ENROLLMENT_CLAIMED','kiosk_identity',str(row['id']),
+                              {'station_id':row.get('station_id'),'approved_by':row.get('enroll_approved_by') or ''})
+        return jsonify(ok=True,enrolled=True,kiosk_token=token,device_uuid=row['device_uuid'],device_id=str(body.get('device_id') or row['device_uuid']),
+                       device_name=row.get('device_name'),station_id=row.get('station_id'),station_code=(station or {}).get('code') or '',
+                       enabled=True,config_version=1,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
+    code=KioskRepository.enrollment_code(row.get('enroll_secret_hash'))
+    return jsonify(ok=False,error='KIOSK_ENROLLMENT_PENDING',enrollment_code=code,
+                   message=f"Kiosk chờ duyệt. Mã xác nhận {code}: quản trị viên duyệt đúng mã này tại /kiosk-management."),403
+
 @bp.post('/kiosk/bind')
 @bp.post('/kiosk/connect')
 def legacy_kiosk_bind():
@@ -346,6 +361,16 @@ def legacy_kiosk_bind():
         if not device:
             raise ValueError('device_id required')
         existing=fetch_one("SELECT status,token_hash FROM kiosk_identities WHERE device_uuid=%s LIMIT 1",(device,))
+        # Hardware enrollment (0056): an unknown or PENDING device that proves
+        # possession of its own device_secret is recorded as PENDING (visible
+        # with its 6-char code on /kiosk-management) and gets its token only
+        # after an admin approves that one identity, within the approval
+        # window. Takes precedence over legacy autobind only for PENDING rows;
+        # an unknown device with autobind ON keeps the legacy behavior.
+        status_now=str((existing or {}).get('status') or '').upper()
+        has_secret=bool(str(body.get('device_secret') or '').strip())
+        if has_secret and body.get('device_uuid') and (status_now=='PENDING' or (not existing and not settings.allow_legacy_kiosk_autobind)):
+            return _kiosk_enrollment_response(body)
         if existing and str(existing.get('status') or '').upper()!='ACTIVE':
             raise PermissionDeniedError(
                 f"Kiosk '{device}' đang ở trạng thái {existing.get('status')} -- chỉ quản trị viên mới có thể kích hoạt lại."
@@ -392,6 +417,7 @@ def legacy_station_heartbeat():
           'free_heap':body.get('free_heap'),'last_error':body.get('last_error') or '',
           'firmware_version':body.get('firmware_version') or body.get('app_version') or '',
           'firmware_build':body.get('firmware_build') or '', 'hardware_model':body.get('hardware_model') or '',
+          'hardware_profile':body.get('hardware_profile') or '', 'firmware_artifact_id':body.get('firmware_artifact_id') or '',
           'ota_capable':bool(body.get('ota_capable',False)),
           'boot_id':body.get('boot_id') or '',
           'uptime_seconds':body.get('uptime_seconds') or 0,
@@ -404,7 +430,11 @@ def legacy_station_heartbeat():
         # successful sync, and it must enter RECONCILING before trusting its
         # "everything up to my last ACK is durable" assumption again.
         generation=ServerGenerationRepository().current()
-        return jsonify(ok=True,enabled=True,config_version=1,status=status,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
+        # Instance-scoped OTA endpoint, delivered over this already-authenticated
+        # kiosk channel: the ESP adopts it instead of any compiled default.
+        ota=instance_identity.current()
+        return jsonify(ok=True,enabled=True,config_version=1,status=status,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'],
+                       instance_id=ota['instance_id'],ota_agent_url=ota['ota_agent_url'] if ota['state']=='VERIFIED' else '')
     except Exception as exc: return err(exc)
 
 @bp.post('/kiosk/reconcile')
@@ -479,6 +509,28 @@ def kiosk_management_status(identity_id):
         body=request.get_json(silent=True) or {}; row=KioskRepository().set_status(identity_id,body.get('status'),body.get('station_id'))
         AuditRepository().log(str(session.get('username','')),'KIOSK_STATUS_CHANGE','kiosk_identity',str(identity_id),body)
         return jsonify(ok=True,item=row)
+    except Exception as exc:return err(exc)
+
+@bp.post('/kiosk-management/<int:identity_id>/approve-enrollment')
+@roles_required('admin','manager')
+def kiosk_management_approve_enrollment(identity_id):
+    """Approve ONE pending hardware kiosk for a short window (default 15 min).
+    No token is returned here; the device claims it with its own secret.
+    Refused unless this instance identity is VERIFIED (a cloned DB must not
+    hand out credentials for another install's devices)."""
+    try:
+        from mesflow.core import instance_identity
+        from mesflow.domain.errors import PermissionDeniedError
+        body=request.get_json(silent=True) or {}
+        inst=instance_identity.current()
+        if inst.get('state')!='VERIFIED':
+            raise PermissionDeniedError(f"Instance MESFlow chưa VERIFIED ({inst.get('state')}); không duyệt đăng ký kiosk.")
+        actor=str(session.get('username',''))
+        row=KioskRepository().approve_enrollment(identity_id,int(body.get('station_id') or 0),actor,int(body.get('ttl_minutes') or 15))
+        AuditRepository().log(actor,'KIOSK_ENROLLMENT_APPROVE','kiosk_identity',str(identity_id),
+                              {'station_id':row.get('enroll_station_id'),'until':str(row.get('enroll_approved_until')),'instance_id':inst.get('instance_id')})
+        return jsonify(ok=True,identity_id=row['id'],device_uuid=row['device_uuid'],station_id=row.get('enroll_station_id'),
+                       approved_until=row.get('enroll_approved_until'),enrollment_code=KioskRepository.enrollment_code(row.get('enroll_secret_hash')))
     except Exception as exc:return err(exc)
 
 @bp.get('/kiosk-management/generation')

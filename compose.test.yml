@@ -76,6 +76,41 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  # Same API with legacy autobind OFF -- the production/staging default.
+  # Only the hardware-enrollment tests (test_kiosk_enrollment_strict_pg.py)
+  # talk to it; it shares the DB and starts after mesflow-test-api has
+  # applied migrations.
+  mesflow-test-api-strict:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      MESFLOW_ENV: test
+      DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
+      WORKSHOP_DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
+      MESFLOW_SECRET_KEY: mesflow-test-secret-key
+      WORKSHOP_COOKIE_SECURE: "0"
+      MESFLOW_ADMIN_USERNAME: admin
+      MESFLOW_ADMIN_PASSWORD: Admin@123456
+      MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND: "0"
+      MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
+      MESFLOW_DEPLOYMENT_ID: docker-e2e-strict
+      MESFLOW_INTERNAL_API_TOKEN: ${MESFLOW_INTERNAL_API_TOKEN:-local-internal-readiness-token}
+    depends_on:
+      mesflow-test-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/system/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   tests:
     build:
       context: .
@@ -92,6 +127,7 @@ services:
       DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
       WORKSHOP_DATABASE_URL: postgresql://mesflow_test:mesflow_test_password@postgres-test:5432/mesflow_test
       MESFLOW_BASE_URL: http://mesflow-test-api:8080
+      MESFLOW_STRICT_BASE_URL: http://mesflow-test-api-strict:8080
       MESFLOW_TEST_USERNAME: admin
       MESFLOW_TEST_PASSWORD: Admin@123456
       MESFLOW_TIMEZONE: Asia/Ho_Chi_Minh
@@ -99,6 +135,8 @@ services:
       PYTEST_ADDOPTS: --strict-markers
     depends_on:
       mesflow-test-api:
+        condition: service_healthy
+      mesflow-test-api-strict:
         condition: service_healthy
     volumes:
       - ./test-results:/workspace/test-results

@@ -240,12 +240,14 @@ class KioskRepository:
                 previous_boot=cur.fetchone() or {};new_boot=str(data.get('boot_id') or '')[:120]
                 boot_loop=bool(new_boot and previous_boot.get('boot_id') and new_boot!=previous_boot.get('boot_id') and previous_boot.get('boot_recent') and int(data.get('uptime_seconds',0) or 0)<300)
                 cur.execute("""UPDATE kiosk_identities SET firmware_version=%s,firmware_build=%s,hardware_model=%s,
+                               hardware_profile=%s,firmware_artifact_id=%s,
                                ota_capable=%s,boot_id=%s,uptime_seconds=%s,boot_reason=%s,
                                boot_seen_at=CASE WHEN boot_id<>%s AND %s<>'' THEN CURRENT_TIMESTAMP ELSE boot_seen_at END,
                                last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                                WHERE device_uuid=%s AND status='ACTIVE' RETURNING station_id""",
                             (str(data.get('firmware_version') or data.get('app_version') or ''),str(data.get('firmware_build') or ''),
-                             str(data.get('hardware_model') or ''),bool(data.get('ota_capable',False)),new_boot,int(data.get('uptime_seconds',0) or 0),
+                             str(data.get('hardware_model') or ''),str(data.get('hardware_profile') or '')[:80],str(data.get('firmware_artifact_id') or '')[:64],
+                             bool(data.get('ota_capable',False)),new_boot,int(data.get('uptime_seconds',0) or 0),
                              str(data.get('boot_reason') or '')[:120],new_boot,new_boot,device_uuid))
                 identity=cur.fetchone()
                 if not identity: raise NotFoundError('active kiosk identity not found')
@@ -307,6 +309,8 @@ class KioskRepository:
           COUNT(*) FILTER (WHERE ki.status='ACTIVE' AND ki.last_generation_id<>'' AND ki.last_generation_id<>(SELECT generation_id FROM server_generation WHERE id=1)) reconciling_count
         FROM kiosk_identities ki LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid""") or {}
         kiosks=fetch_all("""SELECT ki.id,ki.device_uuid,ki.device_name,ki.station_id,ki.status,ki.firmware_version,ki.last_ip,ki.last_seen_at,ki.created_at,
+          ki.hardware_profile,CASE WHEN ki.status='PENDING' THEN upper(left(ki.enroll_secret_hash,6)) ELSE '' END enrollment_code,ki.enroll_station_code,ki.enroll_approved_until,
+          COALESCE(ki.status='PENDING' AND ki.enroll_approved_until>CURRENT_TIMESTAMP,FALSE) enrollment_window_open,
           ki.last_sequence_received,ki.duplicate_replay_count,ki.last_generation_id,
           s.code station_code,s.name station_name,s.workshop,s.production_line,
           ks.ui_state,ks.health_state,ks.queue_size,ks.wifi_rssi,ks.free_heap,ks.last_error,ks.last_heartbeat_at,
@@ -321,6 +325,91 @@ class KioskRepository:
         FROM kiosk_identities ki LEFT JOIN stations s ON s.id=ki.station_id LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid
         ORDER BY online DESC,open_error_count DESC,ki.status,ki.device_name,ki.device_uuid""",(generation.get('generation_id',''),))
         return {'summary':dict(summary),'kiosks':[dict(x) for x in kiosks],'generation':dict(generation)}
+
+    # ---- Admin-approved hardware enrollment (migration 0056) -------------
+    # One device at a time: the device proves possession of its own 256-bit
+    # device_secret, an admin approves THAT identity for a short window on
+    # /kiosk-management, and the device claims its token exactly once.
+    ENROLL_PENDING_CAP=200
+
+    @staticmethod
+    def enrollment_code(secret_hash:str)->str:
+        """6-char code shown on the kiosk screen and on /kiosk-management so the
+        admin approves the physical device in front of them (the firmware
+        computes the same value locally from its own secret)."""
+        return str(secret_hash or '')[:6].upper()
+
+    def enrollment_contact(self,data:dict[str,Any],last_ip:str=''):
+        """Unknown or PENDING device presenting device_secret.
+        Returns ('PENDING', row, None) or ('ACTIVATED', row, token).
+        Raises PermissionDeniedError when the secret does not match the one
+        first recorded for this device_uuid (no overwrite, no takeover)."""
+        from mesflow.domain.errors import PermissionDeniedError
+        device_uuid=str(data.get('device_uuid') or '').strip()
+        secret=str(data.get('device_secret') or '').strip()
+        if not device_uuid or len(device_uuid)>80: raise ValueError('device_uuid required (<=80 chars)')
+        if not (32<=len(secret)<=128): raise ValueError('device_secret must be 32..128 chars')
+        secret_hash=hashlib.sha256(secret.encode()).hexdigest()
+        requested=str(data.get('station_code') or '').strip()[:40]
+        meta=(str(data.get('device_name') or device_uuid)[:120],str(data.get('firmware_version') or '')[:40],
+              str(data.get('firmware_build') or '')[:80],str(data.get('hardware_model') or '')[:40],
+              str(data.get('hardware_profile') or '')[:80],bool(data.get('ota_capable',False)),str(last_ip or '')[:64])
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM kiosk_identities WHERE device_uuid=%s FOR UPDATE",(device_uuid,))
+                row=cur.fetchone()
+                if row is None:
+                    cur.execute("SELECT COUNT(*) n FROM kiosk_identities WHERE status='PENDING'")
+                    if int((cur.fetchone() or {}).get('n') or 0)>=self.ENROLL_PENDING_CAP:
+                        raise PermissionDeniedError('Quá nhiều kiosk đang chờ duyệt; quản trị viên cần xử lý danh sách chờ trước.')
+                    cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,status,firmware_version,firmware_build,
+                        hardware_model,hardware_profile,ota_capable,last_ip,last_seen_at,enroll_secret_hash,enroll_station_code)
+                        VALUES(%s,%s,'PENDING',%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP,%s,%s) RETURNING *""",
+                        (device_uuid,*meta,secret_hash,requested))
+                    return 'PENDING',cur.fetchone(),None
+                if str(row.get('status') or '').upper()!='PENDING':
+                    raise PermissionDeniedError(f"Kiosk '{device_uuid}' không ở trạng thái chờ đăng ký.")
+                stored=str(row.get('enroll_secret_hash') or '')
+                if stored and not secrets.compare_digest(stored,secret_hash):
+                    raise PermissionDeniedError(
+                        f"Kiosk '{device_uuid}' đã yêu cầu đăng ký bằng khóa thiết bị khác; quản trị viên phải xóa yêu cầu cũ.")
+                cur.execute("SELECT enroll_approved_until IS NOT NULL AND enroll_approved_until>CURRENT_TIMESTAMP AS live FROM kiosk_identities WHERE id=%s",(row['id'],))
+                live=bool((cur.fetchone() or {}).get('live'))
+                if stored and live and row.get('enroll_station_id'):
+                    token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
+                    cur.execute("""UPDATE kiosk_identities SET status='ACTIVE',station_id=enroll_station_id,token_hash=%s,
+                        device_name=%s,firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
+                        enroll_approved_until=NULL,enroll_station_id=NULL,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+                        WHERE id=%s RETURNING *""",(token_hash,*meta,row['id']))
+                    return 'ACTIVATED',cur.fetchone(),token
+                cur.execute("""UPDATE kiosk_identities SET enroll_secret_hash=CASE WHEN enroll_secret_hash='' THEN %s ELSE enroll_secret_hash END,
+                    enroll_station_code=CASE WHEN %s<>'' THEN %s ELSE enroll_station_code END,
+                    firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
+                    last_seen_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *""",
+                    (secret_hash,requested,requested,*meta[1:],row['id']))
+                return 'PENDING',cur.fetchone(),None
+
+    def approve_enrollment(self,identity_id:int,station_id:int,actor:str,ttl_minutes:int=15):
+        """Admin approval for ONE pending identity, valid ttl_minutes (1..60).
+        The token is never shown to the admin: only the device that holds the
+        recorded secret can claim it, once, before the window closes."""
+        from mesflow.domain.errors import PermissionDeniedError
+        ttl=max(1,min(60,int(ttl_minutes or 15)))
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM stations WHERE id=%s",(int(station_id),))
+                if not cur.fetchone(): raise NotFoundError('station not found')
+                cur.execute("SELECT * FROM kiosk_identities WHERE id=%s FOR UPDATE",(int(identity_id),))
+                row=cur.fetchone()
+                if not row: raise NotFoundError('kiosk identity not found')
+                if str(row.get('status') or '').upper()!='PENDING':
+                    raise ConflictError('Chỉ duyệt được kiosk đang chờ đăng ký (PENDING).')
+                if not row.get('enroll_secret_hash'):
+                    raise ConflictError('Kiosk chưa gửi khóa thiết bị; cần firmware hỗ trợ đăng ký (ESP 5.6.6+).')
+                cur.execute("""UPDATE kiosk_identities SET enroll_station_id=%s,enroll_approved_by=%s,
+                    enroll_approved_until=CURRENT_TIMESTAMP+make_interval(mins=>%s),updated_at=CURRENT_TIMESTAMP
+                    WHERE id=%s RETURNING *""",(int(station_id),str(actor or '')[:80],ttl,int(identity_id)))
+                return cur.fetchone()
 
     def bind_legacy(self,data:dict[str,Any],last_ip:str=''):
         device_uuid=str(data.get('device_uuid') or data.get('device_id') or '').strip()
