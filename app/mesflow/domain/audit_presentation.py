@@ -71,6 +71,8 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
     'QC_START': {'label': 'Bắt đầu kiểm QC', 'category': 'operation'},
     'QC_COMPLETE': {'label': 'Hoàn tất kiểm QC', 'category': 'operation'},
     'KIOSK_APPROVE': {'label': 'Duyệt thiết bị kiosk', 'category': 'employee'},
+    'KIOSK_ENROLLMENT_APPROVE': {'label': 'Duyệt đăng ký kiosk phần cứng (có thời hạn)', 'category': 'employee'},
+    'KIOSK_ENROLLMENT_CLAIMED': {'label': 'Kiosk phần cứng nhận quyền sau khi được duyệt', 'category': 'employee'},
     'KIOSK_STATUS_CHANGE': {'label': 'Đổi trạng thái kiosk', 'category': 'admin'},
     'KIOSK_EVENT_RESOLVE': {'label': 'Xử lý sự kiện kiosk', 'category': 'admin'},
     'KPI_SNAPSHOT': {'label': 'Chốt KPI', 'category': 'admin'},
