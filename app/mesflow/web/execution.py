@@ -336,6 +336,11 @@ def _legacy_kiosk_identity(body=None):
     return row
 
 def _kiosk_enrollment_response(body):
+    # A copied database may still contain a live approval. Recheck at claim
+    # time as well as approval time, before issuing any device credential.
+    from mesflow.domain.errors import PermissionDeniedError
+    if instance_identity.current().get('state') != 'VERIFIED':
+        raise PermissionDeniedError('Instance MESFlow chưa VERIFIED; không cấp token kiosk.')
     state,row,token=KioskRepository().enrollment_contact(body,request.remote_addr or '')
     if state=='ACTIVATED':
         station=fetch_one("SELECT code FROM stations WHERE id=%s",(row.get('station_id'),)) if row.get('station_id') else None

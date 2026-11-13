@@ -174,3 +174,22 @@ def test_ttl_is_bounded(db, api, station):
     with db.cursor() as cur:
         cur.execute("SELECT enroll_approved_until<=CURRENT_TIMESTAMP+INTERVAL '61 minutes' ok FROM kiosk_identities WHERE device_uuid=%s", (device,))
         assert cur.fetchone()['ok'] is True
+
+
+def test_copied_approval_cannot_be_claimed_on_unverified_instance(db, api, station):
+    device, secret = _device()
+    _connect(device, secret)
+    assert _approve(api, _row(db, device)['id'], station['id']).status_code == 200
+    with db.cursor() as cur:
+        cur.execute("SELECT value FROM system_meta WHERE key='mesflow_instance_binding'")
+        binding = cur.fetchone()['value']
+        cur.execute("UPDATE system_meta SET value='foreign-install' WHERE key='mesflow_instance_binding'")
+    try:
+        r = _connect(device, secret)
+        assert r.status_code == 403, r.text
+        row = _row(db, device)
+        assert row['status'] == 'PENDING' and not row['token_hash']
+    finally:
+        with db.cursor() as cur:
+            cur.execute("UPDATE system_meta SET value=%s WHERE key='mesflow_instance_binding'", (binding,))
+    assert _connect(device, secret).status_code == 200
