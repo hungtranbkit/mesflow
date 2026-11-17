@@ -25,7 +25,11 @@ test('thêm, sửa, tải lại và xóa nhân viên', async ({ page }) => {
   await expect(page.locator('#employeeList')).toContainText('Nhân viên kiểm thử');
   await page.getByRole('button', { name: 'Sửa' }).click();
   await page.locator('[name="name"]').fill('Nhân viên đã chỉnh sửa');
+  // Reload must follow the committed save, not merely the click dispatch.
+  const employeeSaved = page.waitForResponse(response =>
+    response.request().method() === 'PATCH' && /\/api\/employees\/\d+$/.test(new URL(response.url()).pathname));
   await page.getByRole('button', { name: 'Lưu nhân viên' }).click();
+  expect((await employeeSaved).ok()).toBeTruthy();
   await page.reload();
   await page.evaluate(() => openPage('employees'));
   await page.locator('#employeeSearch').fill(code);
