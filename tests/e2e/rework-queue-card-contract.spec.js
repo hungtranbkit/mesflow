@@ -11,9 +11,22 @@ const { test, expect } = require('@playwright/test');
 const F = require('./helpers/hp3-fixtures');
 
 async function openRework(page) {
-  await page.goto('/login');
-  await page.request.post('/api/auth/test-auto-login');
-  await page.goto('/app?page=rework-queue');
+  // In test mode /login auto-authenticates in page context and redirects to
+  // /app. Acquire the API session first so that redirect cannot interrupt the
+  // deep link navigation.
+  const autoLogin = await page.request.post('/api/auth/test-auto-login');
+  if (autoLogin.ok()) {
+    await page.goto('/app?page=rework-queue');
+  } else {
+    await page.goto('/login');
+    const password = process.env.MESFLOW_E2E_PASSWORD;
+    if (!password) throw new Error('MESFLOW_E2E_PASSWORD is required when test auto-login is disabled');
+    await page.locator('#username').fill(process.env.MESFLOW_E2E_USERNAME || 'admin');
+    await page.locator('#password').fill(password);
+    await page.locator('#loginForm button[type="submit"]').click();
+    await page.waitForURL(/\/app/);
+    await page.goto('/app?page=rework-queue');
+  }
   await expect(page.locator('.rq-card').first()).toBeVisible({ timeout: 20000 });
 }
 

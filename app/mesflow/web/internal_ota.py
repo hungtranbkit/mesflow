@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request
 from mesflow.db.connection import fetch_all, fetch_one
 from mesflow.db.repositories.execution import KioskRepository
 from mesflow.core.ota_readiness import evaluate_readiness
+from mesflow.core import instance_identity
 
 bp = Blueprint("internal_ota", __name__)
 
@@ -27,26 +28,45 @@ def _device_allowed(device_uuid):
 
 def _readiness(device_uuid):
     row = fetch_one("""SELECT ki.device_uuid kiosk_id,ki.device_name kiosk_name,ki.hardware_model,
-      ki.firmware_version,ki.firmware_build,ki.ota_capable,ki.last_seen_at,
+      ki.firmware_version,ki.firmware_build,ki.hardware_profile,ki.firmware_artifact_id,ki.ota_capable,ki.last_seen_at,
       ks.ui_state,ks.health_state,COALESCE(ks.queue_size,0) offline_queue_count,ks.last_heartbeat_at,
       CASE WHEN ks.last_heartbeat_at>=CURRENT_TIMESTAMP-INTERVAL '2 minutes' THEN TRUE ELSE FALSE END online,
       EXISTS(SELECT 1 FROM work_sessions ws WHERE ws.device_uuid=ki.device_uuid AND ws.status='OPEN') active_session
       FROM kiosk_identities ki LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid
       WHERE ki.device_uuid=%s AND ki.status='ACTIVE'""", (device_uuid,))
     if not row: return None
-    return evaluate_readiness(dict(row))
+    item = evaluate_readiness(dict(row))
+    ident = instance_identity.current()
+    # The owning instance travels with the device-authenticated answer so the
+    # Deploy Agent scopes every device call without trusting the device.
+    item["instance_id"] = ident["instance_id"]
+    item["instance_state"] = ident["state"]
+    if ident["state"] != "VERIFIED":
+        item["ota_ready"] = False
+        item["reason"] = "INSTANCE_UNVERIFIED"
+    return item
+
+
+@bp.get("/api/internal/instance")
+def instance():
+    if not _internal_allowed(): return jsonify(ok=False,error="AUTH_REQUIRED"), 401
+    return jsonify(ok=True,**instance_identity.current())
 
 
 @bp.get("/api/internal/kiosks")
 def kiosks():
+    """ACTIVE ESP kiosks of THIS instance (the OTA fleet). PCs are not kiosk
+    identities and never appear here."""
     if not _internal_allowed(): return jsonify(ok=False,error="AUTH_REQUIRED"), 401
-    rows = fetch_all("""SELECT ki.device_uuid kiosk_id,ki.device_name kiosk_name,ki.hardware_model,
-      ki.firmware_version,ki.firmware_build,ki.ota_capable,ki.last_seen_at,
-      ks.ui_state,ks.health_state,COALESCE(ks.queue_size,0) offline_queue_count,
+    ident = instance_identity.current()
+    rows = fetch_all("""SELECT ki.device_uuid kiosk_id,ki.device_name kiosk_name,ki.hardware_model,ki.hardware_profile,
+      ki.firmware_version,ki.firmware_build,ki.firmware_artifact_id,ki.ota_capable,ki.last_seen_at::text last_seen_at,
+      COALESCE(st.code,'') station_code,ks.ui_state,ks.health_state,COALESCE(ks.queue_size,0) offline_queue_count,
       CASE WHEN ks.last_heartbeat_at>=CURRENT_TIMESTAMP-INTERVAL '2 minutes' THEN TRUE ELSE FALSE END online
       FROM kiosk_identities ki LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid
+      LEFT JOIN stations st ON st.id=ki.station_id
       WHERE ki.status='ACTIVE' ORDER BY ki.device_uuid""")
-    return jsonify(ok=True,items=[dict(x) for x in rows])
+    return jsonify(ok=True,instance_id=ident["instance_id"],instance_state=ident["state"],items=[dict(x) for x in rows])
 
 
 @bp.get("/api/internal/kiosks/<device_uuid>/ota-readiness")

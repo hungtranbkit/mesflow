@@ -18,11 +18,15 @@ const employees = [{ id: 31, employee_no: 'NV-031', name: 'Nguyễn Văn A' }];
 const stations = [];
 
 async function login(page, query = '') {
-  await page.goto('/login');
+  // Acquire the test session before opening the login page. In test mode the
+  // login page performs its own auto-login and redirects to /app; doing a
+  // second auto-login after the page opens races that redirect against the
+  // deep-link navigation below.
   const autoLogin = await page.request.post('/api/auth/test-auto-login');
   if (autoLogin.ok()) {
     await page.goto(`/app${query}`);
   } else {
+    await page.goto('/login');
     const password = process.env.MESFLOW_E2E_PASSWORD;
     if (!password) throw new Error('MESFLOW_E2E_PASSWORD is required when test auto-login is disabled');
     await page.locator('#username').fill(process.env.MESFLOW_E2E_USERNAME || 'admin');

@@ -782,3 +782,52 @@ No backend/API/schema change.
     first `up`. Otherwise Docker creates `runtime/tutorials` empty and
     root-owned, and the generator fails with `mkdir: Permission denied`.
     `scripts/test/docker-test.sh` already does both.
+
+## OTA release isolated qualification (2026-11-17)
+
+- Isolated checkout: `/home/dell/workspace/ota-release-e2e-20261117`, branch
+  `feat/esp-ota-force-scoped-20261111`, verified source commit
+  `ccc22fa782177d8aaecd4ff97b68277adadbf885` (pushed to PR #50; parent chain begins at `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`).
+  No production checkout, M910 device, or production service was used.
+- Test-only corrections: `kiosk-mobile-camera.spec.js` now asserts actual
+  captured WebKit track `readyState === 'ended'`; session filter and rework
+  queue helpers establish API auto-login before `/app` navigation to avoid
+  `/login`'s competing test-mode redirect. No application/runtime files changed.
+- Isolated API/DB stack plus cached Playwright 1.62 image: final Python suites
+  unit/static/behavior/integration = 429/925/45/628 passed, with 10/14/1/2
+  skips. Full browser run on `98906ee`: 613 discovered, 609 passed, 4 skipped,
+  zero failed (`test-results/full-e2e-final.log`).
+  The rework-card file passed 12/12 over three repeats.
+  Camera lifecycle and session-filter cases passed 3/3 repeats each; supplemental
+  tutorial coverage passed 9/9. Full suite was not rerun after the last helper
+  correction; do not report it as a clean full run.
+- Agent package qualification is documented in the external isolated report.
+  Build/test artifacts used scratch version `2.24.50-docker-runtime`; this is
+  not a release candidate or deployment. Hardware A→B and rollback PASS are
+  inherited user-provided evidence only. PR #50/#1/#2 remain unmerged and OTA
+  mandatory fleet remains OFF. Repo workflow/hook review cannot rule out
+  org-level GitHub Apps or downstream/server automation; external auto-deploy
+  exclusion is NOT VERIFIED.
+- Follow-up backend determinism changes are currently local/uncommitted:
+  add a scoped all-day shift fixture for unrelated kiosk success tests and make
+  operation-time assertions respect the configured work interval. Final local
+  full backend rerun passed unit 429/10 skip, static 925/14 skip, behavior
+  45/1 skip, integration 628/2 skip (`test-results/backend-deterministic.log`).
+  The test-only changes were committed/pushed as `ccc22fa`; fresh PostgreSQL checks 44144425488 and 44144437764 are pending.
+- Next actions: review the fresh backend CI and external deployment controls;
+  keep merge/deploy and mandatory OTA gated until all required gates are green
+  and automation scope is independently verified. No production or board
+  action authorized here.
+- CI on `31d6c82` currently fails both PostgreSQL Docker workflow runs in the
+  integration stage: 13 expected-success kiosk starts hit the real out-of-shift
+  guard at 00:10 ICT; the other 615 integration tests passed and 2 skipped.
+  Local repeat of the three affected modules passed 30/30 only after inserting
+  a temporary all-day shift into the isolated test DB. That does not count as a
+  clean unmodified full backend gate. The midnight duration assertion is also
+  time-boundary sensitive. See `/home/dell/workspace/ota-release-e2e-20261117/REPORT.md`.
+
+- A full after-fix browser run on `31d6c82` reached 613 tests and reported
+  608 passed / 4 skipped / 1 failed. The remaining failure was the same
+  `/login` auto-redirect race in `tutorial-navigation-race.spec.js`. Its helper
+  now establishes the test session before `/app`; focused repeat ×5 passed 10/10.
+  A final full browser rerun is required on the follow-up commit.

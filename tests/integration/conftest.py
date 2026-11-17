@@ -31,6 +31,31 @@ def db():
         yield conn
 
 
+@pytest.fixture()
+def active_all_day_shift(db):
+    """Give start-flow tests an active shift regardless of CI wall time.
+
+    These tests cover kiosk/API/session behavior, not shift-window rejection;
+    use a dedicated temporary shift so execution time cannot change their
+    result. Shift rejection is covered separately by shift-policy tests.
+    """
+    import uuid
+    code = f'TEST-ALLDAY-{uuid.uuid4().hex[:8]}'
+    with db.cursor() as cur:
+        cur.execute("""INSERT INTO work_shifts
+            (code,name,timezone,anchor_start,anchor_end,cross_midnight,target_minutes,
+             working_weekdays,sort_order,active)
+            VALUES(%s,'Test All-Day','Asia/Ho_Chi_Minh','00:01','00:00',FALSE,1439,
+                   '{0,1,2,3,4,5,6}',999,TRUE) RETURNING id""", (code,))
+        shift_id = cur.fetchone()['id']
+        cur.execute("""INSERT INTO work_shift_intervals
+            (shift_id,interval_type,start_minute,end_minute,label,sort_order)
+            VALUES(%s,'WORK',1,1440,'All day test window',0)""", (shift_id,))
+    yield shift_id
+    with db.cursor() as cur:
+        cur.execute('DELETE FROM work_shifts WHERE id=%s', (shift_id,))
+
+
 @pytest.fixture(scope='session')
 def api():
     wait_http(f'{BASE_URL}/api/system/ready')

@@ -80,7 +80,7 @@ def _anon():
     return requests.Session()
 
 
-def test_kiosk_web_writes_accept_an_anonymous_workshop_browser(seeded_factory):
+def test_kiosk_web_writes_accept_an_anonymous_workshop_browser(seeded_factory, active_all_day_shift):
     """The Kiosk web surface is PUBLIC (business owner decision, 2026-09-12).
 
     A machine on the shop floor opens /kiosk directly: no web account, no
@@ -117,7 +117,7 @@ def test_kiosk_web_writes_accept_an_anonymous_workshop_browser(seeded_factory):
     assert anon.get(f'{BASE_URL}/api/kiosk-web/health', timeout=15).status_code == 200
 
 
-def test_anonymous_kiosk_start_is_still_idempotent(seeded_factory):
+def test_anonymous_kiosk_start_is_still_idempotent(seeded_factory, active_all_day_shift):
     """Opening the surface must not cost the duplicate-submit protection.
 
     request_id idempotency lives in the repository, not in the auth layer, so
@@ -173,7 +173,7 @@ def test_employee_roster_is_not_public(seeded_factory):
     assert 'WF|EMP|' not in roster.text, 'a badge QR value leaked in the rejection body'
 
 
-def test_kiosk_web_writes_accept_a_valid_device_token(db, seeded_factory):
+def test_kiosk_web_writes_accept_a_valid_device_token(db, seeded_factory, active_all_day_shift):
     """A shop-floor terminal has nobody signed in, so it authenticates as a
     device: the same approved-kiosk token hardware kiosks already use."""
     graph = seeded_factory

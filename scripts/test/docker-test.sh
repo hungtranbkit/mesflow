@@ -25,7 +25,7 @@ cleanup
 # loads seven runtime videos and plays") be the first sign of an
 # ENV/DATA problem.
 node scripts/validate-esp-tutorial-fixture.js
-docker compose -f compose.test.yml up --build -d postgres-test mesflow-test-api
+docker compose -f compose.test.yml up --build -d postgres-test mesflow-test-api mesflow-test-api-strict
 # --build here too: `run` alone reuses whatever image is already tagged for
 # the service with no staleness check at all (found by real evidence: a
 # 3-day-old `mesflow-test-tests` image was silently reused, producing test
