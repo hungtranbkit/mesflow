@@ -787,7 +787,7 @@ No backend/API/schema change.
 
 - Isolated checkout: `/home/dell/workspace/ota-release-e2e-20261117`, branch
   `feat/esp-ota-force-scoped-20261111`, verified source commit
-  `98906ee15c8910ce7cbf68365a398f4be1f5651f` (parent `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`; pending backend timing-fixture follow-up).
+  `ccc22fa782177d8aaecd4ff97b68277adadbf885` (pushed to PR #50; parent chain begins at `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`).
   No production checkout, M910 device, or production service was used.
 - Test-only corrections: `kiosk-mobile-camera.spec.js` now asserts actual
   captured WebKit track `readyState === 'ended'`; session filter and rework
@@ -813,7 +813,7 @@ No backend/API/schema change.
   operation-time assertions respect the configured work interval. Final local
   full backend rerun passed unit 429/10 skip, static 925/14 skip, behavior
   45/1 skip, integration 628/2 skip (`test-results/backend-deterministic.log`).
-  Commit/push these test-only changes and wait for fresh GitHub checks.
+  The test-only changes were committed/pushed as `ccc22fa`; fresh PostgreSQL checks 44144425488 and 44144437764 are pending.
 - Next actions: review the fresh backend CI and external deployment controls;
   keep merge/deploy and mandatory OTA gated until all required gates are green
   and automation scope is independently verified. No production or board
