@@ -109,19 +109,15 @@ def test_case1_running_session_actual_seconds_increases_between_two_requests(db,
         t1 = _op_item(response.json(), g['operation_id'])['day_work_seconds']
         elapsed = (datetime.now(timezone.utc) - real_now_t0).total_seconds()
 
-        # day_work_seconds chỉ đếm phần NẰM TRONG ngày đang xét. Session được
-        # tạo lùi 10 phút, nên nếu bài test chạy trong 10 phút đầu sau nửa đêm
-        # thì phần trước nửa đêm không được tính -- và ngưỡng cứng 500 sẽ đỏ vì
-        # lý do hoàn toàn không liên quan đến thứ đang kiểm. Đã đỏ thật ở
-        # 458 >= 500, tức là bài chạy lúc 00:07.
-        #
-        # Ngưỡng vì vậy bám theo đồng hồ: nhiều nhất là 500, nhưng không bao
-        # giờ đòi nhiều hơn số giây đã trôi qua kể từ đầu ngày.
-        since_midnight = (datetime.now(HCM) - datetime.now(HCM).replace(
-            hour=0, minute=0, second=0, microsecond=0)).total_seconds()
-        floor = min(500, max(0, since_midnight - 60))
-        assert t0 >= floor, (
-            f't0={t0} < {floor:.0f} (đã trôi {since_midnight:.0f}s kể từ đầu ngày)')
+        # Compare with the configured WORK interval itself. The test shift
+        # starts at 00:01, so a query shortly after midnight correctly excludes
+        # that first minute; deriving a lower bound from seconds since midnight
+        # made the test fail by a few seconds depending on runner start time.
+        local_now = real_now_t0.astimezone(HCM)
+        work_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=1)
+        expected_t0 = max(0.0, (local_now - max(started, work_start)).total_seconds())
+        assert t0 == pytest.approx(expected_t0, abs=5), (
+            f't0={t0} expected about {expected_t0:.1f} from the test shift WORK window')
         assert t1 > t0, f'actual_seconds did not increase: t0={t0} t1={t1} (waited {elapsed:.1f}s)'
         assert t1 - t0 <= elapsed + 2  # sanity: growth roughly tracks real elapsed time, not some larger jump
     finally:
@@ -163,7 +159,10 @@ def test_case3_two_running_sessions_same_operation_sum_worker_time(db, api, seed
         assert item['open_session_count'] == 2
         # Both sessions started at the same instant -- worker-time sum must
         # be roughly DOUBLE a single session's elapsed time, not equal to it.
-        solo_seconds = (datetime.now(timezone.utc) - start.astimezone(timezone.utc)).total_seconds()
+        local_now = datetime.now(HCM)
+        work_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=1)
+        first_working_second = max(start, work_start)
+        solo_seconds = (local_now - first_working_second).total_seconds()
         assert item['day_work_seconds'] >= solo_seconds * 1.8
     finally:
         db.execute("DELETE FROM work_sessions WHERE id=ANY(%s)", ([s1, s2],))

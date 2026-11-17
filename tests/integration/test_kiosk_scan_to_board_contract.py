@@ -47,7 +47,7 @@ def _today() -> str:
 
 
 @pytest.fixture()
-def floor(db):
+def floor(db, active_all_day_shift):
     """Một PO IN_PROGRESS có đủ hai loại Operation kiosk mở được, + một PO thứ hai."""
     tag = uuid.uuid4().hex[:8].upper()
     made: dict = {'tag': tag, 'employees': []}

@@ -787,17 +787,17 @@ No backend/API/schema change.
 
 - Isolated checkout: `/home/dell/workspace/ota-release-e2e-20261117`, branch
   `feat/esp-ota-force-scoped-20261111`, verified source commit
-  `31d6c82ba7df48cddaf5bff972a908f0119c002b` (parent `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`).
+  `98906ee15c8910ce7cbf68365a398f4be1f5651f` (parent `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`; pending backend timing-fixture follow-up).
   No production checkout, M910 device, or production service was used.
 - Test-only corrections: `kiosk-mobile-camera.spec.js` now asserts actual
   captured WebKit track `readyState === 'ended'`; session filter and rework
   queue helpers establish API auto-login before `/app` navigation to avoid
   `/login`'s competing test-mode redirect. No application/runtime files changed.
-- Isolated API/DB stack plus cached Playwright 1.62 image: Python suites
+- Isolated API/DB stack plus cached Playwright 1.62 image: final Python suites
   unit/static/behavior/integration = 429/925/45/628 passed, with 10/14/1/2
-  skips. Full browser run: 613 discovered, 608 passed, 4 skipped, 1 interrupted
-  navigation in the rework-card test. That test was changed to the same
-  pre-auth pattern and its complete file passed 12/12 over three repeats.
+  skips. Full browser run on `98906ee`: 613 discovered, 609 passed, 4 skipped,
+  zero failed (`test-results/full-e2e-final.log`).
+  The rework-card file passed 12/12 over three repeats.
   Camera lifecycle and session-filter cases passed 3/3 repeats each; supplemental
   tutorial coverage passed 9/9. Full suite was not rerun after the last helper
   correction; do not report it as a clean full run.
@@ -808,9 +808,16 @@ No backend/API/schema change.
   mandatory fleet remains OFF. Repo workflow/hook review cannot rule out
   org-level GitHub Apps or downstream/server automation; external auto-deploy
   exclusion is NOT VERIFIED.
-- Next actions: review the focused harness commit/CI; keep merge/deploy and
-  mandatory OTA gated until the full CI suite and external deployment controls
-  are independently verified. No production or board action authorized here.
+- Follow-up backend determinism changes are currently local/uncommitted:
+  add a scoped all-day shift fixture for unrelated kiosk success tests and make
+  operation-time assertions respect the configured work interval. Final local
+  full backend rerun passed unit 429/10 skip, static 925/14 skip, behavior
+  45/1 skip, integration 628/2 skip (`test-results/backend-deterministic.log`).
+  Commit/push these test-only changes and wait for fresh GitHub checks.
+- Next actions: review the fresh backend CI and external deployment controls;
+  keep merge/deploy and mandatory OTA gated until all required gates are green
+  and automation scope is independently verified. No production or board
+  action authorized here.
 - CI on `31d6c82` currently fails both PostgreSQL Docker workflow runs in the
   integration stage: 13 expected-success kiosk starts hit the real out-of-shift
   guard at 00:10 ICT; the other 615 integration tests passed and 2 skipped.
