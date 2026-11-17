@@ -2,8 +2,10 @@ const { test, expect } = require('@playwright/test');
 
 for (const status of [200, 404]) {
   test(`late KIMEX manifest ${status} cannot corrupt the ESP tutorial tab`, async ({ page }) => {
-    await page.goto('/login');
-    await page.request.post('/api/auth/test-auto-login');
+    // Establish the test session before navigating. Opening /login can itself
+    // auto-authenticate and redirect, racing the deep link below.
+    const autoLogin = await page.request.post('/api/auth/test-auto-login');
+    if (!autoLogin.ok()) throw new Error(`test auto-login failed: ${autoLogin.status()}`);
     await page.goto('/app');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));

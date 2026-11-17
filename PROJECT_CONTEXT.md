@@ -786,7 +786,8 @@ No backend/API/schema change.
 ## OTA release isolated qualification (2026-11-17)
 
 - Isolated checkout: `/home/dell/workspace/ota-release-e2e-20261117`, branch
-  `feat/esp-ota-force-scoped-20261111`, source HEAD `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`.
+  `feat/esp-ota-force-scoped-20261111`, verified source commit
+  `31d6c82ba7df48cddaf5bff972a908f0119c002b` (parent `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`).
   No production checkout, M910 device, or production service was used.
 - Test-only corrections: `kiosk-mobile-camera.spec.js` now asserts actual
   captured WebKit track `readyState === 'ended'`; session filter and rework
@@ -810,3 +811,16 @@ No backend/API/schema change.
 - Next actions: review the focused harness commit/CI; keep merge/deploy and
   mandatory OTA gated until the full CI suite and external deployment controls
   are independently verified. No production or board action authorized here.
+- CI on `31d6c82` currently fails both PostgreSQL Docker workflow runs in the
+  integration stage: 13 expected-success kiosk starts hit the real out-of-shift
+  guard at 00:10 ICT; the other 615 integration tests passed and 2 skipped.
+  Local repeat of the three affected modules passed 30/30 only after inserting
+  a temporary all-day shift into the isolated test DB. That does not count as a
+  clean unmodified full backend gate. The midnight duration assertion is also
+  time-boundary sensitive. See `/home/dell/workspace/ota-release-e2e-20261117/REPORT.md`.
+
+- A full after-fix browser run on `31d6c82` reached 613 tests and reported
+  608 passed / 4 skipped / 1 failed. The remaining failure was the same
+  `/login` auto-redirect race in `tutorial-navigation-race.spec.js`. Its helper
+  now establishes the test session before `/app`; focused repeat ×5 passed 10/10.
+  A final full browser rerun is required on the follow-up commit.
