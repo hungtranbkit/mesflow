@@ -782,3 +782,31 @@ No backend/API/schema change.
     first `up`. Otherwise Docker creates `runtime/tutorials` empty and
     root-owned, and the generator fails with `mkdir: Permission denied`.
     `scripts/test/docker-test.sh` already does both.
+
+## OTA release isolated qualification (2026-11-17)
+
+- Isolated checkout: `/home/dell/workspace/ota-release-e2e-20261117`, branch
+  `feat/esp-ota-force-scoped-20261111`, source HEAD `7af3bc02c969a4a709d6912ff4a4449fa0d58d84`.
+  No production checkout, M910 device, or production service was used.
+- Test-only corrections: `kiosk-mobile-camera.spec.js` now asserts actual
+  captured WebKit track `readyState === 'ended'`; session filter and rework
+  queue helpers establish API auto-login before `/app` navigation to avoid
+  `/login`'s competing test-mode redirect. No application/runtime files changed.
+- Isolated API/DB stack plus cached Playwright 1.62 image: Python suites
+  unit/static/behavior/integration = 429/925/45/628 passed, with 10/14/1/2
+  skips. Full browser run: 613 discovered, 608 passed, 4 skipped, 1 interrupted
+  navigation in the rework-card test. That test was changed to the same
+  pre-auth pattern and its complete file passed 12/12 over three repeats.
+  Camera lifecycle and session-filter cases passed 3/3 repeats each; supplemental
+  tutorial coverage passed 9/9. Full suite was not rerun after the last helper
+  correction; do not report it as a clean full run.
+- Agent package qualification is documented in the external isolated report.
+  Build/test artifacts used scratch version `2.24.50-docker-runtime`; this is
+  not a release candidate or deployment. Hardware A→B and rollback PASS are
+  inherited user-provided evidence only. PR #50/#1/#2 remain unmerged and OTA
+  mandatory fleet remains OFF. Repo workflow/hook review cannot rule out
+  org-level GitHub Apps or downstream/server automation; external auto-deploy
+  exclusion is NOT VERIFIED.
+- Next actions: review the focused harness commit/CI; keep merge/deploy and
+  mandatory OTA gated until the full CI suite and external deployment controls
+  are independently verified. No production or board action authorized here.

@@ -60,6 +60,10 @@ const FAKE_CAMERA = () => {
     value: {
       getUserMedia: async () => {
         const stream = canvas.captureStream(5);
+        // Keep the actual track so the lifecycle assertion observes WebKit's
+        // resulting state, not a monkey-patched method wrapper crossing the
+        // injected-script/page-script boundary.
+        window.__cameraTrack = stream.getTracks()[0] || null;
         stream.getTracks().forEach(track => {
           const stop = track.stop.bind(track);
           track.stop = () => { window.__cameraStops += 1; stop(); };
@@ -204,7 +208,7 @@ test('bật rồi tắt camera thì track bị DỪNG, không chỉ ẩn thẻ v
 
   await page.getByTestId('kiosk-camera-close').click();
   await expect(page.getByTestId('kiosk-camera-layer')).not.toHaveClass(/on/);
-  expect(await page.evaluate(() => window.__cameraStops)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__cameraTrack?.readyState)).toBe('ended');
   expect(await page.evaluate(() => document.querySelector('#camera-video').srcObject)).toBeNull();
   await context.close();
 });
