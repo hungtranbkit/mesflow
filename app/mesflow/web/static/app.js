@@ -2189,16 +2189,20 @@ async function renderTutorials(){
       </div>
     </div>
   </div>`;attachGuideTabs('mesflow');
+  const tutorialShell=content.querySelector('.tutorial-shell');
   let items=[];
   try{
     const response=await fetch('/tutorials/manifest.json',{credentials:'same-origin',cache:'no-store'});
     if(!response.ok)throw new Error('Video hướng dẫn chưa được publish.');
     const manifest=await response.json();items=(manifest.videos||manifest.items||[]).sort((a,b)=>Number(a.order||0)-Number(b.order||0)).map(x=>({...x,url:'/tutorials/'+x.file}));
   }catch(e){
+    if(!tutorialShell.isConnected)return;
     document.getElementById('tutorialEmpty').hidden=false;
     document.getElementById('tutorialEmpty').querySelector('span').textContent=e.message||'Không đọc được thư viện hướng dẫn';
     return;
   }
+  // A tab/page change removes this render's shell while its fetch is pending.
+  if(!tutorialShell.isConnected)return;
   const grid=document.getElementById('tutorialGrid'),empty=document.getElementById('tutorialEmpty');
   const cat=document.getElementById('tutorialCategory'),search=document.getElementById('tutorialSearch');
   [...new Set(items.map(x=>x.category||'Khác'))].sort().forEach(x=>cat.insertAdjacentHTML('beforeend',`<option value="${esc(x)}">${esc(x)}</option>`));
