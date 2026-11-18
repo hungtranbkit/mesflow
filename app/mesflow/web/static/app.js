@@ -2311,11 +2311,45 @@ async function renderKioskManagement(){
     const q=(document.getElementById('kmSearch').value||'').toLowerCase(),f=document.getElementById('kmState').value;
     let rows=(data.kiosks||[]).filter(x=>JSON.stringify(x).toLowerCase().includes(q));
     if(f==='online')rows=rows.filter(x=>x.online);else if(f==='offline')rows=rows.filter(x=>!x.online);else if(f==='error')rows=rows.filter(x=>Number(x.open_error_count||0)>0||x.last_error);else if(f)rows=rows.filter(x=>x.status===f);
-    document.getElementById('kmList').innerHTML=rows.length?`<div class="kiosk-grid">${rows.map(x=>`<article class="kiosk-card ${x.online?'online':'offline'} ${x.open_error_count||x.offline_conflict_count?'has-error':''}" data-device="${esc(x.device_uuid)}"><div class="kiosk-card-head"><div><b>${esc(x.device_name||x.device_uuid)}</b><small>${esc(x.device_uuid)}</small></div><span class="badge ${x.online?'ok':'muted'}">${x.online?'Online':'Offline'}</span>${x.generation_stale?'<span class="badge warn" title="Chưa đối chiếu (DR reconciliation) với generation hiện tại của server">Đang đối chiếu DR</span>':''}</div><div class="kiosk-meta"><span>Trạm: <b>${esc(x.station_code||'Chưa gán')}</b></span><span>UI: ${esc(x.ui_state||'UNKNOWN')}</span><span>Firmware: ${esc(x.firmware_version||'—')}</span><span>IP: ${esc(x.last_ip||'—')}</span><span>Wi-Fi: ${x.wifi_rssi??'—'} dBm</span><span>Chờ đồng bộ: ${x.queue_size||0}</span><span>Đã đồng bộ offline: ${x.offline_synced_count||0}</span><span>Xung đột offline: ${x.offline_conflict_count||0}</span><span>Trùng lặp (replay): ${x.duplicate_replay_count||0}</span><span>Sequence gần nhất: ${x.last_sequence_received||0}</span><span>Replay sau DR: ${x.reconcile_replay_count||0}</span><span>Lần đồng bộ cuối: ${x.last_offline_sync_at?fmt(x.last_offline_sync_at):'—'}</span></div>${x.last_error?`<div class="kiosk-last-error">${esc(x.last_error)}</div>`:''}<footer><small>Heartbeat ${x.last_heartbeat_at?fmt(x.last_heartbeat_at):'chưa có'}</small><b>${x.open_error_count||0} lỗi mở</b>${x.status==='PENDING'&&x.enrollment_code?`<button class="btn mini primary" type="button" data-enroll="${Number(x.id)}" data-code="${esc(x.enrollment_code)}" data-requested="${esc(x.enroll_station_code||'')}" data-device="${esc(x.device_uuid)}">${x.enrollment_window_open?'Đã duyệt · chờ kiosk nhận':'Duyệt đăng ký'} · ${esc(x.enrollment_code)}</button>`:''}<button class="btn mini" type="button" data-issue-token="${Number(x.id)}" data-station="${x.station_id||''}" data-device="${esc(x.device_uuid)}">Cấp token</button></footer></article>`).join('')}</div>`:'<div class="empty">Không có kiosk phù hợp.</div>';
+    document.getElementById('kmList').innerHTML=rows.length?`<div class="kiosk-grid">${rows.map(x=>`<article class="kiosk-card ${x.online?'online':'offline'} ${x.open_error_count||x.offline_conflict_count?'has-error':''}" data-device="${esc(x.device_uuid)}"><div class="kiosk-card-head"><div><b>${esc(x.device_name||x.device_uuid)}</b><small>${esc(x.device_uuid)}</small></div><span class="badge ${x.online?'ok':'muted'}">${x.online?'Online':'Offline'}</span>${x.generation_stale?'<span class="badge warn" title="Chưa đối chiếu (DR reconciliation) với generation hiện tại của server">Đang đối chiếu DR</span>':''}</div><div class="kiosk-meta"><span>Trạm: <b>${esc(x.station_code||'Chưa gán')}</b></span><span>UI: ${esc(x.ui_state||'UNKNOWN')}</span><span>Firmware: ${esc(x.firmware_version||'—')}</span><span>IP: ${esc(x.last_ip||'—')}</span><span>Wi-Fi: ${x.wifi_rssi??'—'} dBm</span><span>Chờ đồng bộ: ${x.queue_size||0}</span><span>Đã đồng bộ offline: ${x.offline_synced_count||0}</span><span>Xung đột offline: ${x.offline_conflict_count||0}</span><span>Trùng lặp (replay): ${x.duplicate_replay_count||0}</span><span>Sequence gần nhất: ${x.last_sequence_received||0}</span><span>Replay sau DR: ${x.reconcile_replay_count||0}</span><span>Lần đồng bộ cuối: ${x.last_offline_sync_at?fmt(x.last_offline_sync_at):'—'}</span></div>${x.last_error?`<div class="kiosk-last-error">${esc(x.last_error)}</div>`:''}<footer><small>Heartbeat ${x.last_heartbeat_at?fmt(x.last_heartbeat_at):'chưa có'}</small><b>${x.open_error_count||0} lỗi mở</b>${x.status==='PENDING'?`<button class="btn mini primary" type="button" data-usb-provision="${Number(x.id)}" data-device="${esc(x.device_uuid)}">Nạp tự động qua USB</button>`:''}${x.status==='PENDING'&&x.enrollment_code?`<button class="btn mini primary" type="button" data-enroll="${Number(x.id)}" data-code="${esc(x.enrollment_code)}" data-requested="${esc(x.enroll_station_code||'')}" data-device="${esc(x.device_uuid)}">${x.enrollment_window_open?'Đã duyệt · chờ kiosk nhận':'Duyệt đăng ký'} · ${esc(x.enrollment_code)}</button>`:''}<button class="btn mini" type="button" data-issue-token="${Number(x.id)}" data-station="${x.station_id||''}" data-device="${esc(x.device_uuid)}">Cấp token</button></footer></article>`).join('')}</div>`:'<div class="empty">Không có kiosk phù hợp.</div>';
     document.querySelectorAll('.kiosk-card').forEach(el=>el.onclick=()=>show(el.dataset.device));
     // stopPropagation: the whole card is a click target for the timeline.
     document.querySelectorAll('[data-issue-token]').forEach(b=>b.onclick=e=>{e.stopPropagation();issueKioskToken(b.dataset)});
     document.querySelectorAll('[data-enroll]').forEach(b=>b.onclick=e=>{e.stopPropagation();approveKioskEnrollment(b.dataset)});
+    document.querySelectorAll('[data-usb-provision]').forEach(b=>b.onclick=e=>{e.stopPropagation();usbProvisionKiosk(b.dataset.usbProvision,b.dataset.device)});
+  };
+
+  const usbProvisionKiosk=async(identityId,deviceUuid)=>{
+    if(!window.isSecureContext||!navigator.serial)return alert('Cần Chrome/Edge trên HTTPS có hỗ trợ USB Serial.');
+    let port,reader,writer,readTask,maintenanceEntered=false,lines=[],waiters=[],buffer='';
+    const settle=()=>{for(const w of waiters){const i=lines.findIndex(w.test);if(i>=0){const line=lines.splice(i,1)[0];w.done=true;clearTimeout(w.timer);w.resolve(line)}}waiters=waiters.filter(w=>!w.done)};
+    try{
+      // requestPort must run from this user gesture: browser permission is the
+      // physical-presence check. No secret or device token is read by JS.
+      port=await navigator.serial.requestPort();await port.open({baudRate:115200});
+      reader=port.readable.getReader();writer=port.writable.getWriter();
+      readTask=(async()=>{const decoder=new TextDecoder();try{while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let n;while((n=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,n).replace(/\r$/,'');buffer=buffer.slice(n+1);lines.push(line);settle()}}}catch(_){}})();
+      const waitLine=(test,ms=10000)=>new Promise((resolve,reject)=>{const i=lines.findIndex(test);if(i>=0)return resolve(lines.splice(i,1)[0]);const w={test,resolve,reject,done:false};w.timer=setTimeout(()=>{w.done=true;reject(new Error('USB response timed out'))},ms);waiters.push(w)});
+      const send=async text=>{await writer.write(new TextEncoder().encode(text+'\n'))};
+      await send('maintenance confirm');
+      await waitLine(x=>x.includes('[MAINT] USB maintenance confirm'),12000);
+      maintenanceEntered=true;
+      const challenge=await api(`/api/kiosk-management/${Number(identityId)}/usb-enrollment/challenge`,{method:'POST',body:JSON.stringify({})});
+      if(challenge.device_uuid!==deviceUuid)throw new Error('Server challenge returned a different kiosk identity.');
+      await send(`usb-provision-proof ${challenge.challenge}`);
+      const line=await waitLine(x=>x.startsWith('MESFLOW_USB_PROOF:'),12000);
+      const proof=JSON.parse(line.slice('MESFLOW_USB_PROOF:'.length));
+      if(proof.device_uuid!==deviceUuid)throw new Error('USB device UUID does not match the selected PENDING record.');
+      const result=await api(`/api/kiosk-management/${Number(identityId)}/usb-enrollment/complete`,{method:'POST',body:JSON.stringify({...proof,challenge:challenge.challenge})});
+      await send(`usb-provision-commit ${result.device_id}`);
+      await waitLine(x=>x===`[USB-PROVISION] DEVICE_ID_SAVED ${result.device_id}`,10000);
+      await send('maintenance exit');
+      let active=false;
+      for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,1500));const state=await api('/api/kiosk-management/overview');const row=(state.kiosks||[]).find(x=>x.device_uuid===deviceUuid);if(row?.status==='ACTIVE'){active=true;break}}
+      if(active){toast(`Đã nạp ${result.device_id}; server xác nhận ACTIVE.`);await load()}
+      else {alert(`USB proof hợp lệ, cửa sổ claim đã mở cho ${result.device_id}; server vẫn chưa xác nhận ACTIVE. Kiosk cần online để tự nhận token.`);await load()}
+    }catch(err){alert(`Không hoàn tất enrollment USB: ${err.message}`)}
+    finally{if(maintenanceEntered)try{if(writer)await writer.write(new TextEncoder().encode('maintenance exit\n'))}catch(_){}try{if(reader)await reader.cancel()}catch(_){}try{if(writer)await writer.close()}catch(_){}try{if(reader)reader.releaseLock()}catch(_){}try{if(port)await port.close()}catch(_){}if(readTask)await Promise.race([readTask,new Promise(r=>setTimeout(r,500))])}
   };
 
   // Hardware kiosk enrollment (ESP): the device sent its own secret and shows
