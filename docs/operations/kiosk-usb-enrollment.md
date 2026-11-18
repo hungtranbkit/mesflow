@@ -1,7 +1,15 @@
-# Trusted USB kiosk enrollment
+# Admin-attested USB kiosk enrollment groundwork
 
-This workflow replaces per-device manual approval for a physically attached,
-new ESP32. It does not enable legacy/global autobind. `/api/kiosk/connect`
+**Acceptance limit:** this is not unattended M910 zero-touch provisioning.
+The admin must click the kiosk action, grant/choose a Web Serial port, and the
+board must already have its UUID, server URL, Wi-Fi and station configuration.
+There is no M910 host-side USB detector or autonomous provisioning service in
+this change. Do not report the original unattended acceptance as passed.
+
+This workflow replaces manual code entry/approval with an admin-attested USB
+proof for a physically attached, new ESP32. It does not remove the admin
+gesture or port selection, and it does not enable legacy/global autobind.
+`/api/kiosk/connect`
 continues to deny unknown clients that do not present a device secret; a
 secret-backed first contact creates only a `PENDING` identity.
 
