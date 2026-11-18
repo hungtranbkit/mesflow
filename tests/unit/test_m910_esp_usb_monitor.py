@@ -15,6 +15,13 @@ spec.loader.exec_module(monitor)
 
 
 class TestM910Monitor(unittest.TestCase):
+    def test_test_image_includes_watcher_source_for_unit_collection(self):
+        dockerfile = M.parents[1] / "Dockerfile.test"
+        self.assertIn(
+            "COPY tools/m910_esp_usb_monitor.py ./tools/m910_esp_usb_monitor.py",
+            dockerfile.read_text(),
+        )
+
     def test_mac_id_unique(self):
         m = monitor.AttachedEsp(Path("/dev/serial/by-id/k"), Path("/dev/ttyACM0"), "84:C7:BB:79:39:6C")
         self.assertEqual(m.proposed_id, "ESP32-KIOSK-396C")
