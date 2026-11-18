@@ -1,0 +1,54 @@
+{
+  "name": "mesflow-m910-kiosk-provisioner",
+  "version": "0.1.0",
+  "runtime_default": "READ_ONLY",
+  "mutation_opt_in": "--enable-staged-provisioning",
+  "python": ">=3.11",
+  "lan_health_endpoint": "http://192.168.1.254:17892/api/device/health",
+  "dependencies": ["pyserial==3.5"],
+  "components": [
+    "bin/m910_esp_usb_monitor.py",
+    "bin/m910_usb_provisioner.py"
+  ],
+  "server": {
+    "feature_commit": "92b3af83c263ff5ea2a0a0eb117e0172666e3f88",
+    "required_routes": [
+      "/api/kiosk-provisioner/usb/status",
+      "/api/kiosk-provisioner/usb/challenge",
+      "/api/kiosk-provisioner/usb/complete"
+    ],
+    "required_controls": [
+      "verified server instance",
+      "MESFLOW_KIOSK_PROVISIONER_TOKEN_SHA256",
+      "explicit MESFLOW_KIOSK_PROVISIONER_DEVICE_UUIDS"
+    ]
+  },
+  "firmware": {
+    "required_version": "5.6.6",
+    "required_build_pattern": "20261112\\.0003\\.g[0-9a-f]{10}(?:\\.[a-z0-9-]{1,24})?",
+    "feature_commit": "2fcafb2db5cfa3f1d8a277a988ef7489d3c07162",
+    "protocol": "MESFLOW-KIOSK-USB-ENROLLMENT-V1",
+    "hardware_model": "ES3C28P",
+    "hello_authentication": "unsigned; physical trust assumption",
+    "required_properties": [
+      "maintenance-only config",
+      "device-secret HMAC proof",
+      "NVS readback and verified rollback",
+      "RX payload redaction"
+    ]
+  },
+  "trust_boundary": [
+    "USB by-id Espressif interface",
+    "USB MAC and LAN health MAC exact match",
+    "fixed local ESP health endpoint with redirects refused",
+    "LAN health is unauthenticated HTTP and requires a physically trusted private network",
+    "root-owned 0600 identity manifest and credential files",
+    "server-side UUID allowlist and one-time proof claim"
+  ],
+  "limitations": [
+    "USB HELLO MAC and UUID are not authenticated",
+    "a compromised or physically accessible M910 can observe USB configuration",
+    "LAN health fields are unauthenticated and do not attest firmware cryptographically",
+    "bundle contains no credentials, live config, or device identity"
+  ]
+}

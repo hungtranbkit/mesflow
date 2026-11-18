@@ -1,0 +1,20 @@
+[Unit]
+Description=MESFlow M910 ESP32 USB watcher (read-only; fail-closed)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/mesflow/.local/share/mesflow/esp-usb-monitor/m910_esp_usb_monitor.py --watch --interval 10 --allow-mac 84:C7:BB:79:39:6C --server-url https://mesflow.net:443
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+MemoryMax=96M
+CPUQuota=10%
+UMask=0077
+
+[Install]
+WantedBy=default.target

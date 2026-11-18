@@ -32,6 +32,8 @@ ID_RE = re.compile(r"^ESP32-KIOSK-[0-9A-F]{4}$")
 PROOF_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 FACTORY_ID = "ESP32-KIOSK-001"
 DEFAULT_LOGGER = logging.getLogger("m910-kiosk-provisioner")
+DEFAULT_FW_BUILD_PATTERN = r"20261112\.0003\.g[0-9a-f]{10}(?:\.[a-z0-9-]{1,24})?"
+USB_PROVISION_PROTOCOL = "MESFLOW-KIOSK-USB-ENROLLMENT-V1"
 
 
 class ConfigError(ValueError):
@@ -118,6 +120,25 @@ class ProvisionerConfig:
     baud: int
     max_attempts_per_hour: int
     devices: tuple[DeviceTarget, ...]
+    firmware_version: str = "5.6.6"
+    firmware_build_pattern: str = DEFAULT_FW_BUILD_PATTERN
+    usb_provision_protocol: str = USB_PROVISION_PROTOCOL
+    hardware_model: str = "ES3C28P"
+
+
+def read_bundle_manifest() -> dict[str, Any]:
+    candidates = (Path(__file__).with_name("m910_usb_bundle_manifest.json"),
+                  Path(__file__).resolve().parent.parent / "manifest.json")
+    for path in candidates:
+        if path.is_file():
+            try:
+                with path.open(encoding="utf-8") as stream:
+                    value = json.load(stream)
+            except (OSError, ValueError) as exc:
+                raise ConfigError("bundle_manifest_invalid") from exc
+            if isinstance(value, dict) and isinstance(value.get("firmware"), dict):
+                return value
+    raise ConfigError("bundle_manifest_missing")
 
 
 def load_config(path: str | Path, *, strict_permissions: bool = True) -> ProvisionerConfig:
@@ -185,8 +206,17 @@ def load_config(path: str | Path, *, strict_permissions: bool = True) -> Provisi
         macs.add(mac); uuids.add(device_uuid); stations.add(station); ids.add(device_id)
         devices.append(DeviceTarget(mac, device_uuid, station, ssid, password_file))
 
+    firmware = read_bundle_manifest().get("firmware", {})
+    version = str(firmware.get("required_version") or "")
+    build_pattern = str(firmware.get("required_build_pattern") or "")
+    protocol = str(firmware.get("protocol") or "")
+    hardware_model = str(firmware.get("hardware_model") or "")
+    if (not version or not build_pattern or not protocol or not hardware_model or
+            not re.fullmatch(build_pattern, "20261112.0003.g0123456789")):
+        raise ConfigError("bundle_firmware_compatibility_invalid")
     return ProvisionerConfig(base_url, token_file, ca_file, state_db, baud,
-                             max_attempts, tuple(devices))
+                             max_attempts, tuple(devices), version,
+                             build_pattern, protocol, hardware_model)
 
 
 class StateStore:
@@ -241,11 +271,12 @@ class StateStore:
 
 class ProvisionerAPI:
     """HTTPS-only client for the narrow M910 service-principal endpoints."""
-    def __init__(self, config: ProvisionerConfig, *, token: str | None = None):
+    def __init__(self, config: ProvisionerConfig, *, token: str | None = None, opener=None):
         self.config = config
         self._token = token if token is not None else read_secret_file(config.token_file)
         self._tls = ssl.create_default_context(cafile=config.ca_file)
-        self._opener = urllib.request.build_opener(_NoRedirect(), urllib.request.HTTPSHandler(context=self._tls))
+        self._opener = opener or urllib.request.build_opener(
+            _NoRedirect(), urllib.request.HTTPSHandler(context=self._tls))
 
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
         payload = b"" if body is None else json.dumps(body, separators=(",", ":")).encode()
@@ -260,7 +291,10 @@ class ProvisionerAPI:
         if not isinstance(result, dict):
             raise ProvisionerError("api_invalid_response")
         if result.get("ok") is False:
-            raise ProvisionerError(str(result.get("code") or "api_rejected")[:48])
+            code = result.get("code")
+            if not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,48}", code):
+                code = "api_rejected"
+            raise ProvisionerError(code)
         return result
 
     def status(self, device_uuid: str) -> dict:
@@ -305,11 +339,12 @@ class Provisioner:
                       phase, target.device_uuid[:8], code[:48])
         return phase
 
-    def process(self, target: DeviceTarget, transport) -> str:
-        """Process one already-open, OS-exclusive serial transport."""
+    def process(self, target: DeviceTarget, transport, *, hello: dict | None = None) -> str:
+        """Process one already-open serial transport with one verified HELLO."""
         try:
-            hello = self._json_line(transport.command("usb-provision-hello",
-                marker="MESFLOW_USB_HELLO:", timeout=4), "MESFLOW_USB_HELLO:")
+            if hello is None:
+                hello = self._json_line(transport.command("usb-provision-hello",
+                    marker="MESFLOW_USB_HELLO:", timeout=4), "MESFLOW_USB_HELLO:")
             if _mac(hello.get("mac_address", "")) != target.mac_address or _uuid(hello.get("device_uuid", "")) != target.device_uuid:
                 return self._save(target, "identity-mismatch", "allowlist_mismatch")
 
@@ -439,7 +474,15 @@ def process_attached(provisioner: Provisioner, port: str) -> str:
                 if target is None:
                     provisioner.log.warning("USB candidate denied code=identity_not_allowlisted")
                     return "identity-mismatch"
-                return provisioner.process(target, transport)
+                config = provisioner.config
+                if (hello.get("firmware_version") != config.firmware_version or
+                        not re.fullmatch(config.firmware_build_pattern,
+                                         str(hello.get("firmware_build") or "")) or
+                        hello.get("usb_provision_protocol") != config.usb_provision_protocol or
+                        hello.get("hardware_model") != config.hardware_model):
+                    provisioner.log.warning("USB candidate denied code=firmware_incompatible")
+                    return "firmware-incompatible"
+                return provisioner.process(target, transport, hello=hello)
             finally:
                 transport.close()
     except ProvisionerError as exc:
