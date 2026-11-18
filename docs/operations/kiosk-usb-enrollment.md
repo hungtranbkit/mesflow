@@ -2,14 +2,20 @@
 
 **Acceptance limit:** the earlier PR #52 browser action remains admin-assisted:
 it needs a click, a chosen Web Serial port, and an already configured ESP. The
-current Issue #51 work adds an inactive M910 host provisioner plus firmware and
-server service-principal paths. It has only offline/mock and local compile
-evidence so far; no M910 service was installed or started and no real USB,
-staging API, reboot, or heartbeat was exercised. Do not call zero-touch accepted.
+current Issue #51 work adds an inactive M910 host provisioner library plus
+firmware and server service-principal paths. It has only offline/mock and local
+compile evidence so far; this work did not change or start the existing PR #53
+read-only watcher and did not exercise real USB, staging API, reboot, or
+heartbeat. Do not call zero-touch accepted.
 
-The intended unattended path is: M910 enumerates only explicitly configured
-USB VID/PID pairs; reads non-secret MAC/UUID; matches an explicit protected
-allowlist; checks the target server identity state; sends server, Wi-Fi,
+The intended unattended path reuses the existing read-only M910 watcher from
+PR #53 as USB hotplug detector; it does not add a second watcher or systemd
+unit. The watcher/owner must integrate the `process_attached()` adapter from
+`tools/m910_usb_provisioner.py` after trusted USB discovery (and its current
+health check where available). The adapter opens only the supplied port,
+rechecks the board HELLO against the explicit MAC/UUID manifest, and applies
+the server identity checks. The provisioner does not poll or independently
+discover USB ports. It sends server, Wi-Fi,
 station and derived device ID only in USB maintenance on an idle, unbound board;
 the board validates the same UUID/MAC and stores config with read-back and
 rollback; its ordinary HTTPS connect creates/uses a PENDING identity; M910
@@ -21,10 +27,10 @@ closed. The global legacy autobind remains disabled.
 
 ## Trust and staged configuration
 
-- Host acceptance requires an exact MAC+existing UUID allowlist, unique target
-  station entries, a verified HTTPS origin and CA, explicit USB VID/PID, and
-  0600 manifest/token/Wi-Fi secret files. The sample TOML deliberately has
-  invalid VID/PID and identity placeholders. Do not infer these values.
+- Host acceptance requires the PR #53 Espressif USB-by-id watcher plus exact
+  MAC+existing UUID allowlist, unique target station entries, a verified HTTPS
+  origin and CA, and 0600 manifest/token/Wi-Fi secret files. The sample TOML
+  has identity, station and SSID placeholders. Do not infer these values.
 - Server host endpoints `/api/kiosk-provisioner/usb/{status,challenge,complete}`
   require a dedicated raw token whose SHA-256 is configured as
   `MESFLOW_KIOSK_PROVISIONER_TOKEN_SHA256`, an explicit comma-separated
@@ -35,11 +41,12 @@ closed. The global legacy autobind remains disabled.
   identities have no historical MAC backfill; they are never silently adopted.
 - Before staged use, an authorized admin must provision the exact service token
   (raw only in a protected M910 file; SHA-256 only on server), UUID allowlist,
-  verified VID/PID, CA/origin, station and Wi-Fi values. The service and sample
-  unit are not installed/started here. USB serial is physically observable;
+  verified by-id MAC, CA/origin, station and Wi-Fi values. No provisioning
+  service is installed/started here. USB serial is physically observable;
   local host trust and exact board allowlisting are part of the trust boundary.
-- The source tree contains an inactive systemd example. Do not enable it or
-  install udev rules until reviewed and staged. PySerial uses exclusive open;
+- PR #53's read-only systemd service is the existing sole detector and was not
+  changed by this work. Do not start a provisioning service or install udev
+  rules here. PySerial uses exclusive open;
   an advisory process lock prevents duplicate provisioner workers. Attempts
   that mutate device/server state are capped at five per UUID per hour.
 - The initial USB hello is not cryptographically signed: MAC/UUID are compared
@@ -55,7 +62,7 @@ a secret-backed first contact creates only a `PENDING` identity. The M910
 service principal grants scoped proof workflow access; it is not a public
 legacy autobind switch.
 
-## Flow
+## Earlier admin-assisted browser flow (not unattended)
 
 1. The ESP retries its normal HTTPS connection and appears as `PENDING` with
    the requested station. The authenticated MESFlow admin opens Kiosk
@@ -91,20 +98,21 @@ UUID, secret, kiosk token, offline journal and OTA settings are not changed.
   station binding are refused, including status changes back to PENDING.
   Duplicate IDs are serialized by an advisory transaction lock and rejected.
 - No production manual-DB mutation, global `MESFLOW_ALLOW_LEGACY_KIOSK_AUTOBIND`,
-  service restart or deployment is part of this workflow.
-- Local STRICT PostgreSQL integration exercises proof/claim/idempotency,
-  invalid proof, anonymous denial, disabled/prior-bound refusal, unique ID
-  collision, token ownership and heartbeat. Host C++ tests exercise firmware
-  eligibility/command policy and MAC-derived IDs. Hardware reboot, real USB,
-  reverse-proxy TLS and live production heartbeat remain separate release gates.
+  service restart or deployment is part of this work.
+- Prior STRICT PostgreSQL tests cover the admin USB proof/claim flow. The new
+  service-principal route/migration and duplicate-MAC integration were not run
+  here. Host mock/C++ suites and local M910 profile compile are in the living
+  handoffs. Hardware reboot, real USB, reverse-proxy TLS and heartbeat remain
+  separate release gates.
 
 ## Current implementation status (2026-11-18)
 
 Implemented on the existing Issue #51/PR #52 backend branch and firmware PR #2
 branch. Local offline tests and exact commits are recorded in each
-`PROJECT_CONTEXT.md` / Issue #51. Production remains unchanged, no actual M910
-host identity has been verified in this run, no real board was connected, and
-the current production build does not have the new migration/routes. Strict
+`PROJECT_CONTEXT.md` / Issue #51. Production remains unchanged; this turn did
+not connect to M910 or a board. PR #53 reports an active read-only watcher
+canary on M910; that report does not prove provisioning. The current production
+build does not have the new migration/routes. Strict
 PostgreSQL integration, staging endpoint operation, real USB configuration,
 reboot/heartbeat and unattended restart recovery remain gates. Do not claim the
 new board is enrolled until authorized staged work and post-connect `ACTIVE`
