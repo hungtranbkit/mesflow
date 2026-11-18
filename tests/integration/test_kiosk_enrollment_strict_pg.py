@@ -258,6 +258,29 @@ def test_usb_provisioning_will_not_reuse_existing_device_id_or_change_existing_i
     assert preserved['token_hash'] == old_token_hash and preserved['device_id'] == 'ESP32-KIOSK-396C'
 
 
+def test_usb_provisioning_rejects_mac_already_attested_to_another_identity(db, api, station):
+    first_device, first_secret = _device()
+    second_device, second_secret = _device()
+    _connect(first_device, first_secret, station_code=station['code'])
+    _connect(second_device, second_secret, station_code=station['code'])
+    first, second = _row(db, first_device), _row(db, second_device)
+    challenge = _usb_challenge(api, first['id']).json()['challenge']
+    proof = _usb_proof(first_secret, first_device, challenge, '84:C7:BB:79:39:6C',
+                       'ESP32-KIOSK-396C', station['code'], '5.6.6')
+    approved = _usb_complete(api, first['id'], device=first_device, challenge=challenge,
+                             proof=proof, station_code=station['code'])
+    assert approved.status_code == 200, approved.text
+
+    challenge = _usb_challenge(api, second['id']).json()['challenge']
+    proof = _usb_proof(second_secret, second_device, challenge, '84:C7:BB:79:39:6C',
+                       'ESP32-KIOSK-396C', station['code'], '5.6.6')
+    rejected = _usb_complete(api, second['id'], device=second_device, challenge=challenge,
+                             proof=proof, station_code=station['code'])
+    assert rejected.status_code in (400, 409), rejected.text
+    assert _row(db, second_device)['status'] == 'PENDING'
+    assert not _row(db, second_device)['enroll_approved_until']
+
+
 def test_usb_provisioning_cannot_reactivate_previously_bound_identity_even_if_status_is_pending(db, api, station):
     device, secret = _device()
     _connect(device, secret, station_code=station['code'])

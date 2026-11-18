@@ -20,9 +20,13 @@ def upgrade():
     op.execute("ALTER TABLE kiosk_identities ADD COLUMN IF NOT EXISTS usb_provision_station_id INTEGER NULL")
     op.execute("ALTER TABLE kiosk_identities ADD COLUMN IF NOT EXISTS usb_provision_challenge_by TEXT NOT NULL DEFAULT ''")
     op.execute("ALTER TABLE kiosk_identities ADD COLUMN IF NOT EXISTS usb_provision_challenge_used BOOLEAN NOT NULL DEFAULT FALSE")
+    op.execute("ALTER TABLE kiosk_identities ADD COLUMN IF NOT EXISTS usb_provision_mac TEXT NOT NULL DEFAULT ''")
+    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_kiosk_identities_usb_provision_mac ON kiosk_identities(usb_provision_mac) WHERE usb_provision_mac <> ''")
 
 
 def downgrade():
+    op.execute("DROP INDEX IF EXISTS uq_kiosk_identities_usb_provision_mac")
+    op.execute("ALTER TABLE kiosk_identities DROP COLUMN IF EXISTS usb_provision_mac")
     op.execute("ALTER TABLE kiosk_identities DROP COLUMN IF EXISTS usb_provision_challenge_used")
     op.execute("ALTER TABLE kiosk_identities DROP COLUMN IF EXISTS usb_provision_challenge_by")
     op.execute("ALTER TABLE kiosk_identities DROP COLUMN IF EXISTS usb_provision_station_id")

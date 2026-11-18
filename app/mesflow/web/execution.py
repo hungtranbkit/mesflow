@@ -1,4 +1,4 @@
-import uuid
+import uuid,os
 from flask import Blueprint,g,jsonify,request,session
 from mesflow.web.auth import login_required,permission_required,production_client_required,roles_required
 from mesflow.db.repositories.base import NotFoundError,ConflictError,RepositoryError
@@ -15,6 +15,62 @@ from mesflow.web.errors import api_error_response
 from mesflow.services.session_service import SessionService,StartSessionCommand,FinishSessionCommand
 bp=Blueprint('execution',__name__,url_prefix='/api')
 _session_service=SessionService()
+
+def _m910_usb_service_auth():
+    """Authenticate a dedicated host principal; disabled unless explicitly configured."""
+    from mesflow.services.kiosk_provisioner import validate_service_token
+    configured=os.environ.get('MESFLOW_KIOSK_PROVISIONER_TOKEN_SHA256','')
+    if not configured:
+        return None,(jsonify(ok=False,code='PROVISIONER_SERVICE_DISABLED'),503)
+    if not validate_service_token(request.headers.get('X-MESFlow-Provisioner',''),configured):
+        return None,(jsonify(ok=False,code='PROVISIONER_AUTH_REQUIRED'),401)
+    inst=instance_identity.current()
+    if inst.get('state')!='VERIFIED':
+        return None,(jsonify(ok=False,code='INSTANCE_NOT_VERIFIED'),403)
+    return 'service:m910-usb-provisioner',None
+
+def _m910_usb_uuid_allowed(device_uuid):
+    from mesflow.services.kiosk_provisioner import provisioner_uuid_allowed
+    return provisioner_uuid_allowed(device_uuid,os.environ.get('MESFLOW_KIOSK_PROVISIONER_DEVICE_UUIDS',''))
+
+@bp.get('/kiosk-provisioner/usb/status')
+def m910_usb_provisioner_status():
+    actor,error=_m910_usb_service_auth()
+    if error:return error
+    try:
+        device_uuid=str(request.args.get('device_uuid') or '').strip()
+        if not device_uuid or len(device_uuid)>80:return jsonify(ok=False,code='INVALID_DEVICE_UUID'),400
+        if not _m910_usb_uuid_allowed(device_uuid):return jsonify(ok=False,code='DEVICE_NOT_ALLOWLISTED'),403
+        return jsonify(ok=True,**KioskRepository().usb_provision_status(device_uuid))
+    except Exception as exc:return err(exc)
+
+@bp.post('/kiosk-provisioner/usb/challenge')
+def m910_usb_provisioner_challenge():
+    actor,error=_m910_usb_service_auth()
+    if error:return error
+    try:
+        body=request.get_json(silent=True) or {}; device_uuid=str(body.get('device_uuid') or '').strip()
+        if not _m910_usb_uuid_allowed(device_uuid):return jsonify(ok=False,code='DEVICE_NOT_ALLOWLISTED'),403
+        status=KioskRepository().usb_provision_status(device_uuid)
+        if status.get('status')!='PENDING' or not status.get('provisionable'):
+            return jsonify(ok=False,code='IDENTITY_NOT_PROVISIONABLE'),409
+        result=KioskRepository().issue_usb_provision_challenge(int(status['identity_id']),actor)
+        return jsonify(ok=True,**result)
+    except Exception as exc:return err(exc)
+
+@bp.post('/kiosk-provisioner/usb/complete')
+def m910_usb_provisioner_complete():
+    actor,error=_m910_usb_service_auth()
+    if error:return error
+    try:
+        body=request.get_json(silent=True) or {}; device_uuid=str(body.get('device_uuid') or '').strip()
+        if not _m910_usb_uuid_allowed(device_uuid):return jsonify(ok=False,code='DEVICE_NOT_ALLOWLISTED'),403
+        status=KioskRepository().usb_provision_status(device_uuid)
+        if status.get('status')!='PENDING':
+            return jsonify(ok=False,code='IDENTITY_NOT_PENDING'),409
+        result=KioskRepository().complete_usb_provision(int(status['identity_id']),body,actor)
+        return jsonify(ok=True,**result)
+    except Exception as exc:return err(exc)
 
 class KioskRepositoryLookup:
     @staticmethod
