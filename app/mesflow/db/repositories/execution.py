@@ -333,6 +333,28 @@ class KioskRepository:
     ENROLL_PENDING_CAP=200
     USB_PROVISION_CHALLENGE_TTL_SECONDS=120
 
+    def usb_provision_status(self,device_uuid:str)->dict[str,Any]:
+        """Return the minimum non-secret state needed by the trusted USB host."""
+        from mesflow.db.connection import fetch_one
+        device_uuid=str(device_uuid or '').strip()
+        row=fetch_one("""SELECT ki.id,ki.device_uuid,ki.status,ki.device_id,ki.token_hash,
+            ki.station_id,ki.enroll_secret_hash,ki.enroll_station_code,ki.enroll_approved_until,
+            ki.usb_provision_mac,ki.usb_provision_station_id,
+            (ki.enroll_approved_until>CURRENT_TIMESTAMP) enrollment_window_open,
+            s.code active_station_code,es.code approved_station_code
+            FROM kiosk_identities ki LEFT JOIN stations s ON s.id=ki.station_id
+            LEFT JOIN stations es ON es.id=ki.usb_provision_station_id WHERE ki.device_uuid=%s""",(device_uuid,))
+        if not row:
+            return {'status':'NOT_FOUND','provisionable':False,'enrollment_window_open':False}
+        status=str(row.get('status') or '').upper()
+        fresh=(status=='PENDING' and not row.get('token_hash') and not row.get('station_id') and
+               bool(re.fullmatch(r'[0-9a-fA-F]{64}',str(row.get('enroll_secret_hash') or '')))
+               and bool(str(row.get('enroll_station_code') or '').strip()))
+        return {'status':status,'provisionable':fresh,'identity_id':int(row['id']),'device_uuid':str(row['device_uuid']),
+                'device_id':str(row.get('device_id') or ''),'mac_address':str(row.get('usb_provision_mac') or ''),
+                'station_code':str(row.get('active_station_code') or row.get('approved_station_code') or row.get('enroll_station_code') or ''),
+                'enrollment_window_open':bool(row.get('enrollment_window_open'))}
+
     @staticmethod
     def usb_provision_message(device_uuid:str,challenge:str,mac_address:str,device_id:str,
                               station_code:str,firmware_version:str)->bytes:
@@ -408,7 +430,8 @@ class KioskRepository:
             with conn.cursor() as cur:
                 # Serialize simultaneous claims for the same ID even when no
                 # row currently carries it; row locks alone cannot lock absence.
-                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))",(device_id,))
+                for lock_key in sorted((device_id,mac)):
+                    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))",(lock_key,))
                 cur.execute("SELECT * FROM kiosk_identities WHERE id=%s FOR UPDATE",(int(identity_id),))
                 row=cur.fetchone()
                 if not row: raise NotFoundError('kiosk identity not found')
@@ -433,6 +456,9 @@ class KioskRepository:
                 cur.execute("SELECT id FROM kiosk_identities WHERE device_id=%s AND id<>%s LIMIT 1 FOR UPDATE",
                             (device_id,int(identity_id)))
                 if cur.fetchone(): raise ConflictError('Unique kiosk device ID is already assigned to another pending or active device.')
+                cur.execute("SELECT id FROM kiosk_identities WHERE usb_provision_mac=%s AND id<>%s LIMIT 1 FOR UPDATE",
+                            (mac,int(identity_id)))
+                if cur.fetchone(): raise ConflictError('USB MAC address is already assigned to another kiosk identity.')
                 if bool(row.get('usb_provision_challenge_used')):
                     cur.execute("SELECT enroll_approved_until>CURRENT_TIMESTAMP live FROM kiosk_identities WHERE id=%s",(int(identity_id),))
                     if bool((cur.fetchone() or {}).get('live')) and int(row.get('usb_provision_station_id') or 0)>0:
@@ -449,10 +475,10 @@ class KioskRepository:
                         raise ConflictError('Kiosk already has an approval window from another flow; do not replace it.')
                 station_id=int(row.get('usb_provision_station_id') or 0)
                 if not station_id: raise ConflictError('USB provisioning challenge has no bound station.')
-                cur.execute("""UPDATE kiosk_identities SET device_id=%s,enroll_station_id=%s,
+                cur.execute("""UPDATE kiosk_identities SET device_id=%s,usb_provision_mac=%s,enroll_station_id=%s,
                     enroll_approved_until=CURRENT_TIMESTAMP+(%s * INTERVAL '1 minute'),enroll_approved_by=%s,
                     usb_provision_challenge_used=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING enroll_approved_until""",
-                    (device_id,station_id,max(1,min(15,int(approval_ttl_minutes or 15))),str(actor or '')[:80],int(identity_id)))
+                    (device_id,mac,station_id,max(1,min(15,int(approval_ttl_minutes or 15))),str(actor or '')[:80],int(identity_id)))
                 result=cur.fetchone() or {}
                 record_audit(cur,action='KIOSK_USB_PROVISION_APPROVE',entity_type='kiosk_identity',
                     entity_id=str(identity_id),actor_username=str(actor or '')[:80],

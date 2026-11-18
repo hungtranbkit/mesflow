@@ -1,17 +1,59 @@
-# Admin-attested USB kiosk enrollment groundwork
+# Trusted M910 USB kiosk enrollment
 
-**Acceptance limit:** this is not unattended M910 zero-touch provisioning.
-The admin must click the kiosk action, grant/choose a Web Serial port, and the
-board must already have its UUID, server URL, Wi-Fi and station configuration.
-There is no M910 host-side USB detector or autonomous provisioning service in
-this change. Do not report the original unattended acceptance as passed.
+**Acceptance limit:** the earlier PR #52 browser action remains admin-assisted:
+it needs a click, a chosen Web Serial port, and an already configured ESP. The
+current Issue #51 work adds an inactive M910 host provisioner plus firmware and
+server service-principal paths. It has only offline/mock and local compile
+evidence so far; no M910 service was installed or started and no real USB,
+staging API, reboot, or heartbeat was exercised. Do not call zero-touch accepted.
 
-This workflow replaces manual code entry/approval with an admin-attested USB
-proof for a physically attached, new ESP32. It does not remove the admin
-gesture or port selection, and it does not enable legacy/global autobind.
-`/api/kiosk/connect`
-continues to deny unknown clients that do not present a device secret; a
-secret-backed first contact creates only a `PENDING` identity.
+The intended unattended path is: M910 enumerates only explicitly configured
+USB VID/PID pairs; reads non-secret MAC/UUID; matches an explicit protected
+allowlist; checks the target server identity state; sends server, Wi-Fi,
+station and derived device ID only in USB maintenance on an idle, unbound board;
+the board validates the same UUID/MAC and stores config with read-back and
+rollback; its ordinary HTTPS connect creates/uses a PENDING identity; M910
+obtains a short proof challenge, relays the board HMAC over HTTPS, and commits
+the unique ID only after server approval. No UUID or kiosk token is generated
+or replaced by the host. Existing ACTIVE/DISABLED/REVOKED identities and any
+board with a current/alternate token, binding, offline work or active OTA fail
+closed. The global legacy autobind remains disabled.
+
+## Trust and staged configuration
+
+- Host acceptance requires an exact MAC+existing UUID allowlist, unique target
+  station entries, a verified HTTPS origin and CA, explicit USB VID/PID, and
+  0600 manifest/token/Wi-Fi secret files. The sample TOML deliberately has
+  invalid VID/PID and identity placeholders. Do not infer these values.
+- Server host endpoints `/api/kiosk-provisioner/usb/{status,challenge,complete}`
+  require a dedicated raw token whose SHA-256 is configured as
+  `MESFLOW_KIOSK_PROVISIONER_TOKEN_SHA256`, an explicit comma-separated
+  `MESFLOW_KIOSK_PROVISIONER_DEVICE_UUIDS` allowlist, and VERIFIED instance
+  identity. Missing either env setting disables the flow. The token is never
+  returned or audited. Challenge/completion are audited with redacted metadata.
+- MAC is stored under a partial unique index when USB proof is completed. Old
+  identities have no historical MAC backfill; they are never silently adopted.
+- Before staged use, an authorized admin must provision the exact service token
+  (raw only in a protected M910 file; SHA-256 only on server), UUID allowlist,
+  verified VID/PID, CA/origin, station and Wi-Fi values. The service and sample
+  unit are not installed/started here. USB serial is physically observable;
+  local host trust and exact board allowlisting are part of the trust boundary.
+- The source tree contains an inactive systemd example. Do not enable it or
+  install udev rules until reviewed and staged. PySerial uses exclusive open;
+  an advisory process lock prevents duplicate provisioner workers. Attempts
+  that mutate device/server state are capped at five per UUID per hour.
+- The initial USB hello is not cryptographically signed: MAC/UUID are compared
+  to the trusted manifest, then the board-secret HMAC is checked during server
+  enrollment after network config. Therefore the M910 port and attached ESP
+  must be physically controlled; an untrusted USB device able to spoof both
+  identifiers could receive the configured Wi-Fi password. If this physical
+  trust boundary is insufficient, require a per-device certificate/secure
+  element before enabling the host service; current firmware has no such root.
+
+`/api/kiosk/connect` continues to deny unknown Internet clients by default;
+a secret-backed first contact creates only a `PENDING` identity. The M910
+service principal grants scoped proof workflow access; it is not a public
+legacy autobind switch.
 
 ## Flow
 
@@ -58,9 +100,12 @@ UUID, secret, kiosk token, offline journal and OTA settings are not changed.
 
 ## Current implementation status (2026-11-18)
 
-Implemented on the Issue #51 branch stacked on MESFlow PR #50 and the scoped
-firmware PR #2 branch. Local test results and exact commits are recorded in
-`PROJECT_CONTEXT.md` / the Issue #51 update. Production still runs the older
-MESFlow build without migrations 0056/0057 or these endpoints; do not claim the
-new board is enrolled until an authorized rollout and post-connect `ACTIVE`
+Implemented on the existing Issue #51/PR #52 backend branch and firmware PR #2
+branch. Local offline tests and exact commits are recorded in each
+`PROJECT_CONTEXT.md` / Issue #51. Production remains unchanged, no actual M910
+host identity has been verified in this run, no real board was connected, and
+the current production build does not have the new migration/routes. Strict
+PostgreSQL integration, staging endpoint operation, real USB configuration,
+reboot/heartbeat and unattended restart recovery remain gates. Do not claim the
+new board is enrolled until authorized staged work and post-connect `ACTIVE`
 evidence exist. Fleet OTA remains OFF.
