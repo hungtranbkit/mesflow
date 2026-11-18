@@ -533,6 +533,37 @@ def kiosk_management_approve_enrollment(identity_id):
                        approved_until=row.get('enroll_approved_until'),enrollment_code=KioskRepository.enrollment_code(row.get('enroll_secret_hash')))
     except Exception as exc:return err(exc)
 
+@bp.post('/kiosk-management/<int:identity_id>/usb-enrollment/challenge')
+@roles_required('admin')
+def kiosk_management_usb_enrollment_challenge(identity_id):
+    """Start a short challenge for the ESP physically attached over USB."""
+    try:
+        from mesflow.domain.errors import PermissionDeniedError
+        inst=instance_identity.current()
+        if inst.get('state')!='VERIFIED':
+            raise PermissionDeniedError(f"Instance MESFlow chưa VERIFIED ({inst.get('state')}); không provision kiosk.")
+        actor=str(session.get('username',''))
+        result=KioskRepository().issue_usb_provision_challenge(identity_id,actor)
+        return jsonify(ok=True,**result)
+    except Exception as exc:return err(exc)
+
+@bp.post('/kiosk-management/<int:identity_id>/usb-enrollment/complete')
+@roles_required('admin')
+def kiosk_management_usb_enrollment_complete(identity_id):
+    """Verify the connected ESP's one-time proof and open its claim window."""
+    try:
+        from mesflow.domain.errors import PermissionDeniedError
+        inst=instance_identity.current()
+        if inst.get('state')!='VERIFIED':
+            raise PermissionDeniedError(f"Instance MESFlow chưa VERIFIED ({inst.get('state')}); không provision kiosk.")
+        body=request.get_json(silent=True) or {}
+        actor=str(session.get('username',''))
+        result=KioskRepository().complete_usb_provision(identity_id,body,actor)
+        # The token is deliberately not returned to the browser. The device
+        # claims it once through its normal HTTPS /api/kiosk/connect retry.
+        return jsonify(ok=True,**result)
+    except Exception as exc:return err(exc)
+
 @bp.get('/kiosk-management/generation')
 @roles_required('admin','manager')
 def kiosk_management_generation():
