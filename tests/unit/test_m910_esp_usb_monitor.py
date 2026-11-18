@@ -17,10 +17,28 @@ spec.loader.exec_module(monitor)
 class TestM910Monitor(unittest.TestCase):
     def test_test_image_includes_watcher_source_for_unit_collection(self):
         dockerfile = M.parents[1] / "Dockerfile.test"
-        self.assertIn(
-            "COPY tools/m910_esp_usb_monitor.py ./tools/m910_esp_usb_monitor.py",
-            dockerfile.read_text(),
-        )
+        source = dockerfile.read_text()
+        self.assertIn("COPY tools/m910_esp_usb_monitor.py ./tools/m910_esp_usb_monitor.py", source)
+        bundle_copy = next(line for line in source.splitlines()
+                           if line.startswith("COPY tools/m910_usb_provisioner.py"))
+        self.assertIn("tools/m910_usb_bundle_manifest.json", bundle_copy)
+        self.assertIn("./tools/", bundle_copy)
+
+    def test_health_redirect_handler_refuses_all_redirects(self):
+        self.assertIsNone(monitor._NoRedirect().redirect_request(None, None, 302, "Found", {}, "http://evil"))
+
+    def test_health_response_size_is_bounded(self):
+        attached = monitor.AttachedEsp(Path("b"), Path("t"), "84:C7:BB:79:39:6C")
+
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self, size=-1): return b"{" + b" " * (size + 1)
+
+        with patch.object(monitor, "urlopen", return_value=Response()):
+            with self.assertRaisesRegex(RuntimeError, "HEALTH_BODY_TOO_LARGE"):
+                monitor.check_health(attached)
 
     def test_mac_id_unique(self):
         m = monitor.AttachedEsp(Path("/dev/serial/by-id/k"), Path("/dev/ttyACM0"), "84:C7:BB:79:39:6C")
