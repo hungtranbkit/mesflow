@@ -170,6 +170,13 @@ def test_action_category_matches_friendly_filter_taxonomy():
         assert action_category(code) in CATEGORY_LABELS
 
 
+def test_usb_provision_audit_actions_have_admin_labels():
+    for action in ('KIOSK_USB_PROVISION_CHALLENGE', 'KIOSK_USB_PROVISION_APPROVE'):
+        assert ACTION_CATALOG[action]['category'] == 'admin'
+        rendered = present(_row(action, 'kiosk_identity', '1'))
+        assert rendered['title'] == ACTION_CATALOG[action]['label']
+
+
 # --- field / enum catalog ---------------------------------------------------
 
 def test_task_field_translations_present():

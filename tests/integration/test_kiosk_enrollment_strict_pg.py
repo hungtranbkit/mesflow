@@ -15,6 +15,7 @@ firmware without a secret keeps the old 403; the claimed token works.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import secrets
 import uuid
@@ -67,6 +68,33 @@ def _row(db, device):
 def _approve(api, identity_id, station_id, **extra):
     return api.post(f'{BASE_URL}/api/kiosk-management/{identity_id}/approve-enrollment',
                     json={'station_id': station_id, **extra}, timeout=10)
+
+
+def _usb_message(device, challenge, mac, device_id, station_code, firmware_version):
+    return ('MESFLOW-KIOSK-USB-ENROLLMENT-V1\n'
+            f'{device}\n{challenge}\n{mac}\n{device_id}\n{station_code}\n{firmware_version}')
+
+
+def _usb_proof(secret, device, challenge, mac, device_id, station_code, firmware_version):
+    # Firmware and server both use SHA256(device_secret) as the HMAC key;
+    # the stored value is already the secret hash and never leaves the device.
+    key = hashlib.sha256(secret.encode()).digest()
+    message = _usb_message(device, challenge, mac, device_id, station_code, firmware_version)
+    return hmac.new(key, message.encode(), hashlib.sha256).hexdigest()
+
+
+def _usb_challenge(api, identity_id):
+    return api.post(f'{BASE_URL}/api/kiosk-management/{identity_id}/usb-enrollment/challenge',
+                    json={}, timeout=10)
+
+
+def _usb_complete(api, identity_id, *, device, challenge, proof, mac='84:C7:BB:79:39:6C',
+                  device_id='ESP32-KIOSK-396C', station_code='ENROLL-STATION',
+                  firmware_version='5.6.6'):
+    return api.post(f'{BASE_URL}/api/kiosk-management/{identity_id}/usb-enrollment/complete',
+                    json={'device_uuid': device, 'challenge': challenge, 'proof': proof,
+                          'mac_address': mac, 'device_id': device_id,
+                          'station_code': station_code, 'firmware_version': firmware_version}, timeout=10)
 
 
 def test_unknown_device_with_secret_is_recorded_pending_with_code(db, station):
@@ -124,6 +152,148 @@ def test_admin_approval_then_device_claims_token_once(db, api, station):
     replay = _connect(device, secret)
     assert replay.status_code == 403, replay.text
     assert _row(db, device)['token_hash'] == row['token_hash']
+
+
+def test_usb_attested_admin_provisioning_opens_one_claim_window_and_retries_idempotently(db, api, station):
+    device, secret = _device()
+    _connect(device, secret, station_code=station['code'])
+    identity = _row(db, device)
+
+    challenge_response = _usb_challenge(api, identity['id'])
+    assert challenge_response.status_code == 200, challenge_response.text
+    challenge = challenge_response.json()['challenge']
+    assert len(challenge) == 64
+
+    mac = '84:C7:BB:79:39:6C'
+    device_id = 'ESP32-KIOSK-396C'
+    firmware = '5.6.6'
+    proof = _usb_proof(secret, device, challenge, mac, device_id, station['code'], firmware)
+    request = {'device': device, 'challenge': challenge, 'proof': proof, 'mac': mac,
+               'device_id': device_id, 'station_code': station['code'], 'firmware_version': firmware}
+    completed = _usb_complete(api, identity['id'], **request)
+    assert completed.status_code == 200, completed.text
+    assert completed.json()['approved'] is True
+    assert 'kiosk_token' not in completed.json()
+
+    row = _row(db, device)
+    assert row['status'] == 'PENDING' and not row['token_hash']
+    assert row['device_id'] == device_id
+    assert row['enroll_station_id'] == station['id'] and row['station_id'] is None
+    first_expiry = row['enroll_approved_until']
+    assert first_expiry is not None and row['enroll_approved_by']
+
+    repeated = _usb_complete(api, identity['id'], **request)
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()['idempotent'] is True
+    assert _row(db, device)['enroll_approved_until'] == first_expiry
+
+    claim = _connect(device, secret, station_code=station['code'], device_id=device_id)
+    assert claim.status_code == 200, claim.text
+    assert claim.json()['enrolled'] is True and claim.json()['kiosk_token']
+    active = _row(db, device)
+    assert active['status'] == 'ACTIVE' and active['device_id'] == device_id
+    assert active['station_id'] == station['id']
+    assert active['token_hash'] == hashlib.sha256(claim.json()['kiosk_token'].encode()).hexdigest()
+    heartbeat = requests.post(f'{STRICT_URL}/api/kiosk/heartbeat', json={'device_uuid': device},
+                              headers={'X-Kiosk-Token': claim.json()['kiosk_token']}, timeout=10)
+    assert heartbeat.status_code == 200, heartbeat.text
+
+
+def test_untrusted_or_mismatched_usb_proof_cannot_approve_or_change_pending_device(db, api, station):
+    device, secret = _device()
+    _connect(device, secret, station_code=station['code'])
+    identity = _row(db, device)
+    challenge_response = _usb_challenge(api, identity['id'])
+    assert challenge_response.status_code == 200, challenge_response.text
+    challenge = challenge_response.json()['challenge']
+
+    forged = _usb_complete(api, identity['id'], device=device, challenge=challenge,
+                           proof='0' * 64, mac='84:C7:BB:79:39:6C')
+    assert forged.status_code in (400, 403), forged.text
+    row = _row(db, device)
+    assert row['status'] == 'PENDING' and row['enroll_approved_until'] is None
+    assert row['device_id'] != 'ESP32-KIOSK-396C'
+
+    anonymous = requests.post(f'{BASE_URL}/api/kiosk-management/{identity["id"]}/usb-enrollment/challenge',
+                              json={}, timeout=10)
+    assert anonymous.status_code in (401, 403), anonymous.text
+
+
+def test_usb_provisioning_rejects_non_pending_and_never_reactivates_disabled_identity(db, api, station):
+    device, secret = _device()
+    _connect(device, secret, station_code=station['code'])
+    identity = _row(db, device)
+    assert api.post(f'{BASE_URL}/api/kiosk-management/{identity["id"]}/status',
+                    json={'status': 'DISABLED'}, timeout=10).status_code == 200
+    challenge = _usb_challenge(api, identity['id'])
+    assert challenge.status_code in (400, 403, 409), challenge.text
+    row = _row(db, device)
+    assert row['status'] == 'DISABLED' and row['token_hash'] == ''
+
+
+def test_usb_provisioning_will_not_reuse_existing_device_id_or_change_existing_identity(db, api, station):
+    old_device, old_secret = _device()
+    _connect(old_device, old_secret, station_code=station['code'])
+    old = _row(db, old_device)
+    old_token_hash = hashlib.sha256(b'preexisting-token').hexdigest()
+    with db.cursor() as cur:
+        cur.execute("UPDATE kiosk_identities SET status='ACTIVE',device_id='ESP32-KIOSK-396C',station_id=%s,token_hash=%s WHERE id=%s",
+                    (station['id'], old_token_hash, old['id']))
+
+    new_device, secret = _device()
+    _connect(new_device, secret, station_code=station['code'])
+    new = _row(db, new_device)
+    issued = _usb_challenge(api, new['id'])
+    assert issued.status_code == 200, issued.text
+    challenge = issued.json()['challenge']
+    proof = _usb_proof(secret, new_device, challenge, '84:C7:BB:79:39:6C',
+                       'ESP32-KIOSK-396C', station['code'], '5.6.6')
+    result = _usb_complete(api, new['id'], device=new_device, challenge=challenge,
+                           proof=proof, station_code=station['code'])
+    assert result.status_code in (400, 409), result.text
+    assert _row(db, new_device)['status'] == 'PENDING'
+    assert _row(db, new_device)['enroll_approved_until'] is None
+    preserved = _row(db, old_device)
+    assert preserved['status'] == 'ACTIVE' and preserved['station_id'] == station['id']
+    assert preserved['token_hash'] == old_token_hash and preserved['device_id'] == 'ESP32-KIOSK-396C'
+
+
+def test_usb_provisioning_rejects_mac_already_attested_to_another_identity(db, api, station):
+    first_device, first_secret = _device()
+    second_device, second_secret = _device()
+    _connect(first_device, first_secret, station_code=station['code'])
+    _connect(second_device, second_secret, station_code=station['code'])
+    first, second = _row(db, first_device), _row(db, second_device)
+    challenge = _usb_challenge(api, first['id']).json()['challenge']
+    proof = _usb_proof(first_secret, first_device, challenge, '84:C7:BB:79:39:6C',
+                       'ESP32-KIOSK-396C', station['code'], '5.6.6')
+    approved = _usb_complete(api, first['id'], device=first_device, challenge=challenge,
+                             proof=proof, station_code=station['code'])
+    assert approved.status_code == 200, approved.text
+
+    challenge = _usb_challenge(api, second['id']).json()['challenge']
+    proof = _usb_proof(second_secret, second_device, challenge, '84:C7:BB:79:39:6C',
+                       'ESP32-KIOSK-396C', station['code'], '5.6.6')
+    rejected = _usb_complete(api, second['id'], device=second_device, challenge=challenge,
+                             proof=proof, station_code=station['code'])
+    assert rejected.status_code in (400, 409), rejected.text
+    assert _row(db, second_device)['status'] == 'PENDING'
+    assert not _row(db, second_device)['enroll_approved_until']
+
+
+def test_usb_provisioning_cannot_reactivate_previously_bound_identity_even_if_status_is_pending(db, api, station):
+    device, secret = _device()
+    _connect(device, secret, station_code=station['code'])
+    row = _row(db, device)
+    old_hash = hashlib.sha256(b'historical-kiosk-token').hexdigest()
+    with db.cursor() as cur:
+        cur.execute("UPDATE kiosk_identities SET status='PENDING',station_id=%s,token_hash=%s WHERE id=%s",
+                    (station['id'], old_hash, row['id']))
+    challenge = _usb_challenge(api, row['id'])
+    assert challenge.status_code in (400, 409), challenge.text
+    preserved = _row(db, device)
+    assert preserved['status'] == 'PENDING' and preserved['station_id'] == station['id']
+    assert preserved['token_hash'] == old_hash and preserved['enroll_approved_until'] is None
 
 
 def test_other_secret_cannot_take_over_or_claim(db, api, station):

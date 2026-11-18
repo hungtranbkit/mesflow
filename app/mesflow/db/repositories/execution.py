@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib,secrets
+import hashlib,hmac,re,secrets
 from datetime import date, datetime, time
 from decimal import Decimal
 from uuid import UUID
@@ -308,7 +308,7 @@ class KioskRepository:
           (SELECT COUNT(*) FROM kiosk_client_events WHERE status='rejected') offline_conflict_count,
           COUNT(*) FILTER (WHERE ki.status='ACTIVE' AND ki.last_generation_id<>'' AND ki.last_generation_id<>(SELECT generation_id FROM server_generation WHERE id=1)) reconciling_count
         FROM kiosk_identities ki LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid""") or {}
-        kiosks=fetch_all("""SELECT ki.id,ki.device_uuid,ki.device_name,ki.station_id,ki.status,ki.firmware_version,ki.last_ip,ki.last_seen_at,ki.created_at,
+        kiosks=fetch_all("""SELECT ki.id,ki.device_uuid,ki.device_id,ki.device_name,ki.station_id,ki.status,ki.firmware_version,ki.last_ip,ki.last_seen_at,ki.created_at,
           ki.hardware_profile,CASE WHEN ki.status='PENDING' THEN upper(left(ki.enroll_secret_hash,6)) ELSE '' END enrollment_code,ki.enroll_station_code,ki.enroll_approved_until,
           COALESCE(ki.status='PENDING' AND ki.enroll_approved_until>CURRENT_TIMESTAMP,FALSE) enrollment_window_open,
           ki.last_sequence_received,ki.duplicate_replay_count,ki.last_generation_id,
@@ -331,6 +331,162 @@ class KioskRepository:
     # device_secret, an admin approves THAT identity for a short window on
     # /kiosk-management, and the device claims its token exactly once.
     ENROLL_PENDING_CAP=200
+    USB_PROVISION_CHALLENGE_TTL_SECONDS=120
+
+    def usb_provision_status(self,device_uuid:str)->dict[str,Any]:
+        """Return the minimum non-secret state needed by the trusted USB host."""
+        from mesflow.db.connection import fetch_one
+        device_uuid=str(device_uuid or '').strip()
+        row=fetch_one("""SELECT ki.id,ki.device_uuid,ki.status,ki.device_id,ki.token_hash,
+            ki.station_id,ki.enroll_secret_hash,ki.enroll_station_code,ki.enroll_approved_until,
+            ki.usb_provision_mac,ki.usb_provision_station_id,
+            (ki.enroll_approved_until>CURRENT_TIMESTAMP) enrollment_window_open,
+            s.code active_station_code,es.code approved_station_code
+            FROM kiosk_identities ki LEFT JOIN stations s ON s.id=ki.station_id
+            LEFT JOIN stations es ON es.id=ki.usb_provision_station_id WHERE ki.device_uuid=%s""",(device_uuid,))
+        if not row:
+            return {'status':'NOT_FOUND','provisionable':False,'enrollment_window_open':False}
+        status=str(row.get('status') or '').upper()
+        fresh=(status=='PENDING' and not row.get('token_hash') and not row.get('station_id') and
+               bool(re.fullmatch(r'[0-9a-fA-F]{64}',str(row.get('enroll_secret_hash') or '')))
+               and bool(str(row.get('enroll_station_code') or '').strip()))
+        return {'status':status,'provisionable':fresh,'identity_id':int(row['id']),'device_uuid':str(row['device_uuid']),
+                'device_id':str(row.get('device_id') or ''),'mac_address':str(row.get('usb_provision_mac') or ''),
+                'station_code':str(row.get('active_station_code') or row.get('approved_station_code') or row.get('enroll_station_code') or ''),
+                'enrollment_window_open':bool(row.get('enrollment_window_open'))}
+
+    @staticmethod
+    def usb_provision_message(device_uuid:str,challenge:str,mac_address:str,device_id:str,
+                              station_code:str,firmware_version:str)->bytes:
+        return ("MESFLOW-KIOSK-USB-ENROLLMENT-V1\n"
+                f"{device_uuid}\n{challenge}\n{mac_address}\n{device_id}\n"
+                f"{station_code}\n{firmware_version}").encode("utf-8")
+
+    def issue_usb_provision_challenge(self,identity_id:int,actor:str)->dict[str,Any]:
+        """Issue a short-lived nonce only for one secret-backed PENDING kiosk."""
+        challenge=secrets.token_hex(32)
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM kiosk_identities WHERE id=%s FOR UPDATE",(int(identity_id),))
+                row=cur.fetchone()
+                if not row: raise NotFoundError('kiosk identity not found')
+                if str(row.get('status') or '').upper()!='PENDING':
+                    raise ConflictError('USB provisioning chỉ áp dụng cho kiosk PENDING; thiết bị hiện tại không bị thay đổi.')
+                if row.get('token_hash') or row.get('station_id'):
+                    raise ConflictError('USB provisioning chỉ áp dụng cho identity chưa từng bind; không tái kích hoạt kiosk cũ.')
+                secret_hash=str(row.get('enroll_secret_hash') or '')
+                if not re.fullmatch(r'[0-9a-fA-F]{64}',secret_hash):
+                    raise ConflictError('Kiosk chưa có khóa enrollment hợp lệ.')
+                if row.get('enroll_approved_until'):
+                    cur.execute("SELECT enroll_approved_until>CURRENT_TIMESTAMP live FROM kiosk_identities WHERE id=%s",(int(identity_id),))
+                    if bool((cur.fetchone() or {}).get('live')):
+                        raise ConflictError('Kiosk đã có cửa sổ claim đang mở; không tạo cửa sổ thứ hai.')
+                station_code=str(row.get('enroll_station_code') or '').strip()
+                if not station_code:
+                    raise ConflictError('Kiosk chưa khai báo station; giữ nguyên trạng thái PENDING.')
+                cur.execute("SELECT id,code FROM stations WHERE upper(code)=upper(%s) LIMIT 1",(station_code,))
+                station=cur.fetchone()
+                if not station:
+                    raise ConflictError('Station kiosk yêu cầu không tồn tại; giữ nguyên cấu hình station.')
+                cur.execute("""UPDATE kiosk_identities SET usb_provision_challenge_hash=%s,
+                    usb_provision_challenge_until=CURRENT_TIMESTAMP+(%s * INTERVAL '1 second'),
+                    usb_provision_station_id=%s,usb_provision_challenge_by=%s,
+                    usb_provision_challenge_used=FALSE,updated_at=CURRENT_TIMESTAMP WHERE id=%s""",
+                    (hashlib.sha256(challenge.encode()).hexdigest(),self.USB_PROVISION_CHALLENGE_TTL_SECONDS,
+                     int(station['id']),str(actor or '')[:80],int(identity_id)))
+                record_audit(cur,action='KIOSK_USB_PROVISION_CHALLENGE',entity_type='kiosk_identity',
+                    entity_id=str(identity_id),actor_username=str(actor or '')[:80],
+                    metadata={'device_uuid':str(row['device_uuid']),'station_code':str(station['code']),
+                              'expires_in_seconds':self.USB_PROVISION_CHALLENGE_TTL_SECONDS},source='kiosk-usb-provisioner')
+                return {'challenge':challenge,'expires_in_seconds':self.USB_PROVISION_CHALLENGE_TTL_SECONDS,
+                        'device_uuid':str(row['device_uuid']),'station_code':str(station['code'])}
+
+    def complete_usb_provision(self,identity_id:int,attestation:dict[str,Any],actor:str,
+                               approval_ttl_minutes:int=15)->dict[str,Any]:
+        """Verify the connected ESP's one-time HMAC proof, then open its claim window.
+
+        The device secret is never returned. A successfully provisioned ESP
+        remains PENDING until its normal HTTPS /kiosk/connect retry claims the
+        token. Existing ACTIVE/DISABLED identities cannot be reactivated here.
+        """
+        from mesflow.domain.errors import PermissionDeniedError,ValidationError
+        device_uuid=str(attestation.get('device_uuid') or '').strip()
+        challenge=str(attestation.get('challenge') or '').strip().lower()
+        proof=str(attestation.get('proof') or '').strip().lower()
+        mac=str(attestation.get('mac_address') or '').strip().upper().replace('-',':')
+        device_id=str(attestation.get('device_id') or '').strip()
+        station_code=str(attestation.get('station_code') or '').strip()
+        firmware_version=str(attestation.get('firmware_version') or '').strip()
+        if (not device_uuid or len(device_uuid)>80 or not re.fullmatch(r'[0-9a-f]{64}',challenge)
+                or not re.fullmatch(r'[0-9a-f]{64}',proof)
+                or not re.fullmatch(r'(?:[0-9A-F]{2}:){5}[0-9A-F]{2}',mac)
+                or not firmware_version or len(firmware_version)>40):
+            raise ValidationError('USB enrollment proof is incomplete or malformed.')
+        expected_device_id='ESP32-KIOSK-'+mac.replace(':','')[-4:]
+        if device_id!=expected_device_id:
+            raise PermissionDeniedError('USB kiosk identity does not match the unique device ID derived from its MAC.')
+        challenge_hash=hashlib.sha256(challenge.encode()).hexdigest()
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                # Serialize simultaneous claims for the same ID even when no
+                # row currently carries it; row locks alone cannot lock absence.
+                for lock_key in sorted((device_id,mac)):
+                    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))",(lock_key,))
+                cur.execute("SELECT * FROM kiosk_identities WHERE id=%s FOR UPDATE",(int(identity_id),))
+                row=cur.fetchone()
+                if not row: raise NotFoundError('kiosk identity not found')
+                if str(row.get('device_uuid') or '')!=device_uuid:
+                    raise PermissionDeniedError('USB device UUID does not match this pending kiosk.')
+                if str(row.get('status') or '').upper()!='PENDING':
+                    raise ConflictError('USB provisioning cannot activate or re-enroll a non-PENDING kiosk.')
+                if row.get('token_hash') or row.get('station_id'):
+                    raise ConflictError('USB provisioning cannot reactivate an identity with a prior token or station binding.')
+                secret_hash=str(row.get('enroll_secret_hash') or '')
+                if not re.fullmatch(r'[0-9a-fA-F]{64}',secret_hash):
+                    raise ConflictError('Kiosk has no valid enrollment secret proof.')
+                if station_code.strip().upper()!=str(row.get('enroll_station_code') or '').strip().upper():
+                    raise PermissionDeniedError('USB kiosk station does not match its original enrollment request.')
+                if str(row.get('usb_provision_challenge_hash') or '')!=challenge_hash:
+                    raise PermissionDeniedError('USB enrollment challenge is invalid or has already been replaced.')
+                expected=hmac.new(bytes.fromhex(secret_hash),
+                    self.usb_provision_message(device_uuid,challenge,mac,device_id,station_code,firmware_version),
+                    hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(expected,proof):
+                    raise PermissionDeniedError('USB device-secret proof did not match this pending kiosk.')
+                cur.execute("SELECT id FROM kiosk_identities WHERE device_id=%s AND id<>%s LIMIT 1 FOR UPDATE",
+                            (device_id,int(identity_id)))
+                if cur.fetchone(): raise ConflictError('Unique kiosk device ID is already assigned to another pending or active device.')
+                cur.execute("SELECT id FROM kiosk_identities WHERE usb_provision_mac=%s AND id<>%s LIMIT 1 FOR UPDATE",
+                            (mac,int(identity_id)))
+                if cur.fetchone(): raise ConflictError('USB MAC address is already assigned to another kiosk identity.')
+                if bool(row.get('usb_provision_challenge_used')):
+                    cur.execute("SELECT enroll_approved_until>CURRENT_TIMESTAMP live FROM kiosk_identities WHERE id=%s",(int(identity_id),))
+                    if bool((cur.fetchone() or {}).get('live')) and int(row.get('usb_provision_station_id') or 0)>0:
+                        return {'approved':True,'idempotent':True,'device_uuid':device_uuid,
+                                'device_id':device_id,'station_id':int(row['usb_provision_station_id']),
+                                'approved_until':row.get('enroll_approved_until')}
+                    raise ConflictError('USB proof was already consumed; request a fresh proof while the kiosk remains PENDING.')
+                cur.execute("SELECT usb_provision_challenge_until>CURRENT_TIMESTAMP live FROM kiosk_identities WHERE id=%s",(int(identity_id),))
+                live=bool((cur.fetchone() or {}).get('live'))
+                if not live: raise PermissionDeniedError('USB enrollment challenge expired; request a fresh physical proof.')
+                if row.get('enroll_approved_until'):
+                    cur.execute("SELECT enroll_approved_until>CURRENT_TIMESTAMP live FROM kiosk_identities WHERE id=%s",(int(identity_id),))
+                    if bool((cur.fetchone() or {}).get('live')):
+                        raise ConflictError('Kiosk already has an approval window from another flow; do not replace it.')
+                station_id=int(row.get('usb_provision_station_id') or 0)
+                if not station_id: raise ConflictError('USB provisioning challenge has no bound station.')
+                cur.execute("""UPDATE kiosk_identities SET device_id=%s,usb_provision_mac=%s,enroll_station_id=%s,
+                    enroll_approved_until=CURRENT_TIMESTAMP+(%s * INTERVAL '1 minute'),enroll_approved_by=%s,
+                    usb_provision_challenge_used=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING enroll_approved_until""",
+                    (device_id,mac,station_id,max(1,min(15,int(approval_ttl_minutes or 15))),str(actor or '')[:80],int(identity_id)))
+                result=cur.fetchone() or {}
+                record_audit(cur,action='KIOSK_USB_PROVISION_APPROVE',entity_type='kiosk_identity',
+                    entity_id=str(identity_id),actor_username=str(actor or '')[:80],
+                    metadata={'device_uuid':device_uuid,'device_id':device_id,'station_id':station_id,
+                              'mac_address':mac,'approved_until':str(result.get('enroll_approved_until'))},
+                    source='kiosk-usb-provisioner')
+                return {'approved':True,'idempotent':False,'device_uuid':device_uuid,'device_id':device_id,
+                        'station_id':station_id,'approved_until':result.get('enroll_approved_until')}
 
     @staticmethod
     def enrollment_code(secret_hash:str)->str:
@@ -362,10 +518,10 @@ class KioskRepository:
                     cur.execute("SELECT COUNT(*) n FROM kiosk_identities WHERE status='PENDING'")
                     if int((cur.fetchone() or {}).get('n') or 0)>=self.ENROLL_PENDING_CAP:
                         raise PermissionDeniedError('Quá nhiều kiosk đang chờ duyệt; quản trị viên cần xử lý danh sách chờ trước.')
-                    cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,status,firmware_version,firmware_build,
+                    cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_id,device_name,status,firmware_version,firmware_build,
                         hardware_model,hardware_profile,ota_capable,last_ip,last_seen_at,enroll_secret_hash,enroll_station_code)
-                        VALUES(%s,%s,'PENDING',%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP,%s,%s) RETURNING *""",
-                        (device_uuid,*meta,secret_hash,requested))
+                        VALUES(%s,%s,%s,'PENDING',%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP,%s,%s) RETURNING *""",
+                        (device_uuid,str(data.get('device_id') or '')[:80],*meta,secret_hash,requested))
                     return 'PENDING',cur.fetchone(),None
                 if str(row.get('status') or '').upper()!='PENDING':
                     raise PermissionDeniedError(f"Kiosk '{device_uuid}' không ở trạng thái chờ đăng ký.")
@@ -376,17 +532,22 @@ class KioskRepository:
                 cur.execute("SELECT enroll_approved_until IS NOT NULL AND enroll_approved_until>CURRENT_TIMESTAMP AS live FROM kiosk_identities WHERE id=%s",(row['id'],))
                 live=bool((cur.fetchone() or {}).get('live'))
                 if stored and live and row.get('enroll_station_id'):
+                    approved_device_id=str(row.get('device_id') or '')
+                    presented_device_id=str(data.get('device_id') or '').strip()
+                    if approved_device_id and presented_device_id!=approved_device_id:
+                        raise PermissionDeniedError('Kiosk device_id does not match the ID approved from its physical USB proof.')
                     token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
                     cur.execute("""UPDATE kiosk_identities SET status='ACTIVE',station_id=enroll_station_id,token_hash=%s,
                         device_name=%s,firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
                         enroll_approved_until=NULL,enroll_station_id=NULL,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                         WHERE id=%s RETURNING *""",(token_hash,*meta,row['id']))
                     return 'ACTIVATED',cur.fetchone(),token
-                cur.execute("""UPDATE kiosk_identities SET enroll_secret_hash=CASE WHEN enroll_secret_hash='' THEN %s ELSE enroll_secret_hash END,
+                cur.execute("""UPDATE kiosk_identities SET device_id=CASE WHEN %s<>'' THEN %s ELSE device_id END,
+                    enroll_secret_hash=CASE WHEN enroll_secret_hash='' THEN %s ELSE enroll_secret_hash END,
                     enroll_station_code=CASE WHEN %s<>'' THEN %s ELSE enroll_station_code END,
                     firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
                     last_seen_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *""",
-                    (secret_hash,requested,requested,*meta[1:],row['id']))
+                    (str(data.get('device_id') or '')[:80],str(data.get('device_id') or '')[:80],secret_hash,requested,requested,*meta[1:],row['id']))
                 return 'PENDING',cur.fetchone(),None
 
     def approve_enrollment(self,identity_id:int,station_id:int,actor:str,ttl_minutes:int=15):
@@ -421,16 +582,16 @@ class KioskRepository:
                 if station_code:
                     cur.execute('SELECT id FROM stations WHERE upper(code)=upper(%s) LIMIT 1',(station_code,)); st=cur.fetchone(); station_id=st['id'] if st else None
                 token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
-                cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,station_id,status,token_hash,firmware_version,firmware_build,hardware_model,ota_capable,last_ip,last_seen_at)
-                  VALUES(%s,%s,%s,'ACTIVE',%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
-                  ON CONFLICT(device_uuid) DO UPDATE SET device_name=EXCLUDED.device_name,
+                cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_id,device_name,station_id,status,token_hash,firmware_version,firmware_build,hardware_model,ota_capable,last_ip,last_seen_at)
+                  VALUES(%s,%s,%s,%s,'ACTIVE',%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
+                  ON CONFLICT(device_uuid) DO UPDATE SET device_id=EXCLUDED.device_id,device_name=EXCLUDED.device_name,
                     station_id=COALESCE(EXCLUDED.station_id,kiosk_identities.station_id),status='ACTIVE',
                     token_hash=EXCLUDED.token_hash,
                     firmware_version=EXCLUDED.firmware_version,firmware_build=EXCLUDED.firmware_build,
                     hardware_model=EXCLUDED.hardware_model,ota_capable=EXCLUDED.ota_capable,
                     last_ip=EXCLUDED.last_ip,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                   RETURNING *, CASE WHEN token_hash=%s THEN TRUE ELSE FALSE END token_replaced""",
-                  (device_uuid,str(data.get('device_name') or device_uuid),station_id,token_hash,
+                  (device_uuid,str(data.get('device_id') or device_uuid)[:80],str(data.get('device_name') or device_uuid),station_id,token_hash,
                    str(data.get('app_version') or data.get('firmware_version') or ''),str(data.get('firmware_build') or ''),
                    str(data.get('hardware_model') or ''),bool(data.get('ota_capable',False)),last_ip,token_hash))
                 row=cur.fetchone()

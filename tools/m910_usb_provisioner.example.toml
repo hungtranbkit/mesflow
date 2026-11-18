@@ -1,0 +1,23 @@
+# Intentionally non-operational library config template for the existing
+# m910_esp_usb_monitor watcher. That watcher owns USB/by-id discovery and LAN
+# cross-check; this module only processes one already-detected serial port.
+# File mode must be 0600; secrets are separate 0600 files, never committed.
+[server]
+base_url = "https://replace-with-authorized-mesflow-origin"
+service_token_file = "/etc/mesflow/kiosk-provisioner/service.token"
+ca_file = "/etc/ssl/certs/ca-certificates.crt"
+
+[serial]
+baud = 115200
+
+[runtime]
+state_db = "/var/lib/mesflow-kiosk-provisioner/state.sqlite3"
+max_attempts_per_hour = 5
+
+[[devices]]
+# Exact pre-existing persistent UUID and observed MAC; host never generates UUID.
+mac_address = "REPLACE-WITH-VERIFIED-MAC"
+device_uuid = "REPLACE-WITH-VERIFIED-UUID"
+station_code = "REPLACE-WITH-APPROVED-STATION"
+wifi_ssid = "REPLACE-WITH-APPROVED-SSID"
+wifi_password_file = "/etc/mesflow/kiosk-provisioner/wifi-password"
