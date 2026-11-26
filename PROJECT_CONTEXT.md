@@ -9,6 +9,49 @@ anything stale here; fix this file when they disagree.
 > main by the kiosk hotfix below. When main is next merged into that line,
 > keep both sections (add/add conflict — concatenate, don't pick one).
 
+## Existing ESP enrollment restored for public release — 2026-11-26
+
+- Branch: `agent/codex/esp-approval-restore-20261126`; exact runtime base
+  `e577584d89d0281f4bfb77e6338594af673c2d1a`. The production integration
+  branch's documentation commit `83e92ece` is included through an ordinary
+  merge. Public UI/report changes are preserved; this is not a merge of PR #50.
+- Existing changes restored from `40b28f7`, `849d0cf`, and `c65b08f`:
+  instance identity, migrations 0055/0056, device-secret contact/claim,
+  admin approval UI/API, audit labels, and their existing focused tests.
+  Feature/version commit: `61d65c7`. No firmware or agent changes.
+- Unknown ESP contact with a secret under strict mode is recorded PENDING.
+  Admin approves one identity and station for a bounded window; the same
+  device claims its credential once. Approval requires a VERIFIED instance.
+  Legacy autobind/rebind flags remain unchanged.
+- Schema: `0054_multi_open_session_per_employee` ->
+  `0055_mesflow_instance_identity` -> `0056_kiosk_enrollment_approval`.
+  Configure a persistent install-specific `MESFLOW_INSTANCE_SECRET` before
+  approval. A missing or mismatched existing binding must be investigated;
+  do not use adopt/new-install merely to bypass the identity check.
+- Version `71.0.0.391` reserved with the canonical bump script; remote tags,
+  release, and local release artifact directory were absent at reservation.
+  Version verification, JS syntax, and diff whitespace checks passed.
+- Fresh local verification used the declared test services in an isolated
+  Docker project with internal network, no published ports, tmpfs PostgreSQL,
+  read-only source mounts, and task-local test dependencies. Baseline auth:
+  8 passed. Restored identity/enrollment/auth: 23 unit/source-contract tests
+  plus 11 PostgreSQL/API tests passed, zero failures/skips. Both APIs were
+  ready on 0056; integration covered no-token-before-approval, wrong-secret
+  rejection, expiry, single-device/single-use claims, authorization and TTL.
+- Evidence: workspace `artifacts/enrollment-restore-20261126/` contains
+  command/exit logs, focused JUnit files, and the reviewed diff. The canonical
+  checkout's unrelated UI WIP was preserved.
+- Deployment status: source prepared only. No public DB migration, device
+  change, public deployment, release image, or immutable ZIP was produced by
+  this preparation. Required remote CI, final frozen-image verification,
+  production backup/identity setup/migration, and real browser/device
+  acceptance remain release gates.
+- Rollback must use the new migration code to return to recorded schema 0054
+  before restoring the prior image/schema guard. Downgrade discards new
+  enrollment/profile metadata; it retains the stable instance UUID and does
+  not delete existing ACTIVE identities or their credentials. Preserve the
+  original image and verify identity/generation data across deployment.
+
 ## Issue #40 — instant FAQ live on TEST (2026-10-10 12:28 ICT)
 
 This supersedes the old topic-selection support design recorded below.
