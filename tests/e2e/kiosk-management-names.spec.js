@@ -24,7 +24,9 @@ async function boot(page) {
     kiosk.device_name = payload.device_name;
     return route.fulfill({ json: { ok: true, changed: true, item: { id: kiosk.id, device_uuid: kiosk.device_uuid, device_name: kiosk.device_name } } });
   });
-  await page.goto('/kiosk-management');
+  const login = await page.request.post('/api/auth/test-auto-login');
+  expect(login.ok()).toBe(true);
+  await page.goto('/app?page=kiosk-management');
   await expect(page.locator('.kiosk-card')).toHaveCount(3);
   return state;
 }

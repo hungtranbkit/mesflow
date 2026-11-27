@@ -2338,7 +2338,7 @@ async function renderKioskManagement(){
     if(!kiosk)return;
     const shortId=kioskShortId(kiosk.device_uuid);
     const modal=MFUI.openModal({id:'kioskName',title:'Đổi tên kiosk',size:'MD',
-      content:`<p class="modal-note">Đặt tên dễ nhận biết, ví dụ Máy 1 hoặc Máy cắt 2. Tên được gửi về kiosk trong lần kết nối tiếp theo.</p>
+      content:`<p class="modal-note">Đặt tên dễ nhận biết, ví dụ Máy 1 hoặc Máy cắt 2. Tên được lưu trên MESFlow. ESP có firmware hỗ trợ tên máy sẽ tự đồng bộ khi kết nối.</p>
         <p class="modal-note">${shortId?'Mã máy: <b>'+esc(shortId)+'</b> · ':''}${esc(kiosk.device_uuid)}</p>
         <label class="ui-field" for="knName"><span>Tên kiosk</span><input id="knName" type="text" value="${esc(kiosk.device_name||'')}" maxlength="63" required autocomplete="off" aria-describedby="knHelp knError"></label>
         <p class="modal-note" id="knHelp">Dùng tên ngắn, dễ nhận biết để đọc trên màn hình kiosk.</p>
@@ -2362,7 +2362,7 @@ async function renderKioskManagement(){
     };
     save.onclick=submit;
     field.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();submit();}};
-    field.focus();field.select();
+    requestAnimationFrame(()=>{if(field.isConnected){field.focus();field.select();}});
   };
 
   // Hardware kiosk enrollment (ESP): the device sent its own secret and shows

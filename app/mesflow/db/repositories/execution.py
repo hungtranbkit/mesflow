@@ -205,8 +205,10 @@ class KioskRepository:
         if not isinstance(value, str):
             raise ValueError('Tên kiosk phải là chuỗi.')
         name=value.strip()
-        if not name or len(name.encode('utf-8'))>63:
-            raise ValueError('Tên kiosk phải có từ 1 đến 63 byte UTF-8.')
+        if not name:
+            raise ValueError('Tên kiosk không được để trống.')
+        if len(name.encode('utf-8'))>63:
+            raise ValueError('Tên kiosk quá dài, hãy dùng tên ngắn hơn.')
         if any(ord(char)<32 or ord(char)==127 for char in name):
             raise ValueError('Tên kiosk không được chứa ký tự điều khiển.')
         return name
