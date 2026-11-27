@@ -90,7 +90,8 @@ def heartbeat():
     try:
         identity=KioskRepository().verify_token(str(body.get('device_uuid','')),str(request.headers.get('X-Kiosk-Token','')))
         status=KioskRepository().heartbeat(str(body['device_uuid']),body)
-        return jsonify(ok=True,status=status,device_name=identity.get('device_name') or '')
+        display_number=status.pop('display_number',None)
+        return jsonify(ok=True,status=status,device_name=identity.get('device_name') or '',display_number=display_number)
     except Exception as exc: return err(exc)
 @bp.get('/work-sessions')
 @login_required
@@ -343,10 +344,10 @@ def _kiosk_enrollment_response(body):
         AuditRepository().log('kiosk:'+str(row['device_uuid'])[:60],'KIOSK_ENROLLMENT_CLAIMED','kiosk_identity',str(row['id']),
                               {'station_id':row.get('station_id'),'approved_by':row.get('enroll_approved_by') or ''})
         return jsonify(ok=True,enrolled=True,kiosk_token=token,device_uuid=row['device_uuid'],device_id=str(body.get('device_id') or row['device_uuid']),
-                       device_name=row.get('device_name'),station_id=row.get('station_id'),station_code=(station or {}).get('code') or '',
+                       device_name=row.get('device_name'),display_number=row.get('display_number'),station_id=row.get('station_id'),station_code=(station or {}).get('code') or '',
                        enabled=True,config_version=1,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
     code=KioskRepository.enrollment_code(row.get('enroll_secret_hash'))
-    return jsonify(ok=False,error='KIOSK_ENROLLMENT_PENDING',enrollment_code=code,
+    return jsonify(ok=False,error='KIOSK_ENROLLMENT_PENDING',enrollment_code=code,display_number=row.get('display_number'),
                    message=f"Kiosk chờ duyệt. Mã xác nhận {code}: quản trị viên duyệt đúng mã này tại /kiosk-management."),403
 
 @bp.post('/kiosk/bind')
@@ -402,7 +403,7 @@ def legacy_kiosk_bind():
         row,token=KioskRepository().bind_legacy(body,request.remote_addr or '')
         station = KioskRepositoryLookup.station(str(body.get('station_code') or '')) if body.get('station_code') else None
         generation=ServerGenerationRepository().current()
-        return jsonify(ok=True,kiosk_token=token,device_uuid=row['device_uuid'],device_id=str(body.get('device_id') or row['device_uuid']),device_name=row.get('device_name'),station_id=row.get('station_id'),station_code=(station or {}).get('code') if station else body.get('station_code'),enabled=row['status']=='ACTIVE',config_version=1,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
+        return jsonify(ok=True,kiosk_token=token,device_uuid=row['device_uuid'],device_id=str(body.get('device_id') or row['device_uuid']),device_name=row.get('device_name'),display_number=row.get('display_number'),station_id=row.get('station_id'),station_code=(station or {}).get('code') if station else body.get('station_code'),enabled=row['status']=='ACTIVE',config_version=1,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'])
     except Exception as exc: return err(exc)
 
 @bp.post('/station/heartbeat')
@@ -433,7 +434,8 @@ def legacy_station_heartbeat():
         # Instance-scoped OTA endpoint, delivered over this already-authenticated
         # kiosk channel: the ESP adopts it instead of any compiled default.
         ota=instance_identity.current()
-        return jsonify(ok=True,enabled=True,config_version=1,status=status,device_name=identity.get('device_name') or '',cluster_id=generation['cluster_id'],generation_id=generation['generation_id'],
+        display_number=status.pop('display_number',None)
+        return jsonify(ok=True,enabled=True,config_version=1,status=status,device_name=identity.get('device_name') or '',display_number=display_number,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'],
                        instance_id=ota['instance_id'],ota_agent_url=ota['ota_agent_url'] if ota['state']=='VERIFIED' else '')
     except Exception as exc: return err(exc)
 
@@ -544,7 +546,7 @@ def kiosk_management_approve_enrollment(identity_id):
         row=KioskRepository().approve_enrollment(identity_id,int(body.get('station_id') or 0),actor,int(body.get('ttl_minutes') or 15))
         AuditRepository().log(actor,'KIOSK_ENROLLMENT_APPROVE','kiosk_identity',str(identity_id),
                               {'station_id':row.get('enroll_station_id'),'until':str(row.get('enroll_approved_until')),'instance_id':inst.get('instance_id')})
-        return jsonify(ok=True,identity_id=row['id'],device_uuid=row['device_uuid'],station_id=row.get('enroll_station_id'),
+        return jsonify(ok=True,identity_id=row['id'],device_uuid=row['device_uuid'],display_number=row.get('display_number'),station_id=row.get('enroll_station_id'),
                        approved_until=row.get('enroll_approved_until'),enrollment_code=KioskRepository.enrollment_code(row.get('enroll_secret_hash')))
     except Exception as exc:return err(exc)
 
