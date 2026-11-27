@@ -88,9 +88,9 @@ def approve(identity_id):
 def heartbeat():
     body=request.get_json(silent=True) or {}
     try:
-        KioskRepository().verify_token(str(body.get('device_uuid','')),str(request.headers.get('X-Kiosk-Token','')))
+        identity=KioskRepository().verify_token(str(body.get('device_uuid','')),str(request.headers.get('X-Kiosk-Token','')))
         status=KioskRepository().heartbeat(str(body['device_uuid']),body)
-        return jsonify(ok=True,status=status)
+        return jsonify(ok=True,status=status,device_name=identity.get('device_name') or '')
     except Exception as exc: return err(exc)
 @bp.get('/work-sessions')
 @login_required
@@ -433,7 +433,7 @@ def legacy_station_heartbeat():
         # Instance-scoped OTA endpoint, delivered over this already-authenticated
         # kiosk channel: the ESP adopts it instead of any compiled default.
         ota=instance_identity.current()
-        return jsonify(ok=True,enabled=True,config_version=1,status=status,cluster_id=generation['cluster_id'],generation_id=generation['generation_id'],
+        return jsonify(ok=True,enabled=True,config_version=1,status=status,device_name=identity.get('device_name') or '',cluster_id=generation['cluster_id'],generation_id=generation['generation_id'],
                        instance_id=ota['instance_id'],ota_agent_url=ota['ota_agent_url'] if ota['state']=='VERIFIED' else '')
     except Exception as exc: return err(exc)
 
@@ -501,6 +501,21 @@ def kiosk_management_overview():
 def kiosk_management_events(device_uuid):
     try:return jsonify(ok=True,items=KioskRepository().events_for_device(device_uuid,int(request.args.get('limit',300))))
     except Exception as exc:return err(exc)
+
+@bp.patch('/kiosk-management/<int:identity_id>/name')
+@roles_required('admin','manager')
+def kiosk_management_rename(identity_id):
+    try:
+        body=request.get_json(silent=True)
+        if not isinstance(body,dict) or set(body)!={'device_name'}:
+            raise ValueError('Chỉ gửi tên kiosk trong trường device_name.')
+        row,changed,previous=KioskRepository().rename(identity_id,body['device_name'])
+        if changed:
+            AuditRepository().log(str(session.get('username','')),'KIOSK_RENAME','kiosk_identity',str(identity_id),
+                                  {'previous_name':previous,'device_name':row['device_name']})
+        return jsonify(ok=True,item=dict(row),changed=changed)
+    except Exception as exc:return err(exc)
+
 
 @bp.post('/kiosk-management/<int:identity_id>/status')
 @roles_required('admin','manager')

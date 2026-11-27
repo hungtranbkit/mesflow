@@ -200,6 +200,33 @@ def _validate_and_upsert_input_consumption(cur, *, session_id:int, target_operat
 
 
 class KioskRepository:
+    @staticmethod
+    def validate_device_name(value):
+        if not isinstance(value, str):
+            raise ValueError('Tên kiosk phải là chuỗi.')
+        name=value.strip()
+        if not name:
+            raise ValueError('Tên kiosk không được để trống.')
+        if len(name.encode('utf-8'))>63:
+            raise ValueError('Tên kiosk quá dài, hãy dùng tên ngắn hơn.')
+        if any(ord(char)<32 or ord(char)==127 for char in name):
+            raise ValueError('Tên kiosk không được chứa ký tự điều khiển.')
+        return name
+
+    def rename(self,identity_id:int,name):
+        name=self.validate_device_name(name)
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id,device_uuid,device_name FROM kiosk_identities WHERE id=%s FOR UPDATE",(identity_id,))
+                row=cur.fetchone()
+                if not row: raise NotFoundError('kiosk identity not found')
+                previous=row['device_name']
+                if previous==name:
+                    return row,False,previous
+                cur.execute("""UPDATE kiosk_identities SET device_name=%s,updated_at=CURRENT_TIMESTAMP
+                    WHERE id=%s RETURNING id,device_uuid,device_name""",(name,identity_id))
+                return cur.fetchone(),True,previous
+
     def register(self,data:dict[str,Any]):
         device_uuid=str(data.get('device_uuid','')).strip()
         if not device_uuid: raise ValueError('device_uuid required')
@@ -207,7 +234,7 @@ class KioskRepository:
             with conn.cursor() as cur:
                 cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,firmware_version,last_ip,last_seen_at)
                 VALUES(%s,%s,%s,%s,CURRENT_TIMESTAMP)
-                ON CONFLICT(device_uuid) DO UPDATE SET device_name=EXCLUDED.device_name,
+                ON CONFLICT(device_uuid) DO UPDATE SET device_name=CASE WHEN btrim(kiosk_identities.device_name)<>'' THEN kiosk_identities.device_name ELSE EXCLUDED.device_name END,
                 firmware_version=EXCLUDED.firmware_version,last_ip=EXCLUDED.last_ip,last_seen_at=CURRENT_TIMESTAMP
                 RETURNING *""",(device_uuid,str(data.get('device_name','')),str(data.get('firmware_version','')),str(data.get('last_ip',''))))
                 return cur.fetchone()
@@ -280,7 +307,7 @@ class KioskRepository:
                     )
                 cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,firmware_version,last_ip,last_seen_at,status,updated_at)
                     VALUES(%s,%s,%s,%s,CURRENT_TIMESTAMP,'ACTIVE',CURRENT_TIMESTAMP)
-                    ON CONFLICT(device_uuid) DO UPDATE SET device_name=EXCLUDED.device_name,
+                    ON CONFLICT(device_uuid) DO UPDATE SET device_name=CASE WHEN btrim(kiosk_identities.device_name)<>'' THEN kiosk_identities.device_name ELSE EXCLUDED.device_name END,
                     firmware_version=EXCLUDED.firmware_version,last_ip=EXCLUDED.last_ip,last_seen_at=CURRENT_TIMESTAMP,
                     status='ACTIVE',updated_at=CURRENT_TIMESTAMP
                     RETURNING station_id""",
@@ -378,7 +405,7 @@ class KioskRepository:
                 if stored and live and row.get('enroll_station_id'):
                     token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
                     cur.execute("""UPDATE kiosk_identities SET status='ACTIVE',station_id=enroll_station_id,token_hash=%s,
-                        device_name=%s,firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
+                        device_name=CASE WHEN btrim(device_name)<>'' THEN device_name ELSE %s END,firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
                         enroll_approved_until=NULL,enroll_station_id=NULL,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                         WHERE id=%s RETURNING *""",(token_hash,*meta,row['id']))
                     return 'ACTIVATED',cur.fetchone(),token
@@ -423,7 +450,7 @@ class KioskRepository:
                 token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
                 cur.execute("""INSERT INTO kiosk_identities(device_uuid,device_name,station_id,status,token_hash,firmware_version,firmware_build,hardware_model,ota_capable,last_ip,last_seen_at)
                   VALUES(%s,%s,%s,'ACTIVE',%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)
-                  ON CONFLICT(device_uuid) DO UPDATE SET device_name=EXCLUDED.device_name,
+                  ON CONFLICT(device_uuid) DO UPDATE SET device_name=CASE WHEN btrim(kiosk_identities.device_name)<>'' THEN kiosk_identities.device_name ELSE EXCLUDED.device_name END,
                     station_id=COALESCE(EXCLUDED.station_id,kiosk_identities.station_id),status='ACTIVE',
                     token_hash=EXCLUDED.token_hash,
                     firmware_version=EXCLUDED.firmware_version,firmware_build=EXCLUDED.firmware_build,
