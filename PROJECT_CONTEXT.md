@@ -1001,3 +1001,12 @@ sudo python3 /opt/mesflow/rollback/pr43-20261010T072146Z/rollout.py reapply /opt
 The persistent `/opt/mesflow/compose.pr43-runtime.json` app-only override starts Waitress directly, skipping the stock migration/seeding entrypoint for deployment and rollback. Keep it in subsequent compose operations until a coordinated release explicitly replaces it. Base compose and nginx configuration hashes are unchanged. Report assistant/snapshot worker (`79eb346`), public support, database and nginx image IDs/start times, and app networks are unchanged. Schema remains `72.0.11.0`, migration head `0054_multi_open_session_per_employee`. No migrations, seeders, deployment-record writes, or business-data edits were run; production was untouched. Existing authenticated access was reused without logout or account edits.
 
 Private local evidence: `/tmp/mesflow-pr43-evidence/` (`final-390.json`, `rollback-383.json`, CI logs and screenshots); authenticated screenshots/session material must not be committed. Frozen release bundle: `/home/kimex/workspace/artifacts/releases/71.0.0.390/MESFlow_71.0.0.390.deploy.zip`.
+
+
+## 2026-11-27 — Kiosk human names and stable display IDs
+
+Worktree branch: agent/codex/kiosk-device-names-20261127; base 6b46a26 (same tree as deployed 71.0.0.391 / 8009ca6). Existing canonical checkout/WIP preserved.
+
+Implemented name-only admin/manager PATCH, idempotent rename/audit, preservation of existing names on register/claim/rebind/web heartbeat, canonical name in both hardware heartbeat responses, and Classic rename dialog/card/timeline labels with stable UUID suffix. Existing device_name is reused; no migration, identity renumbering or token/station/status changes from rename. See docs/plans/2026-11-27-kiosk-device-names.md.
+
+Changed areas: execution repository/routes, audit presentation labels, Classic app.js/ui.css, focused PostgreSQL and browser tests. Syntax and git diff checks pass. First isolated PostgreSQL run: 23 passed and one new-test assertion failed because audit details_json is stored as JSON text; test decoding corrected. Focused rerun and browser rendering are pending. This is source prepared for review only: no version bump, new release image, public data changes or deployment. Root coordinates remaining review, firmware integration, qualification, initial names and release.
