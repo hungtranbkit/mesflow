@@ -2303,30 +2303,37 @@ window.resetUserPassword=(id,username)=>{const box=document.createElement('div')
 function changeOwnPasswordModal(){const box=document.createElement('div');box.className='modal-backdrop';box.innerHTML=`<div class="modal"><h2>Đổi mật khẩu của tôi</h2><form><label>Mật khẩu hiện tại<input name="current_password" type="password" required></label><label>Mật khẩu mới<input name="new_password" type="password" minlength="8" required></label><label>Nhập lại mật khẩu mới<input name="confirm_password" type="password" minlength="8" required></label><div class="modal-actions"><button type="button" class="btn" id="cancel">Hủy</button><button class="btn primary">Đổi mật khẩu</button></div></form></div>`;document.body.appendChild(box);box.querySelector('#cancel').onclick=()=>box.remove();box.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=e.target;if(f.new_password.value!==f.confirm_password.value)return alert('Mật khẩu nhập lại không khớp');try{await api('/api/auth/change-password',{method:'POST',body:JSON.stringify({current_password:f.current_password.value,new_password:f.new_password.value})});box.remove();toast('Đã đổi mật khẩu')}catch(err){alert(err.message)}}}
 
 
-function kioskShortId(deviceUuid){
-  const value=String(deviceUuid||'');
-  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value)?value.replace(/-/g,'').slice(-8).toUpperCase():'';
+function kioskDisplayNumber(kiosk){
+  const value=kiosk.display_number;
+  return Number.isInteger(value)&&value>=1&&value<=2147483647?String(value).padStart(2,'0'):'';
 }
 function kioskDisplayLabel(kiosk){
-  const name=kiosk.device_name||kiosk.device_uuid||'Kiosk',shortId=kioskShortId(kiosk.device_uuid);
-  return shortId?name+' · '+shortId:name;
+  const name=kiosk.device_name&&kiosk.device_name!==kiosk.device_uuid?kiosk.device_name:'Kiosk',number=kioskDisplayNumber(kiosk);
+  return number?name+' · '+number:name;
+}
+function kioskIdentityDetails(kiosk){
+  return `<details class="kiosk-identity-details"><summary>Thông tin kỹ thuật</summary><small>UUID: ${esc(kiosk.device_uuid||'—')}</small></details>`;
 }
 
 async function renderKioskManagement(){
   title.textContent='Quản lý trạm Kiosk';subtitle.textContent='Đăng ký thiết bị, theo dõi online/offline, action log và lỗi theo từng trạm';
   content.innerHTML=`<div class="page-shell">
   <div class="page-header"><div id="kmSummary" class="daily-kpis kiosk-kpis"></div><div class="page-header-actions"><button class="btn" id="kmReload">Làm mới</button></div></div>
-  ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="kmSearch" placeholder="Tìm device, tên, trạm, IP, firmware..."></label><label><span>Trạng thái</span><select id="kmState"><option value="">Tất cả trạng thái</option><option value="online">Online</option><option value="offline">Offline</option><option value="error">Có lỗi</option><option value="PENDING">Chờ duyệt</option><option value="DISABLED">Đã khóa</option></select></label>'})}
+  ${MFUI.filterBar({content:'<label><span>Tìm nhanh</span><input id="kmSearch" placeholder="Tìm mã máy, tên, trạm, IP, firmware..."></label><label><span>Trạng thái</span><select id="kmState"><option value="">Tất cả trạng thái</option><option value="online">Online</option><option value="offline">Offline</option><option value="error">Có lỗi</option><option value="PENDING">Chờ duyệt</option><option value="DISABLED">Đã khóa</option></select></label>'})}
   <section class="content-panel"><div class="content-panel-head"><div><h3>Kiosk theo bộ lọc</h3></div></div><div class="content-panel-body" id="kmList">Đang tải...</div></section>
   <div class="panel" id="kmDetail"><div class="empty">Chọn một kiosk để xem action timeline.</div></div>
 </div>`;
   let data={kiosks:[]},selectedDevice='';
   const draw=()=>{
-    const q=(document.getElementById('kmSearch').value||'').toLowerCase(),f=document.getElementById('kmState').value;
-    let rows=(data.kiosks||[]).filter(x=>JSON.stringify(x).toLowerCase().includes(q));
+    const q=(document.getElementById('kmSearch').value||'').trim().toLowerCase(),f=document.getElementById('kmState').value;
+    const kiosks=data.kiosks||[],exact=/^\d+$/.test(q)?kiosks.filter(x=>kioskDisplayNumber(x)&&x.display_number===Number(q)):[];
+    // Prefer the permanent machine number; retain station/name searching
+    // when a numeric query has no exact machine-number match.
+    let rows=exact.length?exact:kiosks.filter(x=>JSON.stringify(x).toLowerCase().includes(q));
     if(f==='online')rows=rows.filter(x=>x.online);else if(f==='offline')rows=rows.filter(x=>!x.online);else if(f==='error')rows=rows.filter(x=>Number(x.open_error_count||0)>0||x.last_error);else if(f)rows=rows.filter(x=>x.status===f);
-    document.getElementById('kmList').innerHTML=rows.length?`<div class="kiosk-grid">${rows.map(x=>`<article class="kiosk-card ${x.online?'online':'offline'} ${x.open_error_count||x.offline_conflict_count?'has-error':''}" data-device="${esc(x.device_uuid)}"><div class="kiosk-card-head"><div><b class="kiosk-device-label">${esc(kioskDisplayLabel(x))}</b><small>${esc(x.device_uuid)}</small></div><span class="badge ${x.online?'ok':'muted'}">${x.online?'Online':'Offline'}</span>${x.generation_stale?'<span class="badge warn" title="Chưa đối chiếu (DR reconciliation) với generation hiện tại của server">Đang đối chiếu DR</span>':''}</div><div class="kiosk-meta"><span>Trạm: <b>${esc(x.station_code||'Chưa gán')}</b></span><span>UI: ${esc(x.ui_state||'UNKNOWN')}</span><span>Firmware: ${esc(x.firmware_version||'—')}</span><span>IP: ${esc(x.last_ip||'—')}</span><span>Wi-Fi: ${x.wifi_rssi??'—'} dBm</span><span>Chờ đồng bộ: ${x.queue_size||0}</span><span>Đã đồng bộ offline: ${x.offline_synced_count||0}</span><span>Xung đột offline: ${x.offline_conflict_count||0}</span><span>Trùng lặp (replay): ${x.duplicate_replay_count||0}</span><span>Sequence gần nhất: ${x.last_sequence_received||0}</span><span>Replay sau DR: ${x.reconcile_replay_count||0}</span><span>Lần đồng bộ cuối: ${x.last_offline_sync_at?fmt(x.last_offline_sync_at):'—'}</span></div>${x.last_error?`<div class="kiosk-last-error">${esc(x.last_error)}</div>`:''}<footer><small>Heartbeat ${x.last_heartbeat_at?fmt(x.last_heartbeat_at):'chưa có'}</small><b>${x.open_error_count||0} lỗi mở</b>${x.status==='PENDING'&&x.enrollment_code?`<button class="btn mini primary" type="button" data-enroll="${Number(x.id)}" data-code="${esc(x.enrollment_code)}" data-requested="${esc(x.enroll_station_code||'')}" data-device="${esc(x.device_uuid)}">${x.enrollment_window_open?'Đã duyệt · chờ kiosk nhận':'Duyệt đăng ký'} · ${esc(x.enrollment_code)}</button>`:''}<button class="btn mini" type="button" data-rename-kiosk="${Number(x.id)}">Đổi tên</button><button class="btn mini" type="button" data-issue-token="${Number(x.id)}" data-station="${x.station_id||''}" data-device="${esc(x.device_uuid)}">Cấp token</button></footer></article>`).join('')}</div>`:'<div class="empty">Không có kiosk phù hợp.</div>';
+    document.getElementById('kmList').innerHTML=rows.length?`<div class="kiosk-grid">${rows.map(x=>`<article class="kiosk-card ${x.online?'online':'offline'} ${x.open_error_count||x.offline_conflict_count?'has-error':''}" data-device="${esc(x.device_uuid)}"><div class="kiosk-card-head"><div><b class="kiosk-device-label">${esc(kioskDisplayLabel(x))}</b></div><span class="badge ${x.online?'ok':'muted'}">${x.online?'Online':'Offline'}</span>${x.generation_stale?'<span class="badge warn" title="Chưa đối chiếu (DR reconciliation) với generation hiện tại của server">Đang đối chiếu DR</span>':''}</div><div class="kiosk-meta"><span>Trạm: <b>${esc(x.station_code||'Chưa gán')}</b></span><span>UI: ${esc(x.ui_state||'UNKNOWN')}</span><span>Firmware: ${esc(x.firmware_version||'—')}</span><span>IP: ${esc(x.last_ip||'—')}</span><span>Wi-Fi: ${x.wifi_rssi??'—'} dBm</span><span>Chờ đồng bộ: ${x.queue_size||0}</span><span>Đã đồng bộ offline: ${x.offline_synced_count||0}</span><span>Xung đột offline: ${x.offline_conflict_count||0}</span><span>Trùng lặp (replay): ${x.duplicate_replay_count||0}</span><span>Sequence gần nhất: ${x.last_sequence_received||0}</span><span>Replay sau DR: ${x.reconcile_replay_count||0}</span><span>Lần đồng bộ cuối: ${x.last_offline_sync_at?fmt(x.last_offline_sync_at):'—'}</span></div>${kioskIdentityDetails(x)}${x.last_error?`<div class="kiosk-last-error">${esc(x.last_error)}</div>`:''}<footer><small>Heartbeat ${x.last_heartbeat_at?fmt(x.last_heartbeat_at):'chưa có'}</small><b>${x.open_error_count||0} lỗi mở</b>${x.status==='PENDING'&&x.enrollment_code?`<button class="btn mini primary" type="button" data-enroll="${Number(x.id)}" data-code="${esc(x.enrollment_code)}" data-requested="${esc(x.enroll_station_code||'')}" data-device="${esc(x.device_uuid)}">${x.enrollment_window_open?'Đã duyệt · chờ kiosk nhận':'Duyệt đăng ký'} · ${esc(x.enrollment_code)}</button>`:''}<button class="btn mini" type="button" data-rename-kiosk="${Number(x.id)}">Đổi tên</button><button class="btn mini" type="button" data-issue-token="${Number(x.id)}" data-station="${x.station_id||''}" data-device="${esc(x.device_uuid)}">Cấp token</button></footer></article>`).join('')}</div>`:'<div class="empty">Không có kiosk phù hợp.</div>';
     document.querySelectorAll('.kiosk-card').forEach(el=>el.onclick=()=>show(el.dataset.device));
+    document.querySelectorAll('.kiosk-identity-details').forEach(el=>el.onclick=e=>e.stopPropagation());
     // stopPropagation: the whole card is a click target for the timeline.
     document.querySelectorAll('[data-issue-token]').forEach(b=>b.onclick=e=>{e.stopPropagation();issueKioskToken(b.dataset)});
     document.querySelectorAll('[data-enroll]').forEach(b=>b.onclick=e=>{e.stopPropagation();approveKioskEnrollment(b.dataset)});
@@ -2336,10 +2343,10 @@ async function renderKioskManagement(){
   const renameKiosk=identityId=>{
     const kiosk=(data.kiosks||[]).find(x=>Number(x.id)===Number(identityId));
     if(!kiosk)return;
-    const shortId=kioskShortId(kiosk.device_uuid);
+    const number=kioskDisplayNumber(kiosk),numberNote=number?'Mã máy: <b>'+esc(number)+'</b>':/^WEB-/i.test(kiosk.device_uuid||'')?'Kiosk trình duyệt không dùng mã máy.':'Mã máy: Chưa cấp';
     const modal=MFUI.openModal({id:'kioskName',title:'Đổi tên kiosk',size:'MD',
       content:`<p class="modal-note">Đặt tên dễ nhận biết, ví dụ Máy 1 hoặc Máy cắt 2. Tên được lưu trên MESFlow. ESP có firmware hỗ trợ tên máy sẽ tự đồng bộ khi kết nối.</p>
-        <p class="modal-note">${shortId?'Mã máy: <b>'+esc(shortId)+'</b> · ':''}${esc(kiosk.device_uuid)}</p>
+        <p class="modal-note">${numberNote}</p>${kioskIdentityDetails(kiosk)}
         <label class="ui-field" for="knName"><span>Tên kiosk</span><input id="knName" type="text" value="${esc(kiosk.device_name||'')}" maxlength="63" required autocomplete="off" aria-describedby="knHelp knError"></label>
         <p class="modal-note" id="knHelp">Dùng tên ngắn, dễ nhận biết để đọc trên màn hình kiosk.</p>
         <p class="modal-inline-error hidden" id="knError" role="alert"></p>`,
@@ -2369,12 +2376,14 @@ async function renderKioskManagement(){
   // a 6-char code on its screen. Approving opens a 15-minute window for THIS
   // one device; it claims its token itself. No token is shown to the admin.
   const approveKioskEnrollment=async({enroll:identityId,code,requested,device})=>{
+    const kiosk=(data.kiosks||[]).find(x=>Number(x.id)===Number(identityId))||{device_uuid:device},label=kioskDisplayLabel(kiosk);
     let stations=[];
     try{stations=(await api('/api/stations?limit=500')).items||[]}catch(_){stations=[]}
     const options=stations.map(x=>`<option value="${x.id}" ${String(requested||'').toUpperCase()===String(x.code||'').toUpperCase()?'selected':''}>${esc(x.code)} · ${esc(x.name||'')}</option>`).join('');
-    const modal=MFUI.openModal({id:'kioskEnroll',title:`Duyệt kiosk ${device}`,size:'MD',
+    const modal=MFUI.openModal({id:'kioskEnroll',title:`Duyệt kiosk ${label}`,size:'MD',
       content:`<p class="modal-note">Chỉ duyệt khi mã trên màn hình kiosk trùng với mã dưới đây. Kiosk sẽ tự nhận quyền trong 15 phút; quá hạn thì duyệt lại.</p>
         <p class="kiosk-enroll-code" style="font-size:2rem;font-weight:700;letter-spacing:.3em;text-align:center">${esc(code)}</p>
+        ${kioskIdentityDetails(kiosk)}
         <label class="ui-field"><span>Trạm của kiosk${requested?` (kiosk đề nghị: ${esc(requested)})`:''}</span><select id="keStation">${options||'<option value="">Chưa có trạm nào</option>'}</select></label>`,
       footer:`<button class="btn" id="keCancel" type="button">Hủy</button><button class="btn primary" id="keSubmit" type="button" ${stations.length?'':'disabled'}>Mã trùng khớp · Duyệt</button>`});
     modal.root.querySelector('#keCancel').onclick=()=>modal.close();
@@ -2383,7 +2392,7 @@ async function renderKioskManagement(){
       if(!stationId)return alert('Chọn trạm cho kiosk này trước.');
       try{
         const d=await api(`/api/kiosk-management/${Number(identityId)}/approve-enrollment`,{method:'POST',body:JSON.stringify({station_id:stationId})});
-        modal.close();toast(`Đã duyệt ${device}; hiệu lực tới ${fmt(d.approved_until)}`);load();
+        modal.close();toast(`Đã duyệt ${label}; hiệu lực tới ${fmt(d.approved_until)}`);load();
       }catch(err){alert(`Không duyệt được: ${err.message}`)}
     };
   };
@@ -2396,11 +2405,13 @@ async function renderKioskManagement(){
   // says so rather than leaving an admin to discover it by logging a terminal
   // out mid-shift.
   const issueKioskToken=async({issueToken:identityId,station,device})=>{
+    const kiosk=(data.kiosks||[]).find(x=>Number(x.id)===Number(identityId))||{device_uuid:device},label=kioskDisplayLabel(kiosk);
     let stations=[];
     try{stations=(await api('/api/stations?limit=500')).items||[]}catch(_){stations=[]}
     const options=stations.map(x=>`<option value="${x.id}" ${String(station||'')===String(x.id)?'selected':''}>${esc(x.code)} · ${esc(x.name||'')}</option>`).join('');
-    const modal=MFUI.openModal({id:'kioskToken',title:`Cấp token cho ${device}`,size:'MD',
+    const modal=MFUI.openModal({id:'kioskToken',title:`Cấp token cho ${label}`,size:'MD',
       content:`<p class="modal-note">Token là chìa khóa để máy này ghi dữ liệu sản xuất. Cấp token mới sẽ <b>vô hiệu hóa token cũ</b> của chính máy này — máy đang dùng sẽ mất quyền cho tới khi nạp lại.</p>
+        ${kioskIdentityDetails(kiosk)}
         <label class="ui-field"><span>Trạm của kiosk</span><select id="ktStation">${options||'<option value="">Chưa có trạm nào</option>'}</select></label>`,
       footer:`<button class="btn" id="ktCancel" type="button">Hủy</button><button class="btn primary" id="ktSubmit" type="button" ${stations.length?'':'disabled'}>Cấp token</button>`});
     modal.root.querySelector('#ktCancel').onclick=()=>modal.close();

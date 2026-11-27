@@ -213,6 +213,26 @@ class KioskRepository:
             raise ValueError('Tên kiosk không được chứa ký tự điều khiển.')
         return name
 
+    @staticmethod
+    def _ensure_display_number(cur,row,*,approved=False):
+        """Allocate once in the caller's transaction, never from device input."""
+        if (row.get('display_number') is not None or
+                str(row['device_uuid']).upper().startswith('WEB-') or
+                (not approved and row.get('status')!='ACTIVE')):
+            return row
+        # A separate transaction here could deadlock against the caller's
+        # upsert/update. Lock and re-read with this same cursor instead.
+        cur.execute('SELECT display_number FROM kiosk_identities WHERE id=%s FOR UPDATE',(row['id'],))
+        current=cur.fetchone()
+        if not current: raise NotFoundError('kiosk identity not found')
+        if current['display_number'] is None:
+            cur.execute("""UPDATE kiosk_identities
+                SET display_number=nextval('kiosk_display_number_seq')
+                WHERE id=%s RETURNING display_number""",(row['id'],))
+            current=cur.fetchone()
+        row['display_number']=current['display_number']
+        return row
+
     def rename(self,identity_id:int,name):
         name=self.validate_device_name(name)
         with transaction() as conn:
@@ -237,7 +257,7 @@ class KioskRepository:
                 ON CONFLICT(device_uuid) DO UPDATE SET device_name=CASE WHEN btrim(kiosk_identities.device_name)<>'' THEN kiosk_identities.device_name ELSE EXCLUDED.device_name END,
                 firmware_version=EXCLUDED.firmware_version,last_ip=EXCLUDED.last_ip,last_seen_at=CURRENT_TIMESTAMP
                 RETURNING *""",(device_uuid,str(data.get('device_name','')),str(data.get('firmware_version','')),str(data.get('last_ip',''))))
-                return cur.fetchone()
+                return self._ensure_display_number(cur,cur.fetchone())
     def approve(self,identity_id:int,station_id:int):
         token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
         with transaction() as conn:
@@ -245,7 +265,7 @@ class KioskRepository:
                 cur.execute("UPDATE kiosk_identities SET station_id=%s,status='ACTIVE',token_hash=%s,updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *",(station_id,token_hash,identity_id))
                 row=cur.fetchone()
                 if not row: raise NotFoundError('kiosk identity not found')
-                return row,token
+                return self._ensure_display_number(cur,row),token
     def verify_token(self,device_uuid:str,token:str):
         row=fetch_one("SELECT * FROM kiosk_identities WHERE device_uuid=%s AND status='ACTIVE'",(device_uuid,))
         if not row or hashlib.sha256(token.encode()).hexdigest()!=row['token_hash']:
@@ -271,20 +291,24 @@ class KioskRepository:
                                ota_capable=%s,boot_id=%s,uptime_seconds=%s,boot_reason=%s,
                                boot_seen_at=CASE WHEN boot_id<>%s AND %s<>'' THEN CURRENT_TIMESTAMP ELSE boot_seen_at END,
                                last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
-                               WHERE device_uuid=%s AND status='ACTIVE' RETURNING station_id""",
+                               WHERE device_uuid=%s AND status='ACTIVE'
+                               RETURNING id,device_uuid,status,station_id,display_number""",
                             (str(data.get('firmware_version') or data.get('app_version') or ''),str(data.get('firmware_build') or ''),
                              str(data.get('hardware_model') or ''),str(data.get('hardware_profile') or '')[:80],str(data.get('firmware_artifact_id') or '')[:64],
                              bool(data.get('ota_capable',False)),new_boot,int(data.get('uptime_seconds',0) or 0),
                              str(data.get('boot_reason') or '')[:120],new_boot,new_boot,device_uuid))
                 identity=cur.fetchone()
                 if not identity: raise NotFoundError('active kiosk identity not found')
+                identity=self._ensure_display_number(cur,identity)
                 cur.execute("""INSERT INTO kiosk_status(device_uuid,station_id,ui_state,health_state,queue_size,wifi_rssi,free_heap,last_error,last_heartbeat_at,updated_at)
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
                 ON CONFLICT(device_uuid) DO UPDATE SET station_id=EXCLUDED.station_id,ui_state=EXCLUDED.ui_state,
                 health_state=EXCLUDED.health_state,queue_size=EXCLUDED.queue_size,wifi_rssi=EXCLUDED.wifi_rssi,
                 free_heap=EXCLUDED.free_heap,last_error=EXCLUDED.last_error,last_heartbeat_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                 RETURNING *""",(device_uuid,identity['station_id'],str(data.get('ui_state','UNKNOWN')),str(data.get('health_state','OK')),int(data.get('queue_size',0) or 0),data.get('wifi_rssi'),data.get('free_heap'),'OTA_BOOT_LOOP_SUSPECTED' if boot_loop else str(data.get('last_error',''))))
-                return cur.fetchone()
+                status=cur.fetchone()
+                status['display_number']=identity.get('display_number')
+                return status
 
     def heartbeat_web_demo(self,device_uuid:str,data:dict[str,Any]):
         """Heartbeat for the browser demo kiosk.
@@ -335,7 +359,7 @@ class KioskRepository:
           (SELECT COUNT(*) FROM kiosk_client_events WHERE status='rejected') offline_conflict_count,
           COUNT(*) FILTER (WHERE ki.status='ACTIVE' AND ki.last_generation_id<>'' AND ki.last_generation_id<>(SELECT generation_id FROM server_generation WHERE id=1)) reconciling_count
         FROM kiosk_identities ki LEFT JOIN kiosk_status ks ON ks.device_uuid=ki.device_uuid""") or {}
-        kiosks=fetch_all("""SELECT ki.id,ki.device_uuid,ki.device_name,ki.station_id,ki.status,ki.firmware_version,ki.last_ip,ki.last_seen_at,ki.created_at,
+        kiosks=fetch_all("""SELECT ki.id,ki.device_uuid,ki.device_name,ki.display_number,ki.station_id,ki.status,ki.firmware_version,ki.last_ip,ki.last_seen_at,ki.created_at,
           ki.hardware_profile,CASE WHEN ki.status='PENDING' THEN upper(left(ki.enroll_secret_hash,6)) ELSE '' END enrollment_code,ki.enroll_station_code,ki.enroll_approved_until,
           COALESCE(ki.status='PENDING' AND ki.enroll_approved_until>CURRENT_TIMESTAMP,FALSE) enrollment_window_open,
           ki.last_sequence_received,ki.duplicate_replay_count,ki.last_generation_id,
@@ -408,7 +432,7 @@ class KioskRepository:
                         device_name=CASE WHEN btrim(device_name)<>'' THEN device_name ELSE %s END,firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
                         enroll_approved_until=NULL,enroll_station_id=NULL,last_seen_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
                         WHERE id=%s RETURNING *""",(token_hash,*meta,row['id']))
-                    return 'ACTIVATED',cur.fetchone(),token
+                    return 'ACTIVATED',self._ensure_display_number(cur,cur.fetchone()),token
                 cur.execute("""UPDATE kiosk_identities SET enroll_secret_hash=CASE WHEN enroll_secret_hash='' THEN %s ELSE enroll_secret_hash END,
                     enroll_station_code=CASE WHEN %s<>'' THEN %s ELSE enroll_station_code END,
                     firmware_version=%s,firmware_build=%s,hardware_model=%s,hardware_profile=%s,ota_capable=%s,last_ip=%s,
@@ -436,7 +460,7 @@ class KioskRepository:
                 cur.execute("""UPDATE kiosk_identities SET enroll_station_id=%s,enroll_approved_by=%s,
                     enroll_approved_until=CURRENT_TIMESTAMP+make_interval(mins=>%s),updated_at=CURRENT_TIMESTAMP
                     WHERE id=%s RETURNING *""",(int(station_id),str(actor or '')[:80],ttl,int(identity_id)))
-                return cur.fetchone()
+                return self._ensure_display_number(cur,cur.fetchone(),approved=True)
 
     def bind_legacy(self,data:dict[str,Any],last_ip:str=''):
         device_uuid=str(data.get('device_uuid') or data.get('device_id') or '').strip()
@@ -462,7 +486,7 @@ class KioskRepository:
                    str(data.get('hardware_model') or ''),bool(data.get('ota_capable',False)),last_ip,token_hash))
                 row=cur.fetchone()
                 # Old firmware needs a token. Reuse is impossible because only hash is stored, so bind rotates token safely.
-                return row,token
+                return self._ensure_display_number(cur,row),token
 
     def set_status(self,identity_id:int,status:str,station_id=None):
         status=str(status or '').upper()
@@ -472,7 +496,7 @@ class KioskRepository:
                 cur.execute("UPDATE kiosk_identities SET status=%s,station_id=COALESCE(%s,station_id),updated_at=CURRENT_TIMESTAMP WHERE id=%s RETURNING *",(status,station_id,identity_id))
                 row=cur.fetchone()
                 if not row: raise NotFoundError('kiosk identity not found')
-                return row
+                return self._ensure_display_number(cur,row)
 
     def events_for_device(self,device_uuid:str,limit:int=300):
         regular=fetch_all("""SELECT k.*,s.code station_code,e.employee_no,e.name employee_name,o.code operation_code,o.name operation_name

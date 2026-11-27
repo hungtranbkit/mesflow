@@ -86,10 +86,21 @@ test('a tampered cookie is refused', async ({ browser }) => {
   await login(page);
   const cookies = await ctx.cookies();
   const sess = cookies.find(c => c.name === 'session');
+  expect(sess, 'no session cookie was set').toBeTruthy();
+  const dot = sess.value.lastIndexOf('.');
+  expect(dot).toBeGreaterThan(0);
+  const signature = sess.value.slice(dot + 1);
+  expect(signature.length).toBeGreaterThan(0);
+  // Change significant signature bits. The final Base64 character can
+  // change only padding bits and leave the decoded HMAC unchanged.
+  const changedSignature = (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1);
+  expect(Buffer.from(changedSignature, 'base64url'),
+    'tamper fixture must change the decoded signature bytes')
+    .not.toEqual(Buffer.from(signature, 'base64url'));
   await ctx.clearCookies();
-  // Flip a character inside the signed payload: the HMAC must reject it.
-  await ctx.addCookies([{ ...sess, value: sess.value.replace(/.$/, m => (m === 'a' ? 'b' : 'a')) }]);
+  await ctx.addCookies([{ ...sess, value: sess.value.slice(0, dot + 1) + changedSignature }]);
   const r = await page.request.get('/app', { maxRedirects: 0 });
+  expect(r.status()).toBe(302);
   expect((r.headers()['location'] || '')).toContain('/login');
   await ctx.close();
 });

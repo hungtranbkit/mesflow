@@ -53,6 +53,20 @@ fi
 
 version="$(tr -d '[:space:]' < VERSION.txt)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION_INVALID"
+# The source release declares this requirement; do not infer it from the
+# build host's database. Validate before building or reserving a version.
+# Older source releases omit the field and retain their false default.
+requires_migration="$(python3 - "$ROOT/release.json" <<'PY'
+import json, pathlib, sys
+metadata = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if not isinstance(metadata, dict):
+    raise SystemExit("release.json must be a JSON object")
+value = metadata.get("requires_migration", False)
+if type(value) is not bool:
+    raise SystemExit("release.json requires_migration must be a JSON boolean")
+print(json.dumps(value))
+PY
+)" || die "INVALID_RELEASE_METADATA"
 image_repo="${MESFLOW_IMAGE_REPOSITORY:-mesflow-app}"
 image="${image_repo}:$version"
 dist="$CANONICAL_ROOT/../artifacts/releases/$version"
@@ -146,7 +160,7 @@ cp VERSION.txt "$root/VERSION.txt"
 cp compose.yml "$root/compose.yml"
 docker save "$image" -o "$root/MESFlow_${version}.tar"
 cat > "$root/release.json" <<JSON
-{"type":"mesflow-image-release","version":"$version","image":"$image","image_digest":"$digest","image_id":"$image_id","source_commit":"$source_commit","built_at":"$built_at","schema_revision":"$schema_revision","requires_migration":false,"distribution":"bundle","bundle":"MESFlow_${version}.tar"}
+{"type":"mesflow-image-release","version":"$version","image":"$image","image_digest":"$digest","image_id":"$image_id","source_commit":"$source_commit","built_at":"$built_at","schema_revision":"$schema_revision","requires_migration":$requires_migration,"distribution":"bundle","bundle":"MESFlow_${version}.tar"}
 JSON
 cat > "$root/PROMOTION.json" <<JSON
 {"version":"$version","image_digest":"$digest","source_commit":"$source_commit","local":{"status":"NOT_DEPLOYED"},"production_test":{"status":"NOT_DEPLOYED"},"production":{"status":"NOT_DEPLOYED"}}
