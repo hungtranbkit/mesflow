@@ -52,7 +52,7 @@ def _device():
 
 
 def _connect(device, secret=None, station_code='', **extra):
-    body = {'device_uuid': device, 'device_id': 'ESP-TEST', 'station_code': station_code,
+    body = {'device_uuid': device, 'device_id': 'ESP32-KIOSK-001', 'station_code': station_code,
             'firmware_version': '5.6.6', 'hardware_profile': 'es3c28p-n16r8-m910-gm65uart1', **extra}
     if secret is not None:
         body['device_secret'] = secret
@@ -256,6 +256,37 @@ def test_usb_provisioning_will_not_reuse_existing_device_id_or_change_existing_i
     preserved = _row(db, old_device)
     assert preserved['status'] == 'ACTIVE' and preserved['station_id'] == station['id']
     assert preserved['token_hash'] == old_token_hash and preserved['device_id'] == 'ESP32-KIOSK-396C'
+
+
+def test_usb_provisioning_does_not_overwrite_pending_identity_device_id(db, api, station):
+    device, secret = _device()
+    _connect(device, secret, station_code=station['code'])
+    identity = _row(db, device)
+    with db.cursor() as cur:
+        cur.execute("UPDATE kiosk_identities SET device_id='LEGACY-DEVICE-ID' WHERE id=%s", (identity['id'],))
+
+    challenge_response = _usb_challenge(api, identity['id'])
+    assert challenge_response.status_code == 200, challenge_response.text
+    challenge = challenge_response.json()['challenge']
+    mac, device_id, firmware = '84:C7:BB:79:39:6C', 'ESP32-KIOSK-396C', '5.6.6'
+    proof = _usb_proof(secret, device, challenge, mac, device_id, station['code'], firmware)
+    result = _usb_complete(api, identity['id'], device=device, challenge=challenge, proof=proof,
+                           mac=mac, device_id=device_id, station_code=station['code'],
+                           firmware_version=firmware)
+
+    preserved = _row(db, device)
+    assert result.status_code == 409, result.text
+    assert preserved['device_id'] == 'LEGACY-DEVICE-ID'
+    assert preserved['status'] == 'PENDING' and not preserved['token_hash']
+    assert preserved['station_id'] is None and preserved['usb_provision_mac'] == ''
+
+
+def test_m910_service_api_is_disabled_without_explicit_server_credentials():
+    response = requests.get(
+        f'{STRICT_URL}/api/kiosk-provisioner/usb/status',
+        params={'device_uuid': 'fc0c33a9-2f76-424f-a256-217699b57712'}, timeout=10)
+    assert response.status_code == 503, response.text
+    assert response.json()['code'] == 'PROVISIONER_SERVICE_DISABLED'
 
 
 def test_usb_provisioning_rejects_mac_already_attested_to_another_identity(db, api, station):

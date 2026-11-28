@@ -7,8 +7,8 @@ HTTPS connect retry.
 """
 from alembic import op
 
-revision = "0057_kiosk_usb_provisioning"
-down_revision = "0056_kiosk_enrollment_approval"
+revision = "0058_kiosk_usb_provisioning"
+down_revision = "0057_kiosk_display_number"
 branch_labels = None
 depends_on = None
 

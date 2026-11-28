@@ -441,6 +441,12 @@ class KioskRepository:
                     raise ConflictError('USB provisioning cannot activate or re-enroll a non-PENDING kiosk.')
                 if row.get('token_hash') or row.get('station_id'):
                     raise ConflictError('USB provisioning cannot reactivate an identity with a prior token or station binding.')
+                existing_device_id=str(row.get('device_id') or '').strip()
+                if existing_device_id not in ('', 'ESP32-KIOSK-001', device_id):
+                    raise ConflictError('USB provisioning cannot replace an existing device ID on a pending kiosk.')
+                existing_mac=str(row.get('usb_provision_mac') or '').strip().upper().replace('-', ':')
+                if existing_mac and existing_mac!=mac:
+                    raise ConflictError('USB provisioning cannot replace a MAC already recorded on this kiosk.')
                 secret_hash=str(row.get('enroll_secret_hash') or '')
                 if not re.fullmatch(r'[0-9a-fA-F]{64}',secret_hash):
                     raise ConflictError('Kiosk has no valid enrollment secret proof.')
