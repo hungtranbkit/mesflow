@@ -107,16 +107,20 @@ UUID, secret, kiosk token, offline journal and OTA settings are not changed.
 
 ## Current implementation status (2026-11-28)
 
-The USB backend delta is being ported from PR #52 onto current MESFlow `main`
-in `agent/codex/usb-enrollment-mainline`; PR #52 itself remains based on the
-older PR #50 head. The deployed .396 database is already at
-`0057_kiosk_display_number`, so the port preserves that exact migration and
-adds USB columns in `0058_kiosk_usb_provisioning`. Migration from an isolated
-database at the .396 0057 revision to 0058 passed. Strict PostgreSQL USB/
-instance identity suite plus auth/API contract tests passed 58/58; M910 host
-tests passed 14/14. Full project preflight and Docker/Playwright gate remain
-pending. The service endpoints return disabled when the dedicated credential
-hash is absent and still require a per-device UUID allowlist when configured.
+The USB backend delta is ported from PR #52 onto current MESFlow `main`
+in `agent/codex/usb-enrollment-mainline` at source SHA
+`4c7234eee85a8113b2468e6db138a1dfeb1cf67e`; PR #52 itself remains based on the
+older PR #50 head. The deployed .396 database is at
+`0057_kiosk_display_number`, so the port preserves that revision and adds USB
+columns in `0058_kiosk_usb_provisioning`. Migration from an isolated database
+at .396 revision 0057 to 0058 passed. Strict PostgreSQL USB/instance identity
+suite plus auth/API contract tests passed 58/58; M910 host tests passed 14/14.
+Preflight and the isolated official Docker/Playwright gate passed: unit
+436/436 (10 skipped), static 928/928 (14 skipped), behavior 45/45 (1 skipped),
+integration 638/638 (2 skipped), Playwright 607/612 (4 skipped; one flaky test
+passed on retry). The service endpoints return disabled when the dedicated
+credential hash is absent and still require a per-device UUID allowlist when
+configured. No production database was changed.
 
 Review found a pending kiosk could carry a non-factory `device_id` while still
 having no token/station binding; USB completion previously replaced that ID.
@@ -126,7 +130,11 @@ record PENDING. The backend remains source-only: no production migration,
 deployment, USB service installation, staging provisioning, or board access.
 USB auto provisioning remains OFF until staged hardware acceptance.
 
-Firmware PR #2 is still stale on 5.6.6; its USB source must be ported separately
-onto canonical 5.6.16. Do not build/flash the old PR binary. Hardware reboot,
-real USB, reverse-proxy TLS and heartbeat are release gates; no device is
-claimed enrolled and fleet OTA remains OFF.
+Firmware PR #2 is stale on 5.6.6; its source is being ported separately onto
+canonical 5.6.16 as candidate 5.6.17 in
+`agent/codex/esp-usb-provisioning-5616`. Never use the old PR binary. Firmware
+USB provisioning remains explicit-command only, with no watcher/service; the
+server service is disabled unless its dedicated token hash and exact UUID
+allowlist are configured. Hardware reboot, real USB, reverse-proxy TLS and
+heartbeat are release gates; no device is claimed enrolled and fleet OTA stays
+OFF.
