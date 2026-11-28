@@ -18,8 +18,9 @@ anything stale here; fix this file when they disagree.
 ## Latest handoff — Production Order created-date default (2026-11-28)
 
 - Isolated task branch: `agent/codex/po-created-default`, based on latest
-  `origin/main` at `3bbc630e09bd7b0da88ea0c3faf08e0db5372e61`. At this
-  checkpoint the change is local and uncommitted; no task PR exists yet.
+  `origin/main` at `3bbc630e09bd7b0da88ea0c3faf08e0db5372e61`. Commit
+  `8aa8822d47c8aed12693c90c025d5e9c0975b116` is pushed; draft PR #58 is open
+  against `main`. CI status is pending.
 - Exact source paths were checked at the commit reported by the public
   `https://mesflow.net/api/system/ready` endpoint: version `71.0.0.393`, commit
   `aad4a64`, environment `production`, server role `PRODUCTION_TEST`, migration
@@ -65,6 +66,8 @@ anything stale here; fix this file when they disagree.
   finish PR #57 verification/release first, then integrate this branch with the
   updated main, rerun gates on the new SHA, and release it separately. The
   checkout `origin/main` worktree's unrelated dirty files remain untouched.
+  PR #58 is draft only: do not merge or deploy it while PR #57 sequencing is
+  being verified.
 
 > Note: the long-lived UI refactor line `refactor/ui-consolidation-20260928`
 > has its OWN `PROJECT_CONTEXT.md` (P0–P3 handoff). This file was created on
