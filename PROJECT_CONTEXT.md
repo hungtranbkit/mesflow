@@ -1,5 +1,45 @@
 # PROJECT_CONTEXT.md
 
+## Latest handoff — Production Order created-date default (2026-11-28)
+
+- Branch `agent/codex/po-created-default` is isolated at
+  `/home/dell/workspace/mesflow/mesflow/.worktrees/codex-po-created-default`.
+  Updated baseline is merged `origin/main` `65fc50a5360ee090fffc0073dd8073e1e1e56b52`
+  (PR #57). Rebased feature commit is `7a32baf`; this branch's handoff records
+  the verification below. PR #58 remains draft.
+- The change defaults `/api/production-orders` and the dashboard PO projection
+  to `created_at DESC NULLS LAST, id DESC`; explicit repository sort, date URL
+  behavior, pagination, Asia/Ho_Chi_Minh display and timestamps are preserved.
+  Files: `app/mesflow/db/repositories/master_data.py`,
+  `app/mesflow/db/repositories/analytics.py`, and integration/E2E regression
+  files `tests/integration/test_production_order_created_sort.py` and
+  `tests/e2e/production-order-created-sort.spec.js`.
+- Full official local gate on the rebased SHA ran with
+  `COMPOSE_PROJECT_NAME=mesflow-po-created-default-pr58` and its isolated
+  PostgreSQL/app/edge/Playwright services. Results: unit 421 passed/10 skipped;
+  static 921/14; behavioral 45/1; integration 619/2; Playwright 605 passed,
+  4 skipped, 1 failed, 2 flaky. The new sort E2E passed. The sole hard browser
+  failure was `kiosk-mobile-camera.spec.js:193` (camera-stop spy observed zero);
+  the same test passed four consecutive focused runs in a separate diagnostic
+  compose project. `admin-list-card-consistency` and `rework-queue-card-contract`
+  each failed once from an interrupted `/app` navigation and passed on retry.
+  No failing file is changed by this PR; the kiosk camera source/test also match
+  `origin/main`. Treat the full gate as not fully green until a clean CI run
+  confirms the result. JUnit/XML and browser traces are in ignored local
+  `test-results/`.
+- Diff review: five files, 183 insertions/1 deletion; only the two intended
+  ordering queries and their tests/context changed. Version remains
+  `71.0.0.381`; test images built successfully. No immutable release artifact,
+  merge or deploy was created. The dedicated test compose stack was removed by
+  the official script; the separate diagnostic compose project was stopped
+  after the focused camera runs.
+- PR #58 must stay draft until required CI checks pass. Do not merge/deploy
+  from this task. Release agent owns any deployment after PR #57 sequencing;
+  production app route/order remains unverified behind authentication and no
+  production data was queried or changed. Next: stop the diagnostic compose
+  project, update/push this branch safely, attach exact local evidence to PR #58
+  for the release owner, then use CI result as the merge gate.
+
 ## GO ROUTER PO header / QR regression handoff (2026-11-28)
 
 - Dedicated worktree `/home/dell/workspace/mesflow/mesflow/.worktrees/codex-kimex-p0`, branch `agent/codex/mesflow-kimex-p0-followthrough`; current HEAD `6edb492`. The branch was rebased onto `origin/main` to exclude unrelated standby-writer/HA work; diff is limited to the GO ROUTER export, regression tests, and this handoff. Shared checkout remains untouched.
@@ -9,18 +49,17 @@
 - The two earlier `KeyError: setup_count` failures were repeat-run fixture assumptions, not a product/API regression: the persistent test PostgreSQL already contained PO 6126, so same-file import correctly returned `idempotent: true` without `setup_count`. The fixture now validates persisted parts/operations/setups on that path. Clean baseline `984c910` passed 2 existing integration tests; the original fixture reproduced the same missing-key error when rerun against its populated DB. The new regression integration failed on baseline at PO header stamping (clone export retained source 6391/105 instead of clone values); branch suite passes.
 - `tests/integration/test_router_setup_import_export.py` creates test-only PO 6391/105, verifies exported header, exact operation QR payloads including Vietnamese accents, setup `WF|OPID|id`, normal admin authentication, no duplicate PO on same-file retry, and a clone export with distinct code/quantity. No production data was created.
 - The photograph does not prove PO6391 production data or runtime source. SSH aliases `kiosk1`/`kiosk` reach the kiosk laptop; `mesflow-test` and `mesflow-prod` identify TEST/HP hosts, not authoritative production. No production logs/DB/device attribution are available; no production changes, reset, firmware flash, merge or deploy.
-- Source fix commit `aff2bd6`, context `2b06a64`, integration regression `6edb492`; draft PR #57. GitHub Docker/PostgreSQL CI is pending on the rebased head (runs `46120870639` and `46120867131` at last check); no review decision yet. `git diff --check` passes. Keep production deployment blocked: configured `ssh kiosk1` reaches the correct laptop, but its 18081 app is under `mesflow-test-tools/staging-app` and is TEST data; current process inspection found no debug framebuffer listener on 17892. There is no confirmed authoritative production host, PO6391/log data, or backup/rollback gate. No deploy occurred.
+- Source fix commit `aff2bd6`, context `2b06a64`, integration regression `6edb492`; PR #57 merged as `65fc50a`. `git diff --check` passed on its reviewed source. Keep production deployment blocked: configured `ssh kiosk1` reaches the correct laptop, but its 18081 app is under `mesflow-test-tools/staging-app` and is TEST data; current process inspection found no debug framebuffer listener on 17892. There is no confirmed authoritative production host, PO6391/log data, or backup/rollback gate. No deploy occurred.
 
 Living handoff for the MESFlow app repo (`hungtranbkit/mesflow`). Read after
 `AGENTS.md` / `PROJECT.yaml`. Code, tests, git and the running stacks win over
 anything stale here; fix this file when they disagree.
 
-## Latest handoff — Production Order created-date default (2026-11-28)
+## Earlier handoff — Production Order created-date default (2026-11-28)
 
-- Isolated task branch: `agent/codex/po-created-default`, based on latest
-  `origin/main` at `3bbc630e09bd7b0da88ea0c3faf08e0db5372e61`. Commit
-  `8aa8822d47c8aed12693c90c025d5e9c0975b116` is pushed; draft PR #58 is open
-  against `main`. CI status is pending.
+- Original task branch baseline: `origin/main` at
+  `3bbc630e09bd7b0da88ea0c3faf08e0db5372e61`; superseded by the latest
+  handoff above, which records the rebase onto merged PR #57.
 - Exact source paths were checked at the commit reported by the public
   `https://mesflow.net/api/system/ready` endpoint: version `71.0.0.393`, commit
   `aad4a64`, environment `production`, server role `PRODUCTION_TEST`, migration
@@ -48,7 +87,7 @@ anything stale here; fix this file when they disagree.
   created or queried. The unauthenticated production order API returned 401;
   no auth bypass was attempted. SSH alias `kiosk1` resolves to the kiosk PC and
   had no `/opt/mesflow` source or Docker CLI.
-- Verification: `scripts/projectflow/preflight.sh` PASS; version sync PASS at
+- Original verification before rebasing: `scripts/projectflow/preflight.sh` PASS; version sync PASS at
   `71.0.0.381`; `git diff --check` PASS. Focused PostgreSQL regression is
   `2 passed`, including a pre-existing residual PO; focused Playwright test is
   `1 passed` (it ran before a later test-fixture-only robustness adjustment).
@@ -60,14 +99,8 @@ anything stale here; fix this file when they disagree.
   The full script therefore did not reach its Playwright stage and is not a
   full PASS. Browser Harness and chrome-devtools CDP calls timed out against
   the local test tab; retain Playwright as the available browser evidence.
-- No release build, merge or deploy ran. PR #57 currently points to
-  `fd905747acc3be6206d97f74b3833241ec339ae3` and is under target/CI review.
-  This fix changes the same MESFlow app service. Recommended sequencing:
-  finish PR #57 verification/release first, then integrate this branch with the
-  updated main, rerun gates on the new SHA, and release it separately. The
-  checkout `origin/main` worktree's unrelated dirty files remain untouched.
-  PR #58 is draft only: do not merge or deploy it while PR #57 sequencing is
-  being verified.
+- This fix changes the same MESFlow app service. PR #57 has merged; the release
+  owner handles deployment sequencing. PR #58 remains draft pending green CI.
 
 > Note: the long-lived UI refactor line `refactor/ui-consolidation-20260928`
 > has its OWN `PROJECT_CONTEXT.md` (P0–P3 handoff). This file was created on
