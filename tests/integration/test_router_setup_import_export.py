@@ -15,6 +15,7 @@ Và một điều chỉ thấy được ở mức API: bỏ tick OP sản xuất
 ``include_setup`` thì server phải TỪ CHỐI tạo setup mồ côi, kể cả khi giao diện
 bị bỏ qua.
 """
+import hashlib
 import json
 import os
 import re
@@ -405,12 +406,14 @@ def real_workbook_bytes():
 
 
 @pytest.fixture(scope='module')
-def real_po(api, real_workbook_bytes):
+def real_po(api, real_workbook_bytes, db):
     """Nhập file thật MỘT lần cho cả module, rồi bốn bài dùng chung.
 
     Module-scoped chứ không function-scoped: file thật mang PO NUMBER cố định
-    (6126), nên lần nhập thứ hai sẽ dừng ở PO_ALREADY_EXISTS -- đúng hợp đồng,
-    nhưng sẽ làm hỏng ba bài còn lại nếu mỗi bài tự nhập.
+    (6126). The test DB can survive between `docker compose run` invocations,
+    so a repeat may be an idempotent no-op instead of a fresh creation. Validate
+    the existing PO's operation/setup contents in that case; never assume or
+    manufacture a new production order as a side effect of this fixture.
     """
     files = {'file': (REAL_FIXTURE.name, real_workbook_bytes,
                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
@@ -418,13 +421,35 @@ def real_po(api, real_workbook_bytes):
                         data={'confirm': '1'}, timeout=900)
     assert imported.status_code == 200, imported.text[:400]
     body = imported.json()
-    assert body['setup_count'] == 47
     po = body['production_order']
-    assert po['action'] == 'CREATED'
+    if body.get('idempotent') or po['action'] == 'EXISTS':
+        # A prior run may have already created this exact PO in the still-live
+        # test DB. Idempotent and confirmed template-reimport paths both leave
+        # the PO untouched, so assert its persisted structure rather than
+        # pretending a new PO was created.
+        if body.get('idempotent'):
+            assert po['action'] == 'EXISTS'
+        else:
+            assert body['setup_count'] == 47
+        counts = db.execute("""SELECT
+                COUNT(*) FILTER (WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') production,
+                COUNT(*) FILTER (WHERE operation_type='SETUP') setups
+            FROM operations WHERE production_order_id=%s""", (int(po['id']),)).fetchone()
+        parts_created = db.execute(
+            'SELECT COUNT(*) c FROM parts WHERE production_order_id=%s',
+            (int(po['id']),)).fetchone()['c']
+        assert parts_created == 44
+        assert counts == {'production': 112, 'setups': 47}
+        operations_created = counts['production']
+    else:
+        assert body['setup_count'] == 47
+        assert po['action'] == 'CREATED'
+        parts_created = po['parts_created']
+        operations_created = po['operations_created']
     return body['template_id'], {'production_order_id': po['id'],
                                  'production_order_code': po['code'],
-                                 'parts_created': po['parts_created'],
-                                 'operations_created': po['operations_created']}
+                                 'parts_created': parts_created,
+                                 'operations_created': operations_created}
 
 def test_file_that_shop_uses_imports_end_to_end(real_po, db):
     template_id, po = real_po
@@ -436,7 +461,8 @@ def test_file_that_shop_uses_imports_end_to_end(real_po, db):
     assert setups == 47
 
 
-def test_export_of_real_po_is_the_source_workbook_with_labels(api, real_po, real_workbook_bytes):
+def test_export_of_real_po_is_the_source_workbook_with_labels(api, real_po,
+                                                              real_workbook_bytes, db):
     """Xuất ra phải GIỮ NGUYÊN 44 sheet, merge và ảnh của file gốc, cộng tem."""
     _, po = real_po
     po_id = int(po['production_order_id'])
@@ -460,6 +486,10 @@ def test_export_of_real_po_is_the_source_workbook_with_labels(api, real_po, real
                     == original[name].column_dimensions[letter].width), f'{name}:{letter}'
     # Ô dữ liệu quan trọng của tờ giấy vẫn đúng.
     sheet = exported['Chân ghế A  - Trái']
+    order = db.execute('SELECT code,planned_quantity FROM production_orders WHERE id=%s',
+                       (po_id,)).fetchone()
+    assert sheet['C2'].value == order['code']
+    assert sheet['C3'].value == order['planned_quantity']
     assert sheet['A8'].value == 'OPERATION # 01- CẮT LASER'
     assert sheet['L10'].value == 'Thời gian Setup ( phút )'
     assert sheet['L11'].value == 20
@@ -489,21 +519,128 @@ def test_real_po_labels_decode_to_canonical_operation_ids(api, real_po, db):
 
 
 def test_re_import_points_the_export_at_the_new_file(api, real_po, real_workbook_bytes, db):
-    """Nhập lại thì lần xuất sau phải dùng BẢN MỚI, không dùng nhầm bản cũ."""
-    template_id, po = real_po
-    po_id = int(po['production_order_id'])
-    before = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router-labels',
-                     timeout=900).json()['source_file']
+    """A GO ROUTER import for PO 6391 exports its own PO, quantity and QR IDs."""
+    original_template_id, _po = real_po
 
-    # Nhập lại cùng nội dung: content-addressed nên sha256 không đổi, nhưng
-    # phải là một lần nhập MỚI (import_id tăng) -- đó là thứ chỉ ra bản đang dùng.
-    files = {'file': (REAL_FIXTURE.name, real_workbook_bytes,
+    # Change the PO header to the reproduced order while preserving all other
+    # worksheet XML bytes. This imports a separate GO ROUTER Template and PO in
+    # the disposable integration DB, without touching production data.
+    import re
+    import zipfile
+    source_zip = zipfile.ZipFile(BytesIO(real_workbook_bytes))
+    rewritten = BytesIO()
+    with zipfile.ZipFile(rewritten, 'w', zipfile.ZIP_DEFLATED) as changed_zip:
+        for item in source_zip.infolist():
+            content = source_zip.read(item.filename)
+            if item.filename == 'xl/worksheets/sheet1.xml':
+                xml = content.decode('utf-8')
+                for coord, value, is_text in (
+                        ('C2', '6391 - NEWARK SIDE CHAIR ( GHẾ KHÔNG TAY )', True),
+                        ('C3', '105', False)):
+                    pattern = re.compile(
+                        r'<c\b(?=[^>]*\br="%s")([^>]*?)(?:/>|>(.*?)</c>)'
+                        % coord, re.S)
+                    match = pattern.search(xml)
+                    assert match, f'fixture is missing header cell {coord}'
+                    attrs = re.sub(r'\s+t="[^"]*"', '', match.group(1))
+                    if is_text:
+                        attrs += ' t="inlineStr"'
+                        cell = f'<c{attrs}><is><t>{value}</t></is></c>'
+                    else:
+                        cell = f'<c{attrs}><v>{value}</v></c>'
+                    xml = xml[:match.start()] + cell + xml[match.end():]
+                content = xml.encode('utf-8')
+            elif item.filename == 'docProps/core.xml':
+                content, count = re.subn(
+                    rb'<dc:creator>.*?</dc:creator>',
+                    b'<dc:creator>MESFlow regression</dc:creator>', content, count=1)
+                assert count == 1
+            changed_zip.writestr(item, content)
+    changed_bytes = rewritten.getvalue()
+    files = {'file': (REAL_FIXTURE.name, changed_bytes,
                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
-    again = api.post(f'{BASE_URL}/api/templates/import-workbook', files=files, timeout=600)
+    again = api.post(f'{BASE_URL}/api/templates/import-workbook', files=files,
+                     data={'confirm': '1'}, timeout=600)
     assert again.status_code == 200, again.text[:400]
-    assert again.json()['template_id'] == template_id
+    body = again.json()
+    new_code = '6391 - NEWARK SIDE CHAIR ( GHẾ KHÔNG TAY )'
+    assert body['production_order']['code'] == new_code
+    assert int(body['template_id']) != int(original_template_id)
+    if body.get('idempotent'):
+        assert body['production_order']['action'] == 'EXISTS'
+        counts = db.execute("""SELECT
+                COUNT(*) FILTER (WHERE COALESCE(operation_type,'PRODUCTION')='PRODUCTION') production,
+                COUNT(*) FILTER (WHERE operation_type='SETUP') setups
+            FROM operations WHERE production_order_id=%s""",
+            (int(body['production_order']['id']),)).fetchone()
+        assert db.execute('SELECT COUNT(*) c FROM parts WHERE production_order_id=%s',
+                          (int(body['production_order']['id']),)).fetchone()['c'] == 44
+        assert counts == {'production': 112, 'setups': 47}
+    else:
+        assert body['setup_count'] == 47
+        assert body['production_order']['action'] == 'CREATED'
+    new_po_id = int(body['production_order']['id'])
+    saved_order = db.execute(
+        'SELECT code,planned_quantity FROM production_orders WHERE id=%s',
+        (new_po_id,)).fetchone()
+    assert saved_order == {'code': new_code, 'planned_quantity': 105}
 
-    after = api.get(f'{BASE_URL}/api/production-orders/{po_id}/router-labels',
-                    timeout=900).json()['source_file']
-    assert after['sha256'] == before['sha256'], 'cùng nội dung -> cùng hash'
-    assert after['import_id'] >= before['import_id'], 'phải trỏ tới lần nhập mới nhất'
+    new_po_source = api.get(
+        f'{BASE_URL}/api/production-orders/{new_po_id}/router-labels',
+        timeout=900).json()['source_file']
+    assert new_po_source['sha256'] == hashlib.sha256(changed_bytes).hexdigest()
+
+    exported_response = api.get(
+        f'{BASE_URL}/api/production-orders/{new_po_id}/router.xlsx', timeout=900)
+    assert exported_response.status_code == 200, exported_response.text[:400]
+    exported = load_workbook(BytesIO(exported_response.content), data_only=True)
+    first_sheet = exported[exported.sheetnames[0]]
+    assert first_sheet['C2'].value == new_code
+    assert first_sheet['C3'].value == 105
+
+    # Reuse the imported Template to create a distinct order. Its source sheet
+    # still says 6391 / 105, so this assertion fails unless export uses the
+    # instantiated PO's current number and quantity.
+    clone_code = f'PO-ROUTER-CLONE-{new_po_id}'
+    clone = db.execute(
+        'SELECT id,planned_quantity FROM production_orders WHERE code=%s',
+        (clone_code,)).fetchone()
+    if clone is None:
+        created = api.post(
+            f'{BASE_URL}/api/templates/{body["template_id"]}/instantiate',
+            json={'code': clone_code, 'planned_quantity': 104}, timeout=60)
+        assert created.status_code in (200, 201), created.text[:400]
+        clone_id = int(created.json()['production_order_id'])
+    else:
+        assert clone['planned_quantity'] == 104
+        clone_id = int(clone['id'])
+    clone_export = api.get(
+        f'{BASE_URL}/api/production-orders/{clone_id}/router.xlsx', timeout=900)
+    assert clone_export.status_code == 200, clone_export.text[:400]
+    clone_workbook = load_workbook(BytesIO(clone_export.content), data_only=True)
+    clone_sheet = clone_workbook[clone_workbook.sheetnames[0]]
+    assert clone_sheet['C2'].value == clone_code
+    assert clone_sheet['C3'].value == 104
+
+    labels = api.get(f'{BASE_URL}/api/production-orders/{new_po_id}/router-labels',
+                     timeout=900).json()
+    rows = db.execute("""SELECT id,qr,operation_type FROM operations WHERE production_order_id=%s
+        AND COALESCE(operation_type,'PRODUCTION') IN ('PRODUCTION','SETUP')""",
+        (new_po_id,)).fetchall()
+    assert labels['count'] == len(rows) == 112 + 47
+    assert {int(item['operation_id']) for item in labels['labels']} == {
+        int(row['id']) for row in rows}
+    payload_by_id = {int(item['operation_id']): item['payload'] for item in labels['labels']}
+    for row in rows:
+        assert payload_by_id[int(row['id'])] == row['qr']
+        if row['operation_type'] == 'SETUP':
+            assert row['qr'] == f"WF|OPID|{row['id']}"
+    assert any('GHẾ KHÔNG TAY' in row['qr'] for row in rows
+               if row['operation_type'] != 'SETUP')
+
+    duplicate = api.post(f'{BASE_URL}/api/templates/import-workbook', files=files,
+                         data={'confirm': '1'}, timeout=600)
+    assert duplicate.status_code == 200, duplicate.text[:400]
+    assert duplicate.json().get('idempotent') is True
+    assert db.execute("SELECT COUNT(*) c FROM production_orders WHERE code=%s",
+                      (new_code,)).fetchone()['c'] == 1

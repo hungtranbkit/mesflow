@@ -95,7 +95,8 @@ PO = {'id': 1, 'code': 'PO-6126', 'name': 'NEWARK', 'plan_qty': 110,
 # --- ảnh QR ---------------------------------------------------------------
 
 @pytest.mark.parametrize('payload', [
-    'WF|OPID|1', 'WF|OPID|4242', 'WF|OPID|999999', 'WF|OP|KM-001-OP01'])
+    'WF|OPID|1', 'WF|OPID|4242', 'WF|OPID|999999', 'WF|OP|KM-001-OP01',
+    'WF|OP|6391 - NEWARK SIDE CHAIR ( GHẾ KHÔNG TAY )-KM-367170-204-03-OP01'])
 def test_qr_giai_ma_nguoc_lai_dung_payload(payload):
     """Ảnh sinh ra phải giải mã ngược về đúng chuỗi -- không chỉ 'là một ảnh'."""
     raw = _qr_png(payload).getvalue()
