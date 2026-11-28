@@ -419,7 +419,7 @@ class DashboardRepository:
         LEFT JOIN terminal_rollup tr ON tr.production_order_id=po.id
         LEFT JOIN progress_rollup pg ON pg.production_order_id=po.id
         LEFT JOIN repair_rollup rr ON rr.production_order_id=po.id
-        ORDER BY po.updated_at DESC LIMIT %s""",(min(max(limit,1),500),))
+        ORDER BY po.created_at DESC NULLS LAST,po.id DESC LIMIT %s""",(min(max(limit,1),500),))
     def operation_overview(self,limit:int=1000):
         pending, scrap = repair_pending_sql('o'), scrap_total_sql('o')
         rows=fetch_all(f"""SELECT po.id po_id,po.code po_code,po.product,po.status po_status,po.planned_quantity,po.due_date,

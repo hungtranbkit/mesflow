@@ -15,6 +15,57 @@ Living handoff for the MESFlow app repo (`hungtranbkit/mesflow`). Read after
 `AGENTS.md` / `PROJECT.yaml`. Code, tests, git and the running stacks win over
 anything stale here; fix this file when they disagree.
 
+## Latest handoff — Production Order created-date default (2026-11-28)
+
+- Isolated task branch: `agent/codex/po-created-default`, based on latest
+  `origin/main` at `3bbc630e09bd7b0da88ea0c3faf08e0db5372e61`. At this
+  checkpoint the change is local and uncommitted; no task PR exists yet.
+- Exact source paths were checked at the commit reported by the public
+  `https://mesflow.net/api/system/ready` endpoint: version `71.0.0.393`, commit
+  `aad4a64`, environment `production`, server role `PRODUCTION_TEST`, migration
+  head `0057_kiosk_display_number`. The relevant production-order repository
+  and dashboard query source match this checkout. The reported server role is
+  `PRODUCTION_TEST`; treat target identity as needing confirmation before any
+  release action.
+- Before: `/api/production-orders` inherited `BaseRepository`'s default
+  `ORDER BY id` (ascending). Its UI renders response order directly and calls
+  `/api/production-orders?limit=500`. The separate `/api/dashboard/overview`
+  PO projection sorted by `po.updated_at DESC`. After: both PO list defaults
+  use `created_at DESC NULLS LAST, id DESC`. Explicit repository `order_by`
+  columns retain their existing ascending behavior. No client re-sort,
+  dropdown or sort indicator exists on the PO list.
+- `/app?page=production-orders&tab=overview&date=2026-11-28` routes to the PO
+  list; this renderer does not read `tab` or `date`, and the API list has no
+  date predicate. This task preserves that behavior. The API supports
+  `limit`/`offset`; the current UI requests 500 rows and has no pagination
+  controls. Existing UI date formatting continues to use
+  `Asia/Ho_Chi_Minh`; no timestamp, schema or migration changes were made.
+- Regression coverage: synthetic A/B-like codes in reverse lexical order,
+  reverse `updated_at`, equal creation timestamps, `id DESC` tie handling,
+  limit/offset, ignored current `date` parameter, dashboard overview order,
+  explicit repository sort, and UI order/reload. No production records were
+  created or queried. The unauthenticated production order API returned 401;
+  no auth bypass was attempted. SSH alias `kiosk1` resolves to the kiosk PC and
+  had no `/opt/mesflow` source or Docker CLI.
+- Verification: `scripts/projectflow/preflight.sh` PASS; version sync PASS at
+  `71.0.0.381`; `git diff --check` PASS. Focused PostgreSQL regression is
+  `2 passed`, including a pre-existing residual PO; focused Playwright test is
+  `1 passed` (it ran before a later test-fixture-only robustness adjustment).
+  Full `scripts/projectflow/test.sh` on this branch reached unit `418 passed /
+  10 skipped`, static `920 passed / 14 skipped`, behavioral `45 passed / 1
+  skipped`, integration `618 passed / 2 skipped / 1 failed`. The sole failure
+  was this new test assuming an empty global PO list; fixture timestamps were
+  moved to year 2999 and focused integration then passed with residual data.
+  The full script therefore did not reach its Playwright stage and is not a
+  full PASS. Browser Harness and chrome-devtools CDP calls timed out against
+  the local test tab; retain Playwright as the available browser evidence.
+- No release build, merge or deploy ran. PR #57 currently points to
+  `fd905747acc3be6206d97f74b3833241ec339ae3` and is under target/CI review.
+  This fix changes the same MESFlow app service. Recommended sequencing:
+  finish PR #57 verification/release first, then integrate this branch with the
+  updated main, rerun gates on the new SHA, and release it separately. The
+  checkout `origin/main` worktree's unrelated dirty files remain untouched.
+
 > Note: the long-lived UI refactor line `refactor/ui-consolidation-20260928`
 > has its OWN `PROJECT_CONTEXT.md` (P0–P3 handoff). This file was created on
 > main by the kiosk hotfix below. When main is next merged into that line,

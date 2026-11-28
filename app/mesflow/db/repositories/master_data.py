@@ -96,6 +96,22 @@ class ProductionOrderRepository(BaseRepository):
     allowed_statuses={'DRAFT','PLANNED','RELEASED','IN_PROGRESS','PAUSED','COMPLETED','CANCELLED'}
     allowed_priorities={'LOW','NORMAL','HIGH','URGENT'}
 
+    def list(self, limit:int=200, offset:int=0, order_by:str|None=None,
+             scope_id:int|None=None):
+        # The default PO list is newest-created first. NULLS LAST keeps any
+        # legacy rows with a missing creation timestamp in a stable final group;
+        # id DESC makes equal timestamps deterministic across offset pages.
+        # Preserve the repository's explicit single-column sort contract.
+        if order_by in self.selectable_columns:
+            return super().list(limit=limit,offset=offset,order_by=order_by,scope_id=scope_id)
+        query=sql.SQL('SELECT {} FROM {} ORDER BY created_at DESC NULLS LAST,id DESC LIMIT %s OFFSET %s').format(
+            sql.SQL(',').join(map(sql.Identifier,self.selectable_columns)),
+            sql.Identifier(self.table))
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query,(limit,offset))
+                return list(cur.fetchall())
+
     @classmethod
     def _normalize(cls,data,*,creating=False):
         clean=dict(data or {})
