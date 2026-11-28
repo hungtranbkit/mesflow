@@ -1,5 +1,14 @@
 # PROJECT_CONTEXT.md
 
+## GO ROUTER PO header / QR regression handoff (2026-11-28)
+
+- Dedicated worktree `agent/codex/mesflow-kimex-p0-followthrough` is based on `984c910`; shared checkout remains untouched.
+- Source fixture `tests/fixtures/router-newark-arm-chair.xlsx` carries PO 6126 / QTY 110, while a newly instantiated PO may own a different code/plan quantity (reproduced as 6391 / 105). Export previously retained stale or missing header values. Reusable Template imports could also make an older PO join a newer workbook revision.
+- `app/mesflow/web/router_export.py` now selects the latest successful source revision no later than PO creation and minimally patches labeled PO NUMBER/QTY cells into exported OOXML while preserving styles, merges and unrelated workbook bytes. QR payload identity remains operation QR/ID; operation name is not a separate field.
+- `tests/test_router_export_po_header.py` covers PO/QTY stamping, blank target cells and stale revision selection; QR regression includes an accented legacy payload. Integration expectation now pins a PO to the source revision present at creation. Record exact focused test result before commit.
+- The photograph does not prove PO6391 production data or runtime source. SSH aliases `kiosk1`/`kiosk` reach the kiosk laptop; `mesflow-test` and `mesflow-prod` identify TEST/HP hosts, not authoritative production. No production logs/DB/device attribution are available; no production changes, reset, firmware flash, merge or deploy.
+- Current branch contains uncommitted changes only in router export and targeted tests. Next: finish focused tests, review diff and firmware regression/build; update durable checkpoint; commit and open separate PRs only if all checks are suitable.
+
 Living handoff for the MESFlow app repo (`hungtranbkit/mesflow`). Read after
 `AGENTS.md` / `PROJECT.yaml`. Code, tests, git and the running stacks win over
 anything stale here; fix this file when they disagree.

@@ -29,9 +29,10 @@ BA QUYẾT ĐỊNH ĐÁNG GHI:
    khác) thì chuyển sang địa chỉ theo id. Tự ghép ``WF|OP|<mã>`` ở đây là dựng
    lại đúng lỗi mơ hồ mà hàm kia sinh ra để chặn.
 
-3. Nguồn DUY NHẤT là workbook gốc. Mỗi lần nhập Template, file được lưu lại
+3. Nguồn DUY NHẤT là workbook gốc đã tồn tại khi PO được tạo. Mỗi lần nhập Template, file được lưu lại
    nguyên bytes (``template_import_blobs``, đánh địa chỉ theo sha256, trên
-   volume uploads đã backup). Xuất = mở lại chính file đó rồi ĐÓNG THÊM QR vào,
+   volume uploads đã backup). Xuất = mở lại đúng bản đó, cập nhật PO NUMBER/QTY
+   theo Production Order rồi ĐÓNG THÊM QR vào,
    nên sheet, tên sheet, merge, độ rộng cột, chiều cao dòng, logo/ảnh, khung in
    và công thức của xưởng còn nguyên.
 
@@ -325,16 +326,17 @@ def _load_po_operations(po_id: int):
     """, (int(po_id),))
 
 
-def _archived_source(template_id):
-    """File Excel đã nhập GẦN NHẤT của Template này, kèm danh tính của nó.
+def _archived_source(template_id, *, as_of=None):
+    """Workbook revision that existed when this PO was created.
 
     Kho file (``template_import_blobs``, migration 0046) lưu nguyên bytes,
     đánh địa chỉ theo sha256, trên cùng volume uploads đã được backup -- không
     phải file tạm, nên bản gốc vẫn còn sau khi container được dựng lại.
 
-    Chọn lần nhập THÀNH CÔNG gần nhất, vì đó là file đang quyết định nội dung
-    Template hiện tại: nhập lại một file mới làm bản cũ hết hiệu lực ngay, và
-    sha256 trả về cùng ở đây để người xuất biết mình vừa in từ bản nào.
+    Template được tái sử dụng và có thể nhập lại sau khi PO đã clone Parts and
+    Operations. Chọn bản nhập thành công mới nhất không muộn hơn thời điểm tạo
+    PO để không ghép PO cũ vào workbook thay thế. SHA-256 cho biết file nguồn
+    chính xác đã dùng.
     """
     if not template_id:
         return None
@@ -344,6 +346,9 @@ def _archived_source(template_id):
     for event in repository.list(template_id=int(template_id), limit=50):
         if event['outcome'] == 'FAILED':
             # File bị từ chối không phải bản dựng nên Template hiện tại.
+            continue
+        if (as_of is not None and event.get('created_at') is not None
+                and event['created_at'] > as_of):
             continue
         found = repository.file_for(event['id'])
         if not found:
@@ -1257,22 +1262,152 @@ def _clear_marker_value(sheet_xml, coord):
     return pattern.sub(repl, sheet_xml, count=1)
 
 
-def _graft_qr_into_workbook(source_bytes, placed, clear_cells=None):
-    """Chèn ảnh QR vào workbook gốc bằng vá OOXML tối thiểu, giữ nguyên mọi thứ
-    khác BYTE-FOR-BYTE (trừ đúng ô marker được xoá chữ 'QRCODE').
+def _xml_cell_text(value):
+    text = html.escape(str(value), quote=False)
+    preserve = ' xml:space="preserve"' if text != text.strip() else ''
+    return f'<is><t{preserve}>{text}</t></is>'
+
+
+def _set_workbook_cell_value(sheet_xml, coord, value):
+    """Set one existing header cell without round-tripping the workbook.
+
+    Router exports retain formula caches and every unrelated OOXML byte. PO
+    metadata is operational data, so it is the only source text allowed to be
+    replaced when a PO is instantiated from a reusable Template.
+    """
+    cell_pattern = re.compile(
+        r'<c\b(?=[^>]*\br="%s")([^>]*?)(?:/>|>(.*?)</c>)' % re.escape(coord),
+        re.S)
+    match = cell_pattern.search(sheet_xml)
+
+    def cell_xml(attrs, body=''):
+        attrs = re.sub(r'\s+t="[^"]*"', '', attrs)
+        cell_type = ' t="inlineStr"' if isinstance(value, str) else ''
+        content = (_xml_cell_text(value) if isinstance(value, str)
+                   else f'<v>{int(value)}</v>')
+        return f'<c{attrs}{cell_type}>{content}</c>'
+
+    if match:
+        attrs, body = match.group(1), match.group(2) or ''
+        if re.search(r'<f\b', body):
+            raise ValueError(f'Không thay ô công thức của biểu mẫu: {coord}')
+        return sheet_xml[:match.start()] + cell_xml(attrs) + sheet_xml[match.end():]
+
+    row_number = int(re.search(r'\d+', coord).group(0))
+    row_pattern = re.compile(
+        r'<row\b(?=[^>]*\br="%d")[^>]*>.*?</row>' % row_number, re.S)
+    row_match = row_pattern.search(sheet_xml)
+    if not row_match:
+        raise ValueError(f'Không tìm thấy dòng chứa ô biểu mẫu: {coord}')
+    row_xml = row_match.group(0)
+    target_col = re.match(r'[A-Z]+', coord).group(0)
+    from openpyxl.utils.cell import column_index_from_string
+    target_index = column_index_from_string(target_col)
+    insertion = len(row_xml) - len('</row>')
+    for existing in re.finditer(r'<c\b[^>]*\br="([A-Z]+\d+)"', row_xml):
+        existing_coord = existing.group(1)
+        if int(re.search(r'\d+', existing_coord).group(0)) == row_number:
+            existing_col = re.match(r'[A-Z]+', existing_coord).group(0)
+            if column_index_from_string(existing_col) > target_index:
+                insertion = existing.start()
+                break
+    row_xml = row_xml[:insertion] + cell_xml(f' r="{coord}"') + row_xml[insertion:]
+    return sheet_xml[:row_match.start()] + row_xml + sheet_xml[row_match.end():]
+
+
+def _router_header_cell_updates(source_bytes, po):
+    """Map the PO-level header fields in the first visible GO ROUTER sheet.
+
+    The source workbook is a reusable Template; its PO NUMBER/QTY can describe
+    the import that created it. A newly instantiated Production Order owns the
+    printed PO code and plan quantity. Keep per-Part quantities untouched.
+    """
+    from unicodedata import category, normalize
+    from openpyxl.utils import get_column_letter
+
+    workbook = load_workbook(BytesIO(source_bytes), data_only=True, read_only=False)
+    visible = [sheet for sheet in workbook.worksheets if sheet.sheet_state == 'visible']
+    if not visible:
+        return {}
+    sheet = visible[0]
+
+    def norm(value):
+        value = str(value or '').strip().lower().replace('_', ' ')
+        value = ''.join(ch for ch in normalize('NFD', value) if category(ch) != 'Mn')
+        return re.sub(r'\s+', ' ', value).rstrip(':')
+
+    def value_cell(labels, *, blank_offset=2, numeric=False, below=False):
+        wanted = {norm(label) for label in labels}
+        for row in sheet.iter_rows(min_row=1, max_row=12):
+            for label_cell in row:
+                if norm(label_cell.value) not in wanted:
+                    continue
+                candidates = [sheet.cell(label_cell.row, col)
+                              for col in range(label_cell.column + 1,
+                                               min(label_cell.column + 5,
+                                                   sheet.max_column + 1))]
+                existing = next((cell for cell in candidates
+                                 if cell.value not in (None, '')), None)
+                if existing:
+                    if not numeric or _integer_value(existing.value) is not None:
+                        return existing.coordinate
+                if numeric and below:
+                    below_values = []
+                    for row_number in range(label_cell.row + 1,
+                                            min(label_cell.row + 7,
+                                                sheet.max_row + 1)):
+                        cell = sheet.cell(row_number, label_cell.column)
+                        integer = _integer_value(cell.value)
+                        if integer is not None:
+                            below_values.append((cell, integer))
+                            break
+                    if below_values:
+                        return below_values[0][0].coordinate
+                # GO ROUTER's documented PO NUMBER:/QTY: layout places the
+                # value two columns to the right (A2 -> C2, A3 -> C3).
+                return f'{get_column_letter(label_cell.column + blank_offset)}{label_cell.row}'
+        return None
+
+    def _integer_value(value):
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            number = float(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return int(number) if number.is_integer() else None
+
+    updates = {}
+    po_cell = value_cell(('PO NUMBER', 'PO NUMBER:'))
+    qty_cell = value_cell(('QTY', 'QTY:'), numeric=True, below=True)
+    if not po_cell:
+        raise RouterSourceUnavailable(
+            'Workbook nguồn không có nhãn PO NUMBER để in đúng mã Production Order.',
+            reason='PO_NUMBER_FIELD_MISSING')
+    if not qty_cell:
+        raise RouterSourceUnavailable(
+            'Workbook nguồn không có nhãn QTY để in đúng số lượng kế hoạch của PO.',
+            reason='PO_QUANTITY_FIELD_MISSING')
+    updates[po_cell] = str(po.get('code') or '')
+    if po.get('planned_quantity') is not None:
+        updates[qty_cell] = int(po['planned_quantity'])
+    return {sheet.title: updates} if updates else {}
+
+
+def _graft_qr_into_workbook(source_bytes, placed, clear_cells=None, cell_updates=None):
+    """Chèn QR và PO header vào workbook bằng vá OOXML tối thiểu.
 
     KHÔNG đi qua openpyxl load/save (việc đó ghi lại toàn bộ công thức, xoá cached
     value, bật fullCalcOnLoad -> Err:522). Chỉ thêm/đổi đúng các part cần cho ảnh:
     thêm ảnh vào ``xl/media``; nối ``<xdr:oneCellAnchor>`` vào drawing của từng
-    sheet (dùng drawing sẵn có, hoặc tạo mới nếu sheet chưa có), thêm quan hệ ảnh,
-    khai báo content-type khi cần; và XOÁ CHỮ ở đúng ô marker QRCODE (chỉ value,
-    giữ style/merge) trước khi dán. Công thức/cached value/calcPr của mọi ô khác
-    không đổi một byte.
+    sheet; cập nhật đúng các ô PO NUMBER/QTY; và xoá chữ marker QRCODE. Style,
+    merge, công thức/cached value/calcPr và mọi ô không được nêu giữ nguyên.
     """
     import zipfile
 
     clear_cells = clear_cells or {}
-    if not placed and not clear_cells:
+    cell_updates = cell_updates or {}
+    if not placed and not clear_cells and not cell_updates:
         return source_bytes
     zin = zipfile.ZipFile(BytesIO(source_bytes))
     parts = {name: zin.read(name) for name in zin.namelist()}
@@ -1285,6 +1420,16 @@ def _graft_qr_into_workbook(source_bytes, placed, clear_cells=None):
         sheet_xml = parts[sheet_file].decode('utf-8')
         for coord in coords:
             sheet_xml = _clear_marker_value(sheet_xml, coord)
+        parts[sheet_file] = sheet_xml.encode('utf-8')
+
+    # The PO-level header belongs to this instantiated order, not necessarily
+    # to the reusable source Template. Patch only those labeled value cells.
+    for sheet_name, values in cell_updates.items():
+        sheet_file = _sheet_part(name_to_file, parts, sheet_name,
+                                 'cập nhật PO NUMBER/QTY')
+        sheet_xml = parts[sheet_file].decode('utf-8')
+        for coord, value in values.items():
+            sheet_xml = _set_workbook_cell_value(sheet_xml, coord, value)
         parts[sheet_file] = sheet_xml.encode('utf-8')
 
     def _max_num(pattern):
@@ -1414,7 +1559,7 @@ def build_router_workbook(po_id: int):
     Chỉ có MỘT đường: mở lại workbook đã nhập của Template sinh ra PO này rồi
     đóng tem lên đó. Không có nhánh dựng mới.
     """
-    po = fetch_one('SELECT id,code,product,planned_quantity,source_template_id '
+    po = fetch_one('SELECT id,code,product,planned_quantity,source_template_id,created_at '
                    'FROM production_orders WHERE id=%s', (int(po_id),))
     if not po:
         return None, None, [], None
@@ -1423,7 +1568,7 @@ def build_router_workbook(po_id: int):
         raise RouterSourceUnavailable(
             'Production Order này chưa có Operation nào để in tem QR.',
             reason='NO_OPERATIONS')
-    source = _archived_source(po.get('source_template_id'))
+    source = _archived_source(po.get('source_template_id'), as_of=po.get('created_at'))
     if not source:
         raise RouterSourceUnavailable(
             'Không còn file Excel gốc của Template đã tạo PO này, nên không thể xuất '
@@ -1464,9 +1609,11 @@ def build_router_workbook(po_id: int):
             f'{listed}{more}. Nhiều khả năng file đang lưu không phải file đã tạo ra PO '
             'này. Hãy nhập lại đúng file Lộ trình sản xuất của Template nguồn rồi xuất lại.',
             reason='UNMATCHED_OPERATIONS')
-    # Chèn tem bằng vá OOXML tối thiểu -> bytes cuối, GIỮ NGUYÊN file gốc
-    # (trừ đúng ô marker được xoá chữ 'QRCODE').
-    output_bytes = _graft_qr_into_workbook(source['data'], placed, clear_cells)
+    # Vá OOXML tối thiểu: giữ nguồn/công thức/định dạng, chỉ cập nhật PO header,
+    # marker và drawings QR.
+    header_updates = _router_header_cell_updates(source['data'], po)
+    output_bytes = _graft_qr_into_workbook(source['data'], placed, clear_cells,
+                                           cell_updates=header_updates)
     return po, output_bytes, placed, {**source, 'matched': matched, 'unmatched': [],
                                       'missing_markers': missing_markers}
 
